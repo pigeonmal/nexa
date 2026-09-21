@@ -1,5 +1,5 @@
 use nexa_diagnostics::{CompileError, Span};
-use nexa_ir::{Color, ColorValue, ViewStyle};
+use nexa_ir::{Alignment, Color, ColorValue, ViewStyle};
 use nexa_syntax::ast;
 
 use super::themes::ThemeSymbols;
@@ -35,11 +35,13 @@ pub(super) fn lower_style(
         }
         None => None,
     };
+    let alignment = style.alignment.map(parse_alignment).transpose()?;
     let background = style
         .background
         .map(|color| parse_color(color, themes, "background"))
         .transpose()?;
     Ok(ViewStyle {
+        alignment,
         padding,
         width,
         height,
@@ -47,6 +49,24 @@ pub(super) fn lower_style(
         corner_radius,
         opacity,
     })
+}
+
+fn parse_alignment(expr: ast::Expr) -> Result<Alignment, CompileError> {
+    match expr {
+        ast::Expr::Name(name, span) => match name.as_str() {
+            "Start" => Ok(Alignment::Start),
+            "Center" => Ok(Alignment::Center),
+            "End" => Ok(Alignment::End),
+            _ => Err(CompileError::new(
+                span,
+                "alignment must be `Start`, `Center`, or `End`",
+            )),
+        },
+        expr => Err(CompileError::new(
+            expr.span(),
+            "alignment must be `Start`, `Center`, or `End`",
+        )),
+    }
 }
 
 pub(super) fn optional_color(

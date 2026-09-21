@@ -208,12 +208,33 @@ pub enum ImageSource {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ViewStyle {
+    pub alignment: Option<Alignment>,
     pub padding: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub background: Option<ColorValue>,
     pub corner_radius: Option<f32>,
     pub opacity: Option<f32>,
+}
+
+impl ViewStyle {
+    /// Whether the style has visual properties emitted through a native modifier.
+    pub fn has_modifiers(&self) -> bool {
+        self.padding.is_some()
+            || self.width.is_some()
+            || self.height.is_some()
+            || self.background.is_some()
+            || self.corner_radius.is_some()
+            || self.opacity.is_some()
+    }
+}
+
+/// Cross-axis alignment for a native row or column layout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Alignment {
+    Start,
+    Center,
+    End,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

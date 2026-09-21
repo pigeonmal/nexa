@@ -190,6 +190,7 @@ pub enum ListSource {
 
 #[derive(Clone, Debug, Default)]
 pub struct LayoutStyle {
+    pub alignment: Option<Expr>,
     pub padding: Option<Expr>,
     pub width: Option<Expr>,
     pub height: Option<Expr>,

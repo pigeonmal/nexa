@@ -22,6 +22,7 @@ pub(super) struct Features {
     pub(super) uses_column: bool,
     pub(super) uses_row: bool,
     pub(super) uses_box: bool,
+    pub(super) uses_alignment: bool,
     pub(super) uses_arrangement: bool,
     pub(super) uses_modifier: bool,
     pub(super) uses_background: bool,
@@ -211,13 +212,14 @@ impl Features {
     }
 
     fn record_style(&mut self, style: &ViewStyle) {
+        self.uses_alignment |= style.alignment.is_some();
         self.uses_padding |= style.padding.is_some();
         self.uses_width |= style.width.is_some();
         self.uses_height |= style.height.is_some();
         self.uses_background |= style.background.is_some();
         self.uses_corner_radius |= style.corner_radius.is_some();
         self.uses_opacity |= style.opacity.is_some();
-        self.uses_modifier |= !style_is_empty(style);
+        self.uses_modifier |= style.has_modifiers();
         self.uses_color |= style.background.is_some();
         self.uses_adaptive_color |= style
             .background
@@ -227,15 +229,6 @@ impl Features {
             || style.height.is_some()
             || style.corner_radius.is_some();
     }
-}
-
-fn style_is_empty(style: &ViewStyle) -> bool {
-    style.padding.is_none()
-        && style.width.is_none()
-        && style.height.is_none()
-        && style.background.is_none()
-        && style.corner_radius.is_none()
-        && style.opacity.is_none()
 }
 
 fn components_requiring_theme(

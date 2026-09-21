@@ -1,4 +1,4 @@
-use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{Alignment, LayoutKind, Module, Node, ViewStyle};
 
 use super::{
     colors,
@@ -34,18 +34,39 @@ pub(super) fn render_layout(
     } else {
         None
     };
-    if style_is_empty(style) {
-        if let Some(arrangement) = arrangement {
-            out.push_str(&format!("{layout}({arrangement}) {{\n"));
-        } else {
-            out.push_str(&format!("{layout} {{\n"));
-        }
+    let alignment = style.alignment.map(|alignment| {
+        let (argument, value) = match (kind, alignment) {
+            (LayoutKind::Row, Alignment::Start) => ("verticalAlignment", "Top"),
+            (LayoutKind::Row, Alignment::Center) => ("verticalAlignment", "CenterVertically"),
+            (LayoutKind::Row, Alignment::End) => ("verticalAlignment", "Bottom"),
+            (LayoutKind::View | LayoutKind::Column, Alignment::Start) => {
+                ("horizontalAlignment", "Start")
+            }
+            (LayoutKind::View | LayoutKind::Column, Alignment::Center) => {
+                ("horizontalAlignment", "CenterHorizontally")
+            }
+            (LayoutKind::View | LayoutKind::Column, Alignment::End) => {
+                ("horizontalAlignment", "End")
+            }
+        };
+        format!("{argument} = Alignment.{value}")
+    });
+    let has_modifier = style.has_modifiers();
+    if !has_modifier && alignment.is_none() && arrangement.is_none() {
+        out.push_str(&format!("{layout} {{\n"));
     } else {
         out.push_str(&format!("{layout}(\n"));
-        indent(out, depth + 1);
-        out.push_str("modifier = Modifier");
-        render_modifiers(style, depth + 2, out);
-        out.push_str(",\n");
+        if has_modifier {
+            indent(out, depth + 1);
+            out.push_str("modifier = Modifier");
+            render_modifiers(style, depth + 2, out);
+            out.push_str(",\n");
+        }
+        if let Some(alignment) = alignment {
+            indent(out, depth + 1);
+            out.push_str(&alignment);
+            out.push_str(",\n");
+        }
         if let Some(arrangement) = arrangement {
             indent(out, depth + 1);
             out.push_str(&arrangement);
@@ -63,15 +84,6 @@ pub(super) fn render_layout(
     out.push('\n');
     indent(out, depth);
     out.push('}');
-}
-
-fn style_is_empty(style: &ViewStyle) -> bool {
-    style.padding.is_none()
-        && style.width.is_none()
-        && style.height.is_none()
-        && style.background.is_none()
-        && style.corner_radius.is_none()
-        && style.opacity.is_none()
 }
 
 fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut String) {

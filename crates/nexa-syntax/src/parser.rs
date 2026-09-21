@@ -300,6 +300,7 @@ impl Parser {
                 let mut args = if self.check(&Kind::LParen) {
                     self.named_args(&[
                         "spacing",
+                        "alignment",
                         "padding",
                         "width",
                         "height",
@@ -312,6 +313,7 @@ impl Parser {
                 };
                 let spacing = args.remove("spacing");
                 let style = LayoutStyle {
+                    alignment: args.remove("alignment"),
                     padding: args.remove("padding"),
                     width: args.remove("width"),
                     height: args.remove("height"),

@@ -35,6 +35,7 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
     add(features.uses_list, "androidx.compose.foundation.lazy.items");
 
     add(features.uses_box, "androidx.compose.foundation.layout.Box");
+    add(features.uses_alignment, "androidx.compose.ui.Alignment");
     add(
         features.uses_column,
         "androidx.compose.foundation.layout.Column",

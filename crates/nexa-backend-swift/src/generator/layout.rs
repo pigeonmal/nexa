@@ -1,4 +1,4 @@
-use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{Alignment, LayoutKind, Module, Node, ViewStyle};
 
 use super::{
     colors,
@@ -20,10 +20,26 @@ pub(super) fn render_layout(
         LayoutKind::Row => "HStack",
     };
     indent(out, depth);
-    if spacing > 0.0 {
-        out.push_str(&format!("{layout}(spacing: {}) {{\n", number(spacing)));
-    } else {
-        out.push_str(&format!("{layout} {{\n"));
+    let alignment = style.alignment.map(|alignment| match (kind, alignment) {
+        (LayoutKind::Row, Alignment::Start) => ".top",
+        (LayoutKind::Row, Alignment::Center) => ".center",
+        (LayoutKind::Row, Alignment::End) => ".bottom",
+        (_, Alignment::Start) => ".leading",
+        (_, Alignment::Center) => ".center",
+        (_, Alignment::End) => ".trailing",
+    });
+    match (alignment, spacing > 0.0) {
+        (Some(alignment), true) => out.push_str(&format!(
+            "{layout}(alignment: {alignment}, spacing: {}) {{\n",
+            number(spacing)
+        )),
+        (Some(alignment), false) => {
+            out.push_str(&format!("{layout}(alignment: {alignment}) {{\n"));
+        }
+        (None, true) => {
+            out.push_str(&format!("{layout}(spacing: {}) {{\n", number(spacing)));
+        }
+        (None, false) => out.push_str(&format!("{layout} {{\n")),
     }
     for (index, child) in children.iter().enumerate() {
         render_node(child, module, depth + 1, out);

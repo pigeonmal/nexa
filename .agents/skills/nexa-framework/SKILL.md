@@ -27,6 +27,7 @@ Work on the Nexa framework itself: a Rust ahead-of-time compiler that turns `.nx
 - Conditions and scalar operators should be type-checked before code generation and lower directly to Swift/Kotlin operators and native control flow. Preserve short-circuit semantics and avoid implicit numeric conversions or an interpreted expression runtime.
 - iOS `FastList` should use native `UITableView` virtualization and cell reuse; host SwiftUI row content with `UIHostingConfiguration` instead of routing large lists through SwiftUI `List`. Keep row lookup direct and avoid materializing a second row collection.
 - Keep component generation separate by concern (controls, text input, image loading, layout, navigation, lists, keyboard handling, expressions, and shared formatting helpers).
+- Lower shared layout alignment to native stack constructor arguments; avoid adding wrapper layouts solely to position children. Keep common style-property predicates in the shared IR to prevent backend feature scans from drifting.
 - Preserve FastList as the public component name. Do not reintroduce the former UltraFastList name.
 
 ## Change workflow

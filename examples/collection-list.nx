@@ -3,7 +3,7 @@ app CollectionListDemo {
 
     body {
         FastList(items: products, index: position, item: product) {
-            Row(spacing: 8) {
+            Row(spacing: 8, alignment: Center) {
                 Text(position)
                 Text(product)
             }
