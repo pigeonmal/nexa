@@ -69,6 +69,12 @@ Numeric types should include explicit types such as:
 
 Avoid implicit numeric conversions that could create unpredictable behavior or performance costs.
 
+## User-defined components and modules
+
+App authors should be able to create reusable UI components in Nexa source files, pass typed inputs, compose built-in and custom components, and declare private per-instance state. Component files should be reusable through relative imports and resolve at compile time. Generated output should use native view/composable declarations without a dynamic registry or cross-platform component runtime.
+
+The first implementation supports typed parameters, private state, nested custom components, relative `.nx` imports, import-cycle diagnostics, and reachability-based output pruning. Callback properties, content slots, navigation links from components, explicit visibility/module namespaces, and shared state bindings remain future work.
+
 The language should support at minimum:
 
 - variables and constants,

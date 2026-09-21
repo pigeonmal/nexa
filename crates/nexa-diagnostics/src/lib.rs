@@ -12,6 +12,7 @@ pub struct Span {
 pub struct CompileError {
     pub span: Span,
     pub message: String,
+    pub file: Option<String>,
 }
 
 impl CompileError {
@@ -19,17 +20,33 @@ impl CompileError {
         Self {
             span,
             message: message.into(),
+            file: None,
         }
+    }
+
+    pub fn with_file(mut self, file: impl Into<String>) -> Self {
+        if self.file.is_none() {
+            self.file = Some(file.into());
+        }
+        self
     }
 }
 
 impl fmt::Display for CompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}:{}: error: {}",
-            self.span.line, self.span.column, self.message
-        )
+        if let Some(file) = &self.file {
+            write!(
+                f,
+                "{file}:{}:{}: error: {}",
+                self.span.line, self.span.column, self.message
+            )
+        } else {
+            write!(
+                f,
+                "{}:{}: error: {}",
+                self.span.line, self.span.column, self.message
+            )
+        }
     }
 }
 

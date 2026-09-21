@@ -7,7 +7,25 @@ use crate::{
 use nexa_diagnostics::{CompileError, Span};
 
 pub fn parse(tokens: Vec<Token>) -> Result<App, CompileError> {
-    Parser { tokens, cursor: 0 }.app()
+    let mut program = parse_program(tokens)?;
+    if let Some(import) = program.imports.first() {
+        return Err(CompileError::new(
+            import.span,
+            "imports require compiling an entry file with the Nexa CLI",
+        ));
+    }
+    let Some(mut app) = program.app.take() else {
+        return Err(CompileError::new(
+            Span::default(),
+            "source file is missing an `app` declaration",
+        ));
+    };
+    app.components = program.components;
+    Ok(app)
+}
+
+pub fn parse_program(tokens: Vec<Token>) -> Result<Program, CompileError> {
+    Parser { tokens, cursor: 0 }.program()
 }
 
 struct Parser {
@@ -16,7 +34,116 @@ struct Parser {
 }
 
 impl Parser {
-    fn app(mut self) -> Result<App, CompileError> {
+    fn program(mut self) -> Result<Program, CompileError> {
+        let mut imports = Vec::new();
+        let mut components = Vec::new();
+        let mut app = None;
+        while !self.check(&Kind::Eof) {
+            if self.word_is("import") {
+                imports.push(self.import_decl()?);
+            } else if self.word_is("component") {
+                components.push(self.component_decl()?);
+            } else if self.word_is("app") {
+                if app.is_some() {
+                    return self.error_here("a source file can only declare one `app`");
+                }
+                app = Some(self.app_decl()?);
+            } else {
+                return self.error_here("expected an `import`, `component`, or `app` declaration");
+            }
+        }
+        Ok(Program {
+            imports,
+            components,
+            app,
+        })
+    }
+
+    fn import_decl(&mut self) -> Result<ImportDecl, CompileError> {
+        let keyword = self.advance().span;
+        let token = self.advance().clone();
+        let Kind::String(path) = token.kind else {
+            return Err(CompileError::new(
+                token.span,
+                "an import path must be a quoted string",
+            ));
+        };
+        if path.is_empty() {
+            return Err(CompileError::new(
+                token.span,
+                "an import path cannot be empty",
+            ));
+        }
+        self.optional_semicolon();
+        Ok(ImportDecl {
+            path,
+            span: keyword,
+        })
+    }
+
+    fn component_decl(&mut self) -> Result<ComponentDecl, CompileError> {
+        let keyword = self.advance().span;
+        let (name, _) = self.ident()?;
+        self.expect(Kind::LParen, "expected `(` after component name")?;
+        let mut parameters = Vec::new();
+        while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            let (parameter_name, span) = self.ident()?;
+            if parameters
+                .iter()
+                .any(|parameter: &ComponentParameter| parameter.name == parameter_name)
+            {
+                return Err(CompileError::new(
+                    span,
+                    format!("component parameter `{parameter_name}` is declared more than once"),
+                ));
+            }
+            self.expect(Kind::Colon, "expected `:` after component parameter name")?;
+            let ty = self.type_syntax()?;
+            parameters.push(ComponentParameter {
+                name: parameter_name,
+                ty,
+                span,
+            });
+            if !self.take(&Kind::Comma) {
+                break;
+            }
+        }
+        self.expect(Kind::RParen, "expected `)` after component parameters")?;
+        self.expect(Kind::LBrace, "expected `{` after component declaration")?;
+        let mut states = Vec::new();
+        let mut body = None;
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            if self.word_is("state") || self.word_is("let") {
+                states.push(self.state_decl()?);
+            } else if self.word_is("body") {
+                if body.is_some() {
+                    return self.error_here("a component can only declare one body");
+                }
+                self.advance();
+                body = Some(self.block_nodes()?);
+            } else {
+                return self
+                    .error_here("expected a component `state`, `let`, or `body` declaration");
+            }
+        }
+        self.expect(Kind::RBrace, "expected `}` to close component")?;
+        let body = body.ok_or_else(|| {
+            CompileError::new(
+                keyword,
+                format!("component `{name}` is missing a `body` block"),
+            )
+        })?;
+        Ok(ComponentDecl {
+            name,
+            parameters,
+            states,
+            body,
+            span: keyword,
+            source_file: None,
+        })
+    }
+
+    fn app_decl(&mut self) -> Result<App, CompileError> {
         self.expect_word("app")?;
         let (name, span) = self.ident()?;
         self.expect(Kind::LBrace, "expected `{` after app name")?;
@@ -46,15 +173,13 @@ impl Parser {
             }
         }
         self.expect(Kind::RBrace, "expected `}` to close app")?;
-        if !self.check(&Kind::Eof) {
-            return self.error_here("unexpected content after app declaration");
-        }
         let body = body.ok_or_else(|| CompileError::new(span, "app is missing a `body` block"))?;
         Ok(App {
             name,
             states,
             screens,
             theme,
+            components: Vec::new(),
             body,
             span,
         })
@@ -359,10 +484,15 @@ impl Parser {
                     span,
                 })
             }
+            _ if self.check(&Kind::LParen) => Ok(Node::ComponentCall {
+                name,
+                arguments: self.named_args_any()?,
+                span,
+            }),
             _ => Err(CompileError::new(
                 span,
                 format!(
-                    "unknown component `{name}`; supported components are View, Column, Row, Text, Button, TextInput, Switch, Image, Pressable, NavigationStack, NavigationLink, KeyboardAware, and FastList"
+                    "unknown component `{name}`; custom components must use `Name(...)` syntax"
                 ),
             )),
         }
@@ -375,14 +505,28 @@ impl Parser {
         Ok(args)
     }
 
+    fn named_args_any(&mut self) -> Result<BTreeMap<String, Expr>, CompileError> {
+        self.expect(Kind::LParen, "expected `(` before component arguments")?;
+        let args = self.parse_argument_contents(None)?;
+        self.expect(Kind::RParen, "expected `)` after component arguments")?;
+        Ok(args)
+    }
+
     fn named_args_contents(
         &mut self,
         allowed: &[&str],
     ) -> Result<BTreeMap<String, Expr>, CompileError> {
+        self.parse_argument_contents(Some(allowed))
+    }
+
+    fn parse_argument_contents(
+        &mut self,
+        allowed: Option<&[&str]>,
+    ) -> Result<BTreeMap<String, Expr>, CompileError> {
         let mut args = BTreeMap::new();
         while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
             let (name, span) = self.ident()?;
-            if !allowed.contains(&name.as_str()) {
+            if allowed.is_some_and(|allowed| !allowed.contains(&name.as_str())) {
                 return Err(CompileError::new(span, format!("unknown option `{name}`")));
             }
             if args.contains_key(&name) {

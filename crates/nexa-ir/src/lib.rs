@@ -3,7 +3,22 @@ pub struct Module {
     pub app_name: String,
     pub states: Vec<State>,
     pub screens: Vec<Screen>,
+    pub components: Vec<Component>,
     pub body: Vec<Node>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Component {
+    pub name: String,
+    pub parameters: Vec<ComponentParameter>,
+    pub states: Vec<State>,
+    pub body: Vec<Node>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ComponentParameter {
+    pub name: String,
+    pub ty: Type,
 }
 
 #[derive(Clone, Debug)]
@@ -111,6 +126,10 @@ pub enum Node {
         index: String,
         item: Option<String>,
         children: Vec<Node>,
+    },
+    ComponentCall {
+        name: String,
+        arguments: Vec<(String, Expr)>,
     },
 }
 

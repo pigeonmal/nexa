@@ -3,6 +3,7 @@ use nexa_ir::{LayoutKind, Module, State, ViewStyle};
 mod colors;
 mod components;
 mod controls;
+mod custom_components;
 mod expressions;
 mod features;
 mod images;
@@ -16,7 +17,7 @@ mod utils;
 
 pub(super) fn generate(module: &Module) -> String {
     let uses_fast_list = features::uses_fast_list(module);
-    let uses_adaptive_color = features::uses_adaptive_color(module);
+    let uses_adaptive_color = features::app_uses_adaptive_color(module);
     let mut out = if uses_fast_list {
         String::from("import SwiftUI\nimport UIKit\n\n@available(iOS 16.0, *)\n")
     } else {
@@ -77,13 +78,14 @@ pub(super) fn generate(module: &Module) -> String {
         }
     }
     out.push_str("}\n");
+    custom_components::render(module, &mut out);
     if uses_fast_list {
         list_runtime::render(&mut out);
     }
     out
 }
 
-fn render_immutable_state(states: &[State], depth: usize, out: &mut String) {
+pub(super) fn render_immutable_state(states: &[State], depth: usize, out: &mut String) {
     let immutable = states
         .iter()
         .filter(|state| !state.mutable)

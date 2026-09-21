@@ -1,4 +1,4 @@
-use nexa_ir::{ColorValue, Module, Node};
+use nexa_ir::{ColorValue, Component, Module, Node};
 
 pub(super) fn uses_fast_list(module: &Module) -> bool {
     module.body.iter().any(contains_fast_list)
@@ -6,6 +6,10 @@ pub(super) fn uses_fast_list(module: &Module) -> bool {
             .screens
             .iter()
             .any(|screen| screen.body.iter().any(contains_fast_list))
+        || module
+            .components
+            .iter()
+            .any(|component| component.body.iter().any(contains_fast_list))
 }
 
 fn contains_fast_list(node: &Node) -> bool {
@@ -16,6 +20,7 @@ fn contains_fast_list(node: &Node) -> bool {
         | Node::NavigationLink { children, .. }
         | Node::KeyboardAware { children } => children.iter().any(contains_fast_list),
         Node::Text { .. }
+        | Node::ComponentCall { .. }
         | Node::Button { .. }
         | Node::TextInput { .. }
         | Node::Switch { .. }
@@ -24,12 +29,20 @@ fn contains_fast_list(node: &Node) -> bool {
     }
 }
 
-pub(super) fn uses_adaptive_color(module: &Module) -> bool {
-    module.body.iter().any(contains_adaptive_color)
+pub(super) fn app_uses_adaptive_color(module: &Module) -> bool {
+    nodes_use_adaptive_color(&module.body)
         || module
             .screens
             .iter()
-            .any(|screen| screen.body.iter().any(contains_adaptive_color))
+            .any(|screen| nodes_use_adaptive_color(&screen.body))
+}
+
+pub(super) fn component_uses_adaptive_color(component: &Component) -> bool {
+    nodes_use_adaptive_color(&component.body)
+}
+
+pub(super) fn nodes_use_adaptive_color(nodes: &[Node]) -> bool {
+    nodes.iter().any(contains_adaptive_color)
 }
 
 fn contains_adaptive_color(node: &Node) -> bool {

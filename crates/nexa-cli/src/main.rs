@@ -3,7 +3,7 @@ use std::{env, fs, path::PathBuf, process};
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
-use nexa_compiler::compile;
+use nexa_compiler::compile_file;
 
 fn main() {
     if let Err(message) = run() {
@@ -36,9 +36,7 @@ fn check(args: &[String]) -> Result<(), String> {
         return Err("usage: nexa check <source.nx>".into());
     }
     let path = PathBuf::from(&args[0]);
-    let source =
-        fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-    compile(&source).map_err(|error| format!("{}:{error}", path.display()))?;
+    compile_file(&path).map_err(|error| error.to_string())?;
     println!("checked {}", path.display());
     Ok(())
 }
@@ -83,9 +81,7 @@ fn build(args: &[String]) -> Result<(), String> {
             ));
         }
     };
-    let source =
-        fs::read_to_string(&input).map_err(|error| format!("{}: {error}", input.display()))?;
-    let module = compile(&source).map_err(|error| format!("{}:{error}", input.display()))?;
+    let module = compile_file(&input).map_err(|error| error.to_string())?;
     let output = output.unwrap_or_else(|| input.with_extension(backend.file_extension()));
     fs::write(&output, backend.generate(&module))
         .map_err(|error| format!("{}: {error}", output.display()))?;

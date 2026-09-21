@@ -8,6 +8,7 @@ use nexa_ir::{
 use nexa_syntax::ast;
 
 use super::{
+    custom_components::ComponentSignatures,
     expressions::{lower_expr, type_name},
     styles::{lower_style, optional_color, optional_dimension},
     themes::ThemeSymbols,
@@ -18,6 +19,7 @@ pub(super) fn lower_node(
     symbols: &HashMap<String, (Type, bool)>,
     screen_ids: &HashMap<String, ScreenId>,
     themes: &ThemeSymbols,
+    components: &ComponentSignatures,
     allow_navigation_stack: bool,
 ) -> Result<Node, CompileError> {
     match node {
@@ -38,7 +40,9 @@ pub(super) fn lower_node(
             let style = lower_style(style, themes)?;
             let mut lowered = Vec::with_capacity(children.len());
             for child in children {
-                lowered.push(lower_node(child, symbols, screen_ids, themes, false)?);
+                lowered.push(lower_node(
+                    child, symbols, screen_ids, themes, components, false,
+                )?);
             }
             let kind = match kind {
                 ast::LayoutKind::View => LayoutKind::View,
@@ -245,7 +249,9 @@ pub(super) fn lower_node(
             let disabled = optional_bool(disabled, false, "disabled")?;
             let mut lowered_children = Vec::with_capacity(children.len());
             for child in children {
-                lowered_children.push(lower_node(child, symbols, screen_ids, themes, false)?);
+                lowered_children.push(lower_node(
+                    child, symbols, screen_ids, themes, components, false,
+                )?);
             }
             let actions = lower_actions(actions, symbols)?;
             Ok(Node::Pressable {
@@ -281,7 +287,9 @@ pub(super) fn lower_node(
                 )?;
             let mut lowered_children = Vec::with_capacity(children.len());
             for child in children {
-                lowered_children.push(lower_node(child, symbols, screen_ids, themes, false)?);
+                lowered_children.push(lower_node(
+                    child, symbols, screen_ids, themes, components, false,
+                )?);
             }
             Ok(Node::NavigationLink {
                 destination,
@@ -291,7 +299,9 @@ pub(super) fn lower_node(
         ast::Node::KeyboardAware { children, .. } => {
             let mut lowered_children = Vec::with_capacity(children.len());
             for child in children {
-                lowered_children.push(lower_node(child, symbols, screen_ids, themes, false)?);
+                lowered_children.push(lower_node(
+                    child, symbols, screen_ids, themes, components, false,
+                )?);
             }
             Ok(Node::KeyboardAware {
                 children: lowered_children,
@@ -368,7 +378,14 @@ pub(super) fn lower_node(
             }
             let mut lowered_children = Vec::with_capacity(children.len());
             for child in children {
-                lowered_children.push(lower_node(child, &row_symbols, screen_ids, themes, false)?);
+                lowered_children.push(lower_node(
+                    child,
+                    &row_symbols,
+                    screen_ids,
+                    themes,
+                    components,
+                    false,
+                )?);
             }
             if lowered_children.is_empty() {
                 return Err(CompileError::new(
@@ -381,6 +398,42 @@ pub(super) fn lower_node(
                 index,
                 item,
                 children: lowered_children,
+            })
+        }
+        ast::Node::ComponentCall {
+            name,
+            mut arguments,
+            span,
+        } => {
+            let signature = components
+                .get(&name)
+                .ok_or_else(|| CompileError::new(span, format!("unknown component `{name}`")))?;
+            for (argument_name, value) in &arguments {
+                if !signature
+                    .parameters
+                    .iter()
+                    .any(|(parameter_name, _)| parameter_name == argument_name)
+                {
+                    return Err(CompileError::new(
+                        value.span(),
+                        format!("component `{name}` has no parameter `{argument_name}`"),
+                    ));
+                }
+            }
+            let mut lowered_arguments = Vec::with_capacity(signature.parameters.len());
+            for (parameter, ty) in &signature.parameters {
+                let argument = arguments.remove(parameter).ok_or_else(|| {
+                    CompileError::new(
+                        span,
+                        format!("component `{name}` requires parameter `{parameter}`"),
+                    )
+                })?;
+                lowered_arguments
+                    .push((parameter.clone(), lower_expr(&argument, Some(ty), symbols)?));
+            }
+            Ok(Node::ComponentCall {
+                name,
+                arguments: lowered_arguments,
             })
         }
     }

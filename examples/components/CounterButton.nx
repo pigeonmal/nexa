@@ -1,0 +1,15 @@
+import "Badge.nx"
+
+component CounterButton(label: String) {
+    state count: Int32 = 0
+
+    body {
+        Column(spacing: 8, padding: 12, cornerRadius: 12) {
+            Badge(text: label)
+            Text(count)
+            Button("Increment") {
+                count = count + 1
+            }
+        }
+    }
+}

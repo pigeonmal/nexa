@@ -3,6 +3,7 @@ use nexa_ir::{LayoutKind, Module, ViewStyle};
 mod colors;
 mod components;
 mod controls;
+mod custom_components;
 mod expressions;
 mod features;
 mod images;
@@ -19,26 +20,48 @@ pub(super) fn generate(module: &Module) -> String {
         || module
             .screens
             .iter()
-            .any(|screen| screen.body.iter().any(features::contains_image));
+            .any(|screen| screen.body.iter().any(features::contains_image))
+        || module
+            .components
+            .iter()
+            .any(|component| component.body.iter().any(features::contains_image));
     let uses_placeholder = module.body.iter().any(features::contains_placeholder)
         || module
             .screens
             .iter()
-            .any(|screen| screen.body.iter().any(features::contains_placeholder));
+            .any(|screen| screen.body.iter().any(features::contains_placeholder))
+        || module
+            .components
+            .iter()
+            .any(|component| component.body.iter().any(features::contains_placeholder));
     let uses_navigation_link = module
         .screens
         .iter()
-        .any(|screen| screen.body.iter().any(features::contains_navigation_link));
+        .any(|screen| screen.body.iter().any(features::contains_navigation_link))
+        || module.components.iter().any(|component| {
+            component
+                .body
+                .iter()
+                .any(features::contains_navigation_link)
+        });
     let uses_list = module.body.iter().any(features::contains_list)
         || module
             .screens
             .iter()
-            .any(|screen| screen.body.iter().any(features::contains_list));
+            .any(|screen| screen.body.iter().any(features::contains_list))
+        || module
+            .components
+            .iter()
+            .any(|component| component.body.iter().any(features::contains_list));
     let uses_keyboard_aware = module.body.iter().any(features::contains_keyboard_aware)
         || module
             .screens
             .iter()
-            .any(|screen| screen.body.iter().any(features::contains_keyboard_aware));
+            .any(|screen| screen.body.iter().any(features::contains_keyboard_aware))
+        || module
+            .components
+            .iter()
+            .any(|component| component.body.iter().any(features::contains_keyboard_aware));
     let uses_adaptive_color = features::uses_adaptive_color(module);
     let uses_font_size = features::uses_font_size(module);
     let mut out = String::new();
@@ -106,5 +129,6 @@ pub(super) fn generate(module: &Module) -> String {
         );
     }
     out.push_str("\n}\n");
+    custom_components::render(module, &mut out);
     out
 }

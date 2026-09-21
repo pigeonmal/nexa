@@ -3,6 +3,15 @@ use nexa_ir::Module;
 pub mod names {
     /// Keeps generated declaration names away from platform keywords and APIs.
     pub fn screen_name(name: &str) -> String {
+        format!("Nexa{}Screen", pascal_name(name, "App"))
+    }
+
+    /// Gives source-defined components stable names that cannot shadow native APIs.
+    pub fn component_name(name: &str) -> String {
+        format!("Nexa{name}Component")
+    }
+
+    fn pascal_name(name: &str, empty_name: &str) -> String {
         let mut pascal = String::new();
         let mut uppercase = true;
         for character in name.chars() {
@@ -16,9 +25,9 @@ pub mod names {
             }
         }
         if pascal.is_empty() {
-            pascal.push_str("App");
+            pascal.push_str(empty_name);
         }
-        format!("Nexa{pascal}Screen")
+        pascal
     }
 
     pub fn state_name(name: &str) -> String {

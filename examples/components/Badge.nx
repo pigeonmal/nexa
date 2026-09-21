@@ -1,0 +1,5 @@
+component Badge(text: String) {
+    body {
+        Text(text, color: Theme.accent, fontSize: 14)
+    }
+}

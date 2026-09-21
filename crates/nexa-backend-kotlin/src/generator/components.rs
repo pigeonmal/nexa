@@ -3,7 +3,7 @@ use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 use super::{
     colors, controls,
     expressions::text_expression,
-    images, input, keyboard, layout, lists, navigation,
+    features, images, input, keyboard, layout, lists, navigation,
     utils::{indent, number},
 };
 
@@ -92,6 +92,21 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                 depth,
                 out,
             );
+        }
+        Node::ComponentCall { name, arguments } => {
+            indent(out, depth);
+            let mut rendered_arguments = arguments
+                .iter()
+                .map(|(_, argument)| super::expressions::expression(argument))
+                .collect::<Vec<_>>();
+            if features::component_requires_system_theme(module, name) {
+                rendered_arguments.push("nexaIsDarkTheme".to_owned());
+            }
+            out.push_str(&format!(
+                "{}({})",
+                nexa_codegen::names::component_name(name),
+                rendered_arguments.join(", ")
+            ));
         }
     }
 }

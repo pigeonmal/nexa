@@ -7,3 +7,7 @@ use nexa_diagnostics::CompileError;
 pub fn parse(source: &str) -> Result<ast::App, CompileError> {
     parser::parse(lexer::lex(source)?)
 }
+
+pub fn parse_program(source: &str) -> Result<ast::Program, CompileError> {
+    parser::parse_program(lexer::lex(source)?)
+}

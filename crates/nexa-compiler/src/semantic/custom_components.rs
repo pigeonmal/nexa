@@ -1,0 +1,340 @@
+use std::collections::{HashMap, HashSet};
+
+use nexa_diagnostics::CompileError;
+use nexa_ir::{Component, ComponentParameter, Node, Screen, State, Type};
+use nexa_syntax::ast;
+
+use super::{
+    components::lower_node,
+    expressions::{lower_expr, parse_type, references_state},
+    themes::ThemeSymbols,
+};
+
+#[derive(Clone)]
+pub(super) struct ComponentSignature {
+    pub(super) parameters: Vec<(String, Type)>,
+}
+
+pub(super) type ComponentSignatures = HashMap<String, ComponentSignature>;
+
+pub(super) fn retain_reachable(
+    components: Vec<Component>,
+    body: &[Node],
+    screens: &[Screen],
+) -> Vec<Component> {
+    let components_by_name = components
+        .iter()
+        .map(|component| (component.name.as_str(), component))
+        .collect::<HashMap<_, _>>();
+    let mut pending = HashSet::new();
+    for node in body
+        .iter()
+        .chain(screens.iter().flat_map(|screen| screen.body.iter()))
+    {
+        collect_ir_component_calls(node, &mut pending);
+    }
+
+    let mut reachable = HashSet::new();
+    while let Some(name) = pending.iter().next().cloned() {
+        pending.remove(&name);
+        if !reachable.insert(name.clone()) {
+            continue;
+        }
+        if let Some(component) = components_by_name.get(name.as_str()) {
+            for node in &component.body {
+                collect_ir_component_calls(node, &mut pending);
+            }
+        }
+    }
+
+    components
+        .into_iter()
+        .filter(|component| reachable.contains(&component.name))
+        .collect()
+}
+
+pub(super) fn lower_components(
+    declarations: Vec<ast::ComponentDecl>,
+    screen_ids: &HashMap<String, nexa_ir::ScreenId>,
+    themes: &ThemeSymbols,
+) -> Result<(Vec<Component>, ComponentSignatures), CompileError> {
+    let signatures = collect_signatures(&declarations)?;
+    validate_acyclic(&declarations, &signatures)?;
+
+    let mut components = Vec::with_capacity(declarations.len());
+    for declaration in declarations {
+        let source_file = declaration.source_file.clone();
+        let result = lower_component(declaration, &signatures, screen_ids, themes);
+        components.push(result.map_err(|error| in_file(error, source_file.as_deref()))?);
+    }
+    Ok((components, signatures))
+}
+
+fn collect_signatures(
+    declarations: &[ast::ComponentDecl],
+) -> Result<ComponentSignatures, CompileError> {
+    let mut signatures = HashMap::with_capacity(declarations.len());
+    for declaration in declarations {
+        let result = (|| {
+            if is_builtin_component(&declaration.name) {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!(
+                        "`{}` is a built-in component name and cannot be redeclared",
+                        declaration.name
+                    ),
+                ));
+            }
+            if signatures.contains_key(&declaration.name) {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!("component `{}` is already declared", declaration.name),
+                ));
+            }
+            let mut parameter_names = HashSet::with_capacity(declaration.parameters.len());
+            let mut parameters = Vec::with_capacity(declaration.parameters.len());
+            for parameter in &declaration.parameters {
+                if !parameter_names.insert(parameter.name.as_str()) {
+                    return Err(CompileError::new(
+                        parameter.span,
+                        format!(
+                            "component parameter `{}` is declared more than once",
+                            parameter.name
+                        ),
+                    ));
+                }
+                parameters.push((parameter.name.clone(), parse_type(&parameter.ty)?));
+            }
+            Ok(ComponentSignature { parameters })
+        })()
+        .map_err(|error| in_file(error, declaration.source_file.as_deref()))?;
+        signatures.insert(declaration.name.clone(), result);
+    }
+    Ok(signatures)
+}
+
+fn lower_component(
+    declaration: ast::ComponentDecl,
+    signatures: &ComponentSignatures,
+    screen_ids: &HashMap<String, nexa_ir::ScreenId>,
+    themes: &ThemeSymbols,
+) -> Result<Component, CompileError> {
+    if declaration.body.iter().any(contains_navigation_link) {
+        return Err(CompileError::new(
+            declaration.span,
+            "`NavigationLink` inside a custom component is not supported yet",
+        ));
+    }
+    let signature = &signatures[&declaration.name];
+    let mut symbols = HashMap::with_capacity(signature.parameters.len() + declaration.states.len());
+    for (name, ty) in &signature.parameters {
+        symbols.insert(name.clone(), (ty.clone(), false));
+    }
+
+    let mut states = Vec::with_capacity(declaration.states.len());
+    for state in declaration.states {
+        if symbols.contains_key(&state.name) {
+            return Err(CompileError::new(
+                state.span,
+                format!(
+                    "`{}` is already declared in component `{}`",
+                    state.name, declaration.name
+                ),
+            ));
+        }
+        let ty = parse_type(&state.ty)?;
+        let initial = lower_expr(&state.initial, Some(&ty), &symbols)?;
+        if state.mutable && references_state(&state.initial) {
+            return Err(CompileError::new(
+                state.initial.span(),
+                "mutable component state initializers cannot refer to other state values yet",
+            ));
+        }
+        symbols.insert(state.name.clone(), (ty.clone(), state.mutable));
+        states.push(State {
+            name: state.name,
+            ty,
+            initial,
+            mutable: state.mutable,
+        });
+    }
+
+    let mut body = Vec::with_capacity(declaration.body.len());
+    for node in declaration.body {
+        body.push(lower_node(
+            node, &symbols, screen_ids, themes, signatures, false,
+        )?);
+    }
+
+    let parameters = signature
+        .parameters
+        .iter()
+        .map(|(name, ty)| ComponentParameter {
+            name: name.clone(),
+            ty: ty.clone(),
+        })
+        .collect();
+    Ok(Component {
+        name: declaration.name,
+        parameters,
+        states,
+        body,
+    })
+}
+
+fn validate_acyclic(
+    declarations: &[ast::ComponentDecl],
+    signatures: &ComponentSignatures,
+) -> Result<(), CompileError> {
+    let dependencies = declarations
+        .iter()
+        .map(|component| {
+            let mut calls = Vec::new();
+            for node in &component.body {
+                collect_component_calls(node, &mut calls);
+            }
+            calls.retain(|name| signatures.contains_key(name));
+            (component.name.clone(), calls)
+        })
+        .collect::<HashMap<_, _>>();
+    let declaration_by_name = declarations
+        .iter()
+        .map(|component| (component.name.as_str(), component))
+        .collect::<HashMap<_, _>>();
+    let mut completed = HashSet::new();
+    let mut active = HashSet::new();
+
+    for declaration in declarations {
+        visit_component(
+            &declaration.name,
+            &dependencies,
+            &declaration_by_name,
+            &mut completed,
+            &mut active,
+        )
+        .map_err(|error| in_file(error, declaration.source_file.as_deref()))?;
+    }
+    Ok(())
+}
+
+fn visit_component(
+    name: &str,
+    dependencies: &HashMap<String, Vec<String>>,
+    declarations: &HashMap<&str, &ast::ComponentDecl>,
+    completed: &mut HashSet<String>,
+    active: &mut HashSet<String>,
+) -> Result<(), CompileError> {
+    if completed.contains(name) {
+        return Ok(());
+    }
+    let Some(declaration) = declarations.get(name) else {
+        return Ok(());
+    };
+    if !active.insert(name.to_owned()) {
+        return Err(in_file(
+            CompileError::new(
+                declaration.span,
+                format!(
+                    "recursive custom component composition involving `{name}` is not supported"
+                ),
+            ),
+            declaration.source_file.as_deref(),
+        ));
+    }
+    if let Some(children) = dependencies.get(name) {
+        for child in children {
+            visit_component(child, dependencies, declarations, completed, active)?;
+        }
+    }
+    active.remove(name);
+    completed.insert(name.to_owned());
+    Ok(())
+}
+
+fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
+    match node {
+        ast::Node::ComponentCall { name, .. } => calls.push(name.clone()),
+        ast::Node::Layout { children, .. }
+        | ast::Node::Pressable { children, .. }
+        | ast::Node::NavigationLink { children, .. }
+        | ast::Node::KeyboardAware { children, .. }
+        | ast::Node::FastList { children, .. } => {
+            for child in children {
+                collect_component_calls(child, calls);
+            }
+        }
+        ast::Node::Text { .. }
+        | ast::Node::Button { .. }
+        | ast::Node::TextInput { .. }
+        | ast::Node::Switch { .. }
+        | ast::Node::Image { .. }
+        | ast::Node::NavigationStack { .. } => {}
+    }
+}
+
+fn contains_navigation_link(node: &ast::Node) -> bool {
+    match node {
+        ast::Node::NavigationLink { .. } => true,
+        ast::Node::Layout { children, .. }
+        | ast::Node::Pressable { children, .. }
+        | ast::Node::KeyboardAware { children, .. }
+        | ast::Node::FastList { children, .. } => children.iter().any(contains_navigation_link),
+        ast::Node::Text { .. }
+        | ast::Node::Button { .. }
+        | ast::Node::TextInput { .. }
+        | ast::Node::Switch { .. }
+        | ast::Node::Image { .. }
+        | ast::Node::NavigationStack { .. }
+        | ast::Node::ComponentCall { .. } => false,
+    }
+}
+
+fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
+    match node {
+        Node::ComponentCall { name, .. } => {
+            calls.insert(name.clone());
+        }
+        Node::Layout { children, .. }
+        | Node::Pressable { children, .. }
+        | Node::NavigationLink { children, .. }
+        | Node::KeyboardAware { children }
+        | Node::FastList { children, .. } => {
+            for child in children {
+                collect_ir_component_calls(child, calls);
+            }
+        }
+        Node::Text { .. }
+        | Node::Button { .. }
+        | Node::TextInput { .. }
+        | Node::Switch { .. }
+        | Node::Image { .. }
+        | Node::NavigationStack { .. } => {}
+    }
+}
+
+fn in_file(error: CompileError, file: Option<&str>) -> CompileError {
+    if let Some(file) = file {
+        error.with_file(file)
+    } else {
+        error
+    }
+}
+
+fn is_builtin_component(name: &str) -> bool {
+    matches!(
+        name,
+        "View"
+            | "Column"
+            | "Row"
+            | "Text"
+            | "Button"
+            | "TextInput"
+            | "Switch"
+            | "Image"
+            | "Pressable"
+            | "NavigationStack"
+            | "NavigationLink"
+            | "KeyboardAware"
+            | "FastList"
+    )
+}

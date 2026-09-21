@@ -17,8 +17,11 @@ cargo run -p nexa-cli -- check examples/navigation.nx
 cargo run -p nexa-cli -- check examples/virtualized-list.nx
 cargo run -p nexa-cli -- check examples/collection-list.nx
 cargo run -p nexa-cli -- check examples/themed-app.nx
+cargo run -p nexa-cli -- check examples/custom-components.nx
 cargo run -p nexa-cli -- build examples/themed-app.nx --target swift --out /tmp/ThemedApp.swift
 cargo run -p nexa-cli -- build examples/themed-app.nx --target kotlin --out /tmp/ThemedApp.kt
+cargo run -p nexa-cli -- build examples/custom-components.nx --target swift --out /tmp/CustomComponents.swift
+cargo run -p nexa-cli -- build examples/custom-components.nx --target kotlin --out /tmp/CustomComponents.kt
 ```
 
 The default output replaces the input file extension, producing `counter.swift` or `counter.kt`. Generated files are intended to be added to an existing SwiftUI or Compose application with the corresponding platform dependencies configured.
@@ -39,6 +42,8 @@ The default output replaces the input file extension, producing `counter.swift` 
 Each target backend consumes the same typed IR. Adding another backend should require implementing the `nexa-codegen::Backend` contract without changing the lexer or parser.
 
 Compiler orchestration and semantic analysis are separate modules inside `nexa-compiler`. Native generation lives in backend-local `src/generator/` modules, with component-specific files for controls, inputs, images, layout, navigation, lists, keyboard behavior, expressions, state, and formatting. This keeps platform concerns out of the shared IR and makes compiler changes easier to review and maintain.
+
+User-defined `.nx` components can live in imported files, declare typed inputs and private state, compose other components, and compile directly into native SwiftUI or Compose declarations. Imports resolve relative to the source file and are statically compiled; unreachable component declarations are omitted from generated output.
 
 ## Project skills
 

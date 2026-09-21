@@ -13,6 +13,9 @@ Help people build an iOS and Android app from Nexa's shared `.nx` source without
 - Use core components already supported by Nexa, such as View, Text, Button, TextInput, Switch, Image, navigation, keyboard-aware layout, and FastList when available in the current compiler.
 - Keep user-authored application code in `.nx`. Do not put app features in generated `.swift` or `.kt` files and do not make native edits a prerequisite for supported functionality.
 - Use FastList for large or repeating collections when supported. Keep layout and state simple so generated code remains direct and efficient.
+- Define reusable `component Name(property: Type)` declarations in `.nx`, with private `state` declarations and a `body`; invoke them by name using all required named properties. Each instance owns native component state.
+- Split larger apps into `.nx` files with `import "relative/path/Component.nx"`. Resolve imports relative to the importing file, keep one project-wide component name scope, and put the single `app` declaration in the entry file. Imported component files may import other component files.
+- Keep component boundaries focused. Callbacks, content slots, and `NavigationLink` from inside custom components are not supported yet; pass values as typed inputs and keep interactions inside the component when possible.
 - For Android images, rely on Nexa's Coil 3 based image generation; explain any host-project Coil 3 setup that the current CLI does not generate.
 - Optional plugins such as SQLite, MMKV, and maps are future extensions unless the repository currently supplies them. Do not invent plugin syntax or silently replace missing support with native code.
 

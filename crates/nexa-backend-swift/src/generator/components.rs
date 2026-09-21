@@ -100,6 +100,18 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                 out,
             );
         }
+        Node::ComponentCall { name, arguments } => {
+            indent(out, depth);
+            out.push_str(&format!(
+                "{}({})",
+                nexa_codegen::names::component_name(name),
+                arguments
+                    .iter()
+                    .map(|(_, argument)| super::expressions::expression(argument))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
     }
 }
 

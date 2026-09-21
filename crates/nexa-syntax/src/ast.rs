@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use nexa_diagnostics::Span;
 
 #[derive(Clone, Debug)]
@@ -6,7 +8,38 @@ pub struct App {
     pub states: Vec<StateDecl>,
     pub screens: Vec<ScreenDecl>,
     pub theme: Option<ThemeDecl>,
+    pub components: Vec<ComponentDecl>,
     pub body: Vec<Node>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Program {
+    pub imports: Vec<ImportDecl>,
+    pub components: Vec<ComponentDecl>,
+    pub app: Option<App>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ImportDecl {
+    pub path: String,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct ComponentDecl {
+    pub name: String,
+    pub parameters: Vec<ComponentParameter>,
+    pub states: Vec<StateDecl>,
+    pub body: Vec<Node>,
+    pub span: Span,
+    pub source_file: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ComponentParameter {
+    pub name: String,
+    pub ty: TypeSyntax,
     pub span: Span,
 }
 
@@ -134,6 +167,11 @@ pub enum Node {
         index: Option<Expr>,
         item: Option<Expr>,
         children: Vec<Node>,
+        span: Span,
+    },
+    ComponentCall {
+        name: String,
+        arguments: BTreeMap<String, Expr>,
         span: Span,
     },
 }

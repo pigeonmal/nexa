@@ -1,6 +1,6 @@
 # Nexa language: first slice
 
-The compiler currently supports stateful native screens, typed arrays, virtualized lists, and a parameterless native navigation stack. A source file contains one `app`, optional state and screen declarations, and a `body` containing native-mappable components.
+The compiler currently supports stateful native screens, typed arrays, virtualized lists, a parameterless native navigation stack, and stateful user-defined components. The entry `.nx` file declares one `app`; imported component files can declare reusable components without an app.
 
 ```nexa
 app Counter {
@@ -53,6 +53,37 @@ Immutable `let` initializers can refer to earlier declarations. Mutable state in
 - `FastList(count: rowCount, index: row) { ... }` creates a virtualized, vertical list of `Int32` row indices. `index` is optional and defaults to `index`; row content is produced for visible rows by iOS `UITableView` or Android Compose `LazyColumn`. The count can be an `Int32` state value; negative runtime counts are treated as zero.
 - `FastList(items: labels, index: row, item: label) { ... }` creates a virtualized list over an `Array<T>` state. Both bindings are optional and default to `index` and `item`; the index is read-only `Int32`, and the item is a read-only value of the array's element type. Rows use their current position as identity, and the collection is indexed directly without building an intermediate row array or row tree. See [collection-list.nx](../examples/collection-list.nx).
 
+## Custom components and source files
+
+Define reusable components with typed parameters, private state, and a body. Call them by name and provide each required parameter:
+
+```nexa
+component CounterButton(label: String) {
+    state count: Int32 = 0
+
+    body {
+        Column {
+            Text(label)
+            Text(count)
+            Button("Increment") {
+                count = count + 1
+            }
+        }
+    }
+}
+
+app Demo {
+    body {
+        CounterButton(label: "First")
+        CounterButton(label: "Second")
+    }
+}
+```
+
+Each component instance gets its own native state (`@State` on iOS and Compose `remember` on Android). Components can use core components and call other custom components. Parameters are immutable typed inputs; state declared inside a component stays private to it.
+
+Keep a component in its own `.nx` file and import it relative to the importing file with `import "components/CounterButton.nx"`. Imported files can import other component files; only the entry file declares an app. Imported components share one project-wide name scope. The compiler emits only components reachable from the app, with no runtime component registry. Recursive component composition, callback parameters, content slots, and `NavigationLink` inside a custom component are not supported yet. See [custom-components.nx](../examples/custom-components.nx) and its [component files](../examples/components/CounterButton.nx).
+
 ## Themes
 
 An app can declare one compile-time `theme` block. Color tokens require both light and dark values and follow the system appearance. Spacing, radius, and font-size tokens hold static numeric values. Use `Theme.tokenName` only in matching style options: spacing for layout spacing and padding, radius for corner radius, colors for backgrounds and text, and font size for text.
@@ -76,7 +107,7 @@ app ThemeExample {
 
 These values resolve into typed IR during compilation. Swift output reads the native color-scheme environment only when an adaptive color is used. Compose output reads `isSystemInDarkTheme()` only when needed. User-selected palettes, theme switching controls, typography families and weights, shadows, and component-specific tokens are not supported yet. See [themed-app.nx](../examples/themed-app.nx).
 
-An app with several top-level body components is placed in a vertical native stack. `Text` and `Button` are leaves in this version.
+An app or custom component with several top-level body nodes is placed in a vertical native stack. Built-in controls and custom-component calls are leaves.
 
 ## Generated code
 
@@ -86,4 +117,4 @@ Android apps that use `Image` need [Coil 3 Compose](https://coil-kt.github.io/co
 
 ## Current boundaries
 
-This prototype does not yet generate full Xcode or Gradle projects. An iOS app using `FastList` must target iOS 16 or newer for `UIHostingConfiguration`; table rows use self-sizing with estimated heights, update visible cells in place, and reload table data only when the row count changes. Navigation currently supports parameterless screens, a single stack, and compile-time checked links; typed route parameters, tabs, deep links, modals, and navigation guards remain future work. `FastList` supports integer ranges and primitive `Array<T>` collections. Custom stable row keys, mutable element-level bindings, paging, grids, horizontal lists, scroll controls, and refresh integration remain future work. `KeyboardAware` handles basic scrolling and inset adjustment, but keyboard height/events, explicit focus management, and programmatic dismissal remain future work. Remote image loading uses the platform loaders' default request, cache, and decoding behavior; custom image-loader configuration and observable loading/error state are not exposed yet. `Pressable` currently supports press and disabled state; long press, hover, pressed-state styling, focus, and haptics remain future work. Text input selection/autofill, advanced theme features, plugins, FFI bindings, incremental compilation, formatting, language-server support, and optimization passes also remain on the roadmap in `plan.md`.
+This prototype does not yet generate full Xcode or Gradle projects. An iOS app using `FastList` must target iOS 16 or newer for `UIHostingConfiguration`; table rows use self-sizing with estimated heights, update visible cells in place, and reload table data only when the row count changes. Navigation currently supports parameterless screens, a single stack, and compile-time checked links; typed route parameters, tabs, deep links, modals, and navigation guards remain future work. `FastList` supports integer ranges and primitive `Array<T>` collections. Custom stable row keys, mutable element-level bindings, paging, grids, horizontal lists, scroll controls, and refresh integration remain future work. `KeyboardAware` handles basic scrolling and inset adjustment, but keyboard height/events, explicit focus management, and programmatic dismissal remain future work. Remote image loading uses the platform loaders' default request, cache, and decoding behavior; custom image-loader configuration and observable loading/error state are not exposed yet. `Pressable` currently supports press and disabled state; long press, hover, pressed-state styling, focus, and haptics remain future work. Text input selection/autofill, custom component callbacks and content slots, advanced theme features, plugins, FFI bindings, incremental compilation, formatting, language-server support, and optimization passes also remain on the roadmap in `plan.md`.
