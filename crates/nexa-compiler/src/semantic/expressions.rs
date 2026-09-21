@@ -443,12 +443,12 @@ pub(super) fn resolve_declaration_type(
     let ty = match declaration.ty.as_ref() {
         Some(syntax) => parse_type(syntax)?,
         None => infer_expr_type(&declaration.initial, symbols).ok_or_else(|| {
-                CompileError::new(
-                    declaration.initial.span(),
-                    format!(
+            CompileError::new(
+                declaration.initial.span(),
+                format!(
                     "cannot infer the type of `{}`; add an explicit `: Type` annotation (empty collections need one)",
-                        declaration.name
-                    ),
+                    declaration.name
+                ),
             )
         })?,
     };
