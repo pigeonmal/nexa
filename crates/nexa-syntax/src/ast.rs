@@ -5,8 +5,37 @@ pub struct App {
     pub name: String,
     pub states: Vec<StateDecl>,
     pub screens: Vec<ScreenDecl>,
+    pub theme: Option<ThemeDecl>,
     pub body: Vec<Node>,
     pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct ThemeDecl {
+    pub tokens: Vec<ThemeTokenDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThemeTokenKind {
+    Color,
+    Spacing,
+    Radius,
+    FontSize,
+}
+
+#[derive(Clone, Debug)]
+pub struct ThemeTokenDecl {
+    pub kind: ThemeTokenKind,
+    pub name: String,
+    pub value: ThemeTokenValue,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub enum ThemeTokenValue {
+    Static(Expr),
+    AdaptiveColor { light: Expr, dark: Expr },
 }
 
 #[derive(Clone, Debug)]
@@ -50,6 +79,8 @@ pub enum Node {
     },
     Text {
         value: Expr,
+        color: Option<Expr>,
+        font_size: Option<Expr>,
         span: Span,
     },
     Button {
@@ -142,6 +173,7 @@ pub enum Expr {
     Number(String, Span),
     Bool(bool, Span),
     Name(String, Span),
+    ThemeToken(String, Span),
     Add(Box<Expr>, Box<Expr>, Span),
     Array(Vec<Expr>, Span),
 }
@@ -153,6 +185,7 @@ impl Expr {
             | Self::Number(_, s)
             | Self::Bool(_, s)
             | Self::Name(_, s)
+            | Self::ThemeToken(_, s)
             | Self::Add(_, _, s)
             | Self::Array(_, s) => *s,
         }

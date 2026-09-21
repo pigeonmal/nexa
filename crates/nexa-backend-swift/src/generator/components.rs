@@ -1,8 +1,10 @@
 use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 
 use super::{
-    controls, expressions::text_expression, images, input, keyboard, layout, lists, navigation,
-    utils::indent,
+    colors, controls,
+    expressions::text_expression,
+    images, input, keyboard, layout, lists, navigation,
+    utils::{indent, number},
 };
 
 pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut String) {
@@ -13,9 +15,23 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             style,
             children,
         } => layout::render_layout(*kind, *spacing, style, children, module, depth, out),
-        Node::Text(value) => {
+        Node::Text { value, style } => {
             indent(out, depth);
             out.push_str(&format!("Text({})", text_expression(value)));
+            if let Some(color) = style.color {
+                out.push_str(&format!(
+                    "\n{}.foregroundStyle({})",
+                    "    ".repeat(depth + 1),
+                    colors::expression(color)
+                ));
+            }
+            if let Some(font_size) = style.font_size {
+                out.push_str(&format!(
+                    "\n{}.font(.system(size: {}))",
+                    "    ".repeat(depth + 1),
+                    number(font_size)
+                ));
+            }
         }
         Node::Button { label, actions } => {
             controls::render_button(label, actions, depth, out);

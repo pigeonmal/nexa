@@ -4,7 +4,7 @@ Nexa is an early ahead-of-time compiler prototype for a shared mobile language t
 
 The current implementation covers the compiler foundation and a growing native-control slice. It parses app state, checks primitive and array types and bindings, lowers to a platform-independent IR, and emits native SwiftUI or Compose controls, including virtualized range and collection lists. It is not yet a complete mobile framework or a project generator.
 
-Nexa's product direction is to let people create complete mobile apps from `.nx` without writing native source. The current compiler supports only the documented language slice below; it does not yet generate complete iOS or Android projects. The core component set comes first, while integrations such as SQLite, MMKV, and maps are planned as optional plugins.
+Nexa's product direction is to let people create complete mobile apps from `.nx` without writing native source. The current compiler supports only the documented language slice below; it does not yet generate complete iOS or Android projects. The core component set comes first, while integrations such as SQLite, MMKV, and maps are planned as optional plugins. Its first theme slice compiles typed color, spacing, radius, and font-size tokens directly into native code.
 
 ## Build and use
 
@@ -16,6 +16,9 @@ cargo run -p nexa-cli -- build examples/counter.nx --target kotlin --out Counter
 cargo run -p nexa-cli -- check examples/navigation.nx
 cargo run -p nexa-cli -- check examples/virtualized-list.nx
 cargo run -p nexa-cli -- check examples/collection-list.nx
+cargo run -p nexa-cli -- check examples/themed-app.nx
+cargo run -p nexa-cli -- build examples/themed-app.nx --target swift --out /tmp/ThemedApp.swift
+cargo run -p nexa-cli -- build examples/themed-app.nx --target kotlin --out /tmp/ThemedApp.kt
 ```
 
 The default output replaces the input file extension, producing `counter.swift` or `counter.kt`. Generated files are intended to be added to an existing SwiftUI or Compose application with the corresponding platform dependencies configured.
@@ -49,4 +52,4 @@ These skills distinguish the current prototype from the longer-term goals in `pl
 
 ## Language slice
 
-See [language guide](docs/language.md) for syntax, supported types, current limits, and native mappings. The full roadmap remains in [plan.md](plan.md).
+See [language guide](docs/language.md) for syntax, supported types, themes, current limits, and native mappings. The full roadmap remains in [plan.md](plan.md).

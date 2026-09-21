@@ -9,7 +9,10 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         ast::Expr::Name(_, _) => true,
         ast::Expr::Add(left, right, _) => references_state(left) || references_state(right),
         ast::Expr::Array(items, _) => items.iter().any(references_state),
-        ast::Expr::String(_, _) | ast::Expr::Number(_, _) | ast::Expr::Bool(_, _) => false,
+        ast::Expr::String(_, _)
+        | ast::Expr::Number(_, _)
+        | ast::Expr::Bool(_, _)
+        | ast::Expr::ThemeToken(_, _) => false,
     }
 }
 
@@ -68,6 +71,10 @@ pub(super) fn lower_expr(
             require_expected(expected, ty, *span)?;
             Ok(Expr::State(name.clone(), ty.clone()))
         }
+        ast::Expr::ThemeToken(name, span) => Err(CompileError::new(
+            *span,
+            format!("`Theme.{name}` can only be used in supported style options"),
+        )),
         ast::Expr::Add(left, right, span) => {
             let left = lower_expr(left, expected, symbols)?;
             let Some(ty) = expr_numeric_type(&left) else {

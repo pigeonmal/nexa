@@ -606,6 +606,8 @@ Static styles should have effectively zero runtime parsing overhead.
 
 ## Themes
 
+The initial implementation provides one app-level compile-time theme block with typed adaptive light/dark color tokens and static spacing, radius, and font-size tokens. Theme values lower into the platform-independent IR and emit native system-appearance checks only for adaptive colors referenced by the app. This covers the first theme milestone; the capabilities below remain part of the broader roadmap.
+
 Provide first-class theme support.
 
 Developers must be able to define application themes.

@@ -22,12 +22,18 @@ impl Parser {
         self.expect(Kind::LBrace, "expected `{` after app name")?;
         let mut states = Vec::new();
         let mut screens = Vec::new();
+        let mut theme = None;
         let mut body = None;
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             if self.word_is("state") || self.word_is("let") {
                 states.push(self.state_decl()?);
             } else if self.word_is("screen") {
                 screens.push(self.screen_decl()?);
+            } else if self.word_is("theme") {
+                if theme.is_some() {
+                    return self.error_here("an app can only declare one `theme` block");
+                }
+                theme = Some(self.theme_decl()?);
             } else if self.word_is("body") {
                 if body.is_some() {
                     return self.error_here("an app can only declare one body");
@@ -35,7 +41,8 @@ impl Parser {
                 self.advance();
                 body = Some(self.block_nodes()?);
             } else {
-                return self.error_here("expected a `state`, `screen`, or `body` declaration");
+                return self
+                    .error_here("expected a `state`, `screen`, `theme`, or `body` declaration");
             }
         }
         self.expect(Kind::RBrace, "expected `}` to close app")?;
@@ -47,6 +54,7 @@ impl Parser {
             name,
             states,
             screens,
+            theme,
             body,
             span,
         })
@@ -57,6 +65,54 @@ impl Parser {
         let (name, span) = self.ident()?;
         let body = self.block_nodes()?;
         Ok(ScreenDecl { name, body, span })
+    }
+
+    fn theme_decl(&mut self) -> Result<ThemeDecl, CompileError> {
+        let keyword = self.advance().span;
+        self.expect(Kind::LBrace, "expected `{` after `theme`")?;
+        let mut tokens = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (kind_name, span) = self.ident()?;
+            let kind = match kind_name.as_str() {
+                "color" => ThemeTokenKind::Color,
+                "spacing" => ThemeTokenKind::Spacing,
+                "radius" => ThemeTokenKind::Radius,
+                "fontSize" => ThemeTokenKind::FontSize,
+                _ => {
+                    return Err(CompileError::new(
+                        span,
+                        format!("unknown theme token type `{kind_name}`"),
+                    ));
+                }
+            };
+            let (name, _) = self.ident()?;
+            let value = if kind == ThemeTokenKind::Color {
+                let mut values = self.named_args(&["light", "dark"])?;
+                let light = self.required_arg(
+                    &mut values,
+                    "light",
+                    "theme colors require a `light` value",
+                )?;
+                let dark =
+                    self.required_arg(&mut values, "dark", "theme colors require a `dark` value")?;
+                ThemeTokenValue::AdaptiveColor { light, dark }
+            } else {
+                self.expect(Kind::Colon, "expected `:` after theme token name")?;
+                ThemeTokenValue::Static(self.expr()?)
+            };
+            tokens.push(ThemeTokenDecl {
+                kind,
+                name,
+                value,
+                span,
+            });
+            self.optional_semicolon();
+        }
+        self.expect(Kind::RBrace, "expected `}` to close `theme` block")?;
+        Ok(ThemeDecl {
+            tokens,
+            span: keyword,
+        })
     }
 
     fn state_decl(&mut self) -> Result<StateDecl, CompileError> {
@@ -147,8 +203,18 @@ impl Parser {
             "Text" => {
                 self.expect(Kind::LParen, "expected `(` after Text")?;
                 let value = self.expr()?;
-                self.expect(Kind::RParen, "expected `)` after Text value")?;
-                Ok(Node::Text { value, span })
+                let mut args = if self.take(&Kind::Comma) {
+                    self.named_args_contents(&["color", "fontSize"])?
+                } else {
+                    BTreeMap::new()
+                };
+                self.expect(Kind::RParen, "expected `)` after Text options")?;
+                Ok(Node::Text {
+                    value,
+                    color: args.remove("color"),
+                    font_size: args.remove("fontSize"),
+                    span,
+                })
             }
             "Button" => {
                 self.expect(Kind::LParen, "expected `(` after Button")?;
@@ -304,6 +370,15 @@ impl Parser {
 
     fn named_args(&mut self, allowed: &[&str]) -> Result<BTreeMap<String, Expr>, CompileError> {
         self.expect(Kind::LParen, "expected `(` before component options")?;
+        let args = self.named_args_contents(allowed)?;
+        self.expect(Kind::RParen, "expected `)` after component options")?;
+        Ok(args)
+    }
+
+    fn named_args_contents(
+        &mut self,
+        allowed: &[&str],
+    ) -> Result<BTreeMap<String, Expr>, CompileError> {
         let mut args = BTreeMap::new();
         while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
             let (name, span) = self.ident()?;
@@ -322,7 +397,6 @@ impl Parser {
                 break;
             }
         }
-        self.expect(Kind::RParen, "expected `)` after component options")?;
         Ok(args)
     }
 
@@ -395,7 +469,25 @@ impl Parser {
             Kind::Number(value) => Ok(Expr::Number(value, token.span)),
             Kind::Ident(value) if value == "true" => Ok(Expr::Bool(true, token.span)),
             Kind::Ident(value) if value == "false" => Ok(Expr::Bool(false, token.span)),
-            Kind::Ident(value) => Ok(Expr::Name(value, token.span)),
+            Kind::Ident(value) => {
+                if !self.take(&Kind::Dot) {
+                    return Ok(Expr::Name(value, token.span));
+                }
+                if value != "Theme" {
+                    return Err(CompileError::new(
+                        token.span,
+                        "qualified references must use the `Theme` namespace",
+                    ));
+                }
+                let (name, name_span) = self.ident()?;
+                Ok(Expr::ThemeToken(
+                    name,
+                    Span {
+                        end: name_span.end,
+                        ..token.span
+                    },
+                ))
+            }
             _ => Err(CompileError::new(
                 token.span,
                 "expected a string, number, boolean, or state name",

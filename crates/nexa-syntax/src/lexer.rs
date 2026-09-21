@@ -14,6 +14,7 @@ pub enum Kind {
     Less,
     Greater,
     Colon,
+    Dot,
     Semicolon,
     Comma,
     Equal,
@@ -100,6 +101,10 @@ impl Lexer<'_> {
                 ':' => {
                     self.bump();
                     Kind::Colon
+                }
+                '.' => {
+                    self.bump();
+                    Kind::Dot
                 }
                 ';' => {
                     self.bump();

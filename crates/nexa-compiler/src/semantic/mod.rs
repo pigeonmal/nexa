@@ -7,13 +7,16 @@ use nexa_syntax::ast;
 use self::{
     components::lower_node,
     expressions::{lower_expr, parse_type, references_state},
+    themes::lower_theme,
 };
 
 mod components;
 mod expressions;
 mod styles;
+mod themes;
 
 pub fn lower(app: ast::App) -> Result<Module, CompileError> {
+    let themes = lower_theme(app.theme.as_ref())?;
     let mut screen_ids = HashMap::with_capacity(app.screens.len());
     for (index, screen) in app.screens.iter().enumerate() {
         if screen_ids
@@ -64,7 +67,7 @@ pub fn lower(app: ast::App) -> Result<Module, CompileError> {
     for (index, screen) in app.screens.into_iter().enumerate() {
         let mut screen_body = Vec::with_capacity(screen.body.len());
         for node in screen.body {
-            screen_body.push(lower_node(node, &symbols, &screen_ids, false)?);
+            screen_body.push(lower_node(node, &symbols, &screen_ids, &themes, false)?);
         }
         screens.push(Screen {
             id: ScreenId(index),
@@ -76,7 +79,13 @@ pub fn lower(app: ast::App) -> Result<Module, CompileError> {
     let mut body = Vec::with_capacity(app.body.len());
     for node in app.body {
         let is_navigation_root = matches!(&node, ast::Node::NavigationStack { .. });
-        body.push(lower_node(node, &symbols, &screen_ids, is_navigation_root)?);
+        body.push(lower_node(
+            node,
+            &symbols,
+            &screen_ids,
+            &themes,
+            is_navigation_root,
+        )?);
     }
     Ok(Module {
         app_name: app.name,

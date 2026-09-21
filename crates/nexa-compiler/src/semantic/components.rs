@@ -3,19 +3,21 @@ use std::collections::HashMap;
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
     Action, Capitalization, Expr, ImageScale, ImageSource, KeyboardType, LayoutKind, ListSource,
-    Node, NumericType, ScreenId, Type,
+    Node, NumericType, ScreenId, TextStyle, Type,
 };
 use nexa_syntax::ast;
 
 use super::{
     expressions::{lower_expr, type_name},
-    styles::{lower_style, optional_dimension},
+    styles::{lower_style, optional_color, optional_dimension},
+    themes::ThemeSymbols,
 };
 
 pub(super) fn lower_node(
     node: ast::Node,
     symbols: &HashMap<String, (Type, bool)>,
     screen_ids: &HashMap<String, ScreenId>,
+    themes: &ThemeSymbols,
     allow_navigation_stack: bool,
 ) -> Result<Node, CompileError> {
     match node {
@@ -26,11 +28,17 @@ pub(super) fn lower_node(
             children,
             span: _,
         } => {
-            let spacing = optional_dimension(spacing, "spacing")?.unwrap_or(0.0);
-            let style = lower_style(style)?;
+            let spacing = optional_dimension(
+                spacing,
+                "spacing",
+                Some(ast::ThemeTokenKind::Spacing),
+                themes,
+            )?
+            .unwrap_or(0.0);
+            let style = lower_style(style, themes)?;
             let mut lowered = Vec::with_capacity(children.len());
             for child in children {
-                lowered.push(lower_node(child, symbols, screen_ids, false)?);
+                lowered.push(lower_node(child, symbols, screen_ids, themes, false)?);
             }
             let kind = match kind {
                 ast::LayoutKind::View => LayoutKind::View,
@@ -44,7 +52,25 @@ pub(super) fn lower_node(
                 children: lowered,
             })
         }
-        ast::Node::Text { value, .. } => Ok(Node::Text(lower_expr(&value, None, symbols)?)),
+        ast::Node::Text {
+            value,
+            color,
+            font_size,
+            ..
+        } => {
+            let value = lower_expr(&value, None, symbols)?;
+            let color = optional_color(color, "text color", themes)?;
+            let font_size = optional_dimension(
+                font_size,
+                "fontSize",
+                Some(ast::ThemeTokenKind::FontSize),
+                themes,
+            )?;
+            Ok(Node::Text {
+                value,
+                style: TextStyle { color, font_size },
+            })
+        }
         ast::Node::Button {
             label,
             actions,
@@ -219,7 +245,7 @@ pub(super) fn lower_node(
             let disabled = optional_bool(disabled, false, "disabled")?;
             let mut lowered_children = Vec::with_capacity(children.len());
             for child in children {
-                lowered_children.push(lower_node(child, symbols, screen_ids, false)?);
+                lowered_children.push(lower_node(child, symbols, screen_ids, themes, false)?);
             }
             let actions = lower_actions(actions, symbols)?;
             Ok(Node::Pressable {
@@ -255,7 +281,7 @@ pub(super) fn lower_node(
                 )?;
             let mut lowered_children = Vec::with_capacity(children.len());
             for child in children {
-                lowered_children.push(lower_node(child, symbols, screen_ids, false)?);
+                lowered_children.push(lower_node(child, symbols, screen_ids, themes, false)?);
             }
             Ok(Node::NavigationLink {
                 destination,
@@ -265,7 +291,7 @@ pub(super) fn lower_node(
         ast::Node::KeyboardAware { children, .. } => {
             let mut lowered_children = Vec::with_capacity(children.len());
             for child in children {
-                lowered_children.push(lower_node(child, symbols, screen_ids, false)?);
+                lowered_children.push(lower_node(child, symbols, screen_ids, themes, false)?);
             }
             Ok(Node::KeyboardAware {
                 children: lowered_children,
@@ -342,7 +368,7 @@ pub(super) fn lower_node(
             }
             let mut lowered_children = Vec::with_capacity(children.len());
             for child in children {
-                lowered_children.push(lower_node(child, &row_symbols, screen_ids, false)?);
+                lowered_children.push(lower_node(child, &row_symbols, screen_ids, themes, false)?);
             }
             if lowered_children.is_empty() {
                 return Err(CompileError::new(

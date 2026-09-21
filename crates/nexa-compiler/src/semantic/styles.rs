@@ -1,12 +1,27 @@
 use nexa_diagnostics::{CompileError, Span};
-use nexa_ir::{Color, ViewStyle};
+use nexa_ir::{Color, ColorValue, ViewStyle};
 use nexa_syntax::ast;
 
-pub(super) fn lower_style(style: ast::LayoutStyle) -> Result<ViewStyle, CompileError> {
-    let padding = optional_dimension(style.padding, "padding")?;
-    let width = optional_dimension(style.width, "width")?;
-    let height = optional_dimension(style.height, "height")?;
-    let corner_radius = optional_dimension(style.corner_radius, "cornerRadius")?;
+use super::themes::ThemeSymbols;
+
+pub(super) fn lower_style(
+    style: ast::LayoutStyle,
+    themes: &ThemeSymbols,
+) -> Result<ViewStyle, CompileError> {
+    let padding = optional_dimension(
+        style.padding,
+        "padding",
+        Some(ast::ThemeTokenKind::Spacing),
+        themes,
+    )?;
+    let width = optional_dimension(style.width, "width", None, themes)?;
+    let height = optional_dimension(style.height, "height", None, themes)?;
+    let corner_radius = optional_dimension(
+        style.corner_radius,
+        "cornerRadius",
+        Some(ast::ThemeTokenKind::Radius),
+        themes,
+    )?;
     let opacity = match style.opacity {
         Some(expr) => {
             let value = number_value(&expr, "opacity")?;
@@ -20,7 +35,10 @@ pub(super) fn lower_style(style: ast::LayoutStyle) -> Result<ViewStyle, CompileE
         }
         None => None,
     };
-    let background = style.background.map(parse_color).transpose()?;
+    let background = style
+        .background
+        .map(|color| parse_color(color, themes, "background"))
+        .transpose()?;
     Ok(ViewStyle {
         padding,
         width,
@@ -31,14 +49,25 @@ pub(super) fn lower_style(style: ast::LayoutStyle) -> Result<ViewStyle, CompileE
     })
 }
 
+pub(super) fn optional_color(
+    expr: Option<ast::Expr>,
+    role: &str,
+    themes: &ThemeSymbols,
+) -> Result<Option<ColorValue>, CompileError> {
+    expr.map(|expr| parse_color(expr, themes, role)).transpose()
+}
+
 pub(super) fn optional_dimension(
     expr: Option<ast::Expr>,
     field: &str,
+    theme_kind: Option<ast::ThemeTokenKind>,
+    themes: &ThemeSymbols,
 ) -> Result<Option<f32>, CompileError> {
-    expr.map(|expr| number_value(&expr, field)).transpose()
+    expr.map(|expr| dimension_value(&expr, field, theme_kind, themes))
+        .transpose()
 }
 
-fn number_value(expr: &ast::Expr, field: &str) -> Result<f32, CompileError> {
+pub(super) fn number_value(expr: &ast::Expr, field: &str) -> Result<f32, CompileError> {
     let ast::Expr::Number(raw, span) = expr else {
         return Err(CompileError::new(
             expr.span(),
@@ -60,11 +89,44 @@ fn number_value(expr: &ast::Expr, field: &str) -> Result<f32, CompileError> {
     Ok(value)
 }
 
-fn parse_color(expr: ast::Expr) -> Result<Color, CompileError> {
+fn dimension_value(
+    expr: &ast::Expr,
+    field: &str,
+    theme_kind: Option<ast::ThemeTokenKind>,
+    themes: &ThemeSymbols,
+) -> Result<f32, CompileError> {
+    match expr {
+        ast::Expr::Number(_, _) => number_value(expr, field),
+        ast::Expr::ThemeToken(name, span) => match theme_kind {
+            Some(kind) => themes.metric(name, *span, kind, field),
+            None => Err(CompileError::new(
+                *span,
+                format!("`{field}` does not accept a theme token"),
+            )),
+        },
+        _ => Err(CompileError::new(
+            expr.span(),
+            format!("`{field}` must be a non-negative numeric literal or matching theme token"),
+        )),
+    }
+}
+
+fn parse_color(
+    expr: ast::Expr,
+    themes: &ThemeSymbols,
+    role: &str,
+) -> Result<ColorValue, CompileError> {
+    match expr {
+        ast::Expr::ThemeToken(name, span) => themes.color(&name, span, role),
+        literal => Ok(ColorValue::Static(parse_color_literal(literal, role)?)),
+    }
+}
+
+pub(super) fn parse_color_literal(expr: ast::Expr, role: &str) -> Result<Color, CompileError> {
     let ast::Expr::String(value, span) = expr else {
         return Err(CompileError::new(
             expr.span(),
-            "`background` must be a hexadecimal color string",
+            format!("`{role}` must be a hexadecimal color string"),
         ));
     };
     let Some(hex) = value.strip_prefix('#') else {

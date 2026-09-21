@@ -64,7 +64,10 @@ pub enum Node {
         style: ViewStyle,
         children: Vec<Node>,
     },
-    Text(Expr),
+    Text {
+        value: Expr,
+        style: TextStyle,
+    },
     Button {
         label: Expr,
         actions: Vec<Action>,
@@ -161,7 +164,7 @@ pub struct ViewStyle {
     pub padding: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
-    pub background: Option<Color>,
+    pub background: Option<ColorValue>,
     pub corner_radius: Option<f32>,
     pub opacity: Option<f32>,
 }
@@ -172,6 +175,18 @@ pub struct Color {
     pub green: u8,
     pub blue: u8,
     pub alpha: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColorValue {
+    Static(Color),
+    Adaptive { light: Color, dark: Color },
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TextStyle {
+    pub color: Option<ColorValue>,
+    pub font_size: Option<f32>,
 }
 
 #[derive(Clone, Debug)]

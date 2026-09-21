@@ -1,5 +1,6 @@
 use nexa_ir::{LayoutKind, Module, State, ViewStyle};
 
+mod colors;
 mod components;
 mod controls;
 mod expressions;
@@ -15,6 +16,7 @@ mod utils;
 
 pub(super) fn generate(module: &Module) -> String {
     let uses_fast_list = features::uses_fast_list(module);
+    let uses_adaptive_color = features::uses_adaptive_color(module);
     let mut out = if uses_fast_list {
         String::from("import SwiftUI\nimport UIKit\n\n@available(iOS 16.0, *)\n")
     } else {
@@ -47,6 +49,9 @@ pub(super) fn generate(module: &Module) -> String {
     }
     if !module.states.is_empty() {
         out.push('\n');
+    }
+    if uses_adaptive_color {
+        out.push_str("    @Environment(\\.colorScheme) private var nexaColorScheme\n\n");
     }
     out.push_str("    public init() {}\n\n    public var body: some View {\n");
     if module.screens.is_empty() {

@@ -1,6 +1,7 @@
-use nexa_ir::{Color, LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 
 use super::{
+    colors,
     components::render_node,
     utils::{indent, number, spaces},
 };
@@ -86,7 +87,7 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut String) {
         out.push_str(&format!(
             "\n{}.background({})",
             spaces(depth),
-            kotlin_color(color)
+            colors::expression(color)
         ));
     }
     if let Some(padding) = style.padding {
@@ -106,12 +107,4 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut String) {
             number(height)
         ));
     }
-}
-
-fn kotlin_color(color: Color) -> String {
-    let argb = (u32::from(color.alpha) << 24)
-        | (u32::from(color.red) << 16)
-        | (u32::from(color.green) << 8)
-        | u32::from(color.blue);
-    format!("Color(0x{argb:08X})")
 }

@@ -41,8 +41,8 @@ Immutable `let` initializers can refer to earlier declarations. Mutable state in
 - `View { ... }` and `Column { ... }` map to a native vertical stack.
 - `Row { ... }` maps to a native horizontal stack.
 - `Column(spacing: 12) { ... }` and `Row(spacing: 12) { ... }` map spacing directly to platform layout parameters.
-- Layouts accept static `padding`, `width`, `height`, `background`, `cornerRadius`, and `opacity` options. Dimensions use points on iOS and density-independent pixels on Android. Backgrounds accept `#RGB`, `#RRGGBB`, or `#RRGGBBAA`; opacity must be from `0` to `1`.
-- `Text(expression)` accepts strings, booleans, and numeric values.
+- Layouts accept `padding`, `width`, `height`, `background`, `cornerRadius`, and `opacity` options. Dimensions use points on iOS and density-independent pixels on Android. Backgrounds accept `#RGB`, `#RRGGBB`, `#RRGGBBAA`, or a color theme token; opacity must be from `0` to `1`.
+- `Text(expression, color: ..., fontSize: ...)` accepts strings, booleans, and numeric values. Text color accepts a hexadecimal color or theme color token. Font size uses points on iOS and scale-independent pixels on Android.
 - `Button("Label") { ... }` accepts a string label and state assignments in its press handler.
 - `TextInput(value: name, placeholder: "...", keyboard: Email)` binds a mutable `String` state to a native text field. Keyboard choices are `Text`, `Number`, `Email`, `Phone`, and `Url`; `secure: true` and `multiline: true` are optional. `autocorrect` optionally enables or disables keyboard suggestions, while `capitalization` accepts `None`, `Sentences`, `Words`, or `Characters`. Omitted keyboard options retain native defaults. Secure multiline input is rejected because the native APIs differ.
 - `Switch(value: enabled, label: "...")` binds a mutable `Bool` state to the native switch control.
@@ -52,6 +52,29 @@ Immutable `let` initializers can refer to earlier declarations. Mutable state in
 - `screen Home { ... }` declares a named destination. An app with screens uses `body { NavigationStack(root: Home) }`; `NavigationLink(destination: Profile) { ... }` pushes a statically resolved screen. All declared screens share the app's state. Destinations must be declared in the same app.
 - `FastList(count: rowCount, index: row) { ... }` creates a virtualized, vertical list of `Int32` row indices. `index` is optional and defaults to `index`; row content is produced for visible rows by iOS `UITableView` or Android Compose `LazyColumn`. The count can be an `Int32` state value; negative runtime counts are treated as zero.
 - `FastList(items: labels, index: row, item: label) { ... }` creates a virtualized list over an `Array<T>` state. Both bindings are optional and default to `index` and `item`; the index is read-only `Int32`, and the item is a read-only value of the array's element type. Rows use their current position as identity, and the collection is indexed directly without building an intermediate row array or row tree. See [collection-list.nx](../examples/collection-list.nx).
+
+## Themes
+
+An app can declare one compile-time `theme` block. Color tokens require both light and dark values and follow the system appearance. Spacing, radius, and font-size tokens hold static numeric values. Use `Theme.tokenName` only in matching style options: spacing for layout spacing and padding, radius for corner radius, colors for backgrounds and text, and font size for text.
+
+```nexa
+app ThemeExample {
+    theme {
+        color surface(light: "#FFFFFF", dark: "#101216")
+        spacing page: 20
+        radius card: 16
+        fontSize body: 16
+    }
+
+    body {
+        Column(padding: Theme.page, background: Theme.surface, cornerRadius: Theme.card) {
+            Text("Welcome", fontSize: Theme.body)
+        }
+    }
+}
+```
+
+These values resolve into typed IR during compilation. Swift output reads the native color-scheme environment only when an adaptive color is used. Compose output reads `isSystemInDarkTheme()` only when needed. User-selected palettes, theme switching controls, typography families and weights, shadows, and component-specific tokens are not supported yet. See [themed-app.nx](../examples/themed-app.nx).
 
 An app with several top-level body components is placed in a vertical native stack. `Text` and `Button` are leaves in this version.
 
@@ -63,4 +86,4 @@ Android apps that use `Image` need [Coil 3 Compose](https://coil-kt.github.io/co
 
 ## Current boundaries
 
-This prototype does not yet generate full Xcode or Gradle projects. An iOS app using `FastList` must target iOS 16 or newer for `UIHostingConfiguration`; table rows use self-sizing with estimated heights, update visible cells in place, and reload table data only when the row count changes. Navigation currently supports parameterless screens, a single stack, and compile-time checked links; typed route parameters, tabs, deep links, modals, and navigation guards remain future work. `FastList` supports integer ranges and primitive `Array<T>` collections. Custom stable row keys, mutable element-level bindings, paging, grids, horizontal lists, scroll controls, and refresh integration remain future work. `KeyboardAware` handles basic scrolling and inset adjustment, but keyboard height/events, explicit focus management, and programmatic dismissal remain future work. Remote image loading uses the platform loaders' default request, cache, and decoding behavior; custom image-loader configuration and observable loading/error state are not exposed yet. `Pressable` currently supports press and disabled state; long press, hover, pressed-state styling, focus, and haptics remain future work. Text input selection/autofill, themes, plugins, FFI bindings, incremental compilation, formatting, language-server support, and optimization passes also remain on the roadmap in `plan.md`.
+This prototype does not yet generate full Xcode or Gradle projects. An iOS app using `FastList` must target iOS 16 or newer for `UIHostingConfiguration`; table rows use self-sizing with estimated heights, update visible cells in place, and reload table data only when the row count changes. Navigation currently supports parameterless screens, a single stack, and compile-time checked links; typed route parameters, tabs, deep links, modals, and navigation guards remain future work. `FastList` supports integer ranges and primitive `Array<T>` collections. Custom stable row keys, mutable element-level bindings, paging, grids, horizontal lists, scroll controls, and refresh integration remain future work. `KeyboardAware` handles basic scrolling and inset adjustment, but keyboard height/events, explicit focus management, and programmatic dismissal remain future work. Remote image loading uses the platform loaders' default request, cache, and decoding behavior; custom image-loader configuration and observable loading/error state are not exposed yet. `Pressable` currently supports press and disabled state; long press, hover, pressed-state styling, focus, and haptics remain future work. Text input selection/autofill, advanced theme features, plugins, FFI bindings, incremental compilation, formatting, language-server support, and optimization passes also remain on the roadmap in `plan.md`.

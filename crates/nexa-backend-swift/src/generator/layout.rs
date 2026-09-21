@@ -1,6 +1,7 @@
-use nexa_ir::{Color, LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 
 use super::{
+    colors,
     components::render_node,
     utils::{indent, number},
 };
@@ -56,7 +57,11 @@ fn append_style(out: &mut String, depth: usize, style: &ViewStyle) {
         append_modifier(out, depth, &format!("padding({})", number(padding)));
     }
     if let Some(color) = style.background {
-        append_modifier(out, depth, &format!("background({})", swift_color(color)));
+        append_modifier(
+            out,
+            depth,
+            &format!("background({})", colors::expression(color)),
+        );
     }
     if let Some(radius) = style.corner_radius {
         append_modifier(
@@ -78,14 +83,4 @@ fn append_modifier(out: &mut String, depth: usize, modifier: &str) {
     indent(out, depth + 1);
     out.push('.');
     out.push_str(modifier);
-}
-
-fn swift_color(color: Color) -> String {
-    format!(
-        "Color(red: {:.6}, green: {:.6}, blue: {:.6}, opacity: {:.6})",
-        f64::from(color.red) / 255.0,
-        f64::from(color.green) / 255.0,
-        f64::from(color.blue) / 255.0,
-        f64::from(color.alpha) / 255.0
-    )
 }
