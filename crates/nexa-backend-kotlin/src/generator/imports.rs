@@ -134,6 +134,10 @@ pub(super) fn render(
         features.uses_text_input,
         "androidx.compose.material3.TextField",
     );
+    add(
+        features.uses_font_weight,
+        "androidx.compose.ui.text.font.FontWeight",
+    );
 
     add(
         features.uses_mutable_state,

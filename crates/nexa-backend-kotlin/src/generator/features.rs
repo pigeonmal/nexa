@@ -23,6 +23,7 @@ pub(super) struct Features {
     pub(super) uses_keyboard_aware: bool,
     pub(super) uses_adaptive_color: bool,
     pub(super) uses_font_size: bool,
+    pub(super) uses_font_weight: bool,
     pub(super) uses_button: bool,
     pub(super) uses_text: bool,
     pub(super) uses_text_input: bool,
@@ -207,6 +208,7 @@ impl Features {
                 if style.font_size.is_some() {
                     self.uses_font_size = true;
                 }
+                self.uses_font_weight |= style.font_weight.is_some();
             }
             Node::Button { .. } => {
                 self.uses_button = true;

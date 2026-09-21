@@ -136,6 +136,8 @@ pub enum Node {
         value: Expr,
         color: Option<Expr>,
         font_size: Option<Expr>,
+        font_weight: Option<Expr>,
+        line_limit: Option<Expr>,
         span: Span,
     },
     Button {

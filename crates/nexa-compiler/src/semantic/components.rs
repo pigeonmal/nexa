@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
     AccessibilityRole, Action, BottomBarTab, Capitalization, DirectionConfig, DirectionStyle, Expr,
-    ImageScale, ImageSource, KeyboardType, LayoutKind, ListSource, Node, NumericType, ScreenId,
-    StatusBarConfig, StatusBarStyle, TextStyle, Type,
+    FontWeight, ImageScale, ImageSource, KeyboardType, LayoutKind, ListSource, Node, NumericType,
+    ScreenId, StatusBarConfig, StatusBarStyle, TextStyle, Type,
 };
 use nexa_syntax::ast;
 
@@ -128,6 +128,8 @@ pub(super) fn lower_node(
             value,
             color,
             font_size,
+            font_weight,
+            line_limit,
             ..
         } => {
             let value = lower_expr(&value, None, symbols)?;
@@ -138,9 +140,16 @@ pub(super) fn lower_node(
                 Some(ast::ThemeTokenKind::FontSize),
                 themes,
             )?;
+            let font_weight = lower_font_weight(font_weight)?;
+            let line_limit = lower_line_limit(line_limit)?;
             Ok(Node::Text {
                 value,
-                style: TextStyle { color, font_size },
+                style: TextStyle {
+                    color,
+                    font_size,
+                    font_weight,
+                    line_limit,
+                },
             })
         }
         ast::Node::Button {
@@ -738,6 +747,53 @@ fn lower_direction(value: ast::Expr) -> Result<DirectionConfig, CompileError> {
         }
     };
     Ok(DirectionConfig { style })
+}
+
+fn lower_font_weight(value: Option<ast::Expr>) -> Result<Option<FontWeight>, CompileError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let ast::Expr::Name(name, span) = value else {
+        return Err(CompileError::new(
+            value.span(),
+            "Text fontWeight must be Normal, Medium, Semibold, or Bold",
+        ));
+    };
+    let weight = match name.as_str() {
+        "Normal" | "Regular" => FontWeight::Normal,
+        "Medium" => FontWeight::Medium,
+        "Semibold" | "SemiBold" => FontWeight::Semibold,
+        "Bold" => FontWeight::Bold,
+        _ => {
+            return Err(CompileError::new(
+                span,
+                "Text fontWeight must be Normal, Medium, Semibold, or Bold",
+            ));
+        }
+    };
+    Ok(Some(weight))
+}
+
+fn lower_line_limit(value: Option<ast::Expr>) -> Result<Option<i32>, CompileError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let ast::Expr::Number(raw, span) = value else {
+        return Err(CompileError::new(
+            value.span(),
+            "Text lineLimit must be a positive integer literal",
+        ));
+    };
+    let limit = raw.parse::<i32>().map_err(|_| {
+        CompileError::new(span, "Text lineLimit must be a positive integer literal")
+    })?;
+    if limit <= 0 {
+        return Err(CompileError::new(
+            span,
+            "Text lineLimit must be greater than zero",
+        ));
+    }
+    Ok(Some(limit))
 }
 
 fn binding_name(

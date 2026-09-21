@@ -36,6 +36,19 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                     number(font_size)
                 ));
             }
+            if let Some(font_weight) = style.font_weight {
+                out.push_str(&format!(
+                    "\n{}.fontWeight({})",
+                    "    ".repeat(depth + 1),
+                    swift_font_weight(font_weight)
+                ));
+            }
+            if let Some(line_limit) = style.line_limit {
+                out.push_str(&format!(
+                    "\n{}.lineLimit({line_limit})",
+                    "    ".repeat(depth + 1)
+                ));
+            }
         }
         Node::Button { label, actions } => {
             controls::render_button(label, actions, depth, out);
@@ -154,6 +167,15 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                     .join(", ")
             ));
         }
+    }
+}
+
+fn swift_font_weight(weight: nexa_ir::FontWeight) -> &'static str {
+    match weight {
+        nexa_ir::FontWeight::Normal => ".regular",
+        nexa_ir::FontWeight::Medium => ".medium",
+        nexa_ir::FontWeight::Semibold => ".semibold",
+        nexa_ir::FontWeight::Bold => ".bold",
     }
 }
 

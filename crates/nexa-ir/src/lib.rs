@@ -350,6 +350,16 @@ pub enum ColorValue {
 pub struct TextStyle {
     pub color: Option<ColorValue>,
     pub font_size: Option<f32>,
+    pub font_weight: Option<FontWeight>,
+    pub line_limit: Option<i32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FontWeight {
+    Normal,
+    Medium,
+    Semibold,
+    Bold,
 }
 
 #[derive(Clone, Debug)]

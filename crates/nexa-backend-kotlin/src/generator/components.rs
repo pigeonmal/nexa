@@ -37,6 +37,15 @@ pub(super) fn render_node(
             if let Some(font_size) = style.font_size {
                 out.push_str(&format!(", fontSize = {}.sp", number(font_size)));
             }
+            if let Some(font_weight) = style.font_weight {
+                out.push_str(&format!(
+                    ", fontWeight = {}",
+                    kotlin_font_weight(font_weight)
+                ));
+            }
+            if let Some(line_limit) = style.line_limit {
+                out.push_str(&format!(", maxLines = {line_limit}"));
+            }
             out.push(')');
         }
         Node::Button { label, actions } => {
@@ -166,6 +175,15 @@ pub(super) fn render_node(
                 rendered_arguments.join(", ")
             ));
         }
+    }
+}
+
+fn kotlin_font_weight(weight: nexa_ir::FontWeight) -> &'static str {
+    match weight {
+        nexa_ir::FontWeight::Normal => "FontWeight.Normal",
+        nexa_ir::FontWeight::Medium => "FontWeight.Medium",
+        nexa_ir::FontWeight::Semibold => "FontWeight.SemiBold",
+        nexa_ir::FontWeight::Bold => "FontWeight.Bold",
     }
 }
 

@@ -31,6 +31,7 @@ cargo run -p nexa-cli -- check examples/linking.nx
 cargo run -p nexa-cli -- check examples/accessibility.nx
 cargo run -p nexa-cli -- check examples/direction.nx
 cargo run -p nexa-cli -- check examples/lifecycle.nx
+cargo run -p nexa-cli -- check examples/text-style.nx
 cargo run -p nexa-cli -- check examples/counter.nx --deny-warnings
 cargo run -p nexa-cli -- check examples/platform-widgets.nx
 cargo run -p nexa-cli -- check examples/network-image.nx
@@ -64,6 +65,8 @@ cargo run -p nexa-cli -- build examples/direction.nx --target swift --out /tmp/D
 cargo run -p nexa-cli -- build examples/direction.nx --target kotlin --out /tmp/Direction.kt
 cargo run -p nexa-cli -- build examples/lifecycle.nx --target swift --out /tmp/Lifecycle.swift
 cargo run -p nexa-cli -- build examples/lifecycle.nx --target kotlin --out /tmp/Lifecycle.kt
+cargo run -p nexa-cli -- build examples/text-style.nx --target swift --out /tmp/TextStyle.swift
+cargo run -p nexa-cli -- build examples/text-style.nx --target kotlin --out /tmp/TextStyle.kt
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target swift --out /tmp/PlatformWidgets.swift
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target kotlin --out /tmp/PlatformWidgets.kt
 cargo run -p nexa-cli -- build examples/network-image.nx --target swift --out /tmp/NetworkImage.swift
