@@ -1,0 +1,15 @@
+[package]
+name = "nexa-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "nexa"
+path = "src/main.rs"
+
+[dependencies]
+nexa-backend-kotlin = { path = "../nexa-backend-kotlin" }
+nexa-backend-swift = { path = "../nexa-backend-swift" }
+nexa-codegen = { path = "../nexa-codegen" }
+nexa-compiler = { path = "../nexa-compiler" }

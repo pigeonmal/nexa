@@ -1,0 +1,23 @@
+[workspace]
+members = [
+    "crates/nexa-backend-kotlin",
+    "crates/nexa-backend-swift",
+    "crates/nexa-cli",
+    "crates/nexa-codegen",
+    "crates/nexa-compiler",
+    "crates/nexa-diagnostics",
+    "crates/nexa-ir",
+    "crates/nexa-syntax",
+]
+default-members = ["crates/nexa-cli"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

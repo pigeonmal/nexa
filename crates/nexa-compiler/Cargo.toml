@@ -1,0 +1,10 @@
+[package]
+name = "nexa-compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nexa-diagnostics = { path = "../nexa-diagnostics" }
+nexa-ir = { path = "../nexa-ir" }
+nexa-syntax = { path = "../nexa-syntax" }

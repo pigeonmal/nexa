@@ -1,0 +1,8 @@
+[package]
+name = "nexa-codegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nexa-ir = { path = "../nexa-ir" }

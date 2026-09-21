@@ -1,0 +1,13 @@
+app Counter {
+    state count: Int32 = 0
+
+    body {
+        Column(spacing: 12) {
+            Text("Tap count")
+            Text(count)
+            Button("Increment") {
+                count = count + 1
+            }
+        }
+    }
+}

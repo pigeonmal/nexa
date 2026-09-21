@@ -1,0 +1,9 @@
+[package]
+name = "nexa-backend-swift"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nexa-codegen = { path = "../nexa-codegen" }
+nexa-ir = { path = "../nexa-ir" }

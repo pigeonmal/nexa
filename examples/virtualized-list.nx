@@ -1,0 +1,12 @@
+app VirtualizedListDemo {
+    state rowCount: Int32 = 100000
+
+    body {
+        FastList(count: rowCount, index: row) {
+            Row(spacing: 8) {
+                Text(row)
+                Text("rows")
+            }
+        }
+    }
+}

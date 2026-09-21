@@ -1,0 +1,12 @@
+app CollectionListDemo {
+    let products: Array<String> = ["Nexa", "SwiftUI", "Compose"]
+
+    body {
+        FastList(items: products, index: position, item: product) {
+            Row(spacing: 8) {
+                Text(position)
+                Text(product)
+            }
+        }
+    }
+}

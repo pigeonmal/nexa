@@ -1,0 +1,27 @@
+app NavigationDemo {
+    state visits: Int32 = 0
+
+    screen Home {
+        Column(spacing: 12) {
+            Text("Home")
+            Text(visits)
+            NavigationLink(destination: Profile) {
+                Text("Open profile")
+            }
+        }
+    }
+
+    screen Profile {
+        Column(spacing: 12) {
+            Text("Profile")
+            Text(visits)
+            Button("Increment visits") {
+                visits = visits + 1
+            }
+        }
+    }
+
+    body {
+        NavigationStack(root: Home)
+    }
+}

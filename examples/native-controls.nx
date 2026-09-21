@@ -1,0 +1,40 @@
+app NativeControls {
+    state email: String = ""
+    state password: String = ""
+    state biography: String = ""
+    state notifications: Bool = false
+    state taps: Int32 = 0
+
+    body {
+        KeyboardAware {
+            Column(spacing: 16, padding: 20, background: "#F4F5F7", cornerRadius: 16) {
+                Image(asset: "nexa_mark", description: "Nexa mark", scale: Fit)
+                Image(
+                    url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=512",
+                    description: "Profile photo",
+                    scale: Fill,
+                    placeholder: "nexa_mark"
+                )
+                TextInput(value: email, placeholder: "Email address", keyboard: Email, autocorrect: false, capitalization: None)
+                TextInput(value: password, placeholder: "Password", secure: true, autocorrect: false, capitalization: None)
+                TextInput(value: biography, placeholder: "Biography", multiline: true, capitalization: Sentences)
+                Switch(value: notifications, label: "Notifications")
+                Pressable(disabled: false) {
+                    Row(spacing: 8) {
+                        Text("Press count")
+                        Text(taps)
+                    }
+                } {
+                    taps = taps + 1
+                }
+                Button("Clear") {
+                    email = ""
+                    password = ""
+                    biography = ""
+                    notifications = false
+                    taps = 0
+                }
+            }
+        }
+    }
+}
