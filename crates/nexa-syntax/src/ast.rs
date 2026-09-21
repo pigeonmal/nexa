@@ -168,6 +168,11 @@ pub enum Node {
         children: Vec<Node>,
         span: Span,
     },
+    Link {
+        url: Expr,
+        children: Vec<Node>,
+        span: Span,
+    },
     KeyboardAware {
         children: Vec<Node>,
         span: Span,

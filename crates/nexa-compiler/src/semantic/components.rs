@@ -351,6 +351,23 @@ pub(super) fn lower_node(
                 children: lowered_children,
             })
         }
+        ast::Node::Link {
+            url,
+            children,
+            span,
+        } => {
+            let url = require_string_literal(&url, "Link URL")?;
+            if !is_link_url(&url) {
+                return Err(CompileError::new(
+                    span,
+                    "Link URL must include a valid absolute scheme (for example `https://` or `mailto:`)",
+                ));
+            }
+            let children = lower_nodes(
+                children, symbols, screen_ids, themes, components, false, target,
+            )?;
+            Ok(Node::Link { url, children })
+        }
         ast::Node::KeyboardAware { children, .. } => {
             let lowered_children = lower_nodes(
                 children, symbols, screen_ids, themes, components, false, target,
@@ -810,4 +827,22 @@ fn is_https_url(value: &str) -> bool {
     !authority.is_empty()
         && !authority.starts_with('.')
         && !authority.chars().any(char::is_whitespace)
+}
+
+fn is_link_url(value: &str) -> bool {
+    let Some((scheme, remainder)) = value.split_once(':') else {
+        return false;
+    };
+    if scheme.is_empty()
+        || !scheme.chars().enumerate().all(|(index, character)| {
+            if index == 0 {
+                character.is_ascii_alphabetic()
+            } else {
+                character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
+            }
+        })
+    {
+        return false;
+    }
+    !remainder.trim().is_empty() && !value.chars().any(char::is_whitespace)
 }

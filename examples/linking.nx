@@ -1,0 +1,15 @@
+app LinkingExample {
+    body {
+        Column(spacing: 12, padding: 20) {
+            Link(url: "https://nexa.dev") {
+                Text("Open Nexa website")
+            }
+            Link(url: "mailto:hello@nexa.dev") {
+                Text("Email Nexa")
+            }
+            Link(url: "tel:+33123456789") {
+                Text("Call Nexa")
+            }
+        }
+    }
+}

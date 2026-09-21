@@ -10,6 +10,8 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
 
     add(features.uses_status_bar, "android.app.Activity");
     add(features.uses_status_bar, "android.view.View");
+    add(features.uses_link, "android.content.Intent");
+    add(features.uses_link, "android.net.Uri");
     add(
         features.uses_status_bar,
         "androidx.compose.runtime.SideEffect",
@@ -44,7 +46,7 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
         "androidx.compose.foundation.background",
     );
     add(
-        features.uses_pressable,
+        features.uses_pressable || features.uses_link,
         "androidx.compose.foundation.clickable",
     );
     add(
@@ -151,6 +153,10 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
     add(
         features.uses_regular_width,
         "androidx.compose.ui.platform.LocalConfiguration",
+    );
+    add(
+        features.uses_link,
+        "androidx.compose.ui.platform.LocalContext",
     );
     add(features.uses_opacity, "androidx.compose.ui.draw.alpha");
     add(features.uses_corner_radius, "androidx.compose.ui.draw.clip");

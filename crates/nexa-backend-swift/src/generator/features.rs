@@ -6,6 +6,7 @@ use nexa_ir::{ColorValue, Expr, Module, Node};
 #[derive(Default)]
 pub(super) struct Features {
     pub(super) uses_fast_list: bool,
+    pub(super) uses_link: bool,
     pub(super) uses_remote_image: bool,
     pub(super) app_uses_adaptive_color: bool,
     pub(super) app_uses_regular_width: bool,
@@ -49,6 +50,7 @@ impl Features {
                 &component.body,
                 &mut |node| {
                     features.record_list_usage(node);
+                    features.uses_link |= matches!(node, Node::Link { .. });
                     features.uses_remote_image |= matches!(
                         node,
                         Node::Image {
@@ -84,6 +86,7 @@ impl Features {
 
     fn record_app_node(&mut self, node: &Node) {
         self.record_list_usage(node);
+        self.uses_link |= matches!(node, Node::Link { .. });
         self.uses_remote_image |= matches!(
             node,
             Node::Image {

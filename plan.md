@@ -787,17 +787,24 @@ The compiler may transform shared async semantics into native Swift/Kotlin async
 
 ## Linking
 
-Provide a first-party Linking API.
+The first `Link` slice is implemented:
 
-Support:
+```nexa
+Link(url: "https://example.com") {
+    Text("Open website")
+}
+```
 
-- opening URLs,
-- opening application schemes,
+Static URLs with a valid scheme lower to SwiftUI `Link` on iOS. Android emits an `ACTION_VIEW` intent and checks `resolveActivity` before opening it. This keeps external navigation in the platform handler without a shared runtime or dynamic event registry.
+
+Remaining work:
+
+- dynamic URL expressions,
 - universal links,
 - Android app links,
 - deep links,
-- checking whether URLs can be opened,
-- incoming link handling.
+- incoming link handling,
+- source-level URL availability checks.
 
 Use direct native APIs.
 

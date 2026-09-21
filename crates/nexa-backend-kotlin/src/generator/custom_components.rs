@@ -36,6 +36,9 @@ fn render_component(component: &Component, module: &Module, features: &Features,
     }
     out.push_str(") {\n");
 
+    if features.component_uses_link(&component.name) {
+        out.push_str("    val nexaLinkContext = LocalContext.current\n");
+    }
     render_component_states(&component.states, 1, out);
     render_body(&component.body, module, features, 1, out);
     out.push_str("\n}\n");

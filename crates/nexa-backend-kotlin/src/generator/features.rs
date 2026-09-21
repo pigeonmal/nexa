@@ -14,6 +14,8 @@ pub(super) struct Features {
     pub(super) uses_remote_image: bool,
     pub(super) uses_placeholder: bool,
     pub(super) uses_navigation_link: bool,
+    pub(super) uses_link: bool,
+    pub(super) app_uses_link: bool,
     pub(super) uses_list: bool,
     pub(super) uses_keyboard_aware: bool,
     pub(super) uses_adaptive_color: bool,
@@ -46,6 +48,7 @@ pub(super) struct Features {
     pub(super) uses_mutable_float_state: bool,
     pub(super) uses_mutable_generic_state: bool,
     component_theme: HashSet<String>,
+    components_using_link: HashSet<String>,
 }
 
 impl Features {
@@ -79,22 +82,31 @@ impl Features {
         }
 
         let mut direct_theme = HashSet::new();
+        let mut components_using_link = HashSet::new();
+        let mut app_uses_link = false;
         let mut calls = HashMap::<String, Vec<String>>::with_capacity(module.components.len());
         walk_ir(
             &module.body,
-            &mut |node| features.record_node(node),
+            &mut |node| {
+                features.record_node(node);
+                app_uses_link |= matches!(node, Node::Link { .. });
+            },
             &mut |expr| uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
         );
         for screen in &module.screens {
             walk_ir(
                 &screen.body,
-                &mut |node| features.record_node(node),
+                &mut |node| {
+                    features.record_node(node);
+                    app_uses_link |= matches!(node, Node::Link { .. });
+                },
                 &mut |expr| uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
             );
         }
         for component in &module.components {
             let mut child_calls = Vec::new();
             let mut uses_theme = false;
+            let mut uses_link = false;
             walk_ir(
                 &component.body,
                 &mut |node| {
@@ -111,6 +123,7 @@ impl Features {
                                 .color
                                 .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
                         }
+                        Node::Link { .. } => uses_link = true,
                         _ => {}
                     }
                 },
@@ -119,17 +132,26 @@ impl Features {
             if uses_theme {
                 direct_theme.insert(component.name.clone());
             }
+            if uses_link {
+                components_using_link.insert(component.name.clone());
+            }
             calls.insert(component.name.clone(), child_calls);
         }
 
         features.component_theme =
             components_requiring_theme(&module.components, &direct_theme, &calls);
+        features.components_using_link = components_using_link;
+        features.app_uses_link = app_uses_link;
         features.uses_regular_width = uses_regular_width;
         features
     }
 
     pub(super) fn component_requires_system_theme(&self, name: &str) -> bool {
         self.component_theme.contains(name)
+    }
+
+    pub(super) fn component_uses_link(&self, name: &str) -> bool {
+        self.components_using_link.contains(name)
     }
 
     fn record_state(&mut self, state: &State) {
@@ -217,6 +239,12 @@ impl Features {
             }
             Node::NavigationLink { children, .. } => {
                 self.uses_navigation_link = true;
+                self.record_child_layout(children);
+            }
+            Node::Link { children, .. } => {
+                self.uses_link = true;
+                self.uses_box = true;
+                self.uses_modifier = true;
                 self.record_child_layout(children);
             }
             Node::KeyboardAware { .. } => {

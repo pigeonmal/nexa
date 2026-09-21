@@ -182,6 +182,10 @@ fn optimize_node(node: Node) -> Option<Node> {
             destination,
             children: optimize_nodes(children),
         }),
+        Node::Link { url, children } => Some(Node::Link {
+            url,
+            children: optimize_nodes(children),
+        }),
         Node::KeyboardAware { children } => Some(Node::KeyboardAware {
             children: optimize_nodes(children),
         }),

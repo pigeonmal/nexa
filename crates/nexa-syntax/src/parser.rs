@@ -515,6 +515,16 @@ impl Parser {
                     span,
                 })
             }
+            "Link" => {
+                let mut args = self.named_args(&["url"])?;
+                let url = self.required_arg(&mut args, "url", "Link requires `url`")?;
+                let children = self.block_nodes()?;
+                Ok(Node::Link {
+                    url,
+                    children,
+                    span,
+                })
+            }
             "KeyboardAware" => {
                 let children = self.block_nodes()?;
                 Ok(Node::KeyboardAware { children, span })

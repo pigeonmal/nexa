@@ -174,6 +174,10 @@ pub enum Node {
         destination: ScreenId,
         children: Vec<Node>,
     },
+    Link {
+        url: String,
+        children: Vec<Node>,
+    },
     KeyboardAware {
         children: Vec<Node>,
     },

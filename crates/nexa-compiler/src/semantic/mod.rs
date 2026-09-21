@@ -190,6 +190,7 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
         Node::StatusBar { .. } => true,
         Node::Layout { children, .. }
         | Node::NavigationLink { children, .. }
+        | Node::Link { children, .. }
         | Node::KeyboardAware { children }
         | Node::BottomSheet { children, .. }
         | Node::RefreshControl { children, .. }

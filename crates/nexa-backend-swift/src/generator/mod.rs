@@ -11,6 +11,7 @@ mod images;
 mod input;
 mod keyboard;
 mod layout;
+mod links;
 mod list_runtime;
 mod lists;
 mod navigation;
@@ -29,7 +30,10 @@ pub(super) fn generate(module: &Module) -> String {
     };
     if features.uses_remote_image {
         out.push_str("import CryptoKit\nimport Foundation\n\n");
-    } else if uses_fast_list {
+    } else if features.uses_link {
+        out.push_str("import Foundation\n\n");
+    }
+    if uses_fast_list {
         out.push_str("\n@available(iOS 16.0, *)\n");
     }
     out.push_str(&format!(

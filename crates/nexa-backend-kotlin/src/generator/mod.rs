@@ -12,6 +12,7 @@ mod imports;
 mod input;
 mod keyboard;
 mod layout;
+mod links;
 mod lists;
 mod navigation;
 mod network;
@@ -32,6 +33,9 @@ pub(super) fn generate(module: &Module) -> String {
         out.push_str("    val nexaIsDarkTheme = isSystemInDarkTheme()\n");
     }
     render_status_bar(module.status_bar, features.uses_status_bar, &mut out);
+    if features.app_uses_link {
+        out.push_str("    val nexaLinkContext = LocalContext.current\n");
+    }
     for state in &module.states {
         let name = nexa_codegen::names::state_name(&state.name);
         if state.mutable {
