@@ -85,6 +85,7 @@ pub(super) fn generate(module: &Module) -> String {
             &mut out,
         );
     }
+    render_status_bar_modifiers(module.status_bar, 2, &mut out);
     out.push_str("\n    }\n");
     if !module.screens.is_empty() {
         for screen in &module.screens {
@@ -100,6 +101,33 @@ pub(super) fn generate(module: &Module) -> String {
         network::render(&mut out);
     }
     out
+}
+
+fn render_status_bar_modifiers(
+    config: Option<nexa_ir::StatusBarConfig>,
+    depth: usize,
+    out: &mut String,
+) {
+    let Some(config) = config else {
+        return;
+    };
+    if config.hidden {
+        out.push('\n');
+        utils::indent(out, depth);
+        out.push_str(".statusBarHidden(true)");
+    }
+    let scheme = match config.style {
+        nexa_ir::StatusBarStyle::Default => None,
+        // Light status-bar content uses a dark color scheme so the native
+        // status bar selects light foreground content.
+        nexa_ir::StatusBarStyle::Light => Some("dark"),
+        nexa_ir::StatusBarStyle::Dark => Some("light"),
+    };
+    if let Some(scheme) = scheme {
+        out.push('\n');
+        utils::indent(out, depth);
+        out.push_str(&format!(".preferredColorScheme(.{scheme})"));
+    }
 }
 
 pub(super) fn render_immutable_state(states: &[State], depth: usize, out: &mut String) {

@@ -1,0 +1,6 @@
+app StatusBarExample {
+    body {
+        StatusBar(style: Dark, hidden: false)
+        Text("Content")
+    }
+}

@@ -169,6 +169,7 @@ fn optimize_node(node: Node) -> Option<Node> {
         node @ (Node::TextInput { .. }
         | Node::Switch { .. }
         | Node::Image { .. }
+        | Node::StatusBar { .. }
         | Node::NavigationStack { .. }) => Some(node),
         Node::NavigationLink {
             destination,

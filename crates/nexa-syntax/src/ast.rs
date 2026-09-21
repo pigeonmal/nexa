@@ -115,6 +115,11 @@ pub enum Node {
         children: Vec<Node>,
         span: Span,
     },
+    StatusBar {
+        style: Option<Expr>,
+        hidden: Option<Expr>,
+        span: Span,
+    },
     Text {
         value: Expr,
         color: Option<Expr>,

@@ -7,6 +7,7 @@ pub struct Module {
     pub screens: Vec<Screen>,
     pub components: Vec<Component>,
     pub body: Vec<Node>,
+    pub status_bar: Option<StatusBarConfig>,
 }
 
 #[derive(Clone, Debug)]
@@ -53,6 +54,19 @@ pub enum NumericType {
     UInt64,
     Float32,
     Float64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StatusBarConfig {
+    pub style: StatusBarStyle,
+    pub hidden: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StatusBarStyle {
+    Default,
+    Light,
+    Dark,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,6 +126,9 @@ pub enum BinaryOp {
 
 #[derive(Clone, Debug)]
 pub enum Node {
+    StatusBar {
+        config: StatusBarConfig,
+    },
     Layout {
         kind: LayoutKind,
         spacing: f32,

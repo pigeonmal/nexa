@@ -175,6 +175,12 @@ fn lower_component(
         false,
         target,
     )?;
+    if body.iter().any(super::contains_status_bar) {
+        return Err(CompileError::new(
+            declaration.span,
+            "StatusBar is only allowed at the app body's top level",
+        ));
+    }
 
     let parameters = signature
         .parameters
@@ -285,6 +291,7 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
         }
         ast::Node::Text { .. }
         | ast::Node::Button { .. }
+        | ast::Node::StatusBar { .. }
         | ast::Node::TextInput { .. }
         | ast::Node::Switch { .. }
         | ast::Node::Image { .. }
@@ -324,6 +331,7 @@ fn contains_navigation_link(node: &ast::Node, target: Target) -> bool {
                         .any(|child| contains_navigation_link(child, target))
                 })
         }
+        ast::Node::StatusBar { .. } => false,
         ast::Node::Text { .. }
         | ast::Node::Button { .. }
         | ast::Node::TextInput { .. }
@@ -364,6 +372,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
                 collect_ir_component_calls(child, calls);
             }
         }
+        Node::StatusBar { .. } => {}
         Node::Text { .. }
         | Node::Button { .. }
         | Node::TextInput { .. }

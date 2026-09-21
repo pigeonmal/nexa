@@ -8,6 +8,17 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
         }
     };
 
+    add(features.uses_status_bar, "android.app.Activity");
+    add(features.uses_status_bar, "android.view.View");
+    add(
+        features.uses_status_bar,
+        "androidx.compose.runtime.SideEffect",
+    );
+    add(
+        features.uses_status_bar,
+        "androidx.compose.ui.platform.LocalView",
+    );
+
     add(
         features.uses_background,
         "androidx.compose.foundation.background",

@@ -28,6 +28,7 @@ pub(super) fn generate(module: &Module) -> String {
     if features.uses_adaptive_color {
         out.push_str("    val nexaIsDarkTheme = isSystemInDarkTheme()\n");
     }
+    render_status_bar(module.status_bar, features.uses_status_bar, &mut out);
     for state in &module.states {
         let name = nexa_codegen::names::state_name(&state.name);
         if state.mutable {
@@ -66,4 +67,36 @@ pub(super) fn generate(module: &Module) -> String {
         network::render(&mut out);
     }
     out
+}
+
+fn render_status_bar(config: Option<nexa_ir::StatusBarConfig>, enabled: bool, out: &mut String) {
+    if !enabled {
+        return;
+    }
+    let Some(config) = config else {
+        return;
+    };
+    out.push_str("    val nexaStatusBarView = LocalView.current\n");
+    out.push_str("    SideEffect {\n");
+    out.push_str("        val nexaWindow = (nexaStatusBarView.context as? Activity)?.window\n");
+    out.push_str(
+        "        nexaWindow?.decorView?.let { nexaDecorView ->\n            var nexaFlags = nexaDecorView.systemUiVisibility\n",
+    );
+    if config.hidden {
+        out.push_str("            nexaFlags = nexaFlags or View.SYSTEM_UI_FLAG_FULLSCREEN\n");
+    } else {
+        out.push_str(
+            "            nexaFlags = nexaFlags and View.SYSTEM_UI_FLAG_FULLSCREEN.inv()\n",
+        );
+    }
+    match config.style {
+        nexa_ir::StatusBarStyle::Light => out.push_str(
+            "            nexaFlags = nexaFlags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()\n",
+        ),
+        nexa_ir::StatusBarStyle::Dark => out.push_str(
+            "            nexaFlags = nexaFlags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR\n",
+        ),
+        nexa_ir::StatusBarStyle::Default => {}
+    }
+    out.push_str("            nexaDecorView.systemUiVisibility = nexaFlags\n        }\n    }\n\n");
 }

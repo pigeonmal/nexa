@@ -38,6 +38,7 @@ Work on the Nexa framework itself: a Rust ahead-of-time compiler that turns `.nx
 - Lower shared layout alignment to native stack constructor arguments; avoid adding wrapper layouts solely to position children. Keep common style-property predicates in the shared IR to prevent backend feature scans from drifting.
 - Prefer compile-time constant folding, dead-branch elimination, and unused-state pruning over runtime helpers. Follow native-toolchain guidance: keep generated Swift/Kotlin direct, measure platform-level improvements, and do not claim speedups without generated-output or runtime evidence.
 - Keep `Layout.isRegularWidth` as a typed responsive predicate with feature-gated native environment access: Swift horizontal size class and Compose configuration width `>= 600dp`. Document the platform-specific meaning and keep the broader breakpoint/device-class API on the roadmap until implemented.
+- Keep `StatusBar` as a single app-level static configuration. Lower `style` and `hidden` directly to SwiftUI/native Android status-bar APIs, remove the declaration before body generation, and reject nested or repeated declarations; keep background and animated transitions out until their cross-platform semantics are defined.
 - Preserve FastList as the public component name. Do not reintroduce the former UltraFastList name.
 
 ## Change workflow

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
     Action, Capitalization, Expr, ImageScale, ImageSource, KeyboardType, LayoutKind, ListSource,
-    Node, NumericType, ScreenId, TextStyle, Type,
+    Node, NumericType, ScreenId, StatusBarConfig, StatusBarStyle, TextStyle, Type,
 };
 use nexa_syntax::ast;
 
@@ -82,6 +82,9 @@ pub(super) fn lower_node(
         ast::Node::Platform { .. } => {
             unreachable!("platform blocks are expanded by lower_nodes")
         }
+        ast::Node::StatusBar { style, hidden, .. } => Ok(Node::StatusBar {
+            config: lower_status_bar(style, hidden)?,
+        }),
         ast::Node::Layout {
             kind,
             spacing,
@@ -505,6 +508,43 @@ pub(super) fn lower_node(
             })
         }
     }
+}
+
+fn lower_status_bar(
+    style: Option<ast::Expr>,
+    hidden: Option<ast::Expr>,
+) -> Result<StatusBarConfig, CompileError> {
+    let style = match style {
+        Some(ast::Expr::Name(name, name_span)) => match name.as_str() {
+            "Default" => StatusBarStyle::Default,
+            "Light" => StatusBarStyle::Light,
+            "Dark" => StatusBarStyle::Dark,
+            _ => {
+                return Err(CompileError::new(
+                    name_span,
+                    "StatusBar style must be `Default`, `Light`, or `Dark`",
+                ));
+            }
+        },
+        Some(expr) => {
+            return Err(CompileError::new(
+                expr.span(),
+                "StatusBar style must be `Default`, `Light`, or `Dark`",
+            ));
+        }
+        None => StatusBarStyle::Default,
+    };
+    let hidden = match hidden {
+        Some(ast::Expr::Bool(value, _)) => value,
+        Some(expr) => {
+            return Err(CompileError::new(
+                expr.span(),
+                "StatusBar hidden must be `true` or `false`",
+            ));
+        }
+        None => false,
+    };
+    Ok(StatusBarConfig { style, hidden })
 }
 
 fn binding_name(

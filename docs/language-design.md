@@ -6,6 +6,7 @@ Nexa borrows useful ideas from Kotlin and Swift, but keeps one source language a
 | --- | --- | --- |
 | Condition (`if / else`) | Integrate now | Lowers directly to native branches for UI and event actions. |
 | Platform-specific UI | Integrate now | `platform ios { ... }` and `platform android { ... }` are selected during target lowering; inactive widgets never reach the target IR. |
+| Status bar | Integrate first slice | One top-level `StatusBar` declaration lowers to native SwiftUI status-bar modifiers and Android system UI flags. Background colors and animated transitions remain deferred. |
 | Network, paths, and files | Integrate native library now | Generated modules use URLSession on iOS and Play Services Cronet on Android. Fetch/download options, cache policy, redirect handling, byte limits, optional pinning, path directories, and asynchronous file operations map directly to native APIs; first-class `.nx` async call syntax is still being designed. |
 | Multiple choice (`when / switch`) | Adopt after enums | Use one exhaustive `match` construct and emit Kotlin `when` or Swift `switch`; avoid separate source syntaxes and non-exhaustive UI states. |
 | AND / OR / NOT | Integrate now | `&&`, `||`, `!`; native short-circuit operators. |

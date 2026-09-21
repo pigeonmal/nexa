@@ -48,6 +48,7 @@ pub fn walk_ir(
             Node::TextInput { .. }
             | Node::Switch { .. }
             | Node::Image { .. }
+            | Node::StatusBar { .. }
             | Node::NavigationStack { .. } => {}
         }
     }

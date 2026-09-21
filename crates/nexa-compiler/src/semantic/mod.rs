@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, CompileWarning};
-use nexa_ir::{Module, Screen, ScreenId, State};
+use nexa_ir::{Module, Node, Screen, ScreenId, State, StatusBarConfig};
 use nexa_syntax::ast;
 
 use self::{
@@ -87,6 +87,12 @@ pub fn lower_with_warnings(
             false,
             target,
         )?;
+        if screen_body.iter().any(contains_status_bar) {
+            return Err(CompileError::new(
+                app.span,
+                "StatusBar is only allowed once at the app body's top level",
+            ));
+        }
         screens.push(Screen {
             id: ScreenId(index),
             name: screen.name,
@@ -103,6 +109,7 @@ pub fn lower_with_warnings(
         true,
         target,
     )?;
+    let (status_bar, body) = extract_status_bar(body, app.span)?;
     let components = retain_reachable(components, &body, &screens);
     let mut module = Module {
         app_name: app.name,
@@ -110,6 +117,7 @@ pub fn lower_with_warnings(
         screens,
         components,
         body,
+        status_bar,
     };
     crate::optimize::optimize(&mut module);
     Ok((module, warnings))
@@ -136,6 +144,7 @@ fn collect_active_nodes<'a>(
                 collect_active_nodes(children, target, active);
             }
             ast::Node::Platform { .. } => {}
+            ast::Node::StatusBar { .. } => {}
             node => active.push(node),
         }
     }
@@ -146,4 +155,60 @@ fn platform_matches(platform: ast::PlatformTarget, target: Target) -> bool {
         (platform, target),
         (ast::PlatformTarget::Ios, Target::Swift) | (ast::PlatformTarget::Android, Target::Kotlin)
     )
+}
+
+fn extract_status_bar(
+    nodes: Vec<Node>,
+    span: nexa_diagnostics::Span,
+) -> Result<(Option<StatusBarConfig>, Vec<Node>), CompileError> {
+    let mut config = None;
+    let mut body = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        match node {
+            Node::StatusBar { config: value } => {
+                if config.replace(value).is_some() {
+                    return Err(CompileError::new(
+                        span,
+                        "an app can declare only one top-level StatusBar",
+                    ));
+                }
+            }
+            node if contains_status_bar(&node) => {
+                return Err(CompileError::new(
+                    span,
+                    "StatusBar is only allowed at the app body's top level",
+                ));
+            }
+            node => body.push(node),
+        }
+    }
+    Ok((config, body))
+}
+
+pub(super) fn contains_status_bar(node: &Node) -> bool {
+    match node {
+        Node::StatusBar { .. } => true,
+        Node::Layout { children, .. }
+        | Node::NavigationLink { children, .. }
+        | Node::KeyboardAware { children }
+        | Node::Pressable { children, .. }
+        | Node::FastList { children, .. } => children.iter().any(contains_status_bar),
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_status_bar)
+                || else_body
+                    .as_deref()
+                    .is_some_and(|body| body.iter().any(contains_status_bar))
+        }
+        Node::Text { .. }
+        | Node::Button { .. }
+        | Node::TextInput { .. }
+        | Node::Switch { .. }
+        | Node::Image { .. }
+        | Node::NavigationStack { .. }
+        | Node::ComponentCall { .. } => false,
+    }
 }

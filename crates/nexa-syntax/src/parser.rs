@@ -312,6 +312,14 @@ impl Parser {
                     span,
                 })
             }
+            "StatusBar" => {
+                let mut args = self.named_args(&["style", "hidden"])?;
+                Ok(Node::StatusBar {
+                    style: args.remove("style"),
+                    hidden: args.remove("hidden"),
+                    span,
+                })
+            }
             "Column" | "Row" => {
                 let kind = match name.as_str() {
                     "Column" => LayoutKind::Column,
