@@ -16,8 +16,8 @@ mod navigation;
 mod utils;
 
 pub(super) fn generate(module: &Module) -> String {
-    let uses_fast_list = features::uses_fast_list(module);
-    let uses_adaptive_color = features::app_uses_adaptive_color(module);
+    let features = features::Features::analyze(module);
+    let uses_fast_list = features.uses_fast_list;
     let mut out = if uses_fast_list {
         String::from("import SwiftUI\nimport UIKit\n\n@available(iOS 16.0, *)\n")
     } else {
@@ -51,7 +51,7 @@ pub(super) fn generate(module: &Module) -> String {
     if !module.states.is_empty() {
         out.push('\n');
     }
-    if uses_adaptive_color {
+    if features.app_uses_adaptive_color {
         out.push_str("    @Environment(\\.colorScheme) private var nexaColorScheme\n\n");
     }
     out.push_str("    public init() {}\n\n    public var body: some View {\n");
@@ -78,7 +78,7 @@ pub(super) fn generate(module: &Module) -> String {
         }
     }
     out.push_str("}\n");
-    custom_components::render(module, &mut out);
+    custom_components::render(module, &features, &mut out);
     if uses_fast_list {
         list_runtime::render(&mut out);
     }

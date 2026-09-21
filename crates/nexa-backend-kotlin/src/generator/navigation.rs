@@ -3,6 +3,7 @@ use nexa_ir::{Module, Node, ScreenId};
 
 use super::{
     components::render_children,
+    features::Features,
     utils::{indent, kotlin_string},
 };
 
@@ -10,6 +11,7 @@ pub(super) fn render_link(
     destination: ScreenId,
     children: &[Node],
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -18,7 +20,7 @@ pub(super) fn render_link(
         "TextButton(onClick = {{ navController.navigate({}) }}) {{\n",
         kotlin_string(&navigation_route_name(destination))
     ));
-    render_children(children, module, depth + 1, out);
+    render_children(children, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');
@@ -27,6 +29,7 @@ pub(super) fn render_link(
 pub(super) fn render_navigation_stack(
     module: &Module,
     root: ScreenId,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -49,7 +52,7 @@ pub(super) fn render_navigation_stack(
             "composable(route = {}) {{\n",
             kotlin_string(&navigation_route_name(screen.id))
         ));
-        render_children(&screen.body, module, depth + 2, out);
+        render_children(&screen.body, module, features, depth + 2, out);
         out.push('\n');
         indent(out, depth + 1);
         out.push_str("}\n");

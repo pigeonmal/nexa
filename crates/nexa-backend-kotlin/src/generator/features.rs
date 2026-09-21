@@ -1,270 +1,281 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use nexa_ir::{ColorValue, Module, Node};
+use nexa_ir::walk::walk_nodes;
+use nexa_ir::{ColorValue, Component, LayoutKind, Module, Node, State, ViewStyle};
 
-pub(super) fn contains_image(node: &Node) -> bool {
-    match node {
-        Node::Image { .. } => true,
-        Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            then_body.iter().any(contains_image)
-                || else_body
-                    .as_ref()
-                    .is_some_and(|body| body.iter().any(contains_image))
-        }
-        Node::Layout { children, .. }
-        | Node::Pressable { children, .. }
-        | Node::NavigationLink { children, .. }
-        | Node::KeyboardAware { children, .. }
-        | Node::FastList { children, .. } => children.iter().any(contains_image),
-        Node::Text { .. }
-        | Node::ComponentCall { .. }
-        | Node::Button { .. }
-        | Node::TextInput { .. }
-        | Node::Switch { .. }
-        | Node::NavigationStack { .. } => false,
-    }
+#[derive(Default)]
+pub(super) struct Features {
+    pub(super) uses_image: bool,
+    pub(super) uses_placeholder: bool,
+    pub(super) uses_navigation_link: bool,
+    pub(super) uses_list: bool,
+    pub(super) uses_keyboard_aware: bool,
+    pub(super) uses_adaptive_color: bool,
+    pub(super) uses_font_size: bool,
+    pub(super) uses_button: bool,
+    pub(super) uses_text: bool,
+    pub(super) uses_text_input: bool,
+    pub(super) uses_secure_text_input: bool,
+    pub(super) uses_capitalization: bool,
+    pub(super) uses_switch: bool,
+    pub(super) uses_pressable: bool,
+    pub(super) uses_column: bool,
+    pub(super) uses_row: bool,
+    pub(super) uses_box: bool,
+    pub(super) uses_arrangement: bool,
+    pub(super) uses_modifier: bool,
+    pub(super) uses_background: bool,
+    pub(super) uses_padding: bool,
+    pub(super) uses_width: bool,
+    pub(super) uses_height: bool,
+    pub(super) uses_corner_radius: bool,
+    pub(super) uses_opacity: bool,
+    pub(super) uses_color: bool,
+    pub(super) uses_dp: bool,
+    pub(super) uses_mutable_state: bool,
+    pub(super) uses_mutable_int_state: bool,
+    pub(super) uses_mutable_long_state: bool,
+    pub(super) uses_mutable_float_state: bool,
+    pub(super) uses_mutable_generic_state: bool,
+    component_theme: HashSet<String>,
 }
 
-pub(super) fn contains_placeholder(node: &Node) -> bool {
-    match node {
-        Node::Image {
-            placeholder: Some(_),
-            ..
-        } => true,
-        Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            then_body.iter().any(contains_placeholder)
-                || else_body
-                    .as_ref()
-                    .is_some_and(|body| body.iter().any(contains_placeholder))
-        }
-        Node::Layout { children, .. }
-        | Node::Pressable { children, .. }
-        | Node::NavigationLink { children, .. }
-        | Node::KeyboardAware { children, .. }
-        | Node::FastList { children, .. } => children.iter().any(contains_placeholder),
-        Node::Image { .. }
-        | Node::Text { .. }
-        | Node::ComponentCall { .. }
-        | Node::Button { .. }
-        | Node::TextInput { .. }
-        | Node::Switch { .. }
-        | Node::NavigationStack { .. } => false,
-    }
-}
-
-pub(super) fn contains_navigation_link(node: &Node) -> bool {
-    match node {
-        Node::NavigationLink { .. } => true,
-        Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            then_body.iter().any(contains_navigation_link)
-                || else_body
-                    .as_ref()
-                    .is_some_and(|body| body.iter().any(contains_navigation_link))
-        }
-        Node::Layout { children, .. }
-        | Node::Pressable { children, .. }
-        | Node::KeyboardAware { children, .. }
-        | Node::FastList { children, .. } => children.iter().any(contains_navigation_link),
-        Node::Image { .. }
-        | Node::Text { .. }
-        | Node::ComponentCall { .. }
-        | Node::Button { .. }
-        | Node::TextInput { .. }
-        | Node::Switch { .. }
-        | Node::NavigationStack { .. } => false,
-    }
-}
-
-pub(super) fn contains_list(node: &Node) -> bool {
-    match node {
-        Node::FastList { .. } => true,
-        Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            then_body.iter().any(contains_list)
-                || else_body
-                    .as_ref()
-                    .is_some_and(|body| body.iter().any(contains_list))
-        }
-        Node::Layout { children, .. }
-        | Node::Pressable { children, .. }
-        | Node::NavigationLink { children, .. }
-        | Node::KeyboardAware { children, .. } => children.iter().any(contains_list),
-        Node::Image { .. }
-        | Node::Text { .. }
-        | Node::ComponentCall { .. }
-        | Node::Button { .. }
-        | Node::TextInput { .. }
-        | Node::Switch { .. }
-        | Node::NavigationStack { .. } => false,
-    }
-}
-
-pub(super) fn contains_keyboard_aware(node: &Node) -> bool {
-    match node {
-        Node::KeyboardAware { .. } => true,
-        Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            then_body.iter().any(contains_keyboard_aware)
-                || else_body
-                    .as_ref()
-                    .is_some_and(|body| body.iter().any(contains_keyboard_aware))
-        }
-        Node::Layout { children, .. }
-        | Node::Pressable { children, .. }
-        | Node::NavigationLink { children, .. }
-        | Node::FastList { children, .. } => children.iter().any(contains_keyboard_aware),
-        Node::Image { .. }
-        | Node::Text { .. }
-        | Node::ComponentCall { .. }
-        | Node::Button { .. }
-        | Node::TextInput { .. }
-        | Node::Switch { .. }
-        | Node::NavigationStack { .. } => false,
-    }
-}
-
-pub(super) fn uses_adaptive_color(module: &Module) -> bool {
-    nodes_use_adaptive_color(&module.body)
-        || module
-            .screens
-            .iter()
-            .any(|screen| nodes_use_adaptive_color(&screen.body))
-        || module
-            .components
-            .iter()
-            .any(|component| nodes_use_adaptive_color(&component.body))
-}
-
-pub(super) fn component_requires_system_theme(module: &Module, name: &str) -> bool {
-    fn visit(module: &Module, name: &str, visited: &mut HashSet<String>) -> bool {
-        if !visited.insert(name.to_owned()) {
-            return false;
-        }
-        let Some(component) = module
-            .components
-            .iter()
-            .find(|component| component.name == name)
-        else {
-            return false;
+impl Features {
+    pub(super) fn analyze(module: &Module) -> Self {
+        let mut features = Self {
+            uses_column: module.body.len() != 1
+                || module.screens.iter().any(|screen| screen.body.len() > 1)
+                || module
+                    .components
+                    .iter()
+                    .any(|component| component.body.len() > 1),
+            ..Self::default()
         };
-        if nodes_use_adaptive_color(&component.body) {
-            return true;
+
+        for state in module.states.iter().chain(
+            module
+                .components
+                .iter()
+                .flat_map(|component| component.states.iter()),
+        ) {
+            features.record_state(state);
         }
-        let mut calls = Vec::new();
-        for node in &component.body {
-            collect_component_calls(node, &mut calls);
+
+        let mut direct_theme = HashSet::new();
+        let mut calls = HashMap::<String, Vec<String>>::with_capacity(module.components.len());
+        walk_nodes(&module.body, &mut |node| features.record_node(node));
+        for screen in &module.screens {
+            walk_nodes(&screen.body, &mut |node| features.record_node(node));
         }
-        calls.iter().any(|child| visit(module, child, visited))
+        for component in &module.components {
+            let mut child_calls = Vec::new();
+            let mut uses_theme = false;
+            walk_nodes(&component.body, &mut |node| {
+                features.record_node(node);
+                match node {
+                    Node::ComponentCall { name, .. } => child_calls.push(name.clone()),
+                    Node::Layout { style, .. } => {
+                        uses_theme |= style
+                            .background
+                            .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
+                    }
+                    Node::Text { style, .. } => {
+                        uses_theme |= style
+                            .color
+                            .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
+                    }
+                    _ => {}
+                }
+            });
+            if uses_theme {
+                direct_theme.insert(component.name.clone());
+            }
+            calls.insert(component.name.clone(), child_calls);
+        }
+
+        features.component_theme =
+            components_requiring_theme(&module.components, &direct_theme, &calls);
+        features
     }
 
-    visit(module, name, &mut HashSet::new())
-}
-
-pub(super) fn nodes_use_adaptive_color(nodes: &[Node]) -> bool {
-    nodes.iter().any(contains_adaptive_color)
-}
-
-fn contains_adaptive_color(node: &Node) -> bool {
-    let own_color_is_adaptive = match node {
-        Node::Layout { style, .. } => style.background,
-        Node::Text { style, .. } => style.color,
-        _ => None,
+    pub(super) fn component_requires_system_theme(&self, name: &str) -> bool {
+        self.component_theme.contains(name)
     }
-    .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
-    own_color_is_adaptive
-        || match node {
+
+    fn record_state(&mut self, state: &State) {
+        if !state.mutable {
+            return;
+        }
+        self.uses_mutable_state = true;
+        match state.ty {
+            nexa_ir::Type::Numeric(nexa_ir::NumericType::Int32) => {
+                self.uses_mutable_int_state = true;
+            }
+            nexa_ir::Type::Numeric(nexa_ir::NumericType::Int64) => {
+                self.uses_mutable_long_state = true;
+            }
+            nexa_ir::Type::Numeric(nexa_ir::NumericType::Float32) => {
+                self.uses_mutable_float_state = true;
+            }
+            _ => self.uses_mutable_generic_state = true,
+        }
+    }
+
+    fn record_node(&mut self, node: &Node) {
+        match node {
+            Node::Layout {
+                kind,
+                spacing,
+                style,
+                ..
+            } => {
+                match kind {
+                    LayoutKind::View | LayoutKind::Column => self.uses_column = true,
+                    LayoutKind::Row => self.uses_row = true,
+                }
+                if *spacing > 0.0 {
+                    self.uses_dp = true;
+                    self.uses_arrangement = true;
+                }
+                self.record_style(style);
+            }
+            Node::Text { style, .. } => {
+                self.uses_text = true;
+                self.uses_color |= style.color.is_some();
+                self.uses_adaptive_color |= style
+                    .color
+                    .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
+                if style.font_size.is_some() {
+                    self.uses_font_size = true;
+                }
+            }
+            Node::Button { .. } => {
+                self.uses_button = true;
+                self.uses_text = true;
+            }
+            Node::TextInput {
+                secure,
+                capitalization,
+                ..
+            } => {
+                self.uses_text_input = true;
+                self.uses_text = true;
+                self.uses_secure_text_input |= *secure;
+                self.uses_capitalization |= capitalization.is_some();
+            }
+            Node::Switch { .. } => {
+                self.uses_switch = true;
+                self.uses_modifier = true;
+            }
+            Node::Image { placeholder, .. } => {
+                self.uses_image = true;
+                self.uses_placeholder |= placeholder.is_some();
+            }
+            Node::Pressable { children, .. } => {
+                self.uses_pressable = true;
+                self.uses_box = true;
+                self.uses_modifier = true;
+                self.record_child_layout(children);
+            }
+            Node::NavigationLink { children, .. } => {
+                self.uses_navigation_link = true;
+                self.record_child_layout(children);
+            }
+            Node::KeyboardAware { .. } => {
+                self.uses_keyboard_aware = true;
+                self.uses_column = true;
+                self.uses_modifier = true;
+            }
+            Node::FastList { children, .. } => {
+                self.uses_list = true;
+                self.record_child_layout(children);
+            }
             Node::If {
                 then_body,
                 else_body,
                 ..
             } => {
-                nodes_use_adaptive_color(then_body)
-                    || else_body
-                        .as_ref()
-                        .is_some_and(|body| nodes_use_adaptive_color(body))
+                self.record_child_layout(then_body);
+                if let Some(else_body) = else_body {
+                    self.record_child_layout(else_body);
+                }
             }
-            _ => children(node).iter().any(contains_adaptive_color),
+            Node::NavigationStack { .. } | Node::ComponentCall { .. } => {}
         }
-}
+    }
 
-pub(super) fn uses_font_size(module: &Module) -> bool {
-    nodes_use_font_size(&module.body)
-        || module
-            .screens
-            .iter()
-            .any(|screen| nodes_use_font_size(&screen.body))
-        || module
-            .components
-            .iter()
-            .any(|component| nodes_use_font_size(&component.body))
-}
-
-pub(super) fn nodes_use_font_size(nodes: &[Node]) -> bool {
-    nodes.iter().any(contains_font_size)
-}
-
-fn contains_font_size(node: &Node) -> bool {
-    matches!(node, Node::Text { style, .. } if style.font_size.is_some())
-        || match node {
-            Node::If {
-                then_body,
-                else_body,
-                ..
-            } => {
-                nodes_use_font_size(then_body)
-                    || else_body
-                        .as_ref()
-                        .is_some_and(|body| nodes_use_font_size(body))
-            }
-            _ => children(node).iter().any(contains_font_size),
+    fn record_child_layout(&mut self, children: &[Node]) {
+        if children.len() > 1 {
+            self.uses_column = true;
         }
-}
+    }
 
-fn children(node: &Node) -> &[Node] {
-    match node {
-        Node::Layout { children, .. }
-        | Node::Pressable { children, .. }
-        | Node::NavigationLink { children, .. }
-        | Node::KeyboardAware { children }
-        | Node::FastList { children, .. } => children,
-        _ => &[],
+    fn record_style(&mut self, style: &ViewStyle) {
+        self.uses_padding |= style.padding.is_some();
+        self.uses_width |= style.width.is_some();
+        self.uses_height |= style.height.is_some();
+        self.uses_background |= style.background.is_some();
+        self.uses_corner_radius |= style.corner_radius.is_some();
+        self.uses_opacity |= style.opacity.is_some();
+        self.uses_modifier |= !style_is_empty(style);
+        self.uses_color |= style.background.is_some();
+        self.uses_adaptive_color |= style
+            .background
+            .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
+        self.uses_dp |= style.padding.is_some()
+            || style.width.is_some()
+            || style.height.is_some()
+            || style.corner_radius.is_some();
     }
 }
 
-fn collect_component_calls(node: &Node, calls: &mut Vec<String>) {
-    match node {
-        Node::ComponentCall { name, .. } => calls.push(name.clone()),
-        Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            for child in then_body.iter().chain(else_body.iter().flatten()) {
-                collect_component_calls(child, calls);
-            }
-        }
-        _ => {
-            for child in children(node) {
-                collect_component_calls(child, calls);
-            }
-        }
+fn style_is_empty(style: &ViewStyle) -> bool {
+    style.padding.is_none()
+        && style.width.is_none()
+        && style.height.is_none()
+        && style.background.is_none()
+        && style.corner_radius.is_none()
+        && style.opacity.is_none()
+}
+
+fn components_requiring_theme(
+    components: &[Component],
+    direct_theme: &HashSet<String>,
+    calls: &HashMap<String, Vec<String>>,
+) -> HashSet<String> {
+    let mut required = HashSet::with_capacity(direct_theme.len());
+    let mut completed = HashSet::with_capacity(components.len());
+    for component in components {
+        component_requires_theme(
+            &component.name,
+            direct_theme,
+            calls,
+            &mut required,
+            &mut completed,
+        );
     }
+    required
+}
+
+fn component_requires_theme(
+    name: &str,
+    direct_theme: &HashSet<String>,
+    calls: &HashMap<String, Vec<String>>,
+    required: &mut HashSet<String>,
+    completed: &mut HashSet<String>,
+) -> bool {
+    if completed.contains(name) {
+        return required.contains(name);
+    }
+    completed.insert(name.to_owned());
+    let needs_theme = direct_theme.contains(name)
+        || calls.get(name).is_some_and(|children| {
+            children.iter().any(|child| {
+                component_requires_theme(child, direct_theme, calls, required, completed)
+            })
+        });
+    if needs_theme {
+        required.insert(name.to_owned());
+    }
+    needs_theme
 }

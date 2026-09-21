@@ -1,22 +1,28 @@
 use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle};
 
-use super::{components::render_node, features, layout, render_immutable_state};
+use super::{components::render_node, features::Features, layout, render_immutable_state};
 
-pub(super) fn render(module: &Module, out: &mut String) {
-    let needs_ios16 = features::uses_fast_list(module);
+pub(super) fn render(module: &Module, features: &Features, out: &mut String) {
+    let needs_ios16 = features.uses_fast_list;
     for component in &module.components {
-        render_component(component, module, needs_ios16, out);
+        render_component(component, module, features, needs_ios16, out);
     }
 }
 
-fn render_component(component: &Component, module: &Module, needs_ios16: bool, out: &mut String) {
+fn render_component(
+    component: &Component,
+    module: &Module,
+    features: &Features,
+    needs_ios16: bool,
+    out: &mut String,
+) {
     let name = nexa_codegen::names::component_name(&component.name);
     if needs_ios16 {
         out.push_str("\n@available(iOS 16.0, *)\n");
     } else {
         out.push('\n');
     }
-    out.push_str(&format!("public struct {name}: View {{\n"));
+    out.push_str(&format!("private struct {name}: View {{\n"));
 
     for parameter in &component.parameters {
         out.push_str(&format!(
@@ -35,14 +41,14 @@ fn render_component(component: &Component, module: &Module, needs_ios16: bool, o
             ));
         }
     }
-    if features::component_uses_adaptive_color(component) {
+    if features.component_uses_adaptive_color(&component.name) {
         out.push_str("    @Environment(\\.colorScheme) private var nexaColorScheme\n");
     }
 
     if !component.parameters.is_empty() || !component.states.is_empty() {
         out.push('\n');
     }
-    out.push_str("    public init(");
+    out.push_str("    init(");
     out.push_str(
         &component
             .parameters
@@ -68,7 +74,7 @@ fn render_component(component: &Component, module: &Module, needs_ios16: bool, o
         out.push_str("    }\n\n");
     }
 
-    out.push_str("    public var body: some View {\n");
+    out.push_str("    var body: some View {\n");
     render_immutable_state(&component.states, 2, out);
     render_body(&component.body, module, 2, out);
     out.push_str("\n    }\n}\n");

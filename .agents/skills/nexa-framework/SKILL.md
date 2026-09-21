@@ -19,6 +19,8 @@ Work on the Nexa framework itself: a Rust ahead-of-time compiler that turns `.nx
 
 - Generate ordinary native SwiftUI and Kotlin/Jetpack Compose code with direct platform calls and minimal framework machinery. Preserve platform behavior, accessibility, and native state semantics.
 - Prioritize predictable allocations and direct native primitives. Make performance claims only when supported by generated output or measurements; do not label the prototype native-equivalent without benchmarks.
+- Keep module-wide code-generation scans single-pass and share recursive IR traversal across backends. Derive imports and optional native helpers from analyzed features; never emit broad wildcard imports by default.
+- Emit each reachable user component once and call it directly for every use. Do not duplicate its view body at call sites or add a component registry/runtime; keep generated component declarations out of the app's public API.
 - Android image nodes must use Coil 3 (`coil3.compose.AsyncImage`) and keep image-specific code isolated in the Kotlin image generator.
 - Theme values belong in typed, platform-independent IR and should resolve statically when possible. Emit system appearance lookups only for apps that use adaptive color tokens; keep typography, spacing, radius, and other token behavior native to each backend.
 - User-defined components should lower to typed IR and ordinary native view/composable declarations. Resolve relative `.nx` imports at compile time, preserve component-local state per native instance, reject recursive composition, and prune unreachable generated components; avoid runtime registries and duplicated UI trees.

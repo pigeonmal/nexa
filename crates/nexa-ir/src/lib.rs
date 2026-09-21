@@ -1,3 +1,5 @@
+pub mod walk;
+
 #[derive(Clone, Debug)]
 pub struct Module {
     pub app_name: String,

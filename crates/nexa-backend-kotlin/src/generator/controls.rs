@@ -2,8 +2,9 @@ use nexa_codegen::names::state_name;
 use nexa_ir::{Action, Expr, Module, Node};
 
 use super::{
-    components::render_node,
+    components::render_children,
     expressions::expression,
+    features::Features,
     utils::{indent, kotlin_string},
 };
 
@@ -39,6 +40,7 @@ pub(super) fn render_pressable(
     children: &[Node],
     actions: &[Action],
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -61,12 +63,7 @@ pub(super) fn render_pressable(
     }
     indent(out, depth + 1);
     out.push_str(") {\n");
-    for (index, child) in children.iter().enumerate() {
-        render_node(child, module, depth + 1, out);
-        if index + 1 < children.len() {
-            out.push('\n');
-        }
-    }
+    render_children(children, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');

@@ -3,6 +3,7 @@ use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 use super::{
     colors,
     components::render_node,
+    features::Features,
     utils::{indent, number, spaces},
 };
 
@@ -12,6 +13,7 @@ pub(super) fn render_layout(
     style: &ViewStyle,
     children: &[Node],
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -53,7 +55,7 @@ pub(super) fn render_layout(
         out.push_str(") {\n");
     }
     for (index, child) in children.iter().enumerate() {
-        render_node(child, module, depth + 1, out);
+        render_node(child, module, features, depth + 1, out);
         if index + 1 < children.len() {
             out.push('\n');
         }

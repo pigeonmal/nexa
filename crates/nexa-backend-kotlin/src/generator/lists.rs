@@ -1,7 +1,9 @@
 use nexa_codegen::names::state_name;
 use nexa_ir::{ListSource, Module, Node};
 
-use super::{components::render_children, expressions::expression, utils::indent};
+use super::{
+    components::render_children, expressions::expression, features::Features, utils::indent,
+};
 
 pub(super) fn render_virtualized_list(
     source: &ListSource,
@@ -9,6 +11,7 @@ pub(super) fn render_virtualized_list(
     item: Option<&str>,
     children: &[Node],
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -50,7 +53,7 @@ pub(super) fn render_virtualized_list(
             ));
         }
     }
-    render_children(children, module, depth + 2, out);
+    render_children(children, module, features, depth + 2, out);
     out.push('\n');
     indent(out, depth + 1);
     out.push_str("}\n");

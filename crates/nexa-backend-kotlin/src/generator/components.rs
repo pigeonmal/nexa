@@ -3,18 +3,27 @@ use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 use super::{
     colors, controls,
     expressions::text_expression,
-    features, images, input, keyboard, layout, lists, navigation,
+    features::Features,
+    images, input, keyboard, layout, lists, navigation,
     utils::{indent, number},
 };
 
-pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut String) {
+pub(super) fn render_node(
+    node: &Node,
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut String,
+) {
     match node {
         Node::Layout {
             kind,
             spacing,
             style,
             children,
-        } => layout::render_layout(*kind, *spacing, style, children, module, depth, out),
+        } => layout::render_layout(
+            *kind, *spacing, style, children, module, features, depth, out,
+        ),
         Node::Text { value, style } => {
             indent(out, depth);
             out.push_str(&format!("Text({}", text_expression(value)));
@@ -66,16 +75,16 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             disabled,
             children,
             actions,
-        } => controls::render_pressable(*disabled, children, actions, module, depth, out),
+        } => controls::render_pressable(*disabled, children, actions, module, features, depth, out),
         Node::NavigationStack { root } => {
-            navigation::render_navigation_stack(module, *root, depth, out);
+            navigation::render_navigation_stack(module, *root, features, depth, out);
         }
         Node::NavigationLink {
             destination,
             children,
-        } => navigation::render_link(*destination, children, module, depth, out),
+        } => navigation::render_link(*destination, children, module, features, depth, out),
         Node::KeyboardAware { children } => {
-            keyboard::render_keyboard_aware(children, module, depth, out)
+            keyboard::render_keyboard_aware(children, module, features, depth, out)
         }
         Node::FastList {
             source,
@@ -89,6 +98,7 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                 item.as_deref(),
                 children,
                 module,
+                features,
                 depth,
                 out,
             );
@@ -103,12 +113,12 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                 "if ({}) {{\n",
                 super::expressions::expression(condition)
             ));
-            render_children(then_body, module, depth + 1, out);
+            render_children(then_body, module, features, depth + 1, out);
             if let Some(else_body) = else_body {
                 out.push('\n');
                 indent(out, depth);
                 out.push_str("} else {\n");
-                render_children(else_body, module, depth + 1, out);
+                render_children(else_body, module, features, depth + 1, out);
             }
             out.push('\n');
             indent(out, depth);
@@ -120,7 +130,7 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                 .iter()
                 .map(|(_, argument)| super::expressions::expression(argument))
                 .collect::<Vec<_>>();
-            if features::component_requires_system_theme(module, name) {
+            if features.component_requires_system_theme(name) {
                 rendered_arguments.push("nexaIsDarkTheme".to_owned());
             }
             out.push_str(&format!(
@@ -132,16 +142,23 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
     }
 }
 
-pub(super) fn render_children(children: &[Node], module: &Module, depth: usize, out: &mut String) {
+pub(super) fn render_children(
+    children: &[Node],
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut String,
+) {
     match children {
         [] => {}
-        [node] => render_node(node, module, depth, out),
+        [node] => render_node(node, module, features, depth, out),
         _ => layout::render_layout(
             LayoutKind::View,
             0.0,
             &ViewStyle::default(),
             children,
             module,
+            features,
             depth,
             out,
         ),

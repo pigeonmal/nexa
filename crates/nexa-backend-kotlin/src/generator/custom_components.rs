@@ -1,16 +1,16 @@
 use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle};
 
-use super::{components::render_node, features, layout, state, utils::indent};
+use super::{components::render_node, features::Features, layout, state, utils::indent};
 
-pub(super) fn render(module: &Module, out: &mut String) {
+pub(super) fn render(module: &Module, features: &Features, out: &mut String) {
     for component in &module.components {
-        render_component(component, module, out);
+        render_component(component, module, features, out);
     }
 }
 
-fn render_component(component: &Component, module: &Module, out: &mut String) {
+fn render_component(component: &Component, module: &Module, features: &Features, out: &mut String) {
     out.push_str(&format!(
-        "\n@Composable\nfun {}(",
+        "\n@Composable\nprivate fun {}(",
         nexa_codegen::names::component_name(&component.name)
     ));
     out.push_str(
@@ -27,7 +27,7 @@ fn render_component(component: &Component, module: &Module, out: &mut String) {
             .collect::<Vec<_>>()
             .join(", "),
     );
-    let needs_system_theme = features::component_requires_system_theme(module, &component.name);
+    let needs_system_theme = features.component_requires_system_theme(&component.name);
     if needs_system_theme && !component.parameters.is_empty() {
         out.push_str(", ");
     }
@@ -37,7 +37,7 @@ fn render_component(component: &Component, module: &Module, out: &mut String) {
     out.push_str(") {\n");
 
     render_component_states(&component.states, 1, out);
-    render_body(&component.body, module, 1, out);
+    render_body(&component.body, module, features, 1, out);
     out.push_str("\n}\n");
 }
 
@@ -63,16 +63,23 @@ fn render_component_states(states: &[nexa_ir::State], depth: usize, out: &mut St
     }
 }
 
-fn render_body(body: &[Node], module: &Module, depth: usize, out: &mut String) {
+fn render_body(
+    body: &[Node],
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut String,
+) {
     match body {
         [] => {}
-        [node] => render_node(node, module, depth, out),
+        [node] => render_node(node, module, features, depth, out),
         children => layout::render_layout(
             LayoutKind::View,
             0.0,
             &ViewStyle::default(),
             children,
             module,
+            features,
             depth,
             out,
         ),
