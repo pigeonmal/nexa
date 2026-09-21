@@ -101,11 +101,13 @@ pub fn lower(mut app: ast::App) -> Result<Module, CompileError> {
         )?);
     }
     let components = retain_reachable(components, &body, &screens);
-    Ok(Module {
+    let mut module = Module {
         app_name: app.name,
         states,
         screens,
         components,
         body,
-    })
+    };
+    crate::optimize::optimize(&mut module);
+    Ok(module)
 }

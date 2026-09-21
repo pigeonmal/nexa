@@ -76,7 +76,7 @@ Button("Toggle") {
 }
 ```
 
-Logical operators are `&&`, `||`, and `!`; equality is `==` and `!=`; numeric comparisons are `<`, `<=`, `>`, and `>=`. `&&` and `||` short-circuit. Equality works for `Bool`, numeric scalars, and `String`; ordering currently works for numeric scalars. Compared values must have the same type. Nexa does not insert numeric conversions. Conditions lower directly to Swift/Kotlin operators and native `if` branches. See [conditional-logic.nx](../examples/conditional-logic.nx).
+Logical operators are `&&`, `||`, and `!`; equality is `==` and `!=`; numeric comparisons are `<`, `<=`, `>`, and `>=`. `&&` and `||` short-circuit. Equality works for `Bool`, numeric scalars, and `String`; ordering currently works for numeric scalars. Compared values must have the same type. Nexa does not insert numeric conversions. Conditions lower directly to Swift/Kotlin operators and native `if` branches. Pure literal conditions are folded by the compiler, and unreachable UI/event branches are removed before code generation. See [conditional-logic.nx](../examples/conditional-logic.nx) and [constant-branches.nx](../examples/constant-branches.nx).
 
 `Layout.isRegularWidth` is a built-in `Bool` for choosing a wider layout in a conditional. Swift reads the native horizontal size class and checks for `.regular`; Compose checks whether the current configuration width is at least `600dp`. The platform definitions differ, so use this as a layout hint rather than a guarantee that both platforms classify every device identically. It follows configuration changes and adds no wrapper view:
 

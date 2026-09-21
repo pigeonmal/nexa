@@ -21,6 +21,7 @@ cargo run -p nexa-cli -- check examples/themed-app.nx
 cargo run -p nexa-cli -- check examples/custom-components.nx
 cargo run -p nexa-cli -- check examples/conditional-logic.nx
 cargo run -p nexa-cli -- check examples/responsive-layout.nx
+cargo run -p nexa-cli -- check examples/constant-branches.nx
 cargo run -p nexa-cli -- build examples/themed-app.nx --target swift --out /tmp/ThemedApp.swift
 cargo run -p nexa-cli -- build examples/themed-app.nx --target kotlin --out /tmp/ThemedApp.kt
 cargo run -p nexa-cli -- build examples/custom-components.nx --target swift --out /tmp/CustomComponents.swift
@@ -31,6 +32,8 @@ cargo run -p nexa-cli -- build examples/collection-values.nx --target swift --ou
 cargo run -p nexa-cli -- build examples/collection-values.nx --target kotlin --out /tmp/CollectionValues.kt
 cargo run -p nexa-cli -- build examples/responsive-layout.nx --target swift --out /tmp/ResponsiveLayout.swift
 cargo run -p nexa-cli -- build examples/responsive-layout.nx --target kotlin --out /tmp/ResponsiveLayout.kt
+cargo run -p nexa-cli -- build examples/constant-branches.nx --target swift --out /tmp/ConstantBranches.swift
+cargo run -p nexa-cli -- build examples/constant-branches.nx --target kotlin --out /tmp/ConstantBranches.kt
 ```
 
 The default output replaces the input file extension, producing `counter.swift` or `counter.kt`. Generated files are intended to be added to an existing SwiftUI or Compose application with the corresponding platform dependencies configured.
@@ -51,6 +54,8 @@ The default output replaces the input file extension, producing `counter.swift` 
 Each target backend consumes the same typed IR. Adding another backend should require implementing the `nexa-codegen::Backend` contract without changing the lexer or parser.
 
 Compiler orchestration and semantic analysis are separate modules inside `nexa-compiler`. Native generation lives in backend-local `src/generator/` modules, with component-specific files for controls, inputs, images, layout, navigation, lists, keyboard behavior, expressions, state, and formatting. A shared IR walker keeps structural scans consistent across backends; each backend analyzes a module once and uses that result to emit only the imports and native helpers the generated app needs. This keeps platform concerns out of the shared IR and makes compiler changes easier to review and maintain.
+
+The compiler also runs a conservative IR optimization pass before backend generation. It folds pure literal conditions and removes statically unreachable UI and event branches without adding runtime machinery or changing native component mappings. See [constant-branches.nx](examples/constant-branches.nx).
 
 User-defined `.nx` components can live in imported files, declare typed inputs and private state, compose other components, and compile directly into native SwiftUI or Compose declarations. Each reachable component has one generated native declaration, and every use calls that declaration directly; imports resolve relative to the source file and are statically compiled, while unreachable component declarations are omitted from generated output.
 

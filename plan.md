@@ -149,6 +149,8 @@ The IR should represent:
 
 Apply compile-time optimization aggressively.
 
+The current compiler performs a conservative IR pass that folds pure literal boolean/scalar conditions and removes unreachable UI and event branches. It runs after semantic lowering and before either native backend, so it adds no runtime layer and keeps native component mappings unchanged.
+
 Potential optimizations should include:
 
 - constant folding,

@@ -1,4 +1,5 @@
 mod compile;
+mod optimize;
 mod project;
 mod semantic;
 
