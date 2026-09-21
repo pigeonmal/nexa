@@ -762,6 +762,8 @@ Compile dependency relationships statically when possible.
 
 Expose a common lifecycle abstraction.
 
+The first slice is implemented as one app-level `OnAppear { ... }` callback. Its direct state actions lower to SwiftUI `.onAppear` and Compose `LaunchedEffect(Unit)` without a shared lifecycle runtime. See [lifecycle.nx](examples/lifecycle.nx).
+
 Support concepts such as:
 
 - app active,

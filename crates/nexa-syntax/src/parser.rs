@@ -359,6 +359,10 @@ impl Parser {
                 )?;
                 Ok(Node::Direction { value, span })
             }
+            "OnAppear" => Ok(Node::OnAppear {
+                actions: self.block_stmts()?,
+                span,
+            }),
             "Column" | "Row" => {
                 let kind = match name.as_str() {
                     "Column" => LayoutKind::Column,

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, CompileWarning};
-use nexa_ir::{DirectionConfig, Module, Node, Screen, ScreenId, State, StatusBarConfig};
+use nexa_ir::{Action, DirectionConfig, Module, Node, Screen, ScreenId, State, StatusBarConfig};
 use nexa_syntax::ast;
 
 use self::{
@@ -99,6 +99,12 @@ pub fn lower_with_warnings(
                 "Direction is only allowed at the app body's top level",
             ));
         }
+        if screen_body.iter().any(contains_on_appear) {
+            return Err(CompileError::new(
+                app.span,
+                "OnAppear is only allowed at the app body's top level",
+            ));
+        }
         screens.push(Screen {
             id: ScreenId(index),
             name: screen.name,
@@ -117,6 +123,7 @@ pub fn lower_with_warnings(
     )?;
     let (status_bar, body) = extract_status_bar(body, app.span)?;
     let (direction, body) = extract_direction(body, app.span)?;
+    let (on_appear, body) = extract_on_appear(body, app.span)?;
     let components = retain_reachable(components, &body, &screens);
     let mut module = Module {
         app_name: app.name,
@@ -126,6 +133,7 @@ pub fn lower_with_warnings(
         body,
         status_bar,
         direction,
+        on_appear,
     };
     crate::optimize::optimize(&mut module);
     Ok((module, warnings))
@@ -154,6 +162,7 @@ fn collect_active_nodes<'a>(
             ast::Node::Platform { .. } => {}
             ast::Node::StatusBar { .. } => {}
             ast::Node::Direction { .. } => {}
+            ast::Node::OnAppear { .. } => {}
             node => active.push(node),
         }
     }
@@ -226,7 +235,8 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
         | Node::Image { .. }
         | Node::NavigationStack { .. }
         | Node::ComponentCall { .. }
-        | Node::Direction { .. } => false,
+        | Node::Direction { .. }
+        | Node::OnAppear { .. } => false,
     }
 }
 
@@ -284,6 +294,72 @@ pub(super) fn contains_direction(node: &Node) -> bool {
                     .is_some_and(|body| body.iter().any(contains_direction))
         }
         Node::StatusBar { .. }
+        | Node::Text { .. }
+        | Node::Button { .. }
+        | Node::TextInput { .. }
+        | Node::Switch { .. }
+        | Node::Image { .. }
+        | Node::NavigationStack { .. }
+        | Node::ComponentCall { .. }
+        | Node::OnAppear { .. } => false,
+    }
+}
+
+fn extract_on_appear(
+    nodes: Vec<Node>,
+    span: nexa_diagnostics::Span,
+) -> Result<(Option<Vec<Action>>, Vec<Node>), CompileError> {
+    let mut actions = None;
+    let mut body = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        match node {
+            Node::OnAppear { actions: value } => {
+                if actions.replace(value).is_some() {
+                    return Err(CompileError::new(
+                        span,
+                        "an app can declare only one top-level OnAppear",
+                    ));
+                }
+            }
+            node if contains_on_appear(&node) => {
+                return Err(CompileError::new(
+                    span,
+                    "OnAppear is only allowed at the app body's top level",
+                ));
+            }
+            node => body.push(node),
+        }
+    }
+    Ok((actions, body))
+}
+
+pub(super) fn contains_on_appear(node: &Node) -> bool {
+    match node {
+        Node::OnAppear { .. } => true,
+        Node::Layout { children, .. }
+        | Node::NavigationLink { children, .. }
+        | Node::Link { children, .. }
+        | Node::Accessibility { children, .. }
+        | Node::KeyboardAware { children }
+        | Node::BottomSheet { children, .. }
+        | Node::RefreshControl { children, .. }
+        | Node::Pressable { children, .. }
+        | Node::FastList { children, .. } => children.iter().any(contains_on_appear),
+        Node::AppBottomBar { tabs, .. } => tabs
+            .iter()
+            .any(|tab| tab.children.iter().any(contains_on_appear)),
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_on_appear)
+                || else_body
+                    .as_deref()
+                    .is_some_and(|body| body.iter().any(contains_on_appear))
+        }
+        Node::StatusBar { .. }
+        | Node::Direction { .. }
         | Node::Text { .. }
         | Node::Button { .. }
         | Node::TextInput { .. }

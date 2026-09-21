@@ -14,6 +14,9 @@ pub(crate) fn optimize(module: &mut Module) {
         state.initial = fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
     });
     module.body = optimize_nodes(std::mem::take(&mut module.body));
+    if let Some(actions) = &mut module.on_appear {
+        *actions = optimize_actions(std::mem::take(actions));
+    }
     for screen in &mut module.screens {
         screen.body = optimize_nodes(std::mem::take(&mut screen.body));
     }
@@ -30,6 +33,9 @@ pub(crate) fn optimize(module: &mut Module) {
 fn prune_unused_states(module: &mut Module) {
     let mut used = HashSet::new();
     collect_node_state_references(&module.body, &mut used);
+    if let Some(actions) = &module.on_appear {
+        collect_action_state_references(actions, &mut used);
+    }
     for screen in &module.screens {
         collect_node_state_references(&screen.body, &mut used);
     }
@@ -65,10 +71,16 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
     nexa_ir::walk::walk_ir(
         nodes,
         &mut |node| match node {
+            Node::Button { actions, .. } | Node::Pressable { actions, .. } => {
+                collect_action_bindings(actions, &mut bindings);
+            }
+            Node::RefreshControl { state, actions, .. } => {
+                collect_action_bindings(actions, &mut bindings);
+                bindings.push(state.clone());
+            }
             Node::TextInput { state, .. }
             | Node::Switch { state, .. }
             | Node::BottomSheet { state, .. }
-            | Node::RefreshControl { state, .. }
             | Node::AppBottomBar { state, .. } => {
                 bindings.push(state.clone());
             }
@@ -79,6 +91,46 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
         },
     );
     used.extend(bindings);
+}
+
+fn collect_action_bindings(actions: &[Action], used: &mut Vec<String>) {
+    for action in actions {
+        match action {
+            Action::Assign { name, .. } => used.push(name.clone()),
+            Action::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                collect_action_bindings(then_branch, used);
+                if let Some(else_branch) = else_branch {
+                    collect_action_bindings(else_branch, used);
+                }
+            }
+        }
+    }
+}
+
+fn collect_action_state_references(actions: &[Action], used: &mut HashSet<String>) {
+    for action in actions {
+        match action {
+            Action::Assign { name, value } => {
+                used.insert(name.clone());
+                collect_expression_state_references(value, used);
+            }
+            Action::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                collect_expression_state_references(condition, used);
+                collect_action_state_references(then_branch, used);
+                if let Some(else_branch) = else_branch {
+                    collect_action_state_references(else_branch, used);
+                }
+            }
+        }
+    }
 }
 
 fn collect_expression_state_references(expression: &Expr, used: &mut HashSet<String>) {
@@ -176,6 +228,9 @@ fn optimize_node(node: Node) -> Option<Node> {
         | Node::StatusBar { .. }
         | Node::Direction { .. }
         | Node::NavigationStack { .. }) => Some(node),
+        Node::OnAppear { actions } => Some(Node::OnAppear {
+            actions: optimize_actions(actions),
+        }),
         Node::NavigationLink {
             destination,
             children,

@@ -29,6 +29,7 @@ pub(super) fn generate(module: &Module) -> String {
         &features,
         !module.screens.is_empty(),
         module.direction.is_some(),
+        module.on_appear.is_some(),
         &mut out,
     );
     out.push_str(&format!(
@@ -72,6 +73,18 @@ pub(super) fn generate(module: &Module) -> String {
     } else {
         1
     };
+    if let Some(actions) = &module.on_appear {
+        utils::indent(&mut out, body_depth);
+        out.push_str("LaunchedEffect(Unit) {");
+        if actions.is_empty() {
+            out.push_str("}\n");
+        } else {
+            out.push('\n');
+            controls::render_actions(actions, body_depth + 1, &mut out);
+            utils::indent(&mut out, body_depth);
+            out.push_str("}\n");
+        }
+    }
     if module.body.len() == 1 {
         components::render_node(&module.body[0], module, &features, body_depth, &mut out);
     } else {

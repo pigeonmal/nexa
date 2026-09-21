@@ -30,6 +30,7 @@ cargo run -p nexa-cli -- check examples/app-bottom-bar.nx
 cargo run -p nexa-cli -- check examples/linking.nx
 cargo run -p nexa-cli -- check examples/accessibility.nx
 cargo run -p nexa-cli -- check examples/direction.nx
+cargo run -p nexa-cli -- check examples/lifecycle.nx
 cargo run -p nexa-cli -- check examples/counter.nx --deny-warnings
 cargo run -p nexa-cli -- check examples/platform-widgets.nx
 cargo run -p nexa-cli -- check examples/network-image.nx
@@ -61,6 +62,8 @@ cargo run -p nexa-cli -- build examples/accessibility.nx --target swift --out /t
 cargo run -p nexa-cli -- build examples/accessibility.nx --target kotlin --out /tmp/Accessibility.kt
 cargo run -p nexa-cli -- build examples/direction.nx --target swift --out /tmp/Direction.swift
 cargo run -p nexa-cli -- build examples/direction.nx --target kotlin --out /tmp/Direction.kt
+cargo run -p nexa-cli -- build examples/lifecycle.nx --target swift --out /tmp/Lifecycle.swift
+cargo run -p nexa-cli -- build examples/lifecycle.nx --target kotlin --out /tmp/Lifecycle.kt
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target swift --out /tmp/PlatformWidgets.swift
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target kotlin --out /tmp/PlatformWidgets.kt
 cargo run -p nexa-cli -- build examples/network-image.nx --target swift --out /tmp/NetworkImage.swift
@@ -110,7 +113,7 @@ These skills distinguish the current prototype from the longer-term goals in `pl
 
 See the [language guide](docs/language.md) for syntax, supported types, themes, current limits, and native mappings, and the [language design decisions](docs/language-design.md) for how Nexa adopts or defers Kotlin/Swift concepts. The full roadmap remains in [plan.md](plan.md).
 
-The authoring surface keeps mutability explicit while allowing both `state` and immutable `let` values to infer their type from non-empty initializers. Integer literals default to `Int32` and decimal literals to `Float64`; the resolved type is fixed in the typed IR before native bindings are generated. `Column` is the single vertical container; it emits direct native stack code on both platforms. `View` is no longer a Nexa component; replace it with `Column` in existing `.nx` files. SwiftUI's native `View` protocol remains part of generated Swift output.
+The authoring surface keeps mutability explicit: `state` stays mutable and `let` stays immutable. Both declarations infer their type from non-empty initializers using the same defaults: integer literals become `Int32` and decimal literals become `Float64`; the resolved type is fixed in the typed IR before native bindings are generated. `Column` is the single vertical container; it emits direct native stack code on both platforms. `View` is no longer a Nexa component; replace it with `Column` in existing `.nx` files. SwiftUI's native `View` protocol remains part of generated Swift output.
 
 String interpolation supports `$name` and `\(name)` for declared state and constant names. The compiler lowers each segment into direct Swift or Kotlin interpolation without a template runtime; see [interpolation.nx](examples/interpolation.nx).
 
@@ -119,6 +122,8 @@ String interpolation supports `$name` and `\(name)` for declared state and const
 `AppBottomBar(selected: ...)` provides static labeled tabs with native `TabView` and Material 3 `NavigationBar` output; see [app-bottom-bar.nx](examples/app-bottom-bar.nx).
 
 `Direction(value: LTR|RTL)` applies a static native layout direction at the app root; see [direction.nx](examples/direction.nx).
+
+`OnAppear { ... }` is a single top-level app lifecycle callback. Its direct state actions run through SwiftUI `.onAppear` on iOS and Compose `LaunchedEffect(Unit)` on Android; see [lifecycle.nx](examples/lifecycle.nx). Screen-specific appearance/disappearance and app background events remain future lifecycle slices.
 
 ## License
 

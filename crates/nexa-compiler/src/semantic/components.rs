@@ -89,6 +89,9 @@ pub(super) fn lower_node(
         ast::Node::Direction { value, .. } => Ok(Node::Direction {
             config: lower_direction(value)?,
         }),
+        ast::Node::OnAppear { actions, .. } => Ok(Node::OnAppear {
+            actions: lower_actions(actions, symbols)?,
+        }),
         ast::Node::Layout {
             kind,
             spacing,

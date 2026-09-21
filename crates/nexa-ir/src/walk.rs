@@ -27,6 +27,7 @@ pub fn walk_ir(
                 walk_actions(actions, visit_expression);
                 walk_ir(children, visit_node, visit_expression);
             }
+            Node::OnAppear { actions } => walk_actions(actions, visit_expression),
             Node::AppBottomBar { tabs, .. } => {
                 for tab in tabs {
                     walk_ir(&tab.children, visit_node, visit_expression);
@@ -142,7 +143,8 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::Switch { .. }
         | Node::Image { .. }
         | Node::NavigationStack { .. }
-        | Node::ComponentCall { .. } => false,
+        | Node::ComponentCall { .. }
+        | Node::OnAppear { .. } => false,
     })
 }
 

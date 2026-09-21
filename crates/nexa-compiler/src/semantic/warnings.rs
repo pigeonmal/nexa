@@ -140,6 +140,9 @@ fn walk_node(
         }
         ast::Node::Text { value, .. } => walk_expression(value, names, used),
         ast::Node::StatusBar { .. } | ast::Node::Direction { .. } => {}
+        ast::Node::OnAppear { actions, .. } => {
+            walk_actions(actions, names, used, target, file, warnings);
+        }
         ast::Node::Button { label, actions, .. } => {
             walk_expression(label, names, used);
             walk_actions(actions, names, used, target, file, warnings);

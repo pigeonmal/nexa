@@ -124,6 +124,10 @@ pub enum Node {
         value: Expr,
         span: Span,
     },
+    OnAppear {
+        actions: Vec<Stmt>,
+        span: Span,
+    },
     Text {
         value: Expr,
         color: Option<Expr>,

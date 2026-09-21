@@ -9,6 +9,7 @@ pub struct Module {
     pub body: Vec<Node>,
     pub status_bar: Option<StatusBarConfig>,
     pub direction: Option<DirectionConfig>,
+    pub on_appear: Option<Vec<Action>>,
 }
 
 #[derive(Clone, Debug)]
@@ -143,6 +144,9 @@ pub enum Node {
     },
     Direction {
         config: DirectionConfig,
+    },
+    OnAppear {
+        actions: Vec<Action>,
     },
     Layout {
         kind: LayoutKind,
