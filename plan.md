@@ -762,7 +762,7 @@ Compile dependency relationships statically when possible.
 
 Expose a common lifecycle abstraction.
 
-The first slice is implemented as one top-level `OnAppear { ... }` callback on the app body or each named screen. Its direct state actions lower to SwiftUI `.onAppear` and Compose `LaunchedEffect(Unit)` without a shared lifecycle runtime. See [lifecycle.nx](examples/lifecycle.nx) and [navigation.nx](examples/navigation.nx).
+The first slice is implemented as one top-level `OnAppear { ... }` or `OnDisappear { ... }` callback on the app body or each named screen. Their direct state actions lower to SwiftUI lifecycle modifiers and Compose `LaunchedEffect(Unit)`/`DisposableEffect(Unit)` without a shared lifecycle runtime. See [lifecycle.nx](examples/lifecycle.nx) and [navigation.nx](examples/navigation.nx).
 
 Support concepts such as:
 

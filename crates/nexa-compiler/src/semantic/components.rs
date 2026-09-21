@@ -92,6 +92,9 @@ pub(super) fn lower_node(
         ast::Node::OnAppear { actions, .. } => Ok(Node::OnAppear {
             actions: lower_actions(actions, symbols)?,
         }),
+        ast::Node::OnDisappear { actions, .. } => Ok(Node::OnDisappear {
+            actions: lower_actions(actions, symbols)?,
+        }),
         ast::Node::Layout {
             kind,
             spacing,

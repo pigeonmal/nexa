@@ -193,6 +193,12 @@ fn lower_component(
             "OnAppear is only allowed at the app body's top level",
         ));
     }
+    if body.iter().any(super::contains_on_disappear) {
+        return Err(CompileError::new(
+            declaration.span,
+            "OnDisappear is only allowed at an app or screen body's top level",
+        ));
+    }
 
     let parameters = signature
         .parameters
@@ -320,7 +326,8 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
         | ast::Node::Image { .. }
         | ast::Node::NavigationStack { .. }
         | ast::Node::Direction { .. }
-        | ast::Node::OnAppear { .. } => {}
+        | ast::Node::OnAppear { .. }
+        | ast::Node::OnDisappear { .. } => {}
     }
 }
 
@@ -374,7 +381,8 @@ fn contains_navigation_link(node: &ast::Node, target: Target) -> bool {
         | ast::Node::NavigationStack { .. }
         | ast::Node::ComponentCall { .. }
         | ast::Node::Direction { .. }
-        | ast::Node::OnAppear { .. } => false,
+        | ast::Node::OnAppear { .. }
+        | ast::Node::OnDisappear { .. } => false,
     }
 }
 
@@ -427,7 +435,8 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::Image { .. }
         | Node::NavigationStack { .. }
         | Node::Direction { .. }
-        | Node::OnAppear { .. } => {}
+        | Node::OnAppear { .. }
+        | Node::OnDisappear { .. } => {}
     }
 }
 

@@ -363,6 +363,10 @@ impl Parser {
                 actions: self.block_stmts()?,
                 span,
             }),
+            "OnDisappear" => Ok(Node::OnDisappear {
+                actions: self.block_stmts()?,
+                span,
+            }),
             "Column" | "Row" => {
                 let kind = match name.as_str() {
                     "Column" => LayoutKind::Column,

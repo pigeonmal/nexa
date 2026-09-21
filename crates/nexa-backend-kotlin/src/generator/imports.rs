@@ -5,6 +5,7 @@ pub(super) fn render(
     has_navigation: bool,
     has_direction: bool,
     has_on_appear: bool,
+    has_on_disappear: bool,
     out: &mut String,
 ) {
     let mut imports = Vec::with_capacity(40);
@@ -21,6 +22,10 @@ pub(super) fn render(
         "androidx.compose.runtime.CompositionLocalProvider",
     );
     add(has_on_appear, "androidx.compose.runtime.LaunchedEffect");
+    add(
+        has_on_disappear,
+        "androidx.compose.runtime.DisposableEffect",
+    );
     add(features.uses_link, "android.content.Intent");
     add(features.uses_link, "android.net.Uri");
     add(

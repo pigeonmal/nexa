@@ -34,6 +34,11 @@ pub(super) fn generate(module: &Module) -> String {
                 .screens
                 .iter()
                 .any(|screen| screen.on_appear.is_some()),
+        module.on_disappear.is_some()
+            || module
+                .screens
+                .iter()
+                .any(|screen| screen.on_disappear.is_some()),
         &mut out,
     );
     out.push_str(&format!(
@@ -78,6 +83,7 @@ pub(super) fn generate(module: &Module) -> String {
         1
     };
     render_on_appear_effect(module.on_appear.as_deref(), body_depth, &mut out);
+    render_on_disappear_effect(module.on_disappear.as_deref(), body_depth, &mut out);
     if module.body.len() == 1 {
         components::render_node(&module.body[0], module, &features, body_depth, &mut out);
     } else {
@@ -119,6 +125,34 @@ pub(super) fn render_on_appear_effect(
     }
     out.push('\n');
     controls::render_actions(actions, depth + 1, out);
+    utils::indent(out, depth);
+    out.push_str("}\n");
+}
+
+pub(super) fn render_on_disappear_effect(
+    actions: Option<&[nexa_ir::Action]>,
+    depth: usize,
+    out: &mut String,
+) {
+    let Some(actions) = actions else {
+        return;
+    };
+    utils::indent(out, depth);
+    out.push_str("DisposableEffect(Unit) {");
+    if actions.is_empty() {
+        out.push('\n');
+        utils::indent(out, depth + 1);
+        out.push_str("onDispose {}\n");
+        utils::indent(out, depth);
+        out.push_str("}\n");
+        return;
+    }
+    out.push('\n');
+    utils::indent(out, depth + 1);
+    out.push_str("onDispose {\n");
+    controls::render_actions(actions, depth + 2, out);
+    utils::indent(out, depth + 1);
+    out.push_str("}\n");
     utils::indent(out, depth);
     out.push_str("}\n");
 }

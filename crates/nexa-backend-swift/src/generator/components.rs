@@ -9,7 +9,10 @@ use super::{
 
 pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut String) {
     match node {
-        Node::StatusBar { .. } | Node::Direction { .. } | Node::OnAppear { .. } => {}
+        Node::StatusBar { .. }
+        | Node::Direction { .. }
+        | Node::OnAppear { .. }
+        | Node::OnDisappear { .. } => {}
         Node::Layout {
             kind,
             spacing,

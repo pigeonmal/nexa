@@ -53,11 +53,12 @@ pub(super) fn render_navigation_stack(
             kotlin_string(&navigation_route_name(screen.id))
         ));
         render_children(&screen.body, module, features, depth + 2, out);
-        if screen.on_appear.is_some() {
+        if screen.on_appear.is_some() || screen.on_disappear.is_some() {
             out.push('\n');
         }
         super::render_on_appear_effect(screen.on_appear.as_deref(), depth + 2, out);
-        if screen.on_appear.is_none() {
+        super::render_on_disappear_effect(screen.on_disappear.as_deref(), depth + 2, out);
+        if screen.on_appear.is_none() && screen.on_disappear.is_none() {
             out.push('\n');
         }
         indent(out, depth + 1);

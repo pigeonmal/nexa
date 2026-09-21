@@ -123,7 +123,7 @@ String interpolation supports `$name` and `\(name)` for declared state and const
 
 `Direction(value: LTR|RTL)` applies a static native layout direction at the app root; see [direction.nx](examples/direction.nx).
 
-`OnAppear { ... }` is a top-level app or named-screen lifecycle callback. Its direct state actions run through SwiftUI `.onAppear` on iOS and Compose `LaunchedEffect(Unit)` on Android; see [lifecycle.nx](examples/lifecycle.nx) and [navigation.nx](examples/navigation.nx). App background events remain future lifecycle slices.
+`OnAppear { ... }` and `OnDisappear { ... }` are top-level app or named-screen lifecycle callbacks. Their direct state actions run through SwiftUI lifecycle modifiers on iOS and Compose effects on Android; see [lifecycle.nx](examples/lifecycle.nx) and [navigation.nx](examples/navigation.nx). App background events remain future lifecycle slices.
 
 ## License
 

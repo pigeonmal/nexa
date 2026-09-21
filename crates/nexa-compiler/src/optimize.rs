@@ -17,9 +17,15 @@ pub(crate) fn optimize(module: &mut Module) {
     if let Some(actions) = &mut module.on_appear {
         *actions = optimize_actions(std::mem::take(actions));
     }
+    if let Some(actions) = &mut module.on_disappear {
+        *actions = optimize_actions(std::mem::take(actions));
+    }
     for screen in &mut module.screens {
         screen.body = optimize_nodes(std::mem::take(&mut screen.body));
         if let Some(actions) = &mut screen.on_appear {
+            *actions = optimize_actions(std::mem::take(actions));
+        }
+        if let Some(actions) = &mut screen.on_disappear {
             *actions = optimize_actions(std::mem::take(actions));
         }
     }
@@ -39,9 +45,15 @@ fn prune_unused_states(module: &mut Module) {
     if let Some(actions) = &module.on_appear {
         collect_action_state_references(actions, &mut used);
     }
+    if let Some(actions) = &module.on_disappear {
+        collect_action_state_references(actions, &mut used);
+    }
     for screen in &module.screens {
         collect_node_state_references(&screen.body, &mut used);
         if let Some(actions) = &screen.on_appear {
+            collect_action_state_references(actions, &mut used);
+        }
+        if let Some(actions) = &screen.on_disappear {
             collect_action_state_references(actions, &mut used);
         }
     }
@@ -235,6 +247,9 @@ fn optimize_node(node: Node) -> Option<Node> {
         | Node::Direction { .. }
         | Node::NavigationStack { .. }) => Some(node),
         Node::OnAppear { actions } => Some(Node::OnAppear {
+            actions: optimize_actions(actions),
+        }),
+        Node::OnDisappear { actions } => Some(Node::OnDisappear {
             actions: optimize_actions(actions),
         }),
         Node::NavigationLink {

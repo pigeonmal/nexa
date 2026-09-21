@@ -128,6 +128,10 @@ pub enum Node {
         actions: Vec<Stmt>,
         span: Span,
     },
+    OnDisappear {
+        actions: Vec<Stmt>,
+        span: Span,
+    },
     Text {
         value: Expr,
         color: Option<Expr>,

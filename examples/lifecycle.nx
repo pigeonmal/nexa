@@ -1,13 +1,18 @@
 app LifecycleExample {
     state appearances: Int32 = 0
+    state disappearances: Int32 = 0
 
     body {
         OnAppear {
             appearances = appearances + 1
         }
+        OnDisappear {
+            disappearances = disappearances + 1
+        }
 
         Column {
             Text("Appeared \(appearances) time(s)")
+            Text("Disappeared \(disappearances) time(s)")
         }
     }
 }

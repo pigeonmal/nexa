@@ -143,6 +143,9 @@ fn walk_node(
         ast::Node::OnAppear { actions, .. } => {
             walk_actions(actions, names, used, target, file, warnings);
         }
+        ast::Node::OnDisappear { actions, .. } => {
+            walk_actions(actions, names, used, target, file, warnings);
+        }
         ast::Node::Button { label, actions, .. } => {
             walk_expression(label, names, used);
             walk_actions(actions, names, used, target, file, warnings);

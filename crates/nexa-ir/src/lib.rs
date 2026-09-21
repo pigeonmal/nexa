@@ -10,6 +10,7 @@ pub struct Module {
     pub status_bar: Option<StatusBarConfig>,
     pub direction: Option<DirectionConfig>,
     pub on_appear: Option<Vec<Action>>,
+    pub on_disappear: Option<Vec<Action>>,
 }
 
 #[derive(Clone, Debug)]
@@ -32,6 +33,7 @@ pub struct Screen {
     pub name: String,
     pub body: Vec<Node>,
     pub on_appear: Option<Vec<Action>>,
+    pub on_disappear: Option<Vec<Action>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -147,6 +149,9 @@ pub enum Node {
         config: DirectionConfig,
     },
     OnAppear {
+        actions: Vec<Action>,
+    },
+    OnDisappear {
         actions: Vec<Action>,
     },
     Layout {

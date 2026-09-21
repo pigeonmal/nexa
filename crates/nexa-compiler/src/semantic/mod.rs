@@ -100,11 +100,13 @@ pub fn lower_with_warnings(
             ));
         }
         let (on_appear, screen_body) = extract_on_appear(screen_body, screen.span, "screen")?;
+        let (on_disappear, screen_body) = extract_on_disappear(screen_body, screen.span, "screen")?;
         screens.push(Screen {
             id: ScreenId(index),
             name: screen.name,
             body: screen_body,
             on_appear,
+            on_disappear,
         });
     }
 
@@ -120,6 +122,7 @@ pub fn lower_with_warnings(
     let (status_bar, body) = extract_status_bar(body, app.span)?;
     let (direction, body) = extract_direction(body, app.span)?;
     let (on_appear, body) = extract_on_appear(body, app.span, "app")?;
+    let (on_disappear, body) = extract_on_disappear(body, app.span, "app")?;
     let components = retain_reachable(components, &body, &screens);
     let mut module = Module {
         app_name: app.name,
@@ -130,6 +133,7 @@ pub fn lower_with_warnings(
         status_bar,
         direction,
         on_appear,
+        on_disappear,
     };
     crate::optimize::optimize(&mut module);
     Ok((module, warnings))
@@ -159,6 +163,7 @@ fn collect_active_nodes<'a>(
             ast::Node::StatusBar { .. } => {}
             ast::Node::Direction { .. } => {}
             ast::Node::OnAppear { .. } => {}
+            ast::Node::OnDisappear { .. } => {}
             node => active.push(node),
         }
     }
@@ -232,7 +237,8 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
         | Node::NavigationStack { .. }
         | Node::ComponentCall { .. }
         | Node::Direction { .. }
-        | Node::OnAppear { .. } => false,
+        | Node::OnAppear { .. }
+        | Node::OnDisappear { .. } => false,
     }
 }
 
@@ -297,7 +303,8 @@ pub(super) fn contains_direction(node: &Node) -> bool {
         | Node::Image { .. }
         | Node::NavigationStack { .. }
         | Node::ComponentCall { .. }
-        | Node::OnAppear { .. } => false,
+        | Node::OnAppear { .. }
+        | Node::OnDisappear { .. } => false,
     }
 }
 
@@ -357,6 +364,74 @@ pub(super) fn contains_on_appear(node: &Node) -> bool {
         }
         Node::StatusBar { .. }
         | Node::Direction { .. }
+        | Node::Text { .. }
+        | Node::Button { .. }
+        | Node::TextInput { .. }
+        | Node::Switch { .. }
+        | Node::Image { .. }
+        | Node::NavigationStack { .. }
+        | Node::ComponentCall { .. }
+        | Node::OnDisappear { .. } => false,
+    }
+}
+
+fn extract_on_disappear(
+    nodes: Vec<Node>,
+    span: nexa_diagnostics::Span,
+    scope: &str,
+) -> Result<(Option<Vec<Action>>, Vec<Node>), CompileError> {
+    let mut actions = None;
+    let mut body = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        match node {
+            Node::OnDisappear { actions: value } => {
+                if actions.replace(value).is_some() {
+                    return Err(CompileError::new(
+                        span,
+                        format!("a {scope} can declare only one top-level OnDisappear"),
+                    ));
+                }
+            }
+            node if contains_on_disappear(&node) => {
+                return Err(CompileError::new(
+                    span,
+                    format!("OnDisappear is only allowed at the {scope} body's top level"),
+                ));
+            }
+            node => body.push(node),
+        }
+    }
+    Ok((actions, body))
+}
+
+pub(super) fn contains_on_disappear(node: &Node) -> bool {
+    match node {
+        Node::OnDisappear { .. } => true,
+        Node::Layout { children, .. }
+        | Node::NavigationLink { children, .. }
+        | Node::Link { children, .. }
+        | Node::Accessibility { children, .. }
+        | Node::KeyboardAware { children }
+        | Node::BottomSheet { children, .. }
+        | Node::RefreshControl { children, .. }
+        | Node::Pressable { children, .. }
+        | Node::FastList { children, .. } => children.iter().any(contains_on_disappear),
+        Node::AppBottomBar { tabs, .. } => tabs
+            .iter()
+            .any(|tab| tab.children.iter().any(contains_on_disappear)),
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_on_disappear)
+                || else_body
+                    .as_deref()
+                    .is_some_and(|body| body.iter().any(contains_on_disappear))
+        }
+        Node::StatusBar { .. }
+        | Node::Direction { .. }
+        | Node::OnAppear { .. }
         | Node::Text { .. }
         | Node::Button { .. }
         | Node::TextInput { .. }

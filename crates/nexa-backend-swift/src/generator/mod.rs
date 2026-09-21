@@ -95,6 +95,7 @@ pub(super) fn generate(module: &Module) -> String {
     }
     render_direction_modifier(module.direction, 2, &mut out);
     render_on_appear_modifier(module.on_appear.as_deref(), 2, &mut out);
+    render_on_disappear_modifier(module.on_disappear.as_deref(), 2, &mut out);
     render_status_bar_modifiers(module.status_bar, 2, &mut out);
     out.push_str("\n    }\n");
     if !module.screens.is_empty() {
@@ -141,6 +142,27 @@ pub(super) fn render_on_appear_modifier(
     out.push('\n');
     utils::indent(out, depth + 1);
     out.push_str(".onAppear {");
+    if actions.is_empty() {
+        out.push('}');
+        return;
+    }
+    out.push('\n');
+    controls::render_actions(actions, depth + 2, out);
+    utils::indent(out, depth + 1);
+    out.push('}');
+}
+
+pub(super) fn render_on_disappear_modifier(
+    actions: Option<&[nexa_ir::Action]>,
+    depth: usize,
+    out: &mut String,
+) {
+    let Some(actions) = actions else {
+        return;
+    };
+    out.push('\n');
+    utils::indent(out, depth + 1);
+    out.push_str(".onDisappear {");
     if actions.is_empty() {
         out.push('}');
         return;
