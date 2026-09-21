@@ -149,7 +149,7 @@ impl Features {
                 ..
             } => {
                 match kind {
-                    LayoutKind::View | LayoutKind::Column => self.uses_column = true,
+                    LayoutKind::Column => self.uses_column = true,
                     LayoutKind::Row => self.uses_row = true,
                 }
                 if *spacing > 0.0 {

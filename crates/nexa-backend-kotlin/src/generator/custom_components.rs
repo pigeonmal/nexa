@@ -74,7 +74,7 @@ fn render_body(
         [] => {}
         [node] => render_node(node, module, features, depth, out),
         children => layout::render_layout(
-            LayoutKind::View,
+            LayoutKind::Column,
             0.0,
             &ViewStyle::default(),
             children,

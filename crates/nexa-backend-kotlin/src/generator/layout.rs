@@ -18,7 +18,7 @@ pub(super) fn render_layout(
     out: &mut String,
 ) {
     let layout = match kind {
-        LayoutKind::View | LayoutKind::Column => "Column",
+        LayoutKind::Column => "Column",
         LayoutKind::Row => "Row",
     };
     indent(out, depth);
@@ -27,7 +27,7 @@ pub(super) fn render_layout(
             "{} = Arrangement.spacedBy({}.dp)",
             match kind {
                 LayoutKind::Row => "horizontalArrangement",
-                LayoutKind::View | LayoutKind::Column => "verticalArrangement",
+                LayoutKind::Column => "verticalArrangement",
             },
             number(spacing)
         ))
@@ -39,15 +39,11 @@ pub(super) fn render_layout(
             (LayoutKind::Row, Alignment::Start) => ("verticalAlignment", "Top"),
             (LayoutKind::Row, Alignment::Center) => ("verticalAlignment", "CenterVertically"),
             (LayoutKind::Row, Alignment::End) => ("verticalAlignment", "Bottom"),
-            (LayoutKind::View | LayoutKind::Column, Alignment::Start) => {
-                ("horizontalAlignment", "Start")
-            }
-            (LayoutKind::View | LayoutKind::Column, Alignment::Center) => {
+            (LayoutKind::Column, Alignment::Start) => ("horizontalAlignment", "Start"),
+            (LayoutKind::Column, Alignment::Center) => {
                 ("horizontalAlignment", "CenterHorizontally")
             }
-            (LayoutKind::View | LayoutKind::Column, Alignment::End) => {
-                ("horizontalAlignment", "End")
-            }
+            (LayoutKind::Column, Alignment::End) => ("horizontalAlignment", "End"),
         };
         format!("{argument} = Alignment.{value}")
     });

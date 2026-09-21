@@ -10,10 +10,10 @@ Help people build an iOS and Android app from Nexa's shared `.nx` source without
 ## Work within today's language
 
 - Read `README.md`, `docs/language.md`, and the examples relevant to the request before writing `.nx` syntax. The language and compiler are an early prototype; check actual parser/backend support instead of assuming the roadmap is implemented.
-- Use core components already supported by Nexa, such as View, Text, Button, TextInput, Switch, Image, navigation, keyboard-aware layout, and FastList when available in the current compiler.
+- Use core components already supported by Nexa, such as Column, Row, Text, Button, TextInput, Switch, Image, navigation, keyboard-aware layout, and FastList when available in the current compiler.
 - Use `if`/`else`, `&&`, `||`, `!`, scalar `==`/`!=`, and numeric comparisons for supported conditional UI and button/press actions. Keep compared numeric types equal; Nexa does not implicitly convert values.
 - Pure literal conditions are folded by the compiler, so unreachable UI and event branches are removed from generated native source. Conditions that read state or platform environment remain native runtime branches.
-- Use `View` as the canonical vertical container and `Row` for horizontal layout. `Column` remains a compatibility alias for `View`, so it is safe to use in existing code without changing generated native output. Set a layout's cross-axis `alignment` to `Start`, `Center`, or `End` where needed; vertical layouts align horizontally, while rows align vertically.
+- Use `Column` as the vertical container and `Row` for horizontal layout. Set a layout's cross-axis `alignment` to `Start`, `Center`, or `End` where needed; vertical layouts align horizontally, while rows align vertically.
 - Use `Layout.isRegularWidth` in `if`/`else` when a wider composition is useful. It maps to Swift's regular horizontal size class and to Compose's current configuration width of at least `600dp`; document the platform difference when it affects a design.
 - Keep user-authored application code in `.nx`. `state` declarations require explicit types; immutable `let` values can omit the type when their non-empty initializer is unambiguous. Do not put app features in generated `.swift` or `.kt` files and do not make native edits a prerequisite for supported functionality.
 - Use FastList for large or repeating collections when supported. Keep layout and state simple so generated code remains direct and efficient.

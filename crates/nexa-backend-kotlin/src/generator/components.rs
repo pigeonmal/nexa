@@ -153,7 +153,7 @@ pub(super) fn render_children(
         [] => {}
         [node] => render_node(node, module, features, depth, out),
         _ => layout::render_layout(
-            LayoutKind::View,
+            LayoutKind::Column,
             0.0,
             &ViewStyle::default(),
             children,

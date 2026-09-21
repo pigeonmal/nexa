@@ -181,7 +181,7 @@ Shared framework components should map as directly as possible to SwiftUI/UIKit 
 
 Examples:
 
-View → SwiftUI container primitives
+Column → SwiftUI container primitives
 
 Text → SwiftUI Text
 
@@ -213,7 +213,7 @@ Shared framework components should map as directly as possible to Jetpack Compos
 
 Examples:
 
-View → Compose layout primitives
+Column → Compose layout primitives
 
 Text → Compose Text
 
@@ -291,7 +291,7 @@ The framework must include a production-ready set of first-party components.
 
 At minimum implement:
 
-- View
+- Column
 - Pressable
 - Text
 - Image
@@ -310,11 +310,9 @@ They should not require third-party dependencies.
 
 Each component must compile as directly as possible into native platform components.
 
-## View
+## Column
 
-View must provide the basic layout and composition primitive.
-
-The source language accepts `Column` as a compatibility alias for the vertical `View` primitive. The parser canonicalizes both spellings before semantic lowering, so they produce the same IR and native output without maintaining a second layout concept.
+Column provides the basic vertical layout and composition primitive.
 
 It should support:
 
@@ -334,7 +332,7 @@ It should support:
 
 Avoid unnecessary native wrapper views.
 
-The compiler should flatten or eliminate Views that are semantically unnecessary.
+The compiler should flatten or eliminate layout containers that are semantically unnecessary.
 
 ## Pressable
 
@@ -1142,7 +1140,7 @@ The framework should aim for zero abstraction overhead wherever technically poss
 
 A simple component such as:
 
-View {
+Column {
 Text("Hello")
 }
 
@@ -1264,7 +1262,7 @@ Start with:
 7. Common IR.
 8. Simple Swift backend.
 9. Simple Kotlin backend.
-10. View.
+10. Column.
 11. Text.
 12. Button.
 13. State.

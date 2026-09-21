@@ -98,10 +98,11 @@ See [responsive-layout.nx](../examples/responsive-layout.nx).
 
 ## Components
 
-- `View { ... }` is the canonical vertical container. `Column { ... }` is a compatibility alias with the same behavior and native output; use whichever name is clearer in the surrounding code.
+- `Column { ... }` is the vertical container. It maps to SwiftUI `VStack` and Compose `Column` without an extra runtime wrapper.
+- `View` is not a Nexa component. Replace existing `View { ... }` blocks with `Column { ... }`; the native SwiftUI `View` protocol in generated Swift remains unchanged.
 - `Row { ... }` maps to a native horizontal stack.
 - `Column(spacing: 12) { ... }` and `Row(spacing: 12) { ... }` map spacing directly to platform layout parameters.
-- Layouts accept a cross-axis `alignment` of `Start`, `Center`, or `End`; it maps to horizontal alignment for `View`/`Column` and vertical alignment for `Row`. For vertical layouts, `Start`/`End` follow the layout direction; for rows they mean top/bottom. Layouts also accept `padding`, `width`, `height`, `background`, `cornerRadius`, and `opacity`. Dimensions use points on iOS and density-independent pixels on Android. Backgrounds accept `#RGB`, `#RRGGBB`, `#RRGGBBAA`, or a color theme token; opacity must be from `0` to `1`.
+- Layouts accept a cross-axis `alignment` of `Start`, `Center`, or `End`; it maps to horizontal alignment for `Column` and vertical alignment for `Row`. For vertical layouts, `Start`/`End` follow the layout direction; for rows they mean top/bottom. Layouts also accept `padding`, `width`, `height`, `background`, `cornerRadius`, and `opacity`. Dimensions use points on iOS and density-independent pixels on Android. Backgrounds accept `#RGB`, `#RRGGBB`, `#RRGGBBAA`, or a color theme token; opacity must be from `0` to `1`.
 - `Text(expression, color: ..., fontSize: ...)` accepts strings, booleans, and numeric values. Text color accepts a hexadecimal color or theme color token. Font size uses points on iOS and scale-independent pixels on Android.
 - `Button("Label") { ... }` accepts a string label and state assignments in its press handler.
 - `TextInput(value: name, placeholder: "...", keyboard: Email)` binds a mutable `String` state to a native text field. Keyboard choices are `Text`, `Number`, `Email`, `Phone`, and `Url`; `secure: true` and `multiline: true` are optional. `autocorrect` optionally enables or disables keyboard suggestions, while `capitalization` accepts `None`, `Sentences`, `Words`, or `Characters`. Omitted keyboard options retain native defaults. Secure multiline input is rejected because the native APIs differ.

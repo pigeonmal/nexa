@@ -351,8 +351,7 @@ fn in_file(error: CompileError, file: Option<&str>) -> CompileError {
 fn is_builtin_component(name: &str) -> bool {
     matches!(
         name,
-        "View"
-            | "Column"
+        "Column"
             | "Row"
             | "Text"
             | "Button"

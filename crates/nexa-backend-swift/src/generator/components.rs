@@ -144,7 +144,7 @@ pub(super) fn render_children(children: &[Node], module: &Module, depth: usize, 
         }
         [node] => render_node(node, module, depth, out),
         _ => layout::render_layout(
-            LayoutKind::View,
+            LayoutKind::Column,
             0.0,
             &ViewStyle::default(),
             children,

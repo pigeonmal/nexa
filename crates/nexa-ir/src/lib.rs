@@ -181,7 +181,6 @@ pub enum ListSource {
 
 #[derive(Clone, Copy, Debug)]
 pub enum LayoutKind {
-    View,
     Column,
     Row,
 }

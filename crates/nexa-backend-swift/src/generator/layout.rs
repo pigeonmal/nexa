@@ -16,7 +16,7 @@ pub(super) fn render_layout(
     out: &mut String,
 ) {
     let layout = match kind {
-        LayoutKind::View | LayoutKind::Column => "VStack",
+        LayoutKind::Column => "VStack",
         LayoutKind::Row => "HStack",
     };
     indent(out, depth);

@@ -296,9 +296,9 @@ impl Parser {
         }
         let (name, span) = self.ident()?;
         match name.as_str() {
-            "View" | "Column" | "Row" => {
+            "Column" | "Row" => {
                 let kind = match name.as_str() {
-                    "View" | "Column" => LayoutKind::View,
+                    "Column" => LayoutKind::Column,
                     _ => LayoutKind::Row,
                 };
                 let mut args = if self.check(&Kind::LParen) {

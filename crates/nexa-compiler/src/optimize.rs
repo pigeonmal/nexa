@@ -122,7 +122,7 @@ fn collapse_nodes(nodes: Vec<Node>) -> Option<Node> {
         0 => None,
         1 => Some(nodes.into_iter().next().expect("length checked")),
         _ => Some(Node::Layout {
-            kind: LayoutKind::View,
+            kind: LayoutKind::Column,
             spacing: 0.0,
             style: ViewStyle::default(),
             children: nodes,

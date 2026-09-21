@@ -201,7 +201,6 @@ pub struct LayoutStyle {
 
 #[derive(Clone, Copy, Debug)]
 pub enum LayoutKind {
-    View,
     Column,
     Row,
 }

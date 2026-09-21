@@ -45,7 +45,6 @@ pub(super) fn lower_node(
                 )?);
             }
             let kind = match kind {
-                ast::LayoutKind::View => LayoutKind::View,
                 ast::LayoutKind::Column => LayoutKind::Column,
                 ast::LayoutKind::Row => LayoutKind::Row,
             };

@@ -73,7 +73,7 @@ These skills distinguish the current prototype from the longer-term goals in `pl
 
 See the [language guide](docs/language.md) for syntax, supported types, themes, current limits, and native mappings, and the [language design decisions](docs/language-design.md) for how Nexa adopts or defers Kotlin/Swift concepts. The full roadmap remains in [plan.md](plan.md).
 
-The authoring surface keeps mutable state explicit while allowing immutable `let` values to infer their type from non-empty initializers. `View` is the canonical vertical container; `Column` remains a source-compatible alias, and both continue to emit the same native layout code.
+The authoring surface keeps mutable state explicit while allowing immutable `let` values to infer their type from non-empty initializers. `Column` is the single vertical container; it emits direct native stack code on both platforms. `View` is no longer a Nexa component; replace it with `Column` in existing `.nx` files. SwiftUI's native `View` protocol remains part of generated Swift output.
 
 ## License
 

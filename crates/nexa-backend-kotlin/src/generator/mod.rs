@@ -49,7 +49,7 @@ pub(super) fn generate(module: &Module) -> String {
         components::render_node(&module.body[0], module, &features, 1, &mut out);
     } else {
         layout::render_layout(
-            LayoutKind::View,
+            LayoutKind::Column,
             0.0,
             &ViewStyle::default(),
             &module.body,
