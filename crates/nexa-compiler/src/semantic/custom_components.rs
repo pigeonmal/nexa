@@ -5,10 +5,11 @@ use nexa_ir::{Component, ComponentParameter, Node, Screen, State, Type};
 use nexa_syntax::ast;
 
 use super::{
-    components::lower_node,
+    components::lower_nodes,
     expressions::{lower_expr, parse_type, references_state, resolve_declaration_type},
     themes::ThemeSymbols,
 };
+use crate::Target;
 
 #[derive(Clone)]
 pub(super) struct ComponentSignature {
@@ -57,6 +58,7 @@ pub(super) fn lower_components(
     declarations: Vec<ast::ComponentDecl>,
     screen_ids: &HashMap<String, nexa_ir::ScreenId>,
     themes: &ThemeSymbols,
+    target: Target,
 ) -> Result<(Vec<Component>, ComponentSignatures), CompileError> {
     let signatures = collect_signatures(&declarations)?;
     validate_acyclic(&declarations, &signatures)?;
@@ -64,7 +66,7 @@ pub(super) fn lower_components(
     let mut components = Vec::with_capacity(declarations.len());
     for declaration in declarations {
         let source_file = declaration.source_file.clone();
-        let result = lower_component(declaration, &signatures, screen_ids, themes);
+        let result = lower_component(declaration, &signatures, screen_ids, themes, target);
         components.push(result.map_err(|error| in_file(error, source_file.as_deref()))?);
     }
     Ok((components, signatures))
@@ -118,8 +120,13 @@ fn lower_component(
     signatures: &ComponentSignatures,
     screen_ids: &HashMap<String, nexa_ir::ScreenId>,
     themes: &ThemeSymbols,
+    target: Target,
 ) -> Result<Component, CompileError> {
-    if declaration.body.iter().any(contains_navigation_link) {
+    if declaration
+        .body
+        .iter()
+        .any(|node| contains_navigation_link(node, target))
+    {
         return Err(CompileError::new(
             declaration.span,
             "`NavigationLink` inside a custom component is not supported yet",
@@ -159,12 +166,15 @@ fn lower_component(
         });
     }
 
-    let mut body = Vec::with_capacity(declaration.body.len());
-    for node in declaration.body {
-        body.push(lower_node(
-            node, &symbols, screen_ids, themes, signatures, false,
-        )?);
-    }
+    let body = lower_nodes(
+        declaration.body,
+        &symbols,
+        screen_ids,
+        themes,
+        signatures,
+        false,
+        target,
+    )?;
 
     let parameters = signature
         .parameters
@@ -255,6 +265,7 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
     match node {
         ast::Node::ComponentCall { name, .. } => calls.push(name.clone()),
         ast::Node::Layout { children, .. }
+        | ast::Node::Platform { children, .. }
         | ast::Node::Pressable { children, .. }
         | ast::Node::NavigationLink { children, .. }
         | ast::Node::KeyboardAware { children, .. }
@@ -281,22 +292,37 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
     }
 }
 
-fn contains_navigation_link(node: &ast::Node) -> bool {
+fn contains_navigation_link(node: &ast::Node, target: Target) -> bool {
     match node {
         ast::Node::NavigationLink { .. } => true,
+        ast::Node::Platform {
+            target: platform,
+            children,
+            ..
+        } => {
+            (target == Target::All || platform_matches(*platform, target))
+                && children
+                    .iter()
+                    .any(|child| contains_navigation_link(child, target))
+        }
         ast::Node::Layout { children, .. }
         | ast::Node::Pressable { children, .. }
         | ast::Node::KeyboardAware { children, .. }
-        | ast::Node::FastList { children, .. } => children.iter().any(contains_navigation_link),
+        | ast::Node::FastList { children, .. } => children
+            .iter()
+            .any(|child| contains_navigation_link(child, target)),
         ast::Node::If {
             then_body,
             else_body,
             ..
         } => {
-            then_body.iter().any(contains_navigation_link)
-                || else_body
-                    .as_ref()
-                    .is_some_and(|body| body.iter().any(contains_navigation_link))
+            then_body
+                .iter()
+                .any(|child| contains_navigation_link(child, target))
+                || else_body.as_ref().is_some_and(|body| {
+                    body.iter()
+                        .any(|child| contains_navigation_link(child, target))
+                })
         }
         ast::Node::Text { .. }
         | ast::Node::Button { .. }
@@ -306,6 +332,13 @@ fn contains_navigation_link(node: &ast::Node) -> bool {
         | ast::Node::NavigationStack { .. }
         | ast::Node::ComponentCall { .. } => false,
     }
+}
+
+fn platform_matches(platform: ast::PlatformTarget, target: Target) -> bool {
+    matches!(
+        (platform, target),
+        (ast::PlatformTarget::Ios, Target::Swift) | (ast::PlatformTarget::Android, Target::Kotlin)
+    )
 }
 
 fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {

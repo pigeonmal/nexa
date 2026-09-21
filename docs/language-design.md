@@ -5,6 +5,7 @@ Nexa borrows useful ideas from Kotlin and Swift, but keeps one source language a
 | Concept | Decision | Nexa design and status |
 | --- | --- | --- |
 | Condition (`if / else`) | Integrate now | Lowers directly to native branches for UI and event actions. |
+| Platform-specific UI | Integrate now | `platform ios { ... }` and `platform android { ... }` are selected during target lowering; inactive widgets never reach the target IR. |
 | Multiple choice (`when / switch`) | Adopt after enums | Use one exhaustive `match` construct and emit Kotlin `when` or Swift `switch`; avoid separate source syntaxes and non-exhaustive UI states. |
 | AND / OR / NOT | Integrate now | `&&`, `||`, `!`; native short-circuit operators. |
 | Equality and comparison | Integrate now | `==`, `!=` for scalar values; numeric `<`, `<=`, `>`, `>=`. Exact types are required; no runtime conversions. |

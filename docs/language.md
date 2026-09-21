@@ -1,6 +1,6 @@
 # Nexa language: first slice
 
-The compiler currently supports stateful native screens, typed arrays and collection values, virtualized lists, conditional UI and event control flow, a parameterless native navigation stack, and stateful user-defined components. The entry `.nx` file declares one `app`; imported component files can declare reusable components without an app.
+The compiler currently supports stateful native screens, typed arrays and collection values, virtualized lists, conditional UI and event control flow, compile-time platform blocks, a parameterless native navigation stack, and stateful user-defined components. The entry `.nx` file declares one `app`; imported component files can declare reusable components without an app.
 
 ```nexa
 app Counter {
@@ -95,6 +95,26 @@ if Layout.isRegularWidth {
 ```
 
 See [responsive-layout.nx](../examples/responsive-layout.nx).
+
+## Compile-time platform blocks
+
+Use `platform ios { ... }` or `platform android { ... }` when a widget or component call belongs to one native target:
+
+```nexa
+body {
+    Text("Shared content")
+
+    platform ios {
+        IOSOnlyBadge()
+    }
+
+    platform android {
+        AndroidOnlyBadge()
+    }
+}
+```
+
+The selected build target keeps its block and removes the other block before semantic lowering. This is a compile-time selection: there is no runtime platform check, inactive custom-component calls do not reach the target IR, and no unused native declaration is emitted. The supported target names are `ios` and `android`; using another name is a compiler error. `nexa check` validates both targets, while `nexa build --target swift|kotlin` lowers only the selected target. See [platform-widgets.nx](../examples/platform-widgets.nx).
 
 ## Components
 

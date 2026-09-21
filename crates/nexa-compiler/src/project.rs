@@ -7,7 +7,7 @@ use std::{
 use nexa_diagnostics::{CompileError, Span};
 use nexa_syntax::ast::{App, ComponentDecl, ImportDecl};
 
-use crate::semantic;
+use crate::{Target, semantic};
 
 pub fn compile_file(path: impl AsRef<Path>) -> Result<nexa_ir::Module, CompileError> {
     Ok(compile_file_with_warnings(path)?.module)
@@ -15,6 +15,27 @@ pub fn compile_file(path: impl AsRef<Path>) -> Result<nexa_ir::Module, CompileEr
 
 pub fn compile_file_with_warnings(
     path: impl AsRef<Path>,
+) -> Result<crate::Compilation, CompileError> {
+    compile_file_with_target(path, Target::All)
+}
+
+pub fn compile_file_for_target(
+    path: impl AsRef<Path>,
+    target: Target,
+) -> Result<nexa_ir::Module, CompileError> {
+    Ok(compile_file_with_warnings_for_target(path, target)?.module)
+}
+
+pub fn compile_file_with_warnings_for_target(
+    path: impl AsRef<Path>,
+    target: Target,
+) -> Result<crate::Compilation, CompileError> {
+    compile_file_with_target(path, target)
+}
+
+fn compile_file_with_target(
+    path: impl AsRef<Path>,
+    target: Target,
 ) -> Result<crate::Compilation, CompileError> {
     let entry_path = path.as_ref();
     let mut loaded = LoadedProject::default();
@@ -35,7 +56,7 @@ pub fn compile_file_with_warnings(
         .with_file(entry_path.display().to_string())
     })?;
     app.components = loaded.components;
-    let (module, mut warnings) = semantic::lower_with_warnings(app)
+    let (module, mut warnings) = semantic::lower_with_warnings(app, target)
         .map_err(|error| error.with_file(entry_path.display().to_string()))?;
     for warning in &mut warnings {
         if warning.file.is_none() {

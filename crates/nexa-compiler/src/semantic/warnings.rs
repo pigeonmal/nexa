@@ -3,9 +3,11 @@ use std::collections::HashSet;
 use nexa_diagnostics::{CompileWarning, Span};
 use nexa_syntax::ast;
 
+use crate::Target;
+
 /// Collects source-level diagnostics that are useful even when the program is
 /// valid. The analysis intentionally stays independent from native backends.
-pub(super) fn analyze(app: &ast::App) -> Vec<CompileWarning> {
+pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
     let mut warnings = Vec::new();
     let app_names = app
         .states
@@ -18,6 +20,7 @@ pub(super) fn analyze(app: &ast::App) -> Vec<CompileWarning> {
         &app_names,
         app.body.iter(),
         app.screens.iter().flat_map(|screen| screen.body.iter()),
+        target,
         None,
         &mut warnings,
     );
@@ -40,6 +43,7 @@ pub(super) fn analyze(app: &ast::App) -> Vec<CompileWarning> {
             &names,
             component.body.iter(),
             std::iter::empty(),
+            target,
             component.source_file.as_deref(),
             &mut warnings,
         );
@@ -54,6 +58,7 @@ fn analyze_scope<'a, I, J>(
     names: &HashSet<String>,
     body: I,
     screens: J,
+    target: Target,
     file: Option<&str>,
     warnings: &mut Vec<CompileWarning>,
 ) where
@@ -65,7 +70,7 @@ fn analyze_scope<'a, I, J>(
         walk_expression(&declaration.initial, names, &mut used);
     }
     for node in body.into_iter().chain(screens) {
-        walk_node(node, names, &mut used, file, warnings);
+        walk_node(node, names, &mut used, target, file, warnings);
     }
 
     for declaration in declarations {
@@ -79,8 +84,9 @@ fn analyze_scope<'a, I, J>(
                 warnings,
                 declaration.span,
                 format!(
-                    "unused {kind} `{}`; it will be removed from generated code",
-                    declaration.name
+                    "unused {kind} `{}`{}; it will be removed from generated code",
+                    declaration.name,
+                    target_suffix(target)
                 ),
                 file,
             );
@@ -91,7 +97,11 @@ fn analyze_scope<'a, I, J>(
             push_warning(
                 warnings,
                 parameter.span,
-                format!("unused component parameter `{}`", parameter.name),
+                format!(
+                    "unused component parameter `{}`{}",
+                    parameter.name,
+                    target_suffix(target)
+                ),
                 file,
             );
         }
@@ -102,6 +112,7 @@ fn walk_node(
     node: &ast::Node,
     names: &HashSet<String>,
     used: &mut HashSet<String>,
+    target: Target,
     file: Option<&str>,
     warnings: &mut Vec<CompileWarning>,
 ) {
@@ -113,13 +124,24 @@ fn walk_node(
                 walk_expression(spacing, names, used);
             }
             for child in children {
-                walk_node(child, names, used, file, warnings);
+                walk_node(child, names, used, target, file, warnings);
+            }
+        }
+        ast::Node::Platform {
+            target: platform,
+            children,
+            ..
+        } => {
+            if target == Target::All || platform_matches(*platform, target) {
+                for child in children {
+                    walk_node(child, names, used, target, file, warnings);
+                }
             }
         }
         ast::Node::Text { value, .. } => walk_expression(value, names, used),
         ast::Node::Button { label, actions, .. } => {
             walk_expression(label, names, used);
-            walk_actions(actions, names, used, file, warnings);
+            walk_actions(actions, names, used, target, file, warnings);
         }
         ast::Node::TextInput { value, .. } | ast::Node::Switch { value, .. } => {
             walk_expression(value, names, used)
@@ -135,14 +157,14 @@ fn walk_node(
                 walk_expression(disabled, names, used);
             }
             for child in children {
-                walk_node(child, names, used, file, warnings);
+                walk_node(child, names, used, target, file, warnings);
             }
-            walk_actions(actions, names, used, file, warnings);
+            walk_actions(actions, names, used, target, file, warnings);
         }
         ast::Node::NavigationStack { .. } => {}
         ast::Node::NavigationLink { children, .. } | ast::Node::KeyboardAware { children, .. } => {
             for child in children {
-                walk_node(child, names, used, file, warnings);
+                walk_node(child, names, used, target, file, warnings);
             }
         }
         ast::Node::FastList {
@@ -165,7 +187,7 @@ fn walk_node(
                 row_names.insert(name.clone());
             }
             for child in children {
-                walk_node(child, &row_names, used, file, warnings);
+                walk_node(child, &row_names, used, target, file, warnings);
             }
         }
         ast::Node::If {
@@ -177,11 +199,11 @@ fn walk_node(
             warn_constant_condition(condition, *span, file, warnings);
             walk_expression(condition, names, used);
             for child in then_body {
-                walk_node(child, names, used, file, warnings);
+                walk_node(child, names, used, target, file, warnings);
             }
             if let Some(else_body) = else_body {
                 for child in else_body {
-                    walk_node(child, names, used, file, warnings);
+                    walk_node(child, names, used, target, file, warnings);
                 }
             }
         }
@@ -197,6 +219,7 @@ fn walk_actions(
     actions: &[ast::Stmt],
     names: &HashSet<String>,
     used: &mut HashSet<String>,
+    target: Target,
     file: Option<&str>,
     warnings: &mut Vec<CompileWarning>,
 ) {
@@ -216,12 +239,27 @@ fn walk_actions(
             } => {
                 warn_constant_condition(condition, *span, file, warnings);
                 walk_expression(condition, names, used);
-                walk_actions(then_branch, names, used, file, warnings);
+                walk_actions(then_branch, names, used, target, file, warnings);
                 if let Some(else_branch) = else_branch {
-                    walk_actions(else_branch, names, used, file, warnings);
+                    walk_actions(else_branch, names, used, target, file, warnings);
                 }
             }
         }
+    }
+}
+
+fn platform_matches(platform: ast::PlatformTarget, target: Target) -> bool {
+    matches!(
+        (platform, target),
+        (ast::PlatformTarget::Ios, Target::Swift) | (ast::PlatformTarget::Android, Target::Kotlin)
+    )
+}
+
+fn target_suffix(target: Target) -> &'static str {
+    match target {
+        Target::Swift => " for Swift",
+        Target::Kotlin => " for Kotlin",
+        Target::All => "",
     }
 }
 

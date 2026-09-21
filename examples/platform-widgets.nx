@@ -1,0 +1,25 @@
+component IOSOnlyBadge() {
+    body {
+        Text("Designed for iOS")
+    }
+}
+
+component AndroidOnlyBadge() {
+    body {
+        Text("Designed for Android")
+    }
+}
+
+app PlatformWidgets {
+    body {
+        Text("Shared content")
+
+        platform ios {
+            IOSOnlyBadge()
+        }
+
+        platform android {
+            AndroidOnlyBadge()
+        }
+    }
+}

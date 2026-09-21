@@ -23,6 +23,7 @@ cargo run -p nexa-cli -- check examples/conditional-logic.nx
 cargo run -p nexa-cli -- check examples/responsive-layout.nx
 cargo run -p nexa-cli -- check examples/constant-branches.nx
 cargo run -p nexa-cli -- check examples/counter.nx --deny-warnings
+cargo run -p nexa-cli -- check examples/platform-widgets.nx
 cargo run -p nexa-cli -- build examples/themed-app.nx --target swift --out /tmp/ThemedApp.swift
 cargo run -p nexa-cli -- build examples/themed-app.nx --target kotlin --out /tmp/ThemedApp.kt
 cargo run -p nexa-cli -- build examples/custom-components.nx --target swift --out /tmp/CustomComponents.swift
@@ -35,6 +36,8 @@ cargo run -p nexa-cli -- build examples/responsive-layout.nx --target swift --ou
 cargo run -p nexa-cli -- build examples/responsive-layout.nx --target kotlin --out /tmp/ResponsiveLayout.kt
 cargo run -p nexa-cli -- build examples/constant-branches.nx --target swift --out /tmp/ConstantBranches.swift
 cargo run -p nexa-cli -- build examples/constant-branches.nx --target kotlin --out /tmp/ConstantBranches.kt
+cargo run -p nexa-cli -- build examples/platform-widgets.nx --target swift --out /tmp/PlatformWidgets.swift
+cargo run -p nexa-cli -- build examples/platform-widgets.nx --target kotlin --out /tmp/PlatformWidgets.kt
 ```
 
 The default output replaces the input file extension, producing `counter.swift` or `counter.kt`. Generated files are intended to be added to an existing SwiftUI or Compose application with the corresponding platform dependencies configured.
@@ -59,6 +62,8 @@ Compiler orchestration and semantic analysis are separate modules inside `nexa-c
 The compiler also runs a conservative IR optimization pass before backend generation. It folds pure literal conditions and removes statically unreachable UI and event branches without adding runtime machinery or changing native component mappings. See [constant-branches.nx](examples/constant-branches.nx).
 
 Compiler warnings cover unused declarations, unused component parameters, and constant conditions. Read [compiler diagnostics and optimization](docs/compiler-diagnostics.md) for the warning policy, `--deny-warnings`, and the native-code optimization boundaries.
+
+Compile-time platform widgets use `platform ios { ... }` and `platform android { ... }`. The inactive block is removed before semantic lowering and native generation; see [platform-widgets.nx](examples/platform-widgets.nx).
 
 User-defined `.nx` components can live in imported files, declare typed inputs and private state, compose other components, and compile directly into native SwiftUI or Compose declarations. Each reachable component has one generated native declaration, and every use calls that declaration directly; imports resolve relative to the source file and are statically compiled, while unreachable component declarations are omitted from generated output.
 

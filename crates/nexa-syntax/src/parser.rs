@@ -296,6 +296,24 @@ impl Parser {
         }
         let (name, span) = self.ident()?;
         match name.as_str() {
+            "platform" => {
+                let (target, target_span) = self.ident()?;
+                let target = match target.as_str() {
+                    "ios" => PlatformTarget::Ios,
+                    "android" => PlatformTarget::Android,
+                    _ => {
+                        return Err(CompileError::new(
+                            target_span,
+                            "unknown platform; expected `ios` or `android`",
+                        ));
+                    }
+                };
+                Ok(Node::Platform {
+                    target,
+                    children: self.block_nodes()?,
+                    span,
+                })
+            }
             "Column" | "Row" => {
                 let kind = match name.as_str() {
                     "Column" => LayoutKind::Column,

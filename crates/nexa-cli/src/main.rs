@@ -1,9 +1,9 @@
-use std::{env, fs, path::PathBuf, process};
+use std::{collections::HashSet, env, fs, path::PathBuf, process};
 
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
-use nexa_compiler::{CompileWarning, compile_file_with_warnings};
+use nexa_compiler::{CompileWarning, Target, compile_file_with_warnings_for_target};
 
 fn main() {
     if let Err(message) = run() {
@@ -43,8 +43,14 @@ fn check(args: &[String]) -> Result<(), String> {
         }
     }
     let path = path.ok_or("usage: nexa check <source.nx> [--deny-warnings]")?;
-    let compilation = compile_file_with_warnings(&path).map_err(|error| error.to_string())?;
-    report_warnings(&compilation.warnings, deny_warnings)?;
+    let mut warnings = Vec::new();
+    for target in [Target::Swift, Target::Kotlin] {
+        let compilation = compile_file_with_warnings_for_target(&path, target)
+            .map_err(|error| error.to_string())?;
+        warnings.extend(compilation.warnings);
+    }
+    let warnings = deduplicate_warnings(warnings);
+    report_warnings(&warnings, deny_warnings)?;
     println!("checked {}", path.display());
     Ok(())
 }
@@ -82,16 +88,17 @@ fn build(args: &[String]) -> Result<(), String> {
     let input =
         input.ok_or("usage: nexa build <source.nx> --target <swift|kotlin> [--out <path>]")?;
     let target = target.ok_or("`nexa build` requires `--target swift` or `--target kotlin`")?;
-    let backend: &dyn Backend = match target {
-        "swift" => &SwiftBackend,
-        "kotlin" => &KotlinBackend,
+    let (backend, compile_target): (&dyn Backend, Target) = match target {
+        "swift" => (&SwiftBackend, Target::Swift),
+        "kotlin" => (&KotlinBackend, Target::Kotlin),
         _ => {
             return Err(format!(
                 "unknown target `{target}`; expected `swift` or `kotlin`"
             ));
         }
     };
-    let compilation = compile_file_with_warnings(&input).map_err(|error| error.to_string())?;
+    let compilation = compile_file_with_warnings_for_target(&input, compile_target)
+        .map_err(|error| error.to_string())?;
     report_warnings(&compilation.warnings, deny_warnings)?;
     let output = output.unwrap_or_else(|| input.with_extension(backend.file_extension()));
     fs::write(&output, backend.generate(&compilation.module))
@@ -108,6 +115,14 @@ fn report_warnings(warnings: &[CompileWarning], deny_warnings: bool) -> Result<(
         return Err(format!("{} warning(s) treated as errors", warnings.len()));
     }
     Ok(())
+}
+
+fn deduplicate_warnings(warnings: Vec<CompileWarning>) -> Vec<CompileWarning> {
+    let mut seen = HashSet::new();
+    warnings
+        .into_iter()
+        .filter(|warning| seen.insert(warning.to_string()))
+        .collect()
 }
 
 fn print_help() {

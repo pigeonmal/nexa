@@ -13,6 +13,61 @@ use super::{
     styles::{lower_style, optional_color, optional_dimension},
     themes::ThemeSymbols,
 };
+use crate::Target;
+
+pub(super) fn lower_nodes(
+    nodes: Vec<ast::Node>,
+    symbols: &HashMap<String, (Type, bool)>,
+    screen_ids: &HashMap<String, ScreenId>,
+    themes: &ThemeSymbols,
+    components: &ComponentSignatures,
+    allow_navigation_stack: bool,
+    target: Target,
+) -> Result<Vec<Node>, CompileError> {
+    let mut lowered = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        match node {
+            ast::Node::Platform {
+                target: platform,
+                children,
+                ..
+            } => {
+                if target == Target::All || platform_matches(platform, target) {
+                    lowered.extend(lower_nodes(
+                        children,
+                        symbols,
+                        screen_ids,
+                        themes,
+                        components,
+                        allow_navigation_stack,
+                        target,
+                    )?);
+                }
+            }
+            node => {
+                let allow_navigation =
+                    allow_navigation_stack && matches!(node, ast::Node::NavigationStack { .. });
+                lowered.push(lower_node(
+                    node,
+                    symbols,
+                    screen_ids,
+                    themes,
+                    components,
+                    allow_navigation,
+                    target,
+                )?);
+            }
+        }
+    }
+    Ok(lowered)
+}
+
+fn platform_matches(platform: ast::PlatformTarget, target: Target) -> bool {
+    matches!(
+        (platform, target),
+        (ast::PlatformTarget::Ios, Target::Swift) | (ast::PlatformTarget::Android, Target::Kotlin)
+    )
+}
 
 pub(super) fn lower_node(
     node: ast::Node,
@@ -21,8 +76,12 @@ pub(super) fn lower_node(
     themes: &ThemeSymbols,
     components: &ComponentSignatures,
     allow_navigation_stack: bool,
+    target: Target,
 ) -> Result<Node, CompileError> {
     match node {
+        ast::Node::Platform { .. } => {
+            unreachable!("platform blocks are expanded by lower_nodes")
+        }
         ast::Node::Layout {
             kind,
             spacing,
@@ -38,12 +97,9 @@ pub(super) fn lower_node(
             )?
             .unwrap_or(0.0);
             let style = lower_style(style, themes)?;
-            let mut lowered = Vec::with_capacity(children.len());
-            for child in children {
-                lowered.push(lower_node(
-                    child, symbols, screen_ids, themes, components, false,
-                )?);
-            }
+            let lowered = lower_nodes(
+                children, symbols, screen_ids, themes, components, false, target,
+            )?;
             let kind = match kind {
                 ast::LayoutKind::Column => LayoutKind::Column,
                 ast::LayoutKind::Row => LayoutKind::Row,
@@ -246,12 +302,9 @@ pub(super) fn lower_node(
             ..
         } => {
             let disabled = optional_bool(disabled, false, "disabled")?;
-            let mut lowered_children = Vec::with_capacity(children.len());
-            for child in children {
-                lowered_children.push(lower_node(
-                    child, symbols, screen_ids, themes, components, false,
-                )?);
-            }
+            let lowered_children = lower_nodes(
+                children, symbols, screen_ids, themes, components, false, target,
+            )?;
             let actions = lower_actions(actions, symbols)?;
             Ok(Node::Pressable {
                 disabled,
@@ -284,24 +337,18 @@ pub(super) fn lower_node(
                         }
                     },
                 )?;
-            let mut lowered_children = Vec::with_capacity(children.len());
-            for child in children {
-                lowered_children.push(lower_node(
-                    child, symbols, screen_ids, themes, components, false,
-                )?);
-            }
+            let lowered_children = lower_nodes(
+                children, symbols, screen_ids, themes, components, false, target,
+            )?;
             Ok(Node::NavigationLink {
                 destination,
                 children: lowered_children,
             })
         }
         ast::Node::KeyboardAware { children, .. } => {
-            let mut lowered_children = Vec::with_capacity(children.len());
-            for child in children {
-                lowered_children.push(lower_node(
-                    child, symbols, screen_ids, themes, components, false,
-                )?);
-            }
+            let lowered_children = lower_nodes(
+                children, symbols, screen_ids, themes, components, false, target,
+            )?;
             Ok(Node::KeyboardAware {
                 children: lowered_children,
             })
@@ -375,17 +422,15 @@ pub(super) fn lower_node(
             if let (Some(item_name), Some(item_type)) = (&item, &item_type) {
                 row_symbols.insert(item_name.clone(), (item_type.clone(), false));
             }
-            let mut lowered_children = Vec::with_capacity(children.len());
-            for child in children {
-                lowered_children.push(lower_node(
-                    child,
-                    &row_symbols,
-                    screen_ids,
-                    themes,
-                    components,
-                    false,
-                )?);
-            }
+            let lowered_children = lower_nodes(
+                children,
+                &row_symbols,
+                screen_ids,
+                themes,
+                components,
+                false,
+                target,
+            )?;
             if lowered_children.is_empty() {
                 return Err(CompileError::new(
                     span,
@@ -406,19 +451,12 @@ pub(super) fn lower_node(
             ..
         } => {
             let condition = lower_expr(&condition, Some(&Type::Bool), symbols)?;
-            let mut lowered_then = Vec::with_capacity(then_body.len());
-            for child in then_body {
-                lowered_then.push(lower_node(
-                    child, symbols, screen_ids, themes, components, false,
-                )?);
-            }
+            let lowered_then = lower_nodes(
+                then_body, symbols, screen_ids, themes, components, false, target,
+            )?;
             let lowered_else = else_body
                 .map(|body| {
-                    body.into_iter()
-                        .map(|child| {
-                            lower_node(child, symbols, screen_ids, themes, components, false)
-                        })
-                        .collect::<Result<Vec<_>, _>>()
+                    lower_nodes(body, symbols, screen_ids, themes, components, false, target)
                 })
                 .transpose()?;
             Ok(Node::If {

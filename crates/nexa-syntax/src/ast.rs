@@ -110,6 +110,11 @@ pub enum Node {
         children: Vec<Node>,
         span: Span,
     },
+    Platform {
+        target: PlatformTarget,
+        children: Vec<Node>,
+        span: Span,
+    },
     Text {
         value: Expr,
         color: Option<Expr>,
@@ -203,6 +208,12 @@ pub struct LayoutStyle {
 pub enum LayoutKind {
     Column,
     Row,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlatformTarget {
+    Ios,
+    Android,
 }
 
 #[derive(Clone, Debug)]
