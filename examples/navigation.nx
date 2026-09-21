@@ -2,6 +2,10 @@ app NavigationDemo {
     state visits: Int32 = 0
 
     screen Home {
+        OnAppear {
+            visits = visits + 1
+        }
+
         Column(spacing: 12) {
             Text("Home")
             Text(visits)

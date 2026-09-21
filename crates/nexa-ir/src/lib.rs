@@ -31,6 +31,7 @@ pub struct Screen {
     pub id: ScreenId,
     pub name: String,
     pub body: Vec<Node>,
+    pub on_appear: Option<Vec<Action>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

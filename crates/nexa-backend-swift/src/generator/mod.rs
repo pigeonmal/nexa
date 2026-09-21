@@ -130,7 +130,11 @@ fn render_direction_modifier(
     out.push_str(&format!(".environment(\\.layoutDirection, .{direction})"));
 }
 
-fn render_on_appear_modifier(actions: Option<&[nexa_ir::Action]>, depth: usize, out: &mut String) {
+pub(super) fn render_on_appear_modifier(
+    actions: Option<&[nexa_ir::Action]>,
+    depth: usize,
+    out: &mut String,
+) {
     let Some(actions) = actions else {
         return;
     };

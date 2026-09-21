@@ -99,16 +99,12 @@ pub fn lower_with_warnings(
                 "Direction is only allowed at the app body's top level",
             ));
         }
-        if screen_body.iter().any(contains_on_appear) {
-            return Err(CompileError::new(
-                app.span,
-                "OnAppear is only allowed at the app body's top level",
-            ));
-        }
+        let (on_appear, screen_body) = extract_on_appear(screen_body, screen.span, "screen")?;
         screens.push(Screen {
             id: ScreenId(index),
             name: screen.name,
             body: screen_body,
+            on_appear,
         });
     }
 
@@ -123,7 +119,7 @@ pub fn lower_with_warnings(
     )?;
     let (status_bar, body) = extract_status_bar(body, app.span)?;
     let (direction, body) = extract_direction(body, app.span)?;
-    let (on_appear, body) = extract_on_appear(body, app.span)?;
+    let (on_appear, body) = extract_on_appear(body, app.span, "app")?;
     let components = retain_reachable(components, &body, &screens);
     let mut module = Module {
         app_name: app.name,
@@ -308,6 +304,7 @@ pub(super) fn contains_direction(node: &Node) -> bool {
 fn extract_on_appear(
     nodes: Vec<Node>,
     span: nexa_diagnostics::Span,
+    scope: &str,
 ) -> Result<(Option<Vec<Action>>, Vec<Node>), CompileError> {
     let mut actions = None;
     let mut body = Vec::with_capacity(nodes.len());
@@ -317,14 +314,14 @@ fn extract_on_appear(
                 if actions.replace(value).is_some() {
                     return Err(CompileError::new(
                         span,
-                        "an app can declare only one top-level OnAppear",
+                        format!("a {scope} can declare only one top-level OnAppear"),
                     ));
                 }
             }
             node if contains_on_appear(&node) => {
                 return Err(CompileError::new(
                     span,
-                    "OnAppear is only allowed at the app body's top level",
+                    format!("OnAppear is only allowed at the {scope} body's top level"),
                 ));
             }
             node => body.push(node),

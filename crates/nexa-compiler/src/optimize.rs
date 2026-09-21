@@ -19,6 +19,9 @@ pub(crate) fn optimize(module: &mut Module) {
     }
     for screen in &mut module.screens {
         screen.body = optimize_nodes(std::mem::take(&mut screen.body));
+        if let Some(actions) = &mut screen.on_appear {
+            *actions = optimize_actions(std::mem::take(actions));
+        }
     }
     for component in &mut module.components {
         component.body = optimize_nodes(std::mem::take(&mut component.body));
@@ -38,6 +41,9 @@ fn prune_unused_states(module: &mut Module) {
     }
     for screen in &module.screens {
         collect_node_state_references(&screen.body, &mut used);
+        if let Some(actions) = &screen.on_appear {
+            collect_action_state_references(actions, &mut used);
+        }
     }
     retain_referenced_states(&mut module.states, used);
 
