@@ -61,3 +61,7 @@ These skills distinguish the current prototype from the longer-term goals in `pl
 ## Language slice
 
 See the [language guide](docs/language.md) for syntax, supported types, themes, current limits, and native mappings, and the [language design decisions](docs/language-design.md) for how Nexa adopts or defers Kotlin/Swift concepts. The full roadmap remains in [plan.md](plan.md).
+
+## License
+
+Copyright © 2026 Nexa contributors. Nexa is licensed under the GNU General Public License v3.0 only; see [LICENSE](LICENSE) for the full terms.
