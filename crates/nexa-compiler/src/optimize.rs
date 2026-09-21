@@ -174,6 +174,7 @@ fn optimize_node(node: Node) -> Option<Node> {
         | Node::Switch { .. }
         | Node::Image { .. }
         | Node::StatusBar { .. }
+        | Node::Direction { .. }
         | Node::NavigationStack { .. }) => Some(node),
         Node::NavigationLink {
             destination,

@@ -63,6 +63,7 @@ pub fn walk_ir(
             | Node::Switch { .. }
             | Node::Image { .. }
             | Node::StatusBar { .. }
+            | Node::Direction { .. }
             | Node::NavigationStack { .. } => {}
         }
     }
@@ -134,6 +135,7 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
             contains_scrollable(then_body) || else_body.as_deref().is_some_and(contains_scrollable)
         }
         Node::StatusBar { .. }
+        | Node::Direction { .. }
         | Node::Text { .. }
         | Node::Button { .. }
         | Node::TextInput { .. }

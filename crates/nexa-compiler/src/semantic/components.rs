@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
-    AccessibilityRole, Action, BottomBarTab, Capitalization, Expr, ImageScale, ImageSource,
-    KeyboardType, LayoutKind, ListSource, Node, NumericType, ScreenId, StatusBarConfig,
-    StatusBarStyle, TextStyle, Type,
+    AccessibilityRole, Action, BottomBarTab, Capitalization, DirectionConfig, DirectionStyle, Expr,
+    ImageScale, ImageSource, KeyboardType, LayoutKind, ListSource, Node, NumericType, ScreenId,
+    StatusBarConfig, StatusBarStyle, TextStyle, Type,
 };
 use nexa_syntax::ast;
 
@@ -85,6 +85,9 @@ pub(super) fn lower_node(
         }
         ast::Node::StatusBar { style, hidden, .. } => Ok(Node::StatusBar {
             config: lower_status_bar(style, hidden)?,
+        }),
+        ast::Node::Direction { value, .. } => Ok(Node::Direction {
+            config: lower_direction(value)?,
         }),
         ast::Node::Layout {
             kind,
@@ -707,6 +710,28 @@ fn lower_status_bar(
         None => false,
     };
     Ok(StatusBarConfig { style, hidden })
+}
+
+fn lower_direction(value: ast::Expr) -> Result<DirectionConfig, CompileError> {
+    let style = match value {
+        ast::Expr::Name(name, name_span) => match name.as_str() {
+            "LTR" | "Ltr" => DirectionStyle::Ltr,
+            "RTL" | "Rtl" => DirectionStyle::Rtl,
+            _ => {
+                return Err(CompileError::new(
+                    name_span,
+                    "Direction value must be `LTR` or `RTL`",
+                ));
+            }
+        },
+        expr => {
+            return Err(CompileError::new(
+                expr.span(),
+                "Direction value must be `LTR` or `RTL`",
+            ));
+        }
+    };
+    Ok(DirectionConfig { style })
 }
 
 fn binding_name(

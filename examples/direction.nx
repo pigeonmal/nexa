@@ -1,0 +1,12 @@
+app DirectionExample {
+    body {
+        Direction(value: RTL)
+        Column(alignment: Start, spacing: 12, padding: 20) {
+            Text("العنوان")
+            Row {
+                Text("يمين")
+                Text("يسار")
+            }
+        }
+    }
+}

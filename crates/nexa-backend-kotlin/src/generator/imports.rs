@@ -1,6 +1,11 @@
 use super::features::Features;
 
-pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String) {
+pub(super) fn render(
+    features: &Features,
+    has_navigation: bool,
+    has_direction: bool,
+    out: &mut String,
+) {
     let mut imports = Vec::with_capacity(40);
     let mut add = |enabled: bool, import: &'static str| {
         if enabled {
@@ -10,6 +15,10 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
 
     add(features.uses_status_bar, "android.app.Activity");
     add(features.uses_status_bar, "android.view.View");
+    add(
+        has_direction,
+        "androidx.compose.runtime.CompositionLocalProvider",
+    );
     add(features.uses_link, "android.content.Intent");
     add(features.uses_link, "android.net.Uri");
     add(
@@ -158,6 +167,11 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
         features.uses_link,
         "androidx.compose.ui.platform.LocalContext",
     );
+    add(
+        has_direction,
+        "androidx.compose.ui.platform.LocalLayoutDirection",
+    );
+    add(has_direction, "androidx.compose.ui.unit.LayoutDirection");
     add(features.uses_opacity, "androidx.compose.ui.draw.alpha");
     add(features.uses_corner_radius, "androidx.compose.ui.draw.clip");
     add(features.uses_color, "androidx.compose.ui.graphics.Color");

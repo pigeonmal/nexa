@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, CompileWarning};
-use nexa_ir::{Module, Node, Screen, ScreenId, State, StatusBarConfig};
+use nexa_ir::{DirectionConfig, Module, Node, Screen, ScreenId, State, StatusBarConfig};
 use nexa_syntax::ast;
 
 use self::{
@@ -93,6 +93,12 @@ pub fn lower_with_warnings(
                 "StatusBar is only allowed once at the app body's top level",
             ));
         }
+        if screen_body.iter().any(contains_direction) {
+            return Err(CompileError::new(
+                app.span,
+                "Direction is only allowed at the app body's top level",
+            ));
+        }
         screens.push(Screen {
             id: ScreenId(index),
             name: screen.name,
@@ -110,6 +116,7 @@ pub fn lower_with_warnings(
         target,
     )?;
     let (status_bar, body) = extract_status_bar(body, app.span)?;
+    let (direction, body) = extract_direction(body, app.span)?;
     let components = retain_reachable(components, &body, &screens);
     let mut module = Module {
         app_name: app.name,
@@ -118,6 +125,7 @@ pub fn lower_with_warnings(
         components,
         body,
         status_bar,
+        direction,
     };
     crate::optimize::optimize(&mut module);
     Ok((module, warnings))
@@ -145,6 +153,7 @@ fn collect_active_nodes<'a>(
             }
             ast::Node::Platform { .. } => {}
             ast::Node::StatusBar { .. } => {}
+            ast::Node::Direction { .. } => {}
             node => active.push(node),
         }
     }
@@ -211,6 +220,71 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
                     .is_some_and(|body| body.iter().any(contains_status_bar))
         }
         Node::Text { .. }
+        | Node::Button { .. }
+        | Node::TextInput { .. }
+        | Node::Switch { .. }
+        | Node::Image { .. }
+        | Node::NavigationStack { .. }
+        | Node::ComponentCall { .. }
+        | Node::Direction { .. } => false,
+    }
+}
+
+fn extract_direction(
+    nodes: Vec<Node>,
+    span: nexa_diagnostics::Span,
+) -> Result<(Option<DirectionConfig>, Vec<Node>), CompileError> {
+    let mut config = None;
+    let mut body = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        match node {
+            Node::Direction { config: value } => {
+                if config.replace(value).is_some() {
+                    return Err(CompileError::new(
+                        span,
+                        "an app can declare only one top-level Direction",
+                    ));
+                }
+            }
+            node if contains_direction(&node) => {
+                return Err(CompileError::new(
+                    span,
+                    "Direction is only allowed at the app body's top level",
+                ));
+            }
+            node => body.push(node),
+        }
+    }
+    Ok((config, body))
+}
+
+pub(super) fn contains_direction(node: &Node) -> bool {
+    match node {
+        Node::Direction { .. } => true,
+        Node::Layout { children, .. }
+        | Node::NavigationLink { children, .. }
+        | Node::Link { children, .. }
+        | Node::Accessibility { children, .. }
+        | Node::KeyboardAware { children }
+        | Node::BottomSheet { children, .. }
+        | Node::RefreshControl { children, .. }
+        | Node::Pressable { children, .. }
+        | Node::FastList { children, .. } => children.iter().any(contains_direction),
+        Node::AppBottomBar { tabs, .. } => tabs
+            .iter()
+            .any(|tab| tab.children.iter().any(contains_direction)),
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_direction)
+                || else_body
+                    .as_deref()
+                    .is_some_and(|body| body.iter().any(contains_direction))
+        }
+        Node::StatusBar { .. }
+        | Node::Text { .. }
         | Node::Button { .. }
         | Node::TextInput { .. }
         | Node::Switch { .. }

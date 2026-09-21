@@ -178,7 +178,7 @@ impl Features {
 
     fn record_node(&mut self, node: &Node) {
         match node {
-            Node::StatusBar { .. } => {}
+            Node::StatusBar { .. } | Node::Direction { .. } => {}
             Node::Layout {
                 kind,
                 spacing,

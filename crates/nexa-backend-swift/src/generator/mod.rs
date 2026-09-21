@@ -93,6 +93,7 @@ pub(super) fn generate(module: &Module) -> String {
             &mut out,
         );
     }
+    render_direction_modifier(module.direction, 2, &mut out);
     render_status_bar_modifiers(module.status_bar, 2, &mut out);
     out.push_str("\n    }\n");
     if !module.screens.is_empty() {
@@ -109,6 +110,23 @@ pub(super) fn generate(module: &Module) -> String {
         network::render(&mut out);
     }
     out
+}
+
+fn render_direction_modifier(
+    config: Option<nexa_ir::DirectionConfig>,
+    depth: usize,
+    out: &mut String,
+) {
+    let Some(config) = config else {
+        return;
+    };
+    let direction = match config.style {
+        nexa_ir::DirectionStyle::Ltr => "leftToRight",
+        nexa_ir::DirectionStyle::Rtl => "rightToLeft",
+    };
+    out.push('\n');
+    utils::indent(out, depth + 1);
+    out.push_str(&format!(".environment(\\.layoutDirection, .{direction})"));
 }
 
 fn render_status_bar_modifiers(

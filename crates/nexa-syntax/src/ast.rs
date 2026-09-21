@@ -120,6 +120,10 @@ pub enum Node {
         hidden: Option<Expr>,
         span: Span,
     },
+    Direction {
+        value: Expr,
+        span: Span,
+    },
     Text {
         value: Expr,
         color: Option<Expr>,

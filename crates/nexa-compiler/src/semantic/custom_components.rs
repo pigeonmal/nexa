@@ -181,6 +181,12 @@ fn lower_component(
             "StatusBar is only allowed at the app body's top level",
         ));
     }
+    if body.iter().any(super::contains_direction) {
+        return Err(CompileError::new(
+            declaration.span,
+            "Direction is only allowed at the app body's top level",
+        ));
+    }
 
     let parameters = signature
         .parameters
@@ -306,7 +312,8 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
         | ast::Node::TextInput { .. }
         | ast::Node::Switch { .. }
         | ast::Node::Image { .. }
-        | ast::Node::NavigationStack { .. } => {}
+        | ast::Node::NavigationStack { .. }
+        | ast::Node::Direction { .. } => {}
     }
 }
 
@@ -358,7 +365,8 @@ fn contains_navigation_link(node: &ast::Node, target: Target) -> bool {
         | ast::Node::Switch { .. }
         | ast::Node::Image { .. }
         | ast::Node::NavigationStack { .. }
-        | ast::Node::ComponentCall { .. } => false,
+        | ast::Node::ComponentCall { .. }
+        | ast::Node::Direction { .. } => false,
     }
 }
 
@@ -409,7 +417,8 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::TextInput { .. }
         | Node::Switch { .. }
         | Node::Image { .. }
-        | Node::NavigationStack { .. } => {}
+        | Node::NavigationStack { .. }
+        | Node::Direction { .. } => {}
     }
 }
 

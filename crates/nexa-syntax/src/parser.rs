@@ -350,6 +350,15 @@ impl Parser {
                     span,
                 })
             }
+            "Direction" => {
+                let mut args = self.named_args(&["value"])?;
+                let value = self.required_arg(
+                    &mut args,
+                    "value",
+                    "Direction requires `value: LTR` or `value: RTL`",
+                )?;
+                Ok(Node::Direction { value, span })
+            }
             "Column" | "Row" => {
                 let kind = match name.as_str() {
                     "Column" => LayoutKind::Column,

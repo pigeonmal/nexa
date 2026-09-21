@@ -8,6 +8,7 @@ pub struct Module {
     pub components: Vec<Component>,
     pub body: Vec<Node>,
     pub status_bar: Option<StatusBarConfig>,
+    pub direction: Option<DirectionConfig>,
 }
 
 #[derive(Clone, Debug)]
@@ -60,6 +61,17 @@ pub enum NumericType {
 pub struct StatusBarConfig {
     pub style: StatusBarStyle,
     pub hidden: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DirectionConfig {
+    pub style: DirectionStyle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DirectionStyle {
+    Ltr,
+    Rtl,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,6 +140,9 @@ pub enum BinaryOp {
 pub enum Node {
     StatusBar {
         config: StatusBarConfig,
+    },
+    Direction {
+        config: DirectionConfig,
     },
     Layout {
         kind: LayoutKind,

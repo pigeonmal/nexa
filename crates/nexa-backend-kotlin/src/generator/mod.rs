@@ -25,7 +25,12 @@ mod utils;
 pub(super) fn generate(module: &Module) -> String {
     let features = features::Features::analyze(module);
     let mut out = String::new();
-    imports::render(&features, !module.screens.is_empty(), &mut out);
+    imports::render(
+        &features,
+        !module.screens.is_empty(),
+        module.direction.is_some(),
+        &mut out,
+    );
     out.push_str(&format!(
         "@Composable\nfun {}() {{\n",
         nexa_codegen::names::screen_name(&module.app_name)
@@ -55,8 +60,20 @@ pub(super) fn generate(module: &Module) -> String {
     if !module.states.is_empty() {
         out.push('\n');
     }
+    let body_depth = if let Some(direction) = module.direction {
+        let direction = match direction.style {
+            nexa_ir::DirectionStyle::Ltr => "Ltr",
+            nexa_ir::DirectionStyle::Rtl => "Rtl",
+        };
+        out.push_str("    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.");
+        out.push_str(direction);
+        out.push_str(") {\n");
+        2
+    } else {
+        1
+    };
     if module.body.len() == 1 {
-        components::render_node(&module.body[0], module, &features, 1, &mut out);
+        components::render_node(&module.body[0], module, &features, body_depth, &mut out);
     } else {
         layout::render_layout(
             LayoutKind::Column,
@@ -65,9 +82,12 @@ pub(super) fn generate(module: &Module) -> String {
             &module.body,
             module,
             &features,
-            1,
+            body_depth,
             &mut out,
         );
+    }
+    if module.direction.is_some() {
+        out.push_str("\n    }");
     }
     out.push_str("\n}\n");
     custom_components::render(module, &features, &mut out);

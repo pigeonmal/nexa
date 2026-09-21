@@ -878,16 +878,24 @@ Platform-specific permissions must remain accessible.
 
 ## RTL and LTR
 
-Provide complete support for right-to-left and left-to-right layouts.
+The first static direction slice is implemented:
 
-Support:
+```nexa
+body {
+    Direction(value: RTL)
+    Column(alignment: Start) {
+        Text("مرحبا")
+    }
+}
+```
 
-- RTL text,
-- RTL layout mirroring,
-- directional padding/margins,
-- start/end properties,
-- language changes,
-- platform native direction handling.
+Swift applies the native `layoutDirection` environment value. Android provides `LocalLayoutDirection` with Compose's native `LayoutDirection`. Omitting the declaration preserves the platform/system direction.
+
+Remaining work:
+
+- dynamic language and locale changes,
+- directional padding and margin syntax,
+- explicit direction-aware spacing tokens.
 
 Do not rely on manual component mirroring when native platform behavior can perform it automatically.
 
