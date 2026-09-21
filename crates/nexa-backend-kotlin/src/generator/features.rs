@@ -5,6 +5,16 @@ use nexa_ir::{ColorValue, Module, Node};
 pub(super) fn contains_image(node: &Node) -> bool {
     match node {
         Node::Image { .. } => true,
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_image)
+                || else_body
+                    .as_ref()
+                    .is_some_and(|body| body.iter().any(contains_image))
+        }
         Node::Layout { children, .. }
         | Node::Pressable { children, .. }
         | Node::NavigationLink { children, .. }
@@ -25,6 +35,16 @@ pub(super) fn contains_placeholder(node: &Node) -> bool {
             placeholder: Some(_),
             ..
         } => true,
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_placeholder)
+                || else_body
+                    .as_ref()
+                    .is_some_and(|body| body.iter().any(contains_placeholder))
+        }
         Node::Layout { children, .. }
         | Node::Pressable { children, .. }
         | Node::NavigationLink { children, .. }
@@ -43,6 +63,16 @@ pub(super) fn contains_placeholder(node: &Node) -> bool {
 pub(super) fn contains_navigation_link(node: &Node) -> bool {
     match node {
         Node::NavigationLink { .. } => true,
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_navigation_link)
+                || else_body
+                    .as_ref()
+                    .is_some_and(|body| body.iter().any(contains_navigation_link))
+        }
         Node::Layout { children, .. }
         | Node::Pressable { children, .. }
         | Node::KeyboardAware { children, .. }
@@ -60,6 +90,16 @@ pub(super) fn contains_navigation_link(node: &Node) -> bool {
 pub(super) fn contains_list(node: &Node) -> bool {
     match node {
         Node::FastList { .. } => true,
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_list)
+                || else_body
+                    .as_ref()
+                    .is_some_and(|body| body.iter().any(contains_list))
+        }
         Node::Layout { children, .. }
         | Node::Pressable { children, .. }
         | Node::NavigationLink { children, .. }
@@ -77,6 +117,16 @@ pub(super) fn contains_list(node: &Node) -> bool {
 pub(super) fn contains_keyboard_aware(node: &Node) -> bool {
     match node {
         Node::KeyboardAware { .. } => true,
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_keyboard_aware)
+                || else_body
+                    .as_ref()
+                    .is_some_and(|body| body.iter().any(contains_keyboard_aware))
+        }
         Node::Layout { children, .. }
         | Node::Pressable { children, .. }
         | Node::NavigationLink { children, .. }
@@ -139,7 +189,20 @@ fn contains_adaptive_color(node: &Node) -> bool {
         _ => None,
     }
     .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
-    own_color_is_adaptive || children(node).iter().any(contains_adaptive_color)
+    own_color_is_adaptive
+        || match node {
+            Node::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                nodes_use_adaptive_color(then_body)
+                    || else_body
+                        .as_ref()
+                        .is_some_and(|body| nodes_use_adaptive_color(body))
+            }
+            _ => children(node).iter().any(contains_adaptive_color),
+        }
 }
 
 pub(super) fn uses_font_size(module: &Module) -> bool {
@@ -160,7 +223,19 @@ pub(super) fn nodes_use_font_size(nodes: &[Node]) -> bool {
 
 fn contains_font_size(node: &Node) -> bool {
     matches!(node, Node::Text { style, .. } if style.font_size.is_some())
-        || children(node).iter().any(contains_font_size)
+        || match node {
+            Node::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                nodes_use_font_size(then_body)
+                    || else_body
+                        .as_ref()
+                        .is_some_and(|body| nodes_use_font_size(body))
+            }
+            _ => children(node).iter().any(contains_font_size),
+        }
 }
 
 fn children(node: &Node) -> &[Node] {
@@ -177,6 +252,15 @@ fn children(node: &Node) -> &[Node] {
 fn collect_component_calls(node: &Node, calls: &mut Vec<String>) {
     match node {
         Node::ComponentCall { name, .. } => calls.push(name.clone()),
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            for child in then_body.iter().chain(else_body.iter().flatten()) {
+                collect_component_calls(child, calls);
+            }
+        }
         _ => {
             for child in children(node) {
                 collect_component_calls(child, calls);

@@ -1,13 +1,16 @@
 use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, Span};
-use nexa_ir::{Expr, NumericType, Type};
+use nexa_ir::{BinaryOp, Expr, NumericType, Type};
 use nexa_syntax::ast;
 
 pub(super) fn references_state(expr: &ast::Expr) -> bool {
     match expr {
         ast::Expr::Name(_, _) => true,
-        ast::Expr::Add(left, right, _) => references_state(left) || references_state(right),
+        ast::Expr::Add(left, right, _) | ast::Expr::Binary(left, _, right, _) => {
+            references_state(left) || references_state(right)
+        }
+        ast::Expr::Not(value, _) => references_state(value),
         ast::Expr::Array(items, _) => items.iter().any(references_state),
         ast::Expr::String(_, _)
         | ast::Expr::Number(_, _)
@@ -76,15 +79,26 @@ pub(super) fn lower_expr(
             format!("`Theme.{name}` can only be used in supported style options"),
         )),
         ast::Expr::Add(left, right, span) => {
-            let left = lower_expr(left, expected, symbols)?;
-            let Some(ty) = expr_numeric_type(&left) else {
+            let ty = expected
+                .and_then(as_numeric_type)
+                .or_else(|| infer_expr_type(left, symbols).and_then(|ty| as_numeric_type(&ty)))
+                .or_else(|| infer_expr_type(right, symbols).and_then(|ty| as_numeric_type(&ty)))
+                .ok_or_else(|| {
+                    CompileError::new(*span, "`+` requires numeric values of the same type")
+                })?;
+            let numeric = Type::Numeric(ty);
+            if expected.is_some_and(|expected| expected != &numeric) {
                 return Err(CompileError::new(
                     *span,
-                    "`+` is only supported for numeric values in this language version",
+                    format!(
+                        "`+` produces {}, which does not match the expected type",
+                        type_name(&numeric)
+                    ),
                 ));
-            };
-            let right = lower_expr(right, Some(&Type::Numeric(ty)), symbols)?;
-            if expr_numeric_type(&right) != Some(ty) {
+            }
+            let left = lower_expr(left, Some(&numeric), symbols)?;
+            let right = lower_expr(right, Some(&numeric), symbols)?;
+            if expr_numeric_type(&left) != Some(ty) || expr_numeric_type(&right) != Some(ty) {
                 return Err(CompileError::new(
                     *span,
                     "both sides of `+` must have the same numeric type",
@@ -92,6 +106,165 @@ pub(super) fn lower_expr(
             }
             Ok(Expr::Add(Box::new(left), Box::new(right), ty))
         }
+        ast::Expr::Not(value, _span) => {
+            let value = lower_expr(value, Some(&Type::Bool), symbols)?;
+            Ok(Expr::Not(Box::new(value)))
+        }
+        ast::Expr::Binary(left, operator, right, span) => {
+            lower_binary(left, *operator, right, *span, expected, symbols)
+        }
+    }
+}
+
+fn lower_binary(
+    left: &ast::Expr,
+    operator: ast::BinaryOp,
+    right: &ast::Expr,
+    span: Span,
+    expected: Option<&Type>,
+    symbols: &HashMap<String, (Type, bool)>,
+) -> Result<Expr, CompileError> {
+    let ir_operator = match operator {
+        ast::BinaryOp::And => BinaryOp::And,
+        ast::BinaryOp::Or => BinaryOp::Or,
+        ast::BinaryOp::Equal => BinaryOp::Equal,
+        ast::BinaryOp::NotEqual => BinaryOp::NotEqual,
+        ast::BinaryOp::Less => BinaryOp::Less,
+        ast::BinaryOp::LessEqual => BinaryOp::LessEqual,
+        ast::BinaryOp::Greater => BinaryOp::Greater,
+        ast::BinaryOp::GreaterEqual => BinaryOp::GreaterEqual,
+    };
+    let is_logical = matches!(operator, ast::BinaryOp::And | ast::BinaryOp::Or);
+    let is_ordered = matches!(
+        operator,
+        ast::BinaryOp::Less
+            | ast::BinaryOp::LessEqual
+            | ast::BinaryOp::Greater
+            | ast::BinaryOp::GreaterEqual
+    );
+    if is_logical {
+        if expected.is_some_and(|expected| expected != &Type::Bool) {
+            return Err(CompileError::new(span, "logical expressions produce Bool"));
+        }
+        let bool_type = Type::Bool;
+        let left = lower_expr(left, Some(&bool_type), symbols)?;
+        let right = lower_expr(right, Some(&bool_type), symbols)?;
+        return Ok(Expr::Binary {
+            op: ir_operator,
+            left: Box::new(left),
+            right: Box::new(right),
+        });
+    }
+
+    if expected.is_some_and(|expected| expected != &Type::Bool) {
+        return Err(CompileError::new(
+            span,
+            "comparison expressions produce Bool",
+        ));
+    }
+    let left_type = infer_expr_type(left, symbols);
+    let right_type = infer_expr_type(right, symbols);
+    let common_type = match (left_type, right_type) {
+        (Some(left_type), Some(right_type)) if left_type == right_type => left_type,
+        (Some(left_type @ Type::Numeric(_)), Some(Type::Numeric(_)))
+            if matches!(right, ast::Expr::Number(_, _)) =>
+        {
+            left_type
+        }
+        (Some(Type::Numeric(_)), Some(right_type @ Type::Numeric(_)))
+            if matches!(left, ast::Expr::Number(_, _)) =>
+        {
+            right_type
+        }
+        (Some(left_type), Some(right_type)) => {
+            return Err(CompileError::new(
+                span,
+                format!(
+                    "cannot compare {} with {} without an explicit conversion",
+                    type_name(&left_type),
+                    type_name(&right_type)
+                ),
+            ));
+        }
+        (Some(ty), None) | (None, Some(ty)) => ty,
+        (None, None) => {
+            let left = lower_expr(left, None, symbols)?;
+            let right = lower_expr(right, None, symbols)?;
+            let _ = (left, right);
+            return Err(CompileError::new(
+                span,
+                "comparison requires typed scalar values",
+            ));
+        }
+    };
+    if is_ordered && !matches!(common_type, Type::Numeric(_)) {
+        return Err(CompileError::new(
+            span,
+            "ordering comparisons are supported for numeric values only",
+        ));
+    }
+    if !is_ordered && !matches!(common_type, Type::Numeric(_) | Type::Bool | Type::String) {
+        return Err(CompileError::new(
+            span,
+            "equality is supported for numeric, Bool, and String values",
+        ));
+    }
+    let left = lower_expr(left, Some(&common_type), symbols)?;
+    let right = lower_expr(right, Some(&common_type), symbols)?;
+    Ok(Expr::Binary {
+        op: ir_operator,
+        left: Box::new(left),
+        right: Box::new(right),
+    })
+}
+
+fn infer_expr_type(expr: &ast::Expr, symbols: &HashMap<String, (Type, bool)>) -> Option<Type> {
+    match expr {
+        ast::Expr::String(_, _) => Some(Type::String),
+        ast::Expr::Bool(_, _) | ast::Expr::Not(_, _) | ast::Expr::Binary(_, _, _, _) => {
+            Some(Type::Bool)
+        }
+        ast::Expr::Number(raw, _) => Some(Type::Numeric(if raw.contains('.') {
+            NumericType::Float64
+        } else {
+            NumericType::Int32
+        })),
+        ast::Expr::Name(name, _) => symbols.get(name).map(|(ty, _)| ty.clone()),
+        ast::Expr::ThemeToken(_, _) => None,
+        ast::Expr::Add(left_expr, right_expr, _) => {
+            let left_type = infer_expr_type(left_expr, symbols);
+            let right_type = infer_expr_type(right_expr, symbols);
+            match (left_type, right_type) {
+                (Some(Type::Numeric(left)), Some(Type::Numeric(right))) if left == right => {
+                    Some(Type::Numeric(left))
+                }
+                (Some(Type::Numeric(left)), Some(Type::Numeric(_)))
+                    if matches!(right_expr.as_ref(), ast::Expr::Number(_, _)) =>
+                {
+                    Some(Type::Numeric(left))
+                }
+                (Some(Type::Numeric(_)), Some(Type::Numeric(right)))
+                    if matches!(left_expr.as_ref(), ast::Expr::Number(_, _)) =>
+                {
+                    Some(Type::Numeric(right))
+                }
+                (Some(ty @ Type::Numeric(_)), None) | (None, Some(ty @ Type::Numeric(_))) => {
+                    Some(ty)
+                }
+                _ => None,
+            }
+        }
+        ast::Expr::Array(items, _) => items
+            .first()
+            .and_then(|item| infer_expr_type(item, symbols))
+            .map(|item_type| Type::Array(Box::new(item_type))),
+    }
+}
+
+fn as_numeric_type(ty: &Type) -> Option<NumericType> {
+    match ty {
+        Type::Numeric(numeric_type) => Some(*numeric_type),
+        _ => None,
     }
 }
 

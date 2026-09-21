@@ -400,6 +400,34 @@ pub(super) fn lower_node(
                 children: lowered_children,
             })
         }
+        ast::Node::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } => {
+            let condition = lower_expr(&condition, Some(&Type::Bool), symbols)?;
+            let mut lowered_then = Vec::with_capacity(then_body.len());
+            for child in then_body {
+                lowered_then.push(lower_node(
+                    child, symbols, screen_ids, themes, components, false,
+                )?);
+            }
+            let lowered_else = else_body
+                .map(|body| {
+                    body.into_iter()
+                        .map(|child| {
+                            lower_node(child, symbols, screen_ids, themes, components, false)
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?;
+            Ok(Node::If {
+                condition,
+                then_body: lowered_then,
+                else_body: lowered_else,
+            })
+        }
         ast::Node::ComponentCall {
             name,
             mut arguments,
@@ -490,6 +518,21 @@ fn lower_actions(
                 }
                 let value = lower_expr(&value, Some(ty), symbols)?;
                 lowered.push(Action::Assign { name, value });
+            }
+            ast::Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                let condition = lower_expr(&condition, Some(&Type::Bool), symbols)?;
+                lowered.push(Action::If {
+                    condition,
+                    then_branch: lower_actions(then_branch, symbols)?,
+                    else_branch: else_branch
+                        .map(|branch| lower_actions(branch, symbols))
+                        .transpose()?,
+                });
             }
         }
     }

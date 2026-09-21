@@ -65,10 +65,31 @@ pub enum Type {
 pub enum Expr {
     String(String),
     Bool(bool),
-    Number { raw: String, ty: NumericType },
+    Number {
+        raw: String,
+        ty: NumericType,
+    },
     State(String, Type),
     Add(Box<Expr>, Box<Expr>, NumericType),
+    Not(Box<Expr>),
+    Binary {
+        op: BinaryOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     Array(Vec<Expr>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BinaryOp {
+    And,
+    Or,
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
 }
 
 #[derive(Clone, Debug)]
@@ -126,6 +147,11 @@ pub enum Node {
         index: String,
         item: Option<String>,
         children: Vec<Node>,
+    },
+    If {
+        condition: Expr,
+        then_body: Vec<Node>,
+        else_body: Option<Vec<Node>>,
     },
     ComponentCall {
         name: String,
@@ -210,7 +236,15 @@ pub struct TextStyle {
 
 #[derive(Clone, Debug)]
 pub enum Action {
-    Assign { name: String, value: Expr },
+    Assign {
+        name: String,
+        value: Expr,
+    },
+    If {
+        condition: Expr,
+        then_branch: Vec<Action>,
+        else_branch: Option<Vec<Action>>,
+    },
 }
 
 impl NumericType {

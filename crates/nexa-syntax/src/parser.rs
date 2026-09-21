@@ -286,6 +286,9 @@ impl Parser {
     }
 
     fn node(&mut self) -> Result<Node, CompileError> {
+        if self.word_is("if") {
+            return self.if_node();
+        }
         let (name, span) = self.ident()?;
         match name.as_str() {
             "View" | "Column" | "Row" => {
@@ -558,6 +561,11 @@ impl Parser {
         self.expect(Kind::LBrace, "expected `{` to open button handler")?;
         let mut stmts = Vec::new();
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            if self.word_is("if") {
+                stmts.push(self.if_stmt()?);
+                self.optional_semicolon();
+                continue;
+            }
             let (name, span) = self.ident()?;
             self.expect(Kind::Equal, "expected `=` in state assignment")?;
             let value = self.expr()?;
@@ -569,13 +577,90 @@ impl Parser {
     }
 
     fn expr(&mut self) -> Result<Expr, CompileError> {
-        let mut left = self.primary()?;
+        self.logical_or()
+    }
+
+    fn logical_or(&mut self) -> Result<Expr, CompileError> {
+        let mut left = self.logical_and()?;
+        while self.take(&Kind::OrOr) {
+            let span = left.span();
+            let right = self.logical_and()?;
+            left = Expr::Binary(Box::new(left), BinaryOp::Or, Box::new(right), span);
+        }
+        Ok(left)
+    }
+
+    fn logical_and(&mut self) -> Result<Expr, CompileError> {
+        let mut left = self.equality()?;
+        while self.take(&Kind::AndAnd) {
+            let span = left.span();
+            let right = self.equality()?;
+            left = Expr::Binary(Box::new(left), BinaryOp::And, Box::new(right), span);
+        }
+        Ok(left)
+    }
+
+    fn equality(&mut self) -> Result<Expr, CompileError> {
+        let mut left = self.comparison()?;
+        loop {
+            let operator = if self.take(&Kind::EqualEqual) {
+                Some(BinaryOp::Equal)
+            } else if self.take(&Kind::BangEqual) {
+                Some(BinaryOp::NotEqual)
+            } else {
+                None
+            };
+            let Some(operator) = operator else {
+                break;
+            };
+            let span = left.span();
+            let right = self.comparison()?;
+            left = Expr::Binary(Box::new(left), operator, Box::new(right), span);
+        }
+        Ok(left)
+    }
+
+    fn comparison(&mut self) -> Result<Expr, CompileError> {
+        let mut left = self.addition()?;
+        loop {
+            let operator = if self.take(&Kind::Less) {
+                Some(BinaryOp::Less)
+            } else if self.take(&Kind::LessEqual) {
+                Some(BinaryOp::LessEqual)
+            } else if self.take(&Kind::Greater) {
+                Some(BinaryOp::Greater)
+            } else if self.take(&Kind::GreaterEqual) {
+                Some(BinaryOp::GreaterEqual)
+            } else {
+                None
+            };
+            let Some(operator) = operator else {
+                break;
+            };
+            let span = left.span();
+            let right = self.addition()?;
+            left = Expr::Binary(Box::new(left), operator, Box::new(right), span);
+        }
+        Ok(left)
+    }
+
+    fn addition(&mut self) -> Result<Expr, CompileError> {
+        let mut left = self.unary()?;
         while self.take(&Kind::Plus) {
             let span = left.span();
-            let right = self.primary()?;
+            let right = self.unary()?;
             left = Expr::Add(Box::new(left), Box::new(right), span);
         }
         Ok(left)
+    }
+
+    fn unary(&mut self) -> Result<Expr, CompileError> {
+        if self.take(&Kind::Bang) {
+            let span = self.tokens[self.cursor - 1].span;
+            let expression = self.unary()?;
+            return Ok(Expr::Not(Box::new(expression), span));
+        }
+        self.primary()
     }
 
     fn primary(&mut self) -> Result<Expr, CompileError> {
@@ -607,6 +692,11 @@ impl Parser {
             self.expect(Kind::RBracket, "expected `]` to close array literal")?;
             return Ok(Expr::Array(items, span));
         }
+        if self.take(&Kind::LParen) {
+            let expression = self.expr()?;
+            self.expect(Kind::RParen, "expected `)` after expression")?;
+            return Ok(expression);
+        }
         let token = self.advance().clone();
         match token.kind {
             Kind::String(value) => Ok(Expr::String(value, token.span)),
@@ -637,6 +727,50 @@ impl Parser {
                 "expected a string, number, boolean, or state name",
             )),
         }
+    }
+
+    fn if_node(&mut self) -> Result<Node, CompileError> {
+        let span = self.advance().span;
+        let condition = self.expr()?;
+        let then_body = self.block_nodes()?;
+        let else_body = if self.word_is("else") {
+            self.advance();
+            if self.word_is("if") {
+                Some(vec![self.if_node()?])
+            } else {
+                Some(self.block_nodes()?)
+            }
+        } else {
+            None
+        };
+        Ok(Node::If {
+            condition,
+            then_body,
+            else_body,
+            span,
+        })
+    }
+
+    fn if_stmt(&mut self) -> Result<Stmt, CompileError> {
+        let span = self.advance().span;
+        let condition = self.expr()?;
+        let then_branch = self.block_stmts()?;
+        let else_branch = if self.word_is("else") {
+            self.advance();
+            if self.word_is("if") {
+                Some(vec![self.if_stmt()?])
+            } else {
+                Some(self.block_stmts()?)
+            }
+        } else {
+            None
+        };
+        Ok(Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+            span,
+        })
     }
 
     fn expect_word(&mut self, word: &str) -> Result<(), CompileError> {

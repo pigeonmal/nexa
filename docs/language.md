@@ -1,6 +1,6 @@
 # Nexa language: first slice
 
-The compiler currently supports stateful native screens, typed arrays, virtualized lists, a parameterless native navigation stack, and stateful user-defined components. The entry `.nx` file declares one `app`; imported component files can declare reusable components without an app.
+The compiler currently supports stateful native screens, typed arrays, virtualized lists, conditional UI and event control flow, a parameterless native navigation stack, and stateful user-defined components. The entry `.nx` file declares one `app`; imported component files can declare reusable components without an app.
 
 ```nexa
 app Counter {
@@ -32,9 +32,31 @@ State declarations use an explicit type. `state` is mutable and can be assigned 
 
 `Array<T>` is also supported for those primitive types. Array literals use `[value, ...]`, including `[]` when the state declaration supplies the element type, for example `let labels: Array<String> = ["Nexa", "SwiftUI"]`.
 
-Numeric literal values are checked against the declared type, including signed negative literals. Numeric variables do not implicitly convert between types. In this slice, `+` accepts operands of one identical numeric type. Integer addition wraps on overflow; floating-point addition follows the native IEEE arithmetic behavior.
+Numeric literal values are checked against the declared type, including signed negative literals. Numeric variables do not implicitly convert between types. `+` accepts operands of one numeric type; integer addition wraps on overflow and floating-point addition follows native IEEE behavior. A numeric literal takes its type from the other operand where possible, so `wideCount < 10` does not require a conversion.
 
 Immutable `let` initializers can refer to earlier declarations. Mutable state initializers must be literal expressions in this version. Forward references, nullable types, user-defined types, functions, generics beyond the built-in `Array<T>`, and async expressions are not implemented yet.
+
+## Conditions and operators
+
+`if` and `else` can choose UI content in a component body or control state assignments in a button or press handler:
+
+```nexa
+if enabled && count < 5 {
+    Text("Keep going")
+} else {
+    Text("Paused")
+}
+
+Button("Toggle") {
+    if !enabled || count == 0 {
+        enabled = true
+    } else {
+        enabled = false
+    }
+}
+```
+
+Logical operators are `&&`, `||`, and `!`; equality is `==` and `!=`; numeric comparisons are `<`, `<=`, `>`, and `>=`. `&&` and `||` short-circuit. Equality works for `Bool`, numeric scalars, and `String`; ordering currently works for numeric scalars. Compared values must have the same type. Nexa does not insert numeric conversions. Conditions lower directly to Swift/Kotlin operators and native `if` branches. See [conditional-logic.nx](../examples/conditional-logic.nx).
 
 ## Components
 
@@ -117,4 +139,4 @@ Android apps that use `Image` need [Coil 3 Compose](https://coil-kt.github.io/co
 
 ## Current boundaries
 
-This prototype does not yet generate full Xcode or Gradle projects. An iOS app using `FastList` must target iOS 16 or newer for `UIHostingConfiguration`; table rows use self-sizing with estimated heights, update visible cells in place, and reload table data only when the row count changes. Navigation currently supports parameterless screens, a single stack, and compile-time checked links; typed route parameters, tabs, deep links, modals, and navigation guards remain future work. `FastList` supports integer ranges and primitive `Array<T>` collections. Custom stable row keys, mutable element-level bindings, paging, grids, horizontal lists, scroll controls, and refresh integration remain future work. `KeyboardAware` handles basic scrolling and inset adjustment, but keyboard height/events, explicit focus management, and programmatic dismissal remain future work. Remote image loading uses the platform loaders' default request, cache, and decoding behavior; custom image-loader configuration and observable loading/error state are not exposed yet. `Pressable` currently supports press and disabled state; long press, hover, pressed-state styling, focus, and haptics remain future work. Text input selection/autofill, custom component callbacks and content slots, advanced theme features, plugins, FFI bindings, incremental compilation, formatting, language-server support, and optimization passes also remain on the roadmap in `plan.md`.
+This prototype does not yet generate full Xcode or Gradle projects. An iOS app using `FastList` must target iOS 16 or newer for `UIHostingConfiguration`; table rows use self-sizing with estimated heights, update visible cells in place, and reload table data only when the row count changes. Navigation currently supports parameterless screens, a single stack, and compile-time checked links; typed route parameters, tabs, deep links, modals, and navigation guards remain future work. `FastList` supports integer ranges and primitive `Array<T>` collections. Custom stable row keys, mutable element-level bindings, paging, grids, horizontal lists, scroll controls, and refresh integration remain future work. `KeyboardAware` handles basic scrolling and inset adjustment, but keyboard height/events, explicit focus management, and programmatic dismissal remain future work. Remote image loading uses the platform loaders' default request, cache, and decoding behavior; custom image-loader configuration and observable loading/error state are not exposed yet. `Pressable` currently supports press and disabled state; long press, hover, pressed-state styling, focus, and haptics remain future work. User-defined functions, enums and exhaustive matching, loops, nullable values, closures, collection transformations, class/value-type declarations, and string interpolation are not implemented yet. Text input selection/autofill, custom component callbacks and content slots, advanced theme features, plugins, FFI bindings, incremental compilation, formatting, language-server support, and optimization passes also remain on the roadmap in `plan.md`.

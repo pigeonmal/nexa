@@ -169,6 +169,12 @@ pub enum Node {
         children: Vec<Node>,
         span: Span,
     },
+    If {
+        condition: Expr,
+        then_body: Vec<Node>,
+        else_body: Option<Vec<Node>>,
+        span: Span,
+    },
     ComponentCall {
         name: String,
         arguments: BTreeMap<String, Expr>,
@@ -213,7 +219,21 @@ pub enum Expr {
     Name(String, Span),
     ThemeToken(String, Span),
     Add(Box<Expr>, Box<Expr>, Span),
+    Not(Box<Expr>, Span),
+    Binary(Box<Expr>, BinaryOp, Box<Expr>, Span),
     Array(Vec<Expr>, Span),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BinaryOp {
+    And,
+    Or,
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
 }
 
 impl Expr {
@@ -225,6 +245,8 @@ impl Expr {
             | Self::Name(_, s)
             | Self::ThemeToken(_, s)
             | Self::Add(_, _, s)
+            | Self::Not(_, s)
+            | Self::Binary(_, _, _, s)
             | Self::Array(_, s) => *s,
         }
     }
@@ -235,6 +257,12 @@ pub enum Stmt {
     Assign {
         name: String,
         value: Expr,
+        span: Span,
+    },
+    If {
+        condition: Expr,
+        then_branch: Vec<Stmt>,
+        else_branch: Option<Vec<Stmt>>,
         span: Span,
     },
 }

@@ -93,6 +93,27 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                 out,
             );
         }
+        Node::If {
+            condition,
+            then_body,
+            else_body,
+        } => {
+            indent(out, depth);
+            out.push_str(&format!(
+                "if ({}) {{\n",
+                super::expressions::expression(condition)
+            ));
+            render_children(then_body, module, depth + 1, out);
+            if let Some(else_body) = else_body {
+                out.push('\n');
+                indent(out, depth);
+                out.push_str("} else {\n");
+                render_children(else_body, module, depth + 1, out);
+            }
+            out.push('\n');
+            indent(out, depth);
+            out.push('}');
+        }
         Node::ComponentCall { name, arguments } => {
             indent(out, depth);
             let mut rendered_arguments = arguments

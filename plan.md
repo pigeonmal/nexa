@@ -69,6 +69,8 @@ Numeric types should include explicit types such as:
 
 Avoid implicit numeric conversions that could create unpredictable behavior or performance costs.
 
+The implemented expression/control-flow slice includes short-circuit boolean operations, scalar equality, numeric comparisons, and `if`/`else` branches in UI bodies and event handlers. These lower directly to the target language's native operators and branches. See [language design decisions](docs/language-design.md) for choices around the remaining Kotlin/Swift concepts.
+
 ## User-defined components and modules
 
 App authors should be able to create reusable UI components in Nexa source files, pass typed inputs, compose built-in and custom components, and declare private per-instance state. Component files should be reusable through relative imports and resolve at compile time. Generated output should use native view/composable declarations without a dynamic registry or cross-platform component runtime.

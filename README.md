@@ -18,10 +18,13 @@ cargo run -p nexa-cli -- check examples/virtualized-list.nx
 cargo run -p nexa-cli -- check examples/collection-list.nx
 cargo run -p nexa-cli -- check examples/themed-app.nx
 cargo run -p nexa-cli -- check examples/custom-components.nx
+cargo run -p nexa-cli -- check examples/conditional-logic.nx
 cargo run -p nexa-cli -- build examples/themed-app.nx --target swift --out /tmp/ThemedApp.swift
 cargo run -p nexa-cli -- build examples/themed-app.nx --target kotlin --out /tmp/ThemedApp.kt
 cargo run -p nexa-cli -- build examples/custom-components.nx --target swift --out /tmp/CustomComponents.swift
 cargo run -p nexa-cli -- build examples/custom-components.nx --target kotlin --out /tmp/CustomComponents.kt
+cargo run -p nexa-cli -- build examples/conditional-logic.nx --target swift --out /tmp/ConditionalLogic.swift
+cargo run -p nexa-cli -- build examples/conditional-logic.nx --target kotlin --out /tmp/ConditionalLogic.kt
 ```
 
 The default output replaces the input file extension, producing `counter.swift` or `counter.kt`. Generated files are intended to be added to an existing SwiftUI or Compose application with the corresponding platform dependencies configured.
@@ -57,4 +60,4 @@ These skills distinguish the current prototype from the longer-term goals in `pl
 
 ## Language slice
 
-See [language guide](docs/language.md) for syntax, supported types, themes, current limits, and native mappings. The full roadmap remains in [plan.md](plan.md).
+See the [language guide](docs/language.md) for syntax, supported types, themes, current limits, and native mappings, and the [language design decisions](docs/language-design.md) for how Nexa adopts or defers Kotlin/Swift concepts. The full roadmap remains in [plan.md](plan.md).

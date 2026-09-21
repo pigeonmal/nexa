@@ -15,6 +15,16 @@ pub(super) fn uses_fast_list(module: &Module) -> bool {
 fn contains_fast_list(node: &Node) -> bool {
     match node {
         Node::FastList { .. } => true,
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_fast_list)
+                || else_body
+                    .as_ref()
+                    .is_some_and(|body| body.iter().any(contains_fast_list))
+        }
         Node::Layout { children, .. }
         | Node::Pressable { children, .. }
         | Node::NavigationLink { children, .. }
@@ -53,9 +63,21 @@ fn contains_adaptive_color(node: &Node) -> bool {
     }
     .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
     own_color_is_adaptive
-        || node_children(node)
-            .iter()
-            .any(|child| contains_adaptive_color(child))
+        || match node {
+            Node::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                nodes_use_adaptive_color(then_body)
+                    || else_body
+                        .as_ref()
+                        .is_some_and(|body| nodes_use_adaptive_color(body))
+            }
+            _ => node_children(node)
+                .iter()
+                .any(|child| contains_adaptive_color(child)),
+        }
 }
 
 fn node_children(node: &Node) -> &[Node] {
@@ -65,6 +87,7 @@ fn node_children(node: &Node) -> &[Node] {
         | Node::NavigationLink { children, .. }
         | Node::KeyboardAware { children }
         | Node::FastList { children, .. } => children,
+        Node::If { .. } => &[],
         _ => &[],
     }
 }

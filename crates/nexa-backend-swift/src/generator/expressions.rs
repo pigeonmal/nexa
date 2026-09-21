@@ -1,5 +1,5 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Expr, NumericType, Type};
+use nexa_ir::{BinaryOp, Expr, NumericType, Type};
 
 use super::utils::swift_string;
 
@@ -13,6 +13,7 @@ pub(super) fn expression(expr: &Expr) -> String {
             _ => raw.clone(),
         },
         Expr::State(name, _) => state_name(name),
+        Expr::Not(value) => format!("(!{})", expression(value)),
         Expr::Array(items) => format!(
             "[{}]",
             items.iter().map(expression).collect::<Vec<_>>().join(", ")
@@ -25,6 +26,25 @@ pub(super) fn expression(expr: &Expr) -> String {
             };
             format!("({} {operator} {})", expression(left), expression(right))
         }
+        Expr::Binary { op, left, right } => format!(
+            "({} {} {})",
+            expression(left),
+            binary_operator(*op),
+            expression(right)
+        ),
+    }
+}
+
+fn binary_operator(operator: BinaryOp) -> &'static str {
+    match operator {
+        BinaryOp::And => "&&",
+        BinaryOp::Or => "||",
+        BinaryOp::Equal => "==",
+        BinaryOp::NotEqual => "!=",
+        BinaryOp::Less => "<",
+        BinaryOp::LessEqual => "<=",
+        BinaryOp::Greater => ">",
+        BinaryOp::GreaterEqual => ">=",
     }
 }
 

@@ -18,6 +18,13 @@ pub enum Kind {
     Semicolon,
     Comma,
     Equal,
+    EqualEqual,
+    Bang,
+    BangEqual,
+    AndAnd,
+    OrOr,
+    LessEqual,
+    GreaterEqual,
     Plus,
     Minus,
     Eof,
@@ -92,11 +99,21 @@ impl Lexer<'_> {
                 }
                 '<' => {
                     self.bump();
-                    Kind::Less
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        Kind::LessEqual
+                    } else {
+                        Kind::Less
+                    }
                 }
                 '>' => {
                     self.bump();
-                    Kind::Greater
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        Kind::GreaterEqual
+                    } else {
+                        Kind::Greater
+                    }
                 }
                 ':' => {
                     self.bump();
@@ -116,7 +133,31 @@ impl Lexer<'_> {
                 }
                 '=' => {
                     self.bump();
-                    Kind::Equal
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        Kind::EqualEqual
+                    } else {
+                        Kind::Equal
+                    }
+                }
+                '!' => {
+                    self.bump();
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        Kind::BangEqual
+                    } else {
+                        Kind::Bang
+                    }
+                }
+                '&' if self.peek_next() == Some('&') => {
+                    self.bump();
+                    self.bump();
+                    Kind::AndAnd
+                }
+                '|' if self.peek_next() == Some('|') => {
+                    self.bump();
+                    self.bump();
+                    Kind::OrOr
                 }
                 '+' => {
                     self.bump();

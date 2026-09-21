@@ -263,6 +263,15 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
                 collect_component_calls(child, calls);
             }
         }
+        ast::Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            for child in then_body.iter().chain(else_body.iter().flatten()) {
+                collect_component_calls(child, calls);
+            }
+        }
         ast::Node::Text { .. }
         | ast::Node::Button { .. }
         | ast::Node::TextInput { .. }
@@ -279,6 +288,16 @@ fn contains_navigation_link(node: &ast::Node) -> bool {
         | ast::Node::Pressable { children, .. }
         | ast::Node::KeyboardAware { children, .. }
         | ast::Node::FastList { children, .. } => children.iter().any(contains_navigation_link),
+        ast::Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_navigation_link)
+                || else_body
+                    .as_ref()
+                    .is_some_and(|body| body.iter().any(contains_navigation_link))
+        }
         ast::Node::Text { .. }
         | ast::Node::Button { .. }
         | ast::Node::TextInput { .. }
@@ -300,6 +319,15 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::KeyboardAware { children }
         | Node::FastList { children, .. } => {
             for child in children {
+                collect_ir_component_calls(child, calls);
+            }
+        }
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            for child in then_body.iter().chain(else_body.iter().flatten()) {
                 collect_ir_component_calls(child, calls);
             }
         }

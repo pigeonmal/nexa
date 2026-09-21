@@ -11,6 +11,7 @@ Help people build an iOS and Android app from Nexa's shared `.nx` source without
 
 - Read `README.md`, `docs/language.md`, and the examples relevant to the request before writing `.nx` syntax. The language and compiler are an early prototype; check actual parser/backend support instead of assuming the roadmap is implemented.
 - Use core components already supported by Nexa, such as View, Text, Button, TextInput, Switch, Image, navigation, keyboard-aware layout, and FastList when available in the current compiler.
+- Use `if`/`else`, `&&`, `||`, `!`, scalar `==`/`!=`, and numeric comparisons for supported conditional UI and button/press actions. Keep compared numeric types equal; Nexa does not implicitly convert values.
 - Keep user-authored application code in `.nx`. Do not put app features in generated `.swift` or `.kt` files and do not make native edits a prerequisite for supported functionality.
 - Use FastList for large or repeating collections when supported. Keep layout and state simple so generated code remains direct and efficient.
 - Define reusable `component Name(property: Type)` declarations in `.nx`, with private `state` declarations and a `body`; invoke them by name using all required named properties. Each instance owns native component state.

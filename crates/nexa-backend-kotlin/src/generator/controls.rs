@@ -79,6 +79,22 @@ fn render_actions(actions: &[Action], depth: usize, out: &mut String) {
                 indent(out, depth);
                 out.push_str(&format!("{} = {}\n", state_name(name), expression(value)));
             }
+            Action::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                indent(out, depth);
+                out.push_str(&format!("if ({}) {{\n", expression(condition)));
+                render_actions(then_branch, depth + 1, out);
+                if let Some(else_branch) = else_branch {
+                    indent(out, depth);
+                    out.push_str("} else {\n");
+                    render_actions(else_branch, depth + 1, out);
+                }
+                indent(out, depth);
+                out.push_str("}\n");
+            }
         }
     }
 }
