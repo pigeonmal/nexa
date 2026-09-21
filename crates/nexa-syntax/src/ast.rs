@@ -219,10 +219,14 @@ pub enum Expr {
     Bool(bool, Span),
     Name(String, Span),
     ThemeToken(String, Span),
+    IsRegularWidth(Span),
     Add(Box<Expr>, Box<Expr>, Span),
     Not(Box<Expr>, Span),
     Binary(Box<Expr>, BinaryOp, Box<Expr>, Span),
     Array(Vec<Expr>, Span),
+    Map(Vec<(Expr, Expr)>, Span),
+    Pair(Box<Expr>, Box<Expr>, Span),
+    Triple(Box<Expr>, Box<Expr>, Box<Expr>, Span),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -245,10 +249,14 @@ impl Expr {
             | Self::Bool(_, s)
             | Self::Name(_, s)
             | Self::ThemeToken(_, s)
+            | Self::IsRegularWidth(s)
             | Self::Add(_, _, s)
             | Self::Not(_, s)
             | Self::Binary(_, _, _, s)
-            | Self::Array(_, s) => *s,
+            | Self::Array(_, s)
+            | Self::Map(_, s)
+            | Self::Pair(_, _, s)
+            | Self::Triple(_, _, _, s) => *s,
         }
     }
 }

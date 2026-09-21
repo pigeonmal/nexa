@@ -1,0 +1,15 @@
+app ResponsiveLayoutDemo {
+    body {
+        if Layout.isRegularWidth {
+            Row(spacing: 16, alignment: Center) {
+                Text("Details")
+                Text("More information")
+            }
+        } else {
+            Column(spacing: 8, alignment: Start) {
+                Text("Details")
+                Text("More information")
+            }
+        }
+    }
+}

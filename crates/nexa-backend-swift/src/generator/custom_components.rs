@@ -41,11 +41,22 @@ fn render_component(
             ));
         }
     }
-    if features.component_uses_adaptive_color(&component.name) {
+    let uses_adaptive_color = features.component_uses_adaptive_color(&component.name);
+    let uses_regular_width = features.component_uses_regular_width(&component.name);
+    if uses_adaptive_color {
         out.push_str("    @Environment(\\.colorScheme) private var nexaColorScheme\n");
     }
+    if uses_regular_width {
+        out.push_str(
+            "    @Environment(\\.horizontalSizeClass) private var nexaHorizontalSizeClass\n",
+        );
+    }
 
-    if !component.parameters.is_empty() || !component.states.is_empty() {
+    if !component.parameters.is_empty()
+        || !component.states.is_empty()
+        || uses_adaptive_color
+        || uses_regular_width
+    {
         out.push('\n');
     }
     out.push_str("    init(");

@@ -52,7 +52,15 @@ pub(super) fn generate(module: &Module) -> String {
         out.push('\n');
     }
     if features.app_uses_adaptive_color {
-        out.push_str("    @Environment(\\.colorScheme) private var nexaColorScheme\n\n");
+        out.push_str("    @Environment(\\.colorScheme) private var nexaColorScheme\n");
+    }
+    if features.app_uses_regular_width {
+        out.push_str(
+            "    @Environment(\\.horizontalSizeClass) private var nexaHorizontalSizeClass\n",
+        );
+    }
+    if features.app_uses_adaptive_color || features.app_uses_regular_width {
+        out.push('\n');
     }
     out.push_str("    public init() {}\n\n    public var body: some View {\n");
     if module.screens.is_empty() {

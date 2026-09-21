@@ -18,9 +18,10 @@ Nexa borrows useful ideas from Kotlin and Swift, but keeps one source language a
 | Range | Adopt with loops | A compact start/end/step IR, without eagerly materializing an array. Not implemented yet. |
 | Anonymous function / closure | Adopt selectively | Permit closures at callback boundaries after capture and escape rules are explicit; avoid boxing or heap allocation for non-escaping callbacks. |
 | `map / filter / reduce` | Adopt with optimization rules | Fuse non-escaping transforms into a single pass where possible; do not blindly emit allocation-heavy chained collection calls. |
-| Array / List | Already supported | `Array<T>` lowers to Swift `Array<T>` and Kotlin `List<T>`; mutable collection semantics are not implied. |
-| Dictionary / Map | Defer | Useful, but needs explicit key constraints, ordering, and mutation semantics before choosing native representations. |
-| Set | Defer | Same key/equality questions as maps; use native set storage when introduced. |
+| Array / List | Integrated | `Array<T>` lowers to Swift `Array<T>` and Kotlin read-only `List<T>`; literals are context-typed and mutable collection semantics are not implied. |
+| Dictionary / Map | Initial value support integrated | `Map<K, V>` lowers to Swift `Dictionary<K, V>` and Kotlin read-only `Map<K, V>`. Keys are scalar `String`, `Bool`, or numeric values; map literals use last-value-wins for duplicate keys. Lookup and mutation are not implemented. |
+| Set | Initial value support integrated | `Set<T>` lowers to native Swift/Kotlin set storage. Elements are scalar `String`, `Bool`, or numeric values; literals deduplicate, and iteration order is unspecified. Membership and mutation are not implemented. |
+| Pair / Triple | Initial value support integrated | `Pair<A, B>` and `Triple<A, B, C>` lower to Swift tuples and Kotlin `Pair`/`Triple` values. Fields are type-checked by position; field access and collection operations are not implemented. |
 | Class | Limit to identity cases | Prefer value types for ordinary models. Add references only where stable identity or native handles require them. |
 | Constructor | Adopt with value types | Generate direct Swift initializers and Kotlin constructors; define initialization and mutability before exposing user types. |
 | Inheritance | Avoid in core | Use composition and statically dispatched interfaces; class inheritance brings dynamic dispatch and fragile shared behavior. |

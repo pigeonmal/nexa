@@ -1,0 +1,27 @@
+app CollectionValuesDemo {
+    let labels: Array<String> = ["Nexa", "Swift", "Kotlin"]
+    let tags: Set<String> = ["mobile", "compiler", "mobile"]
+    let versions: Map<String, Int32> = ["iOS": 16, "Android": 26]
+    let selected: Pair<String, Int32> = Pair("Nexa", 3)
+    let coordinates: Triple<Float32, Float32, Float32> = Triple(10.5, 20.0, 0.0)
+    let releaseNotes: Map<String, Array<Pair<String, Int32>>> = [
+        "releases": [Pair("iOS", 16), Pair("Android", 26)]
+    ]
+    let noLabels: Array<String> = []
+    let noTags: Set<String> = []
+    let noVersions: Map<String, Int32> = [:]
+
+    body {
+        Column {
+            Text(labels)
+            Text(tags)
+            Text(versions)
+            Text(selected)
+            Text(coordinates)
+            Text(releaseNotes)
+            Text(noLabels)
+            Text(noTags)
+            Text(noVersions)
+        }
+    }
+}

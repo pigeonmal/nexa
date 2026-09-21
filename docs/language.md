@@ -1,6 +1,6 @@
 # Nexa language: first slice
 
-The compiler currently supports stateful native screens, typed arrays, virtualized lists, conditional UI and event control flow, a parameterless native navigation stack, and stateful user-defined components. The entry `.nx` file declares one `app`; imported component files can declare reusable components without an app.
+The compiler currently supports stateful native screens, typed arrays and collection values, virtualized lists, conditional UI and event control flow, a parameterless native navigation stack, and stateful user-defined components. The entry `.nx` file declares one `app`; imported component files can declare reusable components without an app.
 
 ```nexa
 app Counter {
@@ -28,13 +28,27 @@ Run `nexa check file.nx` to parse and type-check a source file. Run `nexa build 
 
 ## Types and state
 
-State declarations use an explicit type. `state` is mutable and can be assigned in a button handler or bound to a control; `let` declares an immutable value. Supported scalar types are `String`, `Bool`, `Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float32`, and `Float64`; arrays can hold these values or other arrays.
+State declarations use an explicit type. `state` is mutable and can be assigned in a button handler or bound to a control; `let` declares an immutable value. Supported scalar types are `String`, `Bool`, `Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float32`, and `Float64`. Generic value types can be nested, including arrays, sets, maps, pairs, and triples.
 
-`Array<T>` is also supported for those primitive types. Array literals use `[value, ...]`, including `[]` when the state declaration supplies the element type, for example `let labels: Array<String> = ["Nexa", "SwiftUI"]`.
+The supported generic types are `Array<T>`, `Set<T>`, `Map<K, V>`, `Pair<A, B>`, and `Triple<A, B, C>`. Literals are checked against the declared or parameter type; Nexa does not infer generic element types from an untyped literal:
+
+```nexa
+let labels: Array<String> = ["Nexa", "SwiftUI"]
+let tags: Set<String> = ["mobile", "compiler", "mobile"]
+let versions: Map<String, Int32> = ["iOS": 16, "Android": 26]
+let selected: Pair<String, Int32> = Pair("Nexa", 3)
+let coordinates: Triple<Float32, Float32, Float32> = Triple(10.5, 20.0, 0.0)
+```
+
+The bracket literal is contextual: `[value, ...]` creates an `Array<T>` or `Set<T>` according to the expected type. An empty array or set is written `[]`. Map literals use `[key: value, ...]`; the empty map literal is `[:]`. If a map literal contains the same runtime key more than once, the last value wins on both platforms. Set elements are deduplicated. Neither set nor map iteration order is guaranteed across platforms.
+
+`Pair(a, b)` and `Triple(a, b, c)` construct fixed-size ordered values. Their type arguments are checked position by position. Swift output uses native tuples for pairs and triples; Kotlin output uses the standard-library `Pair` and `Triple` classes, which are ordinary objects on Android/JVM. The compiler adds no Nexa-specific collection runtime or wrapper types. Arrays map to Swift `Array<T>` and Kotlin read-only `List<T>`, sets to Swift `Set<T>` and Kotlin read-only `Set<T>`, and maps to Swift `Dictionary<K, V>` and Kotlin read-only `Map<K, V>`.
+
+For compatible hashing behavior on both platforms, `Set<T>` elements and `Map<K, V>` keys must be scalar `String`, `Bool`, or numeric values. Map values and pair/triple fields may use any supported type, including nested collection types. The language currently supports declaring, initializing, passing, assigning, and displaying these values. It does not yet support source-level indexing, key lookup, membership checks, insertion/removal, general iteration, transformation functions, or equality comparisons for collection and pair/triple values. `FastList(items: ...)` is the current way to render an `Array<T>` as repeated rows. See [collection-values.nx](../examples/collection-values.nx).
 
 Numeric literal values are checked against the declared type, including signed negative literals. Numeric variables do not implicitly convert between types. `+` accepts operands of one numeric type; integer addition wraps on overflow and floating-point addition follows native IEEE behavior. A numeric literal takes its type from the other operand where possible, so `wideCount < 10` does not require a conversion.
 
-Immutable `let` initializers can refer to earlier declarations. Mutable state initializers must be literal expressions in this version. Forward references, nullable types, user-defined types, functions, generics beyond the built-in `Array<T>`, and async expressions are not implemented yet.
+Immutable `let` initializers can refer to earlier declarations. Mutable state initializers must be literal expressions in this version. Forward references, nullable types, user-defined types, functions, generics beyond the five built-in collection/value types, and async expressions are not implemented yet.
 
 ## Conditions and operators
 
@@ -58,6 +72,24 @@ Button("Toggle") {
 
 Logical operators are `&&`, `||`, and `!`; equality is `==` and `!=`; numeric comparisons are `<`, `<=`, `>`, and `>=`. `&&` and `||` short-circuit. Equality works for `Bool`, numeric scalars, and `String`; ordering currently works for numeric scalars. Compared values must have the same type. Nexa does not insert numeric conversions. Conditions lower directly to Swift/Kotlin operators and native `if` branches. See [conditional-logic.nx](../examples/conditional-logic.nx).
 
+`Layout.isRegularWidth` is a built-in `Bool` for choosing a wider layout in a conditional. Swift reads the native horizontal size class and checks for `.regular`; Compose checks whether the current configuration width is at least `600dp`. The platform definitions differ, so use this as a layout hint rather than a guarantee that both platforms classify every device identically. It follows configuration changes and adds no wrapper view:
+
+```nexa
+if Layout.isRegularWidth {
+    Row(spacing: 16) {
+        Text("Details")
+        Text("More information")
+    }
+} else {
+    Column(spacing: 8) {
+        Text("Details")
+        Text("More information")
+    }
+}
+```
+
+See [responsive-layout.nx](../examples/responsive-layout.nx).
+
 ## Components
 
 - `View { ... }` and `Column { ... }` map to a native vertical stack.
@@ -73,7 +105,7 @@ Logical operators are `&&`, `||`, and `!`; equality is `==` and `!=`; numeric co
 - `KeyboardAware { ... }` places content in a native scroll container that adjusts around the software keyboard. SwiftUI uses interactive scroll-to-dismiss behavior; Compose applies animated IME inset padding and native vertical scrolling.
 - `screen Home { ... }` declares a named destination. An app with screens uses `body { NavigationStack(root: Home) }`; `NavigationLink(destination: Profile) { ... }` pushes a statically resolved screen. All declared screens share the app's state. Destinations must be declared in the same app.
 - `FastList(count: rowCount, index: row) { ... }` creates a virtualized, vertical list of `Int32` row indices. `index` is optional and defaults to `index`; row content is produced for visible rows by iOS `UITableView` or Android Compose `LazyColumn`. The count can be an `Int32` state value; negative runtime counts are treated as zero.
-- `FastList(items: labels, index: row, item: label) { ... }` creates a virtualized list over an `Array<T>` state. Both bindings are optional and default to `index` and `item`; the index is read-only `Int32`, and the item is a read-only value of the array's element type. Rows use their current position as identity, and the collection is indexed directly without building an intermediate row array or row tree. See [collection-list.nx](../examples/collection-list.nx).
+- `FastList(items: labels, index: row, item: label) { ... }` creates a virtualized list over an `Array<T>` state. Both bindings are optional and default to `index` and `item`; the index is read-only `Int32`, and the item is a read-only value of the array's element type. Rows use their current position as identity, and the collection is indexed directly without building an intermediate row array or row tree. `Set<T>` and `Map<K, V>` are values but are not accepted as list sources. See [collection-list.nx](../examples/collection-list.nx).
 
 ## Custom components and source files
 

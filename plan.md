@@ -67,6 +67,8 @@ Numeric types should include explicit types such as:
 - Float32
 - Float64
 
+The current compiler supports the scalar types above plus `Array<T>`, `Set<T>`, `Map<K, V>`, `Pair<A, B>`, and `Triple<A, B, C>` as contextually typed value declarations and literals. These map directly to Swift value types/tuples and Kotlin collection or tuple-value types. Set elements and map keys are currently limited to scalar `String`, `Bool`, and numeric types for native hashability. Collection lookup, mutation, iteration, and transformations are still roadmap work.
+
 Avoid implicit numeric conversions that could create unpredictable behavior or performance costs.
 
 The implemented expression/control-flow slice includes short-circuit boolean operations, scalar equality, numeric comparisons, and `if`/`else` branches in UI bodies and event handlers. These lower directly to the target language's native operators and branches. See [language design decisions](docs/language-design.md) for choices around the remaining Kotlin/Swift concepts.
@@ -649,6 +651,8 @@ Avoid forcing complete application reconstruction when unnecessary.
 Support system theme detection.
 
 ## Dynamic and responsive styling
+
+The current compiler implements the first responsive predicate, `Layout.isRegularWidth`, as a typed `Bool`: Swift checks `horizontalSizeClass == .regular`, while Compose checks whether the current configuration width is at least `600dp`. It can drive ordinary `.nx` conditional branches without adding a wrapper layout. This is a platform-native width hint; the broader device, orientation, safe-area, and breakpoint API below remains roadmap work.
 
 Support responsive styles based on:
 

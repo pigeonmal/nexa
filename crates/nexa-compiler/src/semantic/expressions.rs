@@ -12,10 +12,18 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         }
         ast::Expr::Not(value, _) => references_state(value),
         ast::Expr::Array(items, _) => items.iter().any(references_state),
+        ast::Expr::Map(entries, _) => entries
+            .iter()
+            .any(|(key, value)| references_state(key) || references_state(value)),
+        ast::Expr::Pair(first, second, _) => references_state(first) || references_state(second),
+        ast::Expr::Triple(first, second, third, _) => {
+            references_state(first) || references_state(second) || references_state(third)
+        }
         ast::Expr::String(_, _)
         | ast::Expr::Number(_, _)
         | ast::Expr::Bool(_, _)
-        | ast::Expr::ThemeToken(_, _) => false,
+        | ast::Expr::ThemeToken(_, _)
+        | ast::Expr::IsRegularWidth(_) => false,
     }
 }
 
@@ -33,18 +41,71 @@ pub(super) fn lower_expr(
             require_expected(expected, &Type::Bool, expr.span())?;
             Ok(Expr::Bool(*value))
         }
+        ast::Expr::IsRegularWidth(_) => {
+            require_expected(expected, &Type::Bool, expr.span())?;
+            Ok(Expr::IsRegularWidth)
+        }
         ast::Expr::Array(items, span) => {
-            let Some(Type::Array(element_type)) = expected else {
-                return Err(CompileError::new(
-                    *span,
-                    "array literals require an explicit Array<T> type",
-                ));
+            let element_type = match expected {
+                Some(Type::Array(element_type)) => element_type,
+                Some(Type::Set(element_type)) => element_type,
+                _ => {
+                    return Err(CompileError::new(
+                        *span,
+                        "`[...]` literals require an explicit Array<T> or Set<T> type",
+                    ));
+                }
             };
             let mut lowered = Vec::with_capacity(items.len());
             for item in items {
                 lowered.push(lower_expr(item, Some(element_type), symbols)?);
             }
-            Ok(Expr::Array(lowered))
+            if matches!(expected, Some(Type::Set(_))) {
+                Ok(Expr::Set(lowered))
+            } else {
+                Ok(Expr::Array(lowered))
+            }
+        }
+        ast::Expr::Map(entries, span) => {
+            let Some(Type::Map(key_type, value_type)) = expected else {
+                return Err(CompileError::new(
+                    *span,
+                    "map literals require an explicit Map<K, V> type",
+                ));
+            };
+            let mut lowered = Vec::with_capacity(entries.len());
+            for (key, value) in entries {
+                lowered.push((
+                    lower_expr(key, Some(key_type), symbols)?,
+                    lower_expr(value, Some(value_type), symbols)?,
+                ));
+            }
+            Ok(Expr::Map(lowered))
+        }
+        ast::Expr::Pair(first, second, span) => {
+            let Some(Type::Pair(first_type, second_type)) = expected else {
+                return Err(CompileError::new(
+                    *span,
+                    "Pair(...) requires an explicit Pair<A, B> type",
+                ));
+            };
+            Ok(Expr::Pair(
+                Box::new(lower_expr(first, Some(first_type), symbols)?),
+                Box::new(lower_expr(second, Some(second_type), symbols)?),
+            ))
+        }
+        ast::Expr::Triple(first, second, third, span) => {
+            let Some(Type::Triple(first_type, second_type, third_type)) = expected else {
+                return Err(CompileError::new(
+                    *span,
+                    "Triple(...) requires an explicit Triple<A, B, C> type",
+                ));
+            };
+            Ok(Expr::Triple(
+                Box::new(lower_expr(first, Some(first_type), symbols)?),
+                Box::new(lower_expr(second, Some(second_type), symbols)?),
+                Box::new(lower_expr(third, Some(third_type), symbols)?),
+            ))
         }
         ast::Expr::Number(raw, span) => {
             let ty = match expected {
@@ -221,9 +282,10 @@ fn lower_binary(
 fn infer_expr_type(expr: &ast::Expr, symbols: &HashMap<String, (Type, bool)>) -> Option<Type> {
     match expr {
         ast::Expr::String(_, _) => Some(Type::String),
-        ast::Expr::Bool(_, _) | ast::Expr::Not(_, _) | ast::Expr::Binary(_, _, _, _) => {
-            Some(Type::Bool)
-        }
+        ast::Expr::Bool(_, _)
+        | ast::Expr::IsRegularWidth(_)
+        | ast::Expr::Not(_, _)
+        | ast::Expr::Binary(_, _, _, _) => Some(Type::Bool),
         ast::Expr::Number(raw, _) => Some(Type::Numeric(if raw.contains('.') {
             NumericType::Float64
         } else {
@@ -258,6 +320,22 @@ fn infer_expr_type(expr: &ast::Expr, symbols: &HashMap<String, (Type, bool)>) ->
             .first()
             .and_then(|item| infer_expr_type(item, symbols))
             .map(|item_type| Type::Array(Box::new(item_type))),
+        ast::Expr::Map(entries, _) => {
+            let (key, value) = entries.first()?;
+            Some(Type::Map(
+                Box::new(infer_expr_type(key, symbols)?),
+                Box::new(infer_expr_type(value, symbols)?),
+            ))
+        }
+        ast::Expr::Pair(first, second, _) => Some(Type::Pair(
+            Box::new(infer_expr_type(first, symbols)?),
+            Box::new(infer_expr_type(second, symbols)?),
+        )),
+        ast::Expr::Triple(first, second, third, _) => Some(Type::Triple(
+            Box::new(infer_expr_type(first, symbols)?),
+            Box::new(infer_expr_type(second, symbols)?),
+            Box::new(infer_expr_type(third, symbols)?),
+        )),
     }
 }
 
@@ -271,19 +349,84 @@ fn as_numeric_type(ty: &Type) -> Option<NumericType> {
 pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError> {
     match syntax {
         ast::TypeSyntax::Named(name, span) => parse_named_type(name, *span),
-        ast::TypeSyntax::Generic(name, arguments, span) if name == "Array" => {
-            if arguments.len() != 1 {
+        ast::TypeSyntax::Generic(name, arguments, span) => {
+            let expected_arity = match name.as_str() {
+                "Array" | "Set" => 1,
+                "Map" | "Pair" => 2,
+                "Triple" => 3,
+                _ => {
+                    return Err(CompileError::new(
+                        *span,
+                        format!("generic type `{name}` is not supported yet"),
+                    ));
+                }
+            };
+            if arguments.len() != expected_arity {
+                let example = match name.as_str() {
+                    "Array" => "Array<String>",
+                    "Set" => "Set<String>",
+                    "Map" => "Map<String, Int32>",
+                    "Pair" => "Pair<String, Int32>",
+                    "Triple" => "Triple<String, Int32, Bool>",
+                    _ => unreachable!(),
+                };
                 return Err(CompileError::new(
                     *span,
-                    "Array expects exactly one element type, such as Array<String>",
+                    format!(
+                        "{name} expects exactly {expected_arity} type arguments, such as {example}"
+                    ),
                 ));
             }
-            Ok(Type::Array(Box::new(parse_type(&arguments[0])?)))
+            let types = arguments
+                .iter()
+                .map(parse_type)
+                .collect::<Result<Vec<_>, _>>()?;
+            match name.as_str() {
+                "Array" => Ok(Type::Array(Box::new(types.into_iter().next().unwrap()))),
+                "Set" => {
+                    let element = types.into_iter().next().unwrap();
+                    require_hashable_key(&element, *span, "Set elements")?;
+                    Ok(Type::Set(Box::new(element)))
+                }
+                "Map" => {
+                    let mut types = types.into_iter();
+                    let key = types.next().unwrap();
+                    let value = types.next().unwrap();
+                    require_hashable_key(&key, *span, "Map keys")?;
+                    Ok(Type::Map(Box::new(key), Box::new(value)))
+                }
+                "Pair" => {
+                    let mut types = types.into_iter();
+                    Ok(Type::Pair(
+                        Box::new(types.next().unwrap()),
+                        Box::new(types.next().unwrap()),
+                    ))
+                }
+                "Triple" => {
+                    let mut types = types.into_iter();
+                    Ok(Type::Triple(
+                        Box::new(types.next().unwrap()),
+                        Box::new(types.next().unwrap()),
+                        Box::new(types.next().unwrap()),
+                    ))
+                }
+                _ => unreachable!("generic type name checked above"),
+            }
         }
-        ast::TypeSyntax::Generic(name, _, span) => Err(CompileError::new(
-            *span,
-            format!("generic type `{name}` is not supported yet"),
-        )),
+    }
+}
+
+fn require_hashable_key(ty: &Type, span: Span, description: &str) -> Result<(), CompileError> {
+    if matches!(ty, Type::String | Type::Bool | Type::Numeric(_)) {
+        Ok(())
+    } else {
+        Err(CompileError::new(
+            span,
+            format!(
+                "{description} must use a scalar hashable type (String, Bool, or a numeric type); found {}",
+                type_name(ty)
+            ),
+        ))
     }
 }
 
@@ -370,6 +513,17 @@ pub(super) fn type_name(ty: &Type) -> String {
         Type::Bool => "Bool".to_owned(),
         Type::Numeric(num) => numeric_name(*num).to_owned(),
         Type::Array(element) => format!("Array<{}>", type_name(element)),
+        Type::Set(element) => format!("Set<{}>", type_name(element)),
+        Type::Map(key, value) => format!("Map<{}, {}>", type_name(key), type_name(value)),
+        Type::Pair(first, second) => {
+            format!("Pair<{}, {}>", type_name(first), type_name(second))
+        }
+        Type::Triple(first, second, third) => format!(
+            "Triple<{}, {}, {}>",
+            type_name(first),
+            type_name(second),
+            type_name(third)
+        ),
     }
 }
 fn numeric_name(ty: NumericType) -> &'static str {

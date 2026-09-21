@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use nexa_ir::walk::walk_nodes;
-use nexa_ir::{ColorValue, Component, LayoutKind, Module, Node, State, ViewStyle};
+use nexa_ir::walk::{walk_expression, walk_ir};
+use nexa_ir::{ColorValue, Component, Expr, LayoutKind, Module, Node, State, ViewStyle};
 
 #[derive(Default)]
 pub(super) struct Features {
@@ -23,6 +23,7 @@ pub(super) struct Features {
     pub(super) uses_row: bool,
     pub(super) uses_box: bool,
     pub(super) uses_alignment: bool,
+    pub(super) uses_regular_width: bool,
     pub(super) uses_arrangement: bool,
     pub(super) uses_modifier: bool,
     pub(super) uses_background: bool,
@@ -52,6 +53,7 @@ impl Features {
                     .any(|component| component.body.len() > 1),
             ..Self::default()
         };
+        let mut uses_regular_width = false;
 
         for state in module.states.iter().chain(
             module
@@ -60,34 +62,49 @@ impl Features {
                 .flat_map(|component| component.states.iter()),
         ) {
             features.record_state(state);
+            walk_expression(&state.initial, &mut |expr| {
+                uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+            });
         }
 
         let mut direct_theme = HashSet::new();
         let mut calls = HashMap::<String, Vec<String>>::with_capacity(module.components.len());
-        walk_nodes(&module.body, &mut |node| features.record_node(node));
+        walk_ir(
+            &module.body,
+            &mut |node| features.record_node(node),
+            &mut |expr| uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
+        );
         for screen in &module.screens {
-            walk_nodes(&screen.body, &mut |node| features.record_node(node));
+            walk_ir(
+                &screen.body,
+                &mut |node| features.record_node(node),
+                &mut |expr| uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
+            );
         }
         for component in &module.components {
             let mut child_calls = Vec::new();
             let mut uses_theme = false;
-            walk_nodes(&component.body, &mut |node| {
-                features.record_node(node);
-                match node {
-                    Node::ComponentCall { name, .. } => child_calls.push(name.clone()),
-                    Node::Layout { style, .. } => {
-                        uses_theme |= style
-                            .background
-                            .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
+            walk_ir(
+                &component.body,
+                &mut |node| {
+                    features.record_node(node);
+                    match node {
+                        Node::ComponentCall { name, .. } => child_calls.push(name.clone()),
+                        Node::Layout { style, .. } => {
+                            uses_theme |= style
+                                .background
+                                .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
+                        }
+                        Node::Text { style, .. } => {
+                            uses_theme |= style
+                                .color
+                                .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
+                        }
+                        _ => {}
                     }
-                    Node::Text { style, .. } => {
-                        uses_theme |= style
-                            .color
-                            .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
-                    }
-                    _ => {}
-                }
-            });
+                },
+                &mut |expr| uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
+            );
             if uses_theme {
                 direct_theme.insert(component.name.clone());
             }
@@ -96,6 +113,7 @@ impl Features {
 
         features.component_theme =
             components_requiring_theme(&module.components, &direct_theme, &calls);
+        features.uses_regular_width = uses_regular_width;
         features
     }
 

@@ -684,14 +684,31 @@ impl Parser {
         }
         if self.take(&Kind::LBracket) {
             let span = self.tokens[self.cursor - 1].span;
-            let mut items = Vec::new();
-            while !self.check(&Kind::RBracket) && !self.check(&Kind::Eof) {
-                items.push(self.expr()?);
-                if !self.take(&Kind::Comma) {
-                    break;
-                }
+            if self.take(&Kind::Colon) {
+                self.expect(Kind::RBracket, "expected `]` after empty map literal")?;
+                return Ok(Expr::Map(Vec::new(), span));
             }
-            self.expect(Kind::RBracket, "expected `]` to close array literal")?;
+            if self.take(&Kind::RBracket) {
+                return Ok(Expr::Array(Vec::new(), span));
+            }
+
+            let first = self.expr()?;
+            if self.take(&Kind::Colon) {
+                let mut entries = vec![(first, self.expr()?)];
+                while self.take(&Kind::Comma) && !self.check(&Kind::RBracket) {
+                    let key = self.expr()?;
+                    self.expect(Kind::Colon, "expected `:` between map key and value")?;
+                    entries.push((key, self.expr()?));
+                }
+                self.expect(Kind::RBracket, "expected `]` to close map literal")?;
+                return Ok(Expr::Map(entries, span));
+            }
+
+            let mut items = vec![first];
+            while self.take(&Kind::Comma) && !self.check(&Kind::RBracket) {
+                items.push(self.expr()?);
+            }
+            self.expect(Kind::RBracket, "expected `]` to close collection literal")?;
             return Ok(Expr::Array(items, span));
         }
         if self.take(&Kind::LParen) {
@@ -707,27 +724,67 @@ impl Parser {
             Kind::Ident(value) if value == "false" => Ok(Expr::Bool(false, token.span)),
             Kind::Ident(value) => {
                 if !self.take(&Kind::Dot) {
+                    if (value == "Pair" || value == "Triple") && self.check(&Kind::LParen) {
+                        return self.tuple_constructor(value, token.span);
+                    }
                     return Ok(Expr::Name(value, token.span));
                 }
-                if value != "Theme" {
-                    return Err(CompileError::new(
-                        token.span,
-                        "qualified references must use the `Theme` namespace",
-                    ));
-                }
                 let (name, name_span) = self.ident()?;
-                Ok(Expr::ThemeToken(
-                    name,
-                    Span {
-                        end: name_span.end,
-                        ..token.span
-                    },
-                ))
+                let span = Span {
+                    end: name_span.end,
+                    ..token.span
+                };
+                match value.as_str() {
+                    "Theme" => Ok(Expr::ThemeToken(name, span)),
+                    "Layout" if name == "isRegularWidth" => Ok(Expr::IsRegularWidth(span)),
+                    "Layout" => Err(CompileError::new(
+                        name_span,
+                        format!("unknown layout property `{name}`; expected `isRegularWidth`"),
+                    )),
+                    _ => Err(CompileError::new(
+                        token.span,
+                        "qualified references must use the `Theme` or `Layout` namespace",
+                    )),
+                }
             }
             _ => Err(CompileError::new(
                 token.span,
                 "expected a string, number, boolean, or state name",
             )),
+        }
+    }
+
+    fn tuple_constructor(&mut self, name: String, span: Span) -> Result<Expr, CompileError> {
+        self.expect(Kind::LParen, "expected `(` after tuple type name")?;
+        let arity = if name == "Pair" { 2 } else { 3 };
+        let mut values = Vec::with_capacity(arity);
+        while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            values.push(self.expr()?);
+            if !self.take(&Kind::Comma) || self.check(&Kind::RParen) {
+                break;
+            }
+        }
+        self.expect(Kind::RParen, "expected `)` after tuple values")?;
+        if values.len() != arity {
+            return Err(CompileError::new(
+                span,
+                format!("{name} requires exactly {arity} values"),
+            ));
+        }
+        let mut values = values.into_iter();
+        if name == "Pair" {
+            Ok(Expr::Pair(
+                Box::new(values.next().expect("pair arity checked")),
+                Box::new(values.next().expect("pair arity checked")),
+                span,
+            ))
+        } else {
+            Ok(Expr::Triple(
+                Box::new(values.next().expect("triple arity checked")),
+                Box::new(values.next().expect("triple arity checked")),
+                Box::new(values.next().expect("triple arity checked")),
+                span,
+            ))
         }
     }
 

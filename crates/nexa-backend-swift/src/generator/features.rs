@@ -1,31 +1,65 @@
 use std::collections::HashSet;
 
-use nexa_ir::walk::walk_nodes;
-use nexa_ir::{ColorValue, Module, Node};
+use nexa_ir::walk::{walk_expression, walk_ir};
+use nexa_ir::{ColorValue, Expr, Module, Node};
 
 #[derive(Default)]
 pub(super) struct Features {
     pub(super) uses_fast_list: bool,
     pub(super) app_uses_adaptive_color: bool,
+    pub(super) app_uses_regular_width: bool,
     components_using_adaptive_color: HashSet<String>,
+    components_using_regular_width: HashSet<String>,
 }
 
 impl Features {
     pub(super) fn analyze(module: &Module) -> Self {
         let mut features = Self::default();
-        walk_nodes(&module.body, &mut |node| features.record_app_node(node));
-        for screen in &module.screens {
-            walk_nodes(&screen.body, &mut |node| features.record_app_node(node));
+        let mut app_uses_regular_width = false;
+
+        for state in &module.states {
+            walk_expression(&state.initial, &mut |expr| {
+                app_uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+            });
         }
+        walk_ir(
+            &module.body,
+            &mut |node| features.record_app_node(node),
+            &mut |expr| app_uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
+        );
+        for screen in &module.screens {
+            walk_ir(
+                &screen.body,
+                &mut |node| features.record_app_node(node),
+                &mut |expr| app_uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
+            );
+        }
+        features.app_uses_regular_width = app_uses_regular_width;
+
         for component in &module.components {
             let mut uses_adaptive_color = false;
-            walk_nodes(&component.body, &mut |node| {
-                features.record_list_usage(node);
-                uses_adaptive_color |= node_uses_adaptive_color(node);
-            });
+            let mut uses_regular_width = false;
+            for state in &component.states {
+                walk_expression(&state.initial, &mut |expr| {
+                    uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                });
+            }
+            walk_ir(
+                &component.body,
+                &mut |node| {
+                    features.record_list_usage(node);
+                    uses_adaptive_color |= node_uses_adaptive_color(node);
+                },
+                &mut |expr| uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
+            );
             if uses_adaptive_color {
                 features
                     .components_using_adaptive_color
+                    .insert(component.name.clone());
+            }
+            if uses_regular_width {
+                features
+                    .components_using_regular_width
                     .insert(component.name.clone());
             }
         }
@@ -34,6 +68,10 @@ impl Features {
 
     pub(super) fn component_uses_adaptive_color(&self, name: &str) -> bool {
         self.components_using_adaptive_color.contains(name)
+    }
+
+    pub(super) fn component_uses_regular_width(&self, name: &str) -> bool {
+        self.components_using_regular_width.contains(name)
     }
 
     fn record_app_node(&mut self, node: &Node) {

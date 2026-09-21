@@ -109,6 +109,10 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
     add(true, "androidx.compose.runtime.Composable");
 
     add(features.uses_modifier, "androidx.compose.ui.Modifier");
+    add(
+        features.uses_regular_width,
+        "androidx.compose.ui.platform.LocalConfiguration",
+    );
     add(features.uses_opacity, "androidx.compose.ui.draw.alpha");
     add(features.uses_corner_radius, "androidx.compose.ui.draw.clip");
     add(features.uses_color, "androidx.compose.ui.graphics.Color");

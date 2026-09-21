@@ -7,12 +7,34 @@ pub(super) fn expression(expr: &Expr) -> String {
     match expr {
         Expr::String(value) => kotlin_string(value),
         Expr::Bool(value) => value.to_string(),
+        Expr::IsRegularWidth => "(LocalConfiguration.current.screenWidthDp >= 600)".to_owned(),
         Expr::Number { raw, ty } => kotlin_number(raw, *ty),
         Expr::State(name, _) => state_name(name),
         Expr::Not(value) => format!("(!{})", expression(value)),
         Expr::Array(items) => format!(
             "listOf({})",
             items.iter().map(expression).collect::<Vec<_>>().join(", ")
+        ),
+        Expr::Set(items) => format!(
+            "setOf({})",
+            items.iter().map(expression).collect::<Vec<_>>().join(", ")
+        ),
+        Expr::Map(entries) => format!(
+            "mapOf({})",
+            entries
+                .iter()
+                .map(|(key, value)| format!("{} to {}", expression(key), expression(value)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Expr::Pair(first, second) => {
+            format!("Pair({}, {})", expression(first), expression(second))
+        }
+        Expr::Triple(first, second, third) => format!(
+            "Triple({}, {}, {})",
+            expression(first),
+            expression(second),
+            expression(third)
         ),
         Expr::Add(left, right, ty) => {
             let sum = format!("({} + {})", expression(left), expression(right));

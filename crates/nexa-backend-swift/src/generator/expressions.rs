@@ -7,6 +7,7 @@ pub(super) fn expression(expr: &Expr) -> String {
     match expr {
         Expr::String(value) => swift_string(value),
         Expr::Bool(value) => value.to_string(),
+        Expr::IsRegularWidth => "(nexaHorizontalSizeClass == .regular)".to_owned(),
         Expr::Number { raw, ty } => match ty {
             NumericType::Float32 => format!("Float({raw})"),
             NumericType::Float64 => format!("Double({raw})"),
@@ -17,6 +18,28 @@ pub(super) fn expression(expr: &Expr) -> String {
         Expr::Array(items) => format!(
             "[{}]",
             items.iter().map(expression).collect::<Vec<_>>().join(", ")
+        ),
+        Expr::Set(items) => format!(
+            "[{}]",
+            items.iter().map(expression).collect::<Vec<_>>().join(", ")
+        ),
+        Expr::Map(entries) if entries.is_empty() => "[:]".to_owned(),
+        Expr::Map(entries) => format!(
+            "Dictionary([{}], uniquingKeysWith: {{ _, newValue in newValue }})",
+            entries
+                .iter()
+                .map(|(key, value)| format!("({}, {})", expression(key), expression(value)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Expr::Pair(first, second) => {
+            format!("({}, {})", expression(first), expression(second))
+        }
+        Expr::Triple(first, second, third) => format!(
+            "({}, {}, {})",
+            expression(first),
+            expression(second),
+            expression(third)
         ),
         Expr::Add(left, right, ty) => {
             let operator = if matches!(ty, NumericType::Float32 | NumericType::Float64) {

@@ -61,6 +61,10 @@ pub enum Type {
     Bool,
     Numeric(NumericType),
     Array(Box<Type>),
+    Set(Box<Type>),
+    Map(Box<Type>, Box<Type>),
+    Pair(Box<Type>, Box<Type>),
+    Triple(Box<Type>, Box<Type>, Box<Type>),
 }
 
 #[derive(Clone, Debug)]
@@ -80,6 +84,11 @@ pub enum Expr {
         right: Box<Expr>,
     },
     Array(Vec<Expr>),
+    Set(Vec<Expr>),
+    Map(Vec<(Expr, Expr)>),
+    Pair(Box<Expr>, Box<Expr>),
+    Triple(Box<Expr>, Box<Expr>, Box<Expr>),
+    IsRegularWidth,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -308,6 +317,12 @@ impl Type {
             Self::Bool => "Bool".to_owned(),
             Self::Numeric(n) => n.swift().to_owned(),
             Self::Array(element) => format!("[{}]", element.swift()),
+            Self::Set(element) => format!("Set<{}>", element.swift()),
+            Self::Map(key, value) => format!("[{}: {}]", key.swift(), value.swift()),
+            Self::Pair(first, second) => format!("({}, {})", first.swift(), second.swift()),
+            Self::Triple(first, second, third) => {
+                format!("({}, {}, {})", first.swift(), second.swift(), third.swift())
+            }
         }
     }
     pub fn kotlin(&self) -> String {
@@ -316,6 +331,17 @@ impl Type {
             Self::Bool => "Boolean".to_owned(),
             Self::Numeric(n) => n.kotlin().to_owned(),
             Self::Array(element) => format!("List<{}>", element.kotlin()),
+            Self::Set(element) => format!("Set<{}>", element.kotlin()),
+            Self::Map(key, value) => format!("Map<{}, {}>", key.kotlin(), value.kotlin()),
+            Self::Pair(first, second) => {
+                format!("Pair<{}, {}>", first.kotlin(), second.kotlin())
+            }
+            Self::Triple(first, second, third) => format!(
+                "Triple<{}, {}, {}>",
+                first.kotlin(),
+                second.kotlin(),
+                third.kotlin()
+            ),
         }
     }
 }
