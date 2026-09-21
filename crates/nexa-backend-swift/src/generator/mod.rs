@@ -14,6 +14,7 @@ mod list_runtime;
 mod lists;
 mod navigation;
 mod network;
+mod sheets;
 mod utils;
 
 pub(super) fn generate(module: &Module) -> String {

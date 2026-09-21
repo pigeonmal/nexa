@@ -24,6 +24,7 @@ cargo run -p nexa-cli -- check examples/responsive-layout.nx
 cargo run -p nexa-cli -- check examples/constant-branches.nx
 cargo run -p nexa-cli -- check examples/interpolation.nx
 cargo run -p nexa-cli -- check examples/status-bar.nx
+cargo run -p nexa-cli -- check examples/bottom-sheet.nx
 cargo run -p nexa-cli -- check examples/counter.nx --deny-warnings
 cargo run -p nexa-cli -- check examples/platform-widgets.nx
 cargo run -p nexa-cli -- check examples/network-image.nx
@@ -43,6 +44,8 @@ cargo run -p nexa-cli -- build examples/interpolation.nx --target swift --out /t
 cargo run -p nexa-cli -- build examples/interpolation.nx --target kotlin --out /tmp/Interpolation.kt
 cargo run -p nexa-cli -- build examples/status-bar.nx --target swift --out /tmp/StatusBar.swift
 cargo run -p nexa-cli -- build examples/status-bar.nx --target kotlin --out /tmp/StatusBar.kt
+cargo run -p nexa-cli -- build examples/bottom-sheet.nx --target swift --out /tmp/BottomSheet.swift
+cargo run -p nexa-cli -- build examples/bottom-sheet.nx --target kotlin --out /tmp/BottomSheet.kt
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target swift --out /tmp/PlatformWidgets.swift
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target kotlin --out /tmp/PlatformWidgets.kt
 cargo run -p nexa-cli -- build examples/network-image.nx --target swift --out /tmp/NetworkImage.swift

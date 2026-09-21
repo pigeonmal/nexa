@@ -168,6 +168,16 @@ fn walk_node(
                 walk_node(child, names, used, target, file, warnings);
             }
         }
+        ast::Node::BottomSheet {
+            is_presented,
+            children,
+            ..
+        } => {
+            walk_expression(is_presented, names, used);
+            for child in children {
+                walk_node(child, names, used, target, file, warnings);
+            }
+        }
         ast::Node::FastList {
             source,
             index,

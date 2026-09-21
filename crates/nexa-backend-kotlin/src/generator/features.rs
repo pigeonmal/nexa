@@ -6,6 +6,7 @@ use nexa_ir::{ColorValue, Component, Expr, LayoutKind, Module, Node, State, View
 #[derive(Default)]
 pub(super) struct Features {
     pub(super) uses_status_bar: bool,
+    pub(super) uses_bottom_sheet: bool,
     pub(super) uses_image: bool,
     pub(super) uses_remote_image: bool,
     pub(super) uses_placeholder: bool,
@@ -48,6 +49,7 @@ impl Features {
     pub(super) fn analyze(module: &Module) -> Self {
         let mut features = Self {
             uses_status_bar: module.status_bar.is_some(),
+            uses_bottom_sheet: false,
             uses_column: module.body.len() != 1
                 || module.screens.iter().any(|screen| screen.body.len() > 1)
                 || module
@@ -215,6 +217,10 @@ impl Features {
                 self.uses_keyboard_aware = true;
                 self.uses_column = true;
                 self.uses_modifier = true;
+            }
+            Node::BottomSheet { children, .. } => {
+                self.uses_bottom_sheet = true;
+                self.record_child_layout(children);
             }
             Node::FastList { children, .. } => {
                 self.uses_list = true;

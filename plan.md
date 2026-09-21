@@ -527,11 +527,10 @@ Avoid implementing scrolling physics manually.
 
 ## BottomSheet
 
-Provide a native bottom sheet API.
+The first native bottom sheet slice is implemented with `BottomSheet(isPresented: mutableBool) { ... }`. Swift lowers to `.sheet(isPresented:)`; Kotlin lowers to Material 3 `ModalBottomSheet` with native dismissal updating the binding.
 
-Support:
+Remaining work:
 
-- modal sheets,
 - partial-height sheets,
 - snap points,
 - drag gestures,
@@ -540,7 +539,7 @@ Support:
 - safe areas,
 - keyboard integration.
 
-Use native platform sheets when available.
+Use native platform sheets when available. The current slice does not add a shared sheet runtime or duplicate the sheet content in the generated tree.
 
 Provide optimized platform-specific implementations when required.
 

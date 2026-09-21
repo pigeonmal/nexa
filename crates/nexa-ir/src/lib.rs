@@ -177,6 +177,10 @@ pub enum Node {
     KeyboardAware {
         children: Vec<Node>,
     },
+    BottomSheet {
+        state: String,
+        children: Vec<Node>,
+    },
     FastList {
         source: ListSource,
         index: String,

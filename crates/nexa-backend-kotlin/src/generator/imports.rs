@@ -18,6 +18,10 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
         features.uses_status_bar,
         "androidx.compose.ui.platform.LocalView",
     );
+    add(
+        features.uses_bottom_sheet,
+        "androidx.compose.material3.ModalBottomSheet",
+    );
 
     add(
         features.uses_background,

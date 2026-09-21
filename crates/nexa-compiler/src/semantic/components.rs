@@ -359,6 +359,21 @@ pub(super) fn lower_node(
                 children: lowered_children,
             })
         }
+        ast::Node::BottomSheet {
+            is_presented,
+            children,
+            span,
+        } => {
+            let state =
+                require_mutable_binding(&is_presented, &Type::Bool, symbols, span, "BottomSheet")?;
+            let lowered_children = lower_nodes(
+                children, symbols, screen_ids, themes, components, false, target,
+            )?;
+            Ok(Node::BottomSheet {
+                state,
+                children: lowered_children,
+            })
+        }
         ast::Node::FastList {
             source,
             index,

@@ -489,6 +489,20 @@ impl Parser {
                 let children = self.block_nodes()?;
                 Ok(Node::KeyboardAware { children, span })
             }
+            "BottomSheet" => {
+                let mut args = self.named_args(&["isPresented"])?;
+                let is_presented = self.required_arg(
+                    &mut args,
+                    "isPresented",
+                    "BottomSheet requires `isPresented`",
+                )?;
+                let children = self.block_nodes()?;
+                Ok(Node::BottomSheet {
+                    is_presented,
+                    children,
+                    span,
+                })
+            }
             "FastList" => {
                 let mut args = self.named_args(&["count", "items", "index", "item"])?;
                 let count = args.remove("count");

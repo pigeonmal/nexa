@@ -3,7 +3,7 @@ use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 use super::{
     colors, controls,
     expressions::text_expression,
-    images, input, keyboard, layout, lists, navigation,
+    images, input, keyboard, layout, lists, navigation, sheets,
     utils::{indent, number},
 };
 
@@ -84,6 +84,9 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
         } => navigation::render_link(*destination, children, module, depth, out),
         Node::KeyboardAware { children } => {
             keyboard::render_keyboard_aware(children, module, depth, out)
+        }
+        Node::BottomSheet { state, children } => {
+            sheets::render_bottom_sheet(state, children, module, depth, out)
         }
         Node::FastList {
             source,

@@ -65,7 +65,9 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
     nexa_ir::walk::walk_ir(
         nodes,
         &mut |node| match node {
-            Node::TextInput { state, .. } | Node::Switch { state, .. } => {
+            Node::TextInput { state, .. }
+            | Node::Switch { state, .. }
+            | Node::BottomSheet { state, .. } => {
                 bindings.push(state.clone());
             }
             _ => {}
@@ -179,6 +181,10 @@ fn optimize_node(node: Node) -> Option<Node> {
             children: optimize_nodes(children),
         }),
         Node::KeyboardAware { children } => Some(Node::KeyboardAware {
+            children: optimize_nodes(children),
+        }),
+        Node::BottomSheet { state, children } => Some(Node::BottomSheet {
+            state,
             children: optimize_nodes(children),
         }),
     }

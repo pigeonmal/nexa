@@ -4,7 +4,7 @@ use super::{
     colors, controls,
     expressions::text_expression,
     features::Features,
-    images, input, keyboard, layout, lists, navigation,
+    images, input, keyboard, layout, lists, navigation, sheets,
     utils::{indent, number},
 };
 
@@ -86,6 +86,9 @@ pub(super) fn render_node(
         } => navigation::render_link(*destination, children, module, features, depth, out),
         Node::KeyboardAware { children } => {
             keyboard::render_keyboard_aware(children, module, features, depth, out)
+        }
+        Node::BottomSheet { state, children } => {
+            sheets::render_bottom_sheet(state, children, module, features, depth, out)
         }
         Node::FastList {
             source,

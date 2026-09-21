@@ -172,6 +172,11 @@ pub enum Node {
         children: Vec<Node>,
         span: Span,
     },
+    BottomSheet {
+        is_presented: Expr,
+        children: Vec<Node>,
+        span: Span,
+    },
     FastList {
         source: ListSource,
         index: Option<Expr>,
