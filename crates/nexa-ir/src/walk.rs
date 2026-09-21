@@ -1,4 +1,4 @@
-use crate::{Action, Expr, ListSource, Node};
+use crate::{Action, Expr, InterpolatedPart, ListSource, Node};
 
 /// Visits IR nodes and expressions in preorder without building an intermediate tree.
 pub fn walk_ir(
@@ -81,6 +81,13 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             walk_expression(first, visit);
             walk_expression(second, visit);
             walk_expression(third, visit);
+        }
+        Expr::Interpolation(parts) => {
+            for part in parts {
+                if let InterpolatedPart::Value(value) = part {
+                    walk_expression(value, visit);
+                }
+            }
         }
         Expr::String(_)
         | Expr::Bool(_)

@@ -225,6 +225,7 @@ pub enum ImageSource {
 #[derive(Clone, Debug)]
 pub enum Expr {
     String(String, Span),
+    Interpolation(Vec<StringPart>, Span),
     Number(String, Span),
     Bool(bool, Span),
     Name(String, Span),
@@ -237,6 +238,12 @@ pub enum Expr {
     Map(Vec<(Expr, Expr)>, Span),
     Pair(Box<Expr>, Box<Expr>, Span),
     Triple(Box<Expr>, Box<Expr>, Box<Expr>, Span),
+}
+
+#[derive(Clone, Debug)]
+pub enum StringPart {
+    Literal(String),
+    Name(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -255,6 +262,7 @@ impl Expr {
     pub fn span(&self) -> Span {
         match self {
             Self::String(_, s)
+            | Self::Interpolation(_, s)
             | Self::Number(_, s)
             | Self::Bool(_, s)
             | Self::Name(_, s)

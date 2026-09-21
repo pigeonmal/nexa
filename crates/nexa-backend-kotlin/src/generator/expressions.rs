@@ -1,11 +1,28 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{BinaryOp, Expr, NumericType, Type};
+use nexa_ir::{BinaryOp, Expr, InterpolatedPart, NumericType, Type};
 
-use super::utils::kotlin_string;
+use super::utils::{kotlin_string, kotlin_string_content};
 
 pub(super) fn expression(expr: &Expr) -> String {
     match expr {
         Expr::String(value) => kotlin_string(value),
+        Expr::Interpolation(parts) => {
+            let mut value = String::from("\"");
+            for part in parts {
+                match part {
+                    InterpolatedPart::Literal(literal) => {
+                        value.push_str(&kotlin_string_content(literal));
+                    }
+                    InterpolatedPart::Value(value_expr) => {
+                        value.push_str("${");
+                        value.push_str(&expression(value_expr));
+                        value.push('}');
+                    }
+                }
+            }
+            value.push('"');
+            value
+        }
         Expr::Bool(value) => value.to_string(),
         Expr::IsRegularWidth => "(LocalConfiguration.current.screenWidthDp >= 600)".to_owned(),
         Expr::Number { raw, ty } => kotlin_number(raw, *ty),
@@ -109,7 +126,7 @@ fn kotlin_number(raw: &str, ty: NumericType) -> String {
 
 pub(super) fn text_expression(expr: &Expr) -> String {
     match expr {
-        Expr::String(_) | Expr::State(_, Type::String) => expression(expr),
+        Expr::String(_) | Expr::State(_, Type::String) | Expr::Interpolation(_) => expression(expr),
         _ => format!("{}.toString()", expression(expr)),
     }
 }

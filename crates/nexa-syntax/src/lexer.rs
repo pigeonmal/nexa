@@ -202,6 +202,7 @@ impl Lexer<'_> {
                     Some('t') => out.push('\t'),
                     Some('"') => out.push('"'),
                     Some('\\') => out.push('\\'),
+                    Some('(') => out.push_str("\\("),
                     Some(other) => {
                         return Err(CompileError::new(
                             start,

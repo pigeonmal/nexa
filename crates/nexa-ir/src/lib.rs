@@ -70,6 +70,7 @@ pub enum Type {
 #[derive(Clone, Debug)]
 pub enum Expr {
     String(String),
+    Interpolation(Vec<InterpolatedPart>),
     Bool(bool),
     Number {
         raw: String,
@@ -89,6 +90,12 @@ pub enum Expr {
     Pair(Box<Expr>, Box<Expr>),
     Triple(Box<Expr>, Box<Expr>, Box<Expr>),
     IsRegularWidth,
+}
+
+#[derive(Clone, Debug)]
+pub enum InterpolatedPart {
+    Literal(String),
+    Value(Box<Expr>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

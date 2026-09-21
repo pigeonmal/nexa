@@ -7,6 +7,10 @@ pub(super) fn indent(out: &mut String, depth: usize) {
 }
 
 pub(super) fn swift_string(value: &str) -> String {
+    format!("\"{}\"", swift_string_content(value))
+}
+
+pub(super) fn swift_string_content(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for character in value.chars() {
         escaped.push_str(match character {
@@ -21,5 +25,5 @@ pub(super) fn swift_string(value: &str) -> String {
             escaped.push(character);
         }
     }
-    format!("\"{escaped}\"")
+    escaped
 }

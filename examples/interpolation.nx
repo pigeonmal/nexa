@@ -1,0 +1,13 @@
+app Interpolation {
+    state count = 3
+    let title = "Nexa"
+
+    body {
+        Column(spacing: 8) {
+            Text("$title: \\(count)")
+            Button("Increment $count") {
+                count = count + 1
+            }
+        }
+    }
+}

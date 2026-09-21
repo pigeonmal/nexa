@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, Span};
-use nexa_ir::{BinaryOp, Expr, NumericType, Type};
+use nexa_ir::{BinaryOp, Expr, InterpolatedPart, NumericType, Type};
 use nexa_syntax::ast;
 
 pub(super) fn references_state(expr: &ast::Expr) -> bool {
@@ -19,6 +19,9 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         ast::Expr::Triple(first, second, third, _) => {
             references_state(first) || references_state(second) || references_state(third)
         }
+        ast::Expr::Interpolation(parts, _) => parts
+            .iter()
+            .any(|part| matches!(part, ast::StringPart::Name(_))),
         ast::Expr::String(_, _)
         | ast::Expr::Number(_, _)
         | ast::Expr::Bool(_, _)
@@ -36,6 +39,23 @@ pub(super) fn lower_expr(
         ast::Expr::String(value, _) => {
             require_expected(expected, &Type::String, expr.span())?;
             Ok(Expr::String(value.clone()))
+        }
+        ast::Expr::Interpolation(parts, span) => {
+            require_expected(expected, &Type::String, *span)?;
+            let mut lowered = Vec::with_capacity(parts.len());
+            for part in parts {
+                match part {
+                    ast::StringPart::Literal(value) => {
+                        lowered.push(InterpolatedPart::Literal(value.clone()));
+                    }
+                    ast::StringPart::Name(name) => {
+                        let value =
+                            lower_expr(&ast::Expr::Name(name.clone(), *span), None, symbols)?;
+                        lowered.push(InterpolatedPart::Value(Box::new(value)));
+                    }
+                }
+            }
+            Ok(Expr::Interpolation(lowered))
         }
         ast::Expr::Bool(value, _) => {
             require_expected(expected, &Type::Bool, expr.span())?;
@@ -281,7 +301,7 @@ fn lower_binary(
 
 fn infer_expr_type(expr: &ast::Expr, symbols: &HashMap<String, (Type, bool)>) -> Option<Type> {
     match expr {
-        ast::Expr::String(_, _) => Some(Type::String),
+        ast::Expr::String(_, _) | ast::Expr::Interpolation(_, _) => Some(Type::String),
         ast::Expr::Bool(_, _)
         | ast::Expr::IsRegularWidth(_)
         | ast::Expr::Not(_, _)

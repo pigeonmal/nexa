@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
 use nexa_ir::{
-    Action, BinaryOp, Expr, LayoutKind, ListSource, Module, Node, NumericType, ViewStyle,
+    Action, BinaryOp, Expr, InterpolatedPart, LayoutKind, ListSource, Module, Node, NumericType,
+    ViewStyle,
 };
 
 /// Applies small, semantics-preserving optimizations to the typed IR before
@@ -282,6 +283,17 @@ fn fold_expression(expression: Expr) -> Expr {
             Box::new(fold_expression(*first)),
             Box::new(fold_expression(*second)),
             Box::new(fold_expression(*third)),
+        ),
+        Expr::Interpolation(parts) => Expr::Interpolation(
+            parts
+                .into_iter()
+                .map(|part| match part {
+                    InterpolatedPart::Literal(value) => InterpolatedPart::Literal(value),
+                    InterpolatedPart::Value(value) => {
+                        InterpolatedPart::Value(Box::new(fold_expression(*value)))
+                    }
+                })
+                .collect(),
         ),
         expression => expression,
     }

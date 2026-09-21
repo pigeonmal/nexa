@@ -75,6 +75,8 @@ Avoid implicit numeric conversions that could create unpredictable behavior or p
 
 The implemented expression/control-flow slice includes short-circuit boolean operations, scalar equality, numeric comparisons, and `if`/`else` branches in UI bodies and event handlers. These lower directly to the target language's native operators and branches. See [language design decisions](docs/language-design.md) for choices around the remaining Kotlin/Swift concepts.
 
+String interpolation is implemented for `$name` and `\(name)` segments. Names are resolved and type-checked in the shared IR, then emitted as native Swift/Kotlin interpolation; arbitrary expressions inside a string remain future work.
+
 For a fast authoring path, `let` and mutable `state` declarations may omit their type when the compiler can infer it from a non-empty initializer. Integer literals default to `Int32` and decimal literals to `Float64`; component parameters remain explicitly typed. Inference is compile-time only and does not add runtime metadata or alter native output for explicitly typed source.
 
 ## User-defined components and modules

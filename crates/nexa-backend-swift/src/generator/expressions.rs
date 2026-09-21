@@ -1,11 +1,28 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{BinaryOp, Expr, NumericType, Type};
+use nexa_ir::{BinaryOp, Expr, InterpolatedPart, NumericType, Type};
 
-use super::utils::swift_string;
+use super::utils::{swift_string, swift_string_content};
 
 pub(super) fn expression(expr: &Expr) -> String {
     match expr {
         Expr::String(value) => swift_string(value),
+        Expr::Interpolation(parts) => {
+            let mut value = String::from("\"");
+            for part in parts {
+                match part {
+                    InterpolatedPart::Literal(literal) => {
+                        value.push_str(&swift_string_content(literal));
+                    }
+                    InterpolatedPart::Value(value_expr) => {
+                        value.push_str("\\(");
+                        value.push_str(&expression(value_expr));
+                        value.push(')');
+                    }
+                }
+            }
+            value.push('"');
+            value
+        }
         Expr::Bool(value) => value.to_string(),
         Expr::IsRegularWidth => "(nexaHorizontalSizeClass == .regular)".to_owned(),
         Expr::Number { raw, ty } => match ty {
@@ -73,7 +90,7 @@ fn binary_operator(operator: BinaryOp) -> &'static str {
 
 pub(super) fn text_expression(expr: &Expr) -> String {
     match expr {
-        Expr::State(_, Type::String) | Expr::String(_) => expression(expr),
+        Expr::State(_, Type::String) | Expr::String(_) | Expr::Interpolation(_) => expression(expr),
         _ => format!("String(describing: {})", expression(expr)),
     }
 }

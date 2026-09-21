@@ -136,7 +136,10 @@ pub(super) fn lower_node(
             span,
         } => {
             let label = lower_expr(&label, Some(&Type::String), symbols)?;
-            if !matches!(label, Expr::String(_) | Expr::State(_, Type::String)) {
+            if !matches!(
+                label,
+                Expr::String(_) | Expr::Interpolation(_) | Expr::State(_, Type::String)
+            ) {
                 return Err(CompileError::new(span, "Button label must be a String"));
             }
             let lowered = lower_actions(actions, symbols)?;

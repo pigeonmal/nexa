@@ -738,7 +738,7 @@ impl Parser {
         }
         let token = self.advance().clone();
         match token.kind {
-            Kind::String(value) => Ok(Expr::String(value, token.span)),
+            Kind::String(value) => self.string_expression(value, token.span),
             Kind::Number(value) => Ok(Expr::Number(value, token.span)),
             Kind::Ident(value) if value == "true" => Ok(Expr::Bool(true, token.span)),
             Kind::Ident(value) if value == "false" => Ok(Expr::Bool(false, token.span)),
@@ -772,6 +772,78 @@ impl Parser {
                 "expected a string, number, boolean, or state name",
             )),
         }
+    }
+
+    fn string_expression(&self, value: String, span: Span) -> Result<Expr, CompileError> {
+        let mut parts = Vec::new();
+        let mut literal = String::new();
+        let mut chars = value.chars().peekable();
+
+        while let Some(character) = chars.next() {
+            let name = if character == '$' {
+                if chars.peek().copied().is_some_and(is_ident_start) {
+                    Some(self.take_interpolation_name(&mut chars))
+                } else {
+                    None
+                }
+            } else if character == '\\' && chars.peek() == Some(&'(') {
+                chars.next();
+                let mut name = String::new();
+                let mut closed = false;
+                while let Some(character) = chars.next() {
+                    if character == ')' {
+                        closed = true;
+                        break;
+                    }
+                    if !is_ident_continue(character) {
+                        return Err(CompileError::new(
+                            span,
+                            "string interpolation expects a state name inside `\\(...)`",
+                        ));
+                    }
+                    name.push(character);
+                }
+                if name.is_empty() || !closed {
+                    return Err(CompileError::new(
+                        span,
+                        "unterminated string interpolation; expected `)`",
+                    ));
+                }
+                Some(name)
+            } else {
+                None
+            };
+
+            if let Some(name) = name {
+                if !literal.is_empty() {
+                    parts.push(StringPart::Literal(std::mem::take(&mut literal)));
+                }
+                parts.push(StringPart::Name(name));
+            } else {
+                literal.push(character);
+            }
+        }
+        if !literal.is_empty() {
+            parts.push(StringPart::Literal(literal));
+        }
+        if parts
+            .iter()
+            .all(|part| matches!(part, StringPart::Literal(_)))
+        {
+            return Ok(Expr::String(value, span));
+        }
+        Ok(Expr::Interpolation(parts, span))
+    }
+
+    fn take_interpolation_name(
+        &self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    ) -> String {
+        let mut name = String::new();
+        while chars.peek().copied().is_some_and(is_ident_continue) {
+            name.push(chars.next().expect("peeked character exists"));
+        }
+        name
     }
 
     fn tuple_constructor(&mut self, name: String, span: Span) -> Result<Expr, CompileError> {
@@ -905,4 +977,12 @@ impl Parser {
     fn error_here<T>(&self, message: impl Into<String>) -> Result<T, CompileError> {
         Err(CompileError::new(self.peek().span, message))
     }
+}
+
+fn is_ident_start(character: char) -> bool {
+    character == '_' || character.is_ascii_alphabetic()
+}
+
+fn is_ident_continue(character: char) -> bool {
+    is_ident_start(character) || character.is_ascii_digit()
 }

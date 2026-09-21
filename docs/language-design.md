@@ -35,7 +35,7 @@ Nexa borrows useful ideas from Kotlin and Swift, but keeps one source language a
 | Type cast (`as / as?`) | Avoid unchecked casts | Add only explicit, type-checked conversions or optional casts when a real interop case needs them. |
 | Exceptions | Prefer typed errors | Model recoverable cross-platform failures with `Result<T, E>`/typed effects; catch platform exceptions at native/plugin boundaries. |
 | Access control | Adopt with modules | Enforce visibility at compile time; imports and namespaces need explicit module semantics first. |
-| String interpolation | Adopt | Parse interpolation into typed expression segments and emit native string construction; not implemented yet. |
+| String interpolation | Integrate now | `$name` and `\(name)` lower into typed native Swift/Kotlin string interpolation for state and constant names; arbitrary expressions remain deferred. |
 | Getter / setter | Defer | Computed properties can hide work or state changes; begin with explicit functions and state bindings, then add visible compile-time accessors if needed. |
 
 The current operator and conditional syntax is demonstrated in [conditional-logic.nx](../examples/conditional-logic.nx). Component-local state and multi-file imports are described in the [language guide](language.md). This decision table is a design direction, not a claim that deferred features already compile.

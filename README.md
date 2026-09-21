@@ -22,6 +22,7 @@ cargo run -p nexa-cli -- check examples/custom-components.nx
 cargo run -p nexa-cli -- check examples/conditional-logic.nx
 cargo run -p nexa-cli -- check examples/responsive-layout.nx
 cargo run -p nexa-cli -- check examples/constant-branches.nx
+cargo run -p nexa-cli -- check examples/interpolation.nx
 cargo run -p nexa-cli -- check examples/counter.nx --deny-warnings
 cargo run -p nexa-cli -- check examples/platform-widgets.nx
 cargo run -p nexa-cli -- check examples/network-image.nx
@@ -37,6 +38,8 @@ cargo run -p nexa-cli -- build examples/responsive-layout.nx --target swift --ou
 cargo run -p nexa-cli -- build examples/responsive-layout.nx --target kotlin --out /tmp/ResponsiveLayout.kt
 cargo run -p nexa-cli -- build examples/constant-branches.nx --target swift --out /tmp/ConstantBranches.swift
 cargo run -p nexa-cli -- build examples/constant-branches.nx --target kotlin --out /tmp/ConstantBranches.kt
+cargo run -p nexa-cli -- build examples/interpolation.nx --target swift --out /tmp/Interpolation.swift
+cargo run -p nexa-cli -- build examples/interpolation.nx --target kotlin --out /tmp/Interpolation.kt
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target swift --out /tmp/PlatformWidgets.swift
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target kotlin --out /tmp/PlatformWidgets.kt
 cargo run -p nexa-cli -- build examples/network-image.nx --target swift --out /tmp/NetworkImage.swift
@@ -87,6 +90,8 @@ These skills distinguish the current prototype from the longer-term goals in `pl
 See the [language guide](docs/language.md) for syntax, supported types, themes, current limits, and native mappings, and the [language design decisions](docs/language-design.md) for how Nexa adopts or defers Kotlin/Swift concepts. The full roadmap remains in [plan.md](plan.md).
 
 The authoring surface keeps mutability explicit while allowing both `state` and immutable `let` values to infer their type from non-empty initializers. Integer literals default to `Int32` and decimal literals to `Float64`; the resolved type is fixed in the typed IR before native bindings are generated. `Column` is the single vertical container; it emits direct native stack code on both platforms. `View` is no longer a Nexa component; replace it with `Column` in existing `.nx` files. SwiftUI's native `View` protocol remains part of generated Swift output.
+
+String interpolation supports `$name` and `\(name)` for declared state and constant names. The compiler lowers each segment into direct Swift or Kotlin interpolation without a template runtime; see [interpolation.nx](examples/interpolation.nx).
 
 ## License
 
