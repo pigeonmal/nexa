@@ -68,6 +68,8 @@ These skills distinguish the current prototype from the longer-term goals in `pl
 
 See the [language guide](docs/language.md) for syntax, supported types, themes, current limits, and native mappings, and the [language design decisions](docs/language-design.md) for how Nexa adopts or defers Kotlin/Swift concepts. The full roadmap remains in [plan.md](plan.md).
 
+The authoring surface keeps mutable state explicit while allowing immutable `let` values to infer their type from non-empty initializers. `View` is the canonical vertical container; `Column` remains a source-compatible alias, and both continue to emit the same native layout code.
+
 ## License
 
 Copyright © 2026 Nexa contributors. Nexa is licensed under the GNU General Public License v3.0 only; see [LICENSE](LICENSE) for the full terms.

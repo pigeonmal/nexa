@@ -81,7 +81,7 @@ pub struct ScreenDecl {
 #[derive(Clone, Debug)]
 pub struct StateDecl {
     pub name: String,
-    pub ty: TypeSyntax,
+    pub ty: Option<TypeSyntax>,
     pub initial: Expr,
     pub mutable: bool,
     pub span: Span,

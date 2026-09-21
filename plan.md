@@ -73,6 +73,8 @@ Avoid implicit numeric conversions that could create unpredictable behavior or p
 
 The implemented expression/control-flow slice includes short-circuit boolean operations, scalar equality, numeric comparisons, and `if`/`else` branches in UI bodies and event handlers. These lower directly to the target language's native operators and branches. See [language design decisions](docs/language-design.md) for choices around the remaining Kotlin/Swift concepts.
 
+For a fast authoring path, immutable `let` declarations may omit their type when the compiler can infer it from a non-empty initializer. Mutable `state` declarations and component parameters remain explicitly typed. Inference is compile-time only and does not add runtime metadata or alter native output for explicitly typed source.
+
 ## User-defined components and modules
 
 App authors should be able to create reusable UI components in Nexa source files, pass typed inputs, compose built-in and custom components, and declare private per-instance state. Component files should be reusable through relative imports and resolve at compile time. Generated output should use native view/composable declarations without a dynamic registry or cross-platform component runtime.
@@ -309,6 +311,8 @@ Each component must compile as directly as possible into native platform compone
 ## View
 
 View must provide the basic layout and composition primitive.
+
+The source language accepts `Column` as a compatibility alias for the vertical `View` primitive. The parser canonicalizes both spellings before semantic lowering, so they produce the same IR and native output without maintaining a second layout concept.
 
 It should support:
 

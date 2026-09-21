@@ -28,7 +28,7 @@ Run `nexa check file.nx` to parse and type-check a source file. Run `nexa build 
 
 ## Types and state
 
-State declarations use an explicit type. `state` is mutable and can be assigned in a button handler or bound to a control; `let` declares an immutable value. Supported scalar types are `String`, `Bool`, `Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float32`, and `Float64`. Generic value types can be nested, including arrays, sets, maps, pairs, and triples.
+`state` is mutable and always uses an explicit type so bindings and updates have a clear contract. `let` declares an immutable value and can either use an explicit type or infer it from its initializer. Supported scalar types are `String`, `Bool`, `Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float32`, and `Float64`. Generic value types can be nested, including arrays, sets, maps, pairs, and triples.
 
 The supported generic types are `Array<T>`, `Set<T>`, `Map<K, V>`, `Pair<A, B>`, and `Triple<A, B, C>`. Literals are checked against the declared or parameter type; Nexa does not infer generic element types from an untyped literal:
 
@@ -38,9 +38,15 @@ let tags: Set<String> = ["mobile", "compiler", "mobile"]
 let versions: Map<String, Int32> = ["iOS": 16, "Android": 26]
 let selected: Pair<String, Int32> = Pair("Nexa", 3)
 let coordinates: Triple<Float32, Float32, Float32> = Triple(10.5, 20.0, 0.0)
+
+// Immutable values can omit the type when the initializer is non-empty and unambiguous.
+let title = "Nexa"
+let retries = 3
+let releaseMap = ["iOS": 16, "Android": 26]
+let selectedPlatform = Pair("Nexa", 3)
 ```
 
-The bracket literal is contextual: `[value, ...]` creates an `Array<T>` or `Set<T>` according to the expected type. An empty array or set is written `[]`. Map literals use `[key: value, ...]`; the empty map literal is `[:]`. If a map literal contains the same runtime key more than once, the last value wins on both platforms. Set elements are deduplicated. Neither set nor map iteration order is guaranteed across platforms.
+The bracket literal is contextual: `[value, ...]` creates an `Array<T>` or `Set<T>` according to the expected type. A non-empty array literal can infer an `Array<T>` for `let`; a set still needs an explicit `Set<T>` annotation because the source spelling is shared with arrays. Empty arrays, sets, and maps also need explicit types. Map literals use `[key: value, ...]`; the empty map literal is `[:]`. If a map literal contains the same runtime key more than once, the last value wins on both platforms. Set elements are deduplicated. Neither set nor map iteration order is guaranteed across platforms.
 
 `Pair(a, b)` and `Triple(a, b, c)` construct fixed-size ordered values. Their type arguments are checked position by position. Swift output uses native tuples for pairs and triples; Kotlin output uses the standard-library `Pair` and `Triple` classes, which are ordinary objects on Android/JVM. The compiler adds no Nexa-specific collection runtime or wrapper types. Arrays map to Swift `Array<T>` and Kotlin read-only `List<T>`, sets to Swift `Set<T>` and Kotlin read-only `Set<T>`, and maps to Swift `Dictionary<K, V>` and Kotlin read-only `Map<K, V>`.
 
@@ -92,7 +98,7 @@ See [responsive-layout.nx](../examples/responsive-layout.nx).
 
 ## Components
 
-- `View { ... }` and `Column { ... }` map to a native vertical stack.
+- `View { ... }` is the canonical vertical container. `Column { ... }` is a compatibility alias with the same behavior and native output; use whichever name is clearer in the surrounding code.
 - `Row { ... }` maps to a native horizontal stack.
 - `Column(spacing: 12) { ... }` and `Row(spacing: 12) { ... }` map spacing directly to platform layout parameters.
 - Layouts accept a cross-axis `alignment` of `Start`, `Center`, or `End`; it maps to horizontal alignment for `View`/`Column` and vertical alignment for `Row`. For vertical layouts, `Start`/`End` follow the layout direction; for rows they mean top/bottom. Layouts also accept `padding`, `width`, `height`, `background`, `cornerRadius`, and `opacity`. Dimensions use points on iOS and density-independent pixels on Android. Backgrounds accept `#RGB`, `#RRGGBB`, `#RRGGBBAA`, or a color theme token; opacity must be from `0` to `1`.

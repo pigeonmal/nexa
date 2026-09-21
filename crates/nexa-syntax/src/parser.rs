@@ -244,8 +244,13 @@ impl Parser {
         let keyword = self.advance().clone();
         let mutable = matches!(&keyword.kind, Kind::Ident(word) if word == "state");
         let (name, span) = self.ident()?;
-        self.expect(Kind::Colon, "expected `:` after state name")?;
-        let ty = self.type_syntax()?;
+        let ty = if self.take(&Kind::Colon) {
+            Some(self.type_syntax()?)
+        } else if mutable {
+            return self.error_here("mutable `state` declarations require an explicit type");
+        } else {
+            None
+        };
         self.expect(Kind::Equal, "expected `=` before initial value")?;
         let initial = self.expr()?;
         self.optional_semicolon();
@@ -293,8 +298,7 @@ impl Parser {
         match name.as_str() {
             "View" | "Column" | "Row" => {
                 let kind = match name.as_str() {
-                    "View" => LayoutKind::View,
-                    "Column" => LayoutKind::Column,
+                    "View" | "Column" => LayoutKind::View,
                     _ => LayoutKind::Row,
                 };
                 let mut args = if self.check(&Kind::LParen) {

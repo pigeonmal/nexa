@@ -416,6 +416,51 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
     }
 }
 
+pub(super) fn resolve_declaration_type(
+    declaration: &ast::StateDecl,
+    symbols: &HashMap<String, (Type, bool)>,
+) -> Result<Type, CompileError> {
+    let ty = match declaration.ty.as_ref() {
+        Some(syntax) => parse_type(syntax)?,
+        None => infer_expr_type(&declaration.initial, symbols).ok_or_else(|| {
+            CompileError::new(
+                declaration.initial.span(),
+                format!(
+                    "cannot infer the type of `let {}`; add an explicit `: Type` annotation (empty collections need one)",
+                    declaration.name
+                ),
+            )
+        })?,
+    };
+    validate_type_constraints(&ty, declaration.initial.span())?;
+    Ok(ty)
+}
+
+fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> {
+    match ty {
+        Type::Array(element) | Type::Set(element) => {
+            if matches!(ty, Type::Set(_)) {
+                require_hashable_key(element, span, "Set elements")?;
+            }
+            validate_type_constraints(element, span)
+        }
+        Type::Map(key, value) => {
+            require_hashable_key(key, span, "Map keys")?;
+            validate_type_constraints(value, span)
+        }
+        Type::Pair(first, second) => {
+            validate_type_constraints(first, span)?;
+            validate_type_constraints(second, span)
+        }
+        Type::Triple(first, second, third) => {
+            validate_type_constraints(first, span)?;
+            validate_type_constraints(second, span)?;
+            validate_type_constraints(third, span)
+        }
+        Type::String | Type::Bool | Type::Numeric(_) => Ok(()),
+    }
+}
+
 fn require_hashable_key(ty: &Type, span: Span, description: &str) -> Result<(), CompileError> {
     if matches!(ty, Type::String | Type::Bool | Type::Numeric(_)) {
         Ok(())

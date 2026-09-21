@@ -6,7 +6,7 @@ use nexa_syntax::ast;
 
 use super::{
     components::lower_node,
-    expressions::{lower_expr, parse_type, references_state},
+    expressions::{lower_expr, parse_type, references_state, resolve_declaration_type},
     themes::ThemeSymbols,
 };
 
@@ -142,7 +142,7 @@ fn lower_component(
                 ),
             ));
         }
-        let ty = parse_type(&state.ty)?;
+        let ty = resolve_declaration_type(&state, &symbols)?;
         let initial = lower_expr(&state.initial, Some(&ty), &symbols)?;
         if state.mutable && references_state(&state.initial) {
             return Err(CompileError::new(

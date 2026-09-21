@@ -7,7 +7,7 @@ use nexa_syntax::ast;
 use self::{
     components::lower_node,
     custom_components::{lower_components, retain_reachable},
-    expressions::{lower_expr, parse_type, references_state},
+    expressions::{lower_expr, references_state, resolve_declaration_type},
     themes::lower_theme,
 };
 
@@ -52,7 +52,7 @@ pub fn lower(mut app: ast::App) -> Result<Module, CompileError> {
                 format!("`{}` is already declared", declaration.name),
             ));
         }
-        let ty = parse_type(&declaration.ty)?;
+        let ty = resolve_declaration_type(&declaration, &symbols)?;
         let initial = lower_expr(&declaration.initial, Some(&ty), &symbols)?;
         if declaration.mutable && references_state(&declaration.initial) {
             return Err(CompileError::new(

@@ -10,6 +10,7 @@ Work on the Nexa framework itself: a Rust ahead-of-time compiler that turns `.nx
 ## Architecture boundaries
 
 - Keep the source pipeline separated into syntax, semantic analysis, platform-independent IR, backend code generation, and CLI responsibilities. Put each responsibility in its existing crate or a focused module under it.
+- Keep the authoring surface small: canonicalize `Column` to the existing vertical `View` layout during parsing, and infer only immutable `let` declarations when a non-empty initializer has one unambiguous type. Mutable `state` and component parameters stay explicit. These are compiler-only conveniences and must preserve generated native output for equivalent typed source.
 - Keep the common IR platform-independent. Swift-specific generation belongs in `nexa-backend-swift`; Kotlin/Compose-specific generation belongs in `nexa-backend-kotlin`.
 - Keep compiler/code-generation responsibilities in separate files and focused subfolders. Prefer small modules with clear ownership over a monolithic file, while avoiding abstractions that add indirection without reuse.
 - Add core default components to Nexa's shared language/IR and both native backends when requested. Optional integrations such as SQLite, MMKV, and maps belong in a future plugin layer; do not add them to core by default.
