@@ -1,11 +1,13 @@
+use std::collections::HashSet;
+
 use nexa_ir::{
     Action, BinaryOp, Expr, LayoutKind, ListSource, Module, Node, NumericType, ViewStyle,
 };
 
 /// Applies small, semantics-preserving optimizations to the typed IR before
 /// either native backend sees it. The pass deliberately stays conservative:
-/// it folds only pure constant expressions and removes branches whose
-/// conditions are statically known.
+/// it folds only pure constant expressions, removes branches whose conditions
+/// are statically known, and drops state declarations with no reachable use.
 pub(crate) fn optimize(module: &mut Module) {
     module.states.iter_mut().for_each(|state| {
         state.initial = fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
@@ -20,6 +22,69 @@ pub(crate) fn optimize(module: &mut Module) {
             state.initial =
                 fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
         }
+    }
+    prune_unused_states(module);
+}
+
+fn prune_unused_states(module: &mut Module) {
+    let mut used = HashSet::new();
+    collect_node_state_references(&module.body, &mut used);
+    for screen in &module.screens {
+        collect_node_state_references(&screen.body, &mut used);
+    }
+    retain_referenced_states(&mut module.states, used);
+
+    for component in &mut module.components {
+        let mut used = HashSet::new();
+        collect_node_state_references(&component.body, &mut used);
+        retain_referenced_states(&mut component.states, used);
+    }
+}
+
+fn retain_referenced_states(states: &mut Vec<nexa_ir::State>, mut used: HashSet<String>) {
+    loop {
+        let previous_len = used.len();
+        let initializers = states
+            .iter()
+            .filter(|state| used.contains(&state.name))
+            .map(|state| state.initial.clone())
+            .collect::<Vec<_>>();
+        for initializer in &initializers {
+            collect_expression_state_references(initializer, &mut used);
+        }
+        if used.len() == previous_len {
+            break;
+        }
+    }
+    states.retain(|state| used.contains(&state.name));
+}
+
+fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
+    let mut bindings = Vec::new();
+    nexa_ir::walk::walk_ir(
+        nodes,
+        &mut |node| match node {
+            Node::TextInput { state, .. } | Node::Switch { state, .. } => {
+                bindings.push(state.clone());
+            }
+            _ => {}
+        },
+        &mut |expression| {
+            insert_state_reference(expression, used);
+        },
+    );
+    used.extend(bindings);
+}
+
+fn collect_expression_state_references(expression: &Expr, used: &mut HashSet<String>) {
+    nexa_ir::walk::walk_expression(expression, &mut |expression| {
+        insert_state_reference(expression, used);
+    });
+}
+
+fn insert_state_reference(expression: &Expr, used: &mut HashSet<String>) {
+    if let Expr::State(name, _) = expression {
+        used.insert(name.clone());
     }
 }
 
@@ -195,11 +260,12 @@ fn fold_expression(expression: Expr) -> Expr {
                 }),
             }
         }
-        Expr::Add(left, right, ty) => Expr::Add(
-            Box::new(fold_expression(*left)),
-            Box::new(fold_expression(*right)),
-            ty,
-        ),
+        Expr::Add(left, right, ty) => {
+            let left = fold_expression(*left);
+            let right = fold_expression(*right);
+            fold_numeric_add(&left, &right, ty)
+                .unwrap_or_else(|| Expr::Add(Box::new(left), Box::new(right), ty))
+        }
         Expr::Array(values) => Expr::Array(values.into_iter().map(fold_expression).collect()),
         Expr::Set(values) => Expr::Set(values.into_iter().map(fold_expression).collect()),
         Expr::Map(entries) => Expr::Map(
@@ -219,6 +285,101 @@ fn fold_expression(expression: Expr) -> Expr {
         ),
         expression => expression,
     }
+}
+
+fn fold_numeric_add(left: &Expr, right: &Expr, ty: NumericType) -> Option<Expr> {
+    let Expr::Number {
+        raw: left_raw,
+        ty: left_ty,
+    } = left
+    else {
+        return None;
+    };
+    let Expr::Number {
+        raw: right_raw,
+        ty: right_ty,
+    } = right
+    else {
+        return None;
+    };
+    if *left_ty != ty || *right_ty != ty {
+        return None;
+    }
+    let raw = match ty {
+        NumericType::Int8 => wrap_signed(
+            left_raw.parse::<i128>().ok()? + right_raw.parse::<i128>().ok()?,
+            8,
+        )
+        .to_string(),
+        NumericType::Int16 => wrap_signed(
+            left_raw.parse::<i128>().ok()? + right_raw.parse::<i128>().ok()?,
+            16,
+        )
+        .to_string(),
+        NumericType::Int32 => wrap_signed(
+            left_raw.parse::<i128>().ok()? + right_raw.parse::<i128>().ok()?,
+            32,
+        )
+        .to_string(),
+        NumericType::Int64 => wrap_signed(
+            left_raw.parse::<i128>().ok()? + right_raw.parse::<i128>().ok()?,
+            64,
+        )
+        .to_string(),
+        NumericType::UInt8 => wrap_unsigned(
+            left_raw.parse::<u128>().ok()? + right_raw.parse::<u128>().ok()?,
+            8,
+        )
+        .to_string(),
+        NumericType::UInt16 => wrap_unsigned(
+            left_raw.parse::<u128>().ok()? + right_raw.parse::<u128>().ok()?,
+            16,
+        )
+        .to_string(),
+        NumericType::UInt32 => wrap_unsigned(
+            left_raw.parse::<u128>().ok()? + right_raw.parse::<u128>().ok()?,
+            32,
+        )
+        .to_string(),
+        NumericType::UInt64 => wrap_unsigned(
+            left_raw.parse::<u128>().ok()? + right_raw.parse::<u128>().ok()?,
+            64,
+        )
+        .to_string(),
+        NumericType::Float32 => {
+            let value = left_raw.parse::<f32>().ok()? + right_raw.parse::<f32>().ok()?;
+            if !value.is_finite() {
+                return None;
+            }
+            value.to_string()
+        }
+        NumericType::Float64 => {
+            let value = left_raw.parse::<f64>().ok()? + right_raw.parse::<f64>().ok()?;
+            if !value.is_finite() {
+                return None;
+            }
+            value.to_string()
+        }
+    };
+    if raw.contains('e') || raw.contains('E') {
+        return None;
+    }
+    Some(Expr::Number { raw, ty })
+}
+
+fn wrap_signed(value: i128, bits: u32) -> i128 {
+    let modulus = 1_i128 << bits;
+    let half = 1_i128 << (bits - 1);
+    let wrapped = value.rem_euclid(modulus);
+    if wrapped >= half {
+        wrapped - modulus
+    } else {
+        wrapped
+    }
+}
+
+fn wrap_unsigned(value: u128, bits: u32) -> u128 {
+    value % (1_u128 << bits)
 }
 
 fn evaluate_binary(op: BinaryOp, left: &Expr, right: &Expr) -> Option<Expr> {

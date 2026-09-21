@@ -22,6 +22,7 @@ cargo run -p nexa-cli -- check examples/custom-components.nx
 cargo run -p nexa-cli -- check examples/conditional-logic.nx
 cargo run -p nexa-cli -- check examples/responsive-layout.nx
 cargo run -p nexa-cli -- check examples/constant-branches.nx
+cargo run -p nexa-cli -- check examples/counter.nx --deny-warnings
 cargo run -p nexa-cli -- build examples/themed-app.nx --target swift --out /tmp/ThemedApp.swift
 cargo run -p nexa-cli -- build examples/themed-app.nx --target kotlin --out /tmp/ThemedApp.kt
 cargo run -p nexa-cli -- build examples/custom-components.nx --target swift --out /tmp/CustomComponents.swift
@@ -56,6 +57,8 @@ Each target backend consumes the same typed IR. Adding another backend should re
 Compiler orchestration and semantic analysis are separate modules inside `nexa-compiler`. Native generation lives in backend-local `src/generator/` modules, with component-specific files for controls, inputs, images, layout, navigation, lists, keyboard behavior, expressions, state, and formatting. A shared IR walker keeps structural scans consistent across backends; each backend analyzes a module once and uses that result to emit only the imports and native helpers the generated app needs. This keeps platform concerns out of the shared IR and makes compiler changes easier to review and maintain.
 
 The compiler also runs a conservative IR optimization pass before backend generation. It folds pure literal conditions and removes statically unreachable UI and event branches without adding runtime machinery or changing native component mappings. See [constant-branches.nx](examples/constant-branches.nx).
+
+Compiler warnings cover unused declarations, unused component parameters, and constant conditions. Read [compiler diagnostics and optimization](docs/compiler-diagnostics.md) for the warning policy, `--deny-warnings`, and the native-code optimization boundaries.
 
 User-defined `.nx` components can live in imported files, declare typed inputs and private state, compose other components, and compile directly into native SwiftUI or Compose declarations. Each reachable component has one generated native declaration, and every use calls that declaration directly; imports resolve relative to the source file and are statically compiled, while unreachable component declarations are omitted from generated output.
 

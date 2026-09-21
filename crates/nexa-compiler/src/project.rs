@@ -10,6 +10,12 @@ use nexa_syntax::ast::{App, ComponentDecl, ImportDecl};
 use crate::semantic;
 
 pub fn compile_file(path: impl AsRef<Path>) -> Result<nexa_ir::Module, CompileError> {
+    Ok(compile_file_with_warnings(path)?.module)
+}
+
+pub fn compile_file_with_warnings(
+    path: impl AsRef<Path>,
+) -> Result<crate::Compilation, CompileError> {
     let entry_path = path.as_ref();
     let mut loaded = LoadedProject::default();
     load_file(
@@ -29,7 +35,14 @@ pub fn compile_file(path: impl AsRef<Path>) -> Result<nexa_ir::Module, CompileEr
         .with_file(entry_path.display().to_string())
     })?;
     app.components = loaded.components;
-    semantic::lower(app).map_err(|error| error.with_file(entry_path.display().to_string()))
+    let (module, mut warnings) = semantic::lower_with_warnings(app)
+        .map_err(|error| error.with_file(entry_path.display().to_string()))?;
+    for warning in &mut warnings {
+        if warning.file.is_none() {
+            warning.file = Some(entry_path.display().to_string());
+        }
+    }
+    Ok(crate::Compilation { module, warnings })
 }
 
 #[derive(Default)]

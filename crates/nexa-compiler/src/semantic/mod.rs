@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use nexa_diagnostics::CompileError;
+use nexa_diagnostics::{CompileError, CompileWarning};
 use nexa_ir::{Module, Screen, ScreenId, State};
 use nexa_syntax::ast;
 
@@ -16,8 +16,12 @@ mod custom_components;
 mod expressions;
 mod styles;
 mod themes;
+mod warnings;
 
-pub fn lower(mut app: ast::App) -> Result<Module, CompileError> {
+pub fn lower_with_warnings(
+    mut app: ast::App,
+) -> Result<(Module, Vec<CompileWarning>), CompileError> {
+    let warnings = warnings::analyze(&app);
     let themes = lower_theme(app.theme.as_ref())?;
     let mut screen_ids = HashMap::with_capacity(app.screens.len());
     for (index, screen) in app.screens.iter().enumerate() {
@@ -109,5 +113,5 @@ pub fn lower(mut app: ast::App) -> Result<Module, CompileError> {
         body,
     };
     crate::optimize::optimize(&mut module);
-    Ok(module)
+    Ok((module, warnings))
 }

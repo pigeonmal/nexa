@@ -1,0 +1,43 @@
+# Compiler diagnostics and optimization
+
+Nexa performs diagnostics before native code generation. A successful compile can therefore report warnings while still producing the typed IR and native Swift/Kotlin source.
+
+## Warnings
+
+The compiler reports:
+
+- unused app or component `state` declarations,
+- unused immutable `let` constants,
+- unused custom-component parameters,
+- conditions that are provably always `true` or `false`.
+
+Warnings include the source file, line, and column. Unused declarations are removed from the generated native source when the IR proves that no reachable node or action reads them. Component parameters remain in their declaration and call signatures so component APIs stay consistent; they are diagnosed but not removed automatically.
+
+Use the normal commands to display warnings:
+
+```sh
+cargo run -p nexa-cli -- check app.nx
+cargo run -p nexa-cli -- build app.nx --target swift
+```
+
+Use `--deny-warnings` in CI or release checks when warnings must fail the command:
+
+```sh
+cargo run -p nexa-cli -- check app.nx --deny-warnings
+cargo run -p nexa-cli -- build app.nx --target kotlin --deny-warnings
+```
+
+This follows the same separation used by Rust lint levels: diagnostics are warnings by default and can be promoted to errors at the command boundary. See the [Rust lint levels](https://doc.rust-lang.org/rustc/lints/levels.html) reference for the model Nexa follows.
+
+## Native-code optimization
+
+The compiler runs a platform-independent IR pass after semantic lowering and before either backend. It currently:
+
+- folds pure boolean, scalar-comparison, and numeric-addition expressions,
+- removes statically unreachable UI and event branches,
+- removes unused app and component state declarations,
+- preserves dynamic state and environment conditions,
+- keeps Swift and Kotlin component mappings unchanged.
+
+The pass does not add a runtime or bridge. It reduces generated source before the Swift and Kotlin compilers run, leaving platform-specific optimization to the native toolchains. This matches Apple’s guidance to measure changes and keep optimization close to the native compiler, and Kotlin’s guidance to rely on release compiler optimization and dead-code elimination rather than a custom runtime layer. See [Apple performance guidance](https://developer.apple.com/documentation/xcode/improving-your-app-s-performance/) and [Kotlin compiler options](https://kotlinlang.org/docs/compiler-reference.html).
+

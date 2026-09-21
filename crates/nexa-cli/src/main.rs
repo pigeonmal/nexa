@@ -3,7 +3,7 @@ use std::{env, fs, path::PathBuf, process};
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
-use nexa_compiler::compile_file;
+use nexa_compiler::{CompileWarning, compile_file_with_warnings};
 
 fn main() {
     if let Err(message) = run() {
@@ -32,11 +32,19 @@ fn run() -> Result<(), String> {
 }
 
 fn check(args: &[String]) -> Result<(), String> {
-    if args.len() != 1 {
-        return Err("usage: nexa check <source.nx>".into());
+    let mut path = None;
+    let mut deny_warnings = false;
+    for argument in args {
+        match argument.as_str() {
+            "--deny-warnings" => deny_warnings = true,
+            option if option.starts_with('-') => return Err(format!("unknown option `{option}`")),
+            value if path.is_none() => path = Some(PathBuf::from(value)),
+            value => return Err(format!("unexpected argument `{value}`")),
+        }
     }
-    let path = PathBuf::from(&args[0]);
-    compile_file(&path).map_err(|error| error.to_string())?;
+    let path = path.ok_or("usage: nexa check <source.nx> [--deny-warnings]")?;
+    let compilation = compile_file_with_warnings(&path).map_err(|error| error.to_string())?;
+    report_warnings(&compilation.warnings, deny_warnings)?;
     println!("checked {}", path.display());
     Ok(())
 }
@@ -45,9 +53,11 @@ fn build(args: &[String]) -> Result<(), String> {
     let mut input = None;
     let mut target = None;
     let mut output = None;
+    let mut deny_warnings = false;
     let mut cursor = 0;
     while cursor < args.len() {
         match args[cursor].as_str() {
+            "--deny-warnings" => deny_warnings = true,
             "--target" | "-t" => {
                 cursor += 1;
                 target = Some(
@@ -81,18 +91,29 @@ fn build(args: &[String]) -> Result<(), String> {
             ));
         }
     };
-    let module = compile_file(&input).map_err(|error| error.to_string())?;
+    let compilation = compile_file_with_warnings(&input).map_err(|error| error.to_string())?;
+    report_warnings(&compilation.warnings, deny_warnings)?;
     let output = output.unwrap_or_else(|| input.with_extension(backend.file_extension()));
-    fs::write(&output, backend.generate(&module))
+    fs::write(&output, backend.generate(&compilation.module))
         .map_err(|error| format!("{}: {error}", output.display()))?;
     println!("generated {} ({})", output.display(), backend.name());
+    Ok(())
+}
+
+fn report_warnings(warnings: &[CompileWarning], deny_warnings: bool) -> Result<(), String> {
+    for warning in warnings {
+        eprintln!("{warning}");
+    }
+    if deny_warnings && !warnings.is_empty() {
+        return Err(format!("{} warning(s) treated as errors", warnings.len()));
+    }
     Ok(())
 }
 
 fn print_help() {
     println!(
         "Nexa — ahead-of-time compiler for native iOS and Android UI\n\n\
-Usage:\n  nexa check <source.nx>\n  nexa build <source.nx> --target <swift|kotlin> [--out <path>]\n\n\
+Usage:\n  nexa check <source.nx> [--deny-warnings]\n  nexa build <source.nx> --target <swift|kotlin> [--out <path>] [--deny-warnings]\n\n\
 Targets emit native SwiftUI or Jetpack Compose source."
     );
 }
