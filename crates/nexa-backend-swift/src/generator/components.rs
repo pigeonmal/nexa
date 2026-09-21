@@ -3,7 +3,7 @@ use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 use super::{
     colors, controls,
     expressions::text_expression,
-    images, input, keyboard, layout, lists, navigation, sheets,
+    images, input, keyboard, layout, lists, navigation, refresh, sheets,
     utils::{indent, number},
 };
 
@@ -88,6 +88,11 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
         Node::BottomSheet { state, children } => {
             sheets::render_bottom_sheet(state, children, module, depth, out)
         }
+        Node::RefreshControl {
+            state,
+            children,
+            actions,
+        } => refresh::render_refresh_control(state, children, actions, module, depth, out),
         Node::FastList {
             source,
             index,

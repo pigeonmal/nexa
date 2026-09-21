@@ -181,6 +181,11 @@ pub enum Node {
         state: String,
         children: Vec<Node>,
     },
+    RefreshControl {
+        state: String,
+        children: Vec<Node>,
+        actions: Vec<Action>,
+    },
     FastList {
         source: ListSource,
         index: String,

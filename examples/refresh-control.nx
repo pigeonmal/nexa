@@ -1,0 +1,12 @@
+app RefreshExample {
+    state refreshing: Bool = false
+
+    body {
+        RefreshControl(isRefreshing: refreshing) {
+            Text("Pull down to refresh")
+        } {
+            refreshing = true
+            refreshing = false
+        }
+    }
+}

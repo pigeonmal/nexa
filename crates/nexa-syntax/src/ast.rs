@@ -177,6 +177,12 @@ pub enum Node {
         children: Vec<Node>,
         span: Span,
     },
+    RefreshControl {
+        is_refreshing: Expr,
+        children: Vec<Node>,
+        actions: Vec<Stmt>,
+        span: Span,
+    },
     FastList {
         source: ListSource,
         index: Option<Expr>,

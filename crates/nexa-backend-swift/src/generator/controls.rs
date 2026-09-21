@@ -63,7 +63,7 @@ pub(super) fn render_pressable(
     out.push_str(".buttonStyle(.plain)");
 }
 
-fn render_actions(actions: &[Action], depth: usize, out: &mut String) {
+pub(super) fn render_actions(actions: &[Action], depth: usize, out: &mut String) {
     for action in actions {
         match action {
             Action::Assign { name, value } => {

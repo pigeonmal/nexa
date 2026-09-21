@@ -4,7 +4,7 @@ use super::{
     colors, controls,
     expressions::text_expression,
     features::Features,
-    images, input, keyboard, layout, lists, navigation, sheets,
+    images, input, keyboard, layout, lists, navigation, refresh, sheets,
     utils::{indent, number},
 };
 
@@ -89,6 +89,13 @@ pub(super) fn render_node(
         }
         Node::BottomSheet { state, children } => {
             sheets::render_bottom_sheet(state, children, module, features, depth, out)
+        }
+        Node::RefreshControl {
+            state,
+            children,
+            actions,
+        } => {
+            refresh::render_refresh_control(state, children, actions, module, features, depth, out)
         }
         Node::FastList {
             source,

@@ -276,6 +276,7 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
         | ast::Node::NavigationLink { children, .. }
         | ast::Node::KeyboardAware { children, .. }
         | ast::Node::BottomSheet { children, .. }
+        | ast::Node::RefreshControl { children, .. }
         | ast::Node::FastList { children, .. } => {
             for child in children {
                 collect_component_calls(child, calls);
@@ -317,6 +318,7 @@ fn contains_navigation_link(node: &ast::Node, target: Target) -> bool {
         | ast::Node::Pressable { children, .. }
         | ast::Node::KeyboardAware { children, .. }
         | ast::Node::BottomSheet { children, .. }
+        | ast::Node::RefreshControl { children, .. }
         | ast::Node::FastList { children, .. } => children
             .iter()
             .any(|child| contains_navigation_link(child, target)),
@@ -361,6 +363,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::NavigationLink { children, .. }
         | Node::KeyboardAware { children }
         | Node::BottomSheet { children, .. }
+        | Node::RefreshControl { children, .. }
         | Node::FastList { children, .. } => {
             for child in children {
                 collect_ir_component_calls(child, calls);

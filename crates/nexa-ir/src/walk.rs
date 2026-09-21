@@ -19,6 +19,12 @@ pub fn walk_ir(
                 walk_actions(actions, visit_expression);
                 walk_ir(children, visit_node, visit_expression);
             }
+            Node::RefreshControl {
+                children, actions, ..
+            } => {
+                walk_actions(actions, visit_expression);
+                walk_ir(children, visit_node, visit_expression);
+            }
             Node::FastList {
                 source, children, ..
             } => {
@@ -97,6 +103,33 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
         | Expr::State(_, _)
         | Expr::IsRegularWidth => {}
     }
+}
+
+/// Returns whether a node tree already contains a native scrolling primitive.
+pub fn contains_scrollable(nodes: &[Node]) -> bool {
+    nodes.iter().any(|node| match node {
+        Node::FastList { .. } | Node::KeyboardAware { .. } => true,
+        Node::Layout { children, .. }
+        | Node::NavigationLink { children, .. }
+        | Node::Pressable { children, .. }
+        | Node::BottomSheet { children, .. }
+        | Node::RefreshControl { children, .. } => contains_scrollable(children),
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            contains_scrollable(then_body) || else_body.as_deref().is_some_and(contains_scrollable)
+        }
+        Node::StatusBar { .. }
+        | Node::Text { .. }
+        | Node::Button { .. }
+        | Node::TextInput { .. }
+        | Node::Switch { .. }
+        | Node::Image { .. }
+        | Node::NavigationStack { .. }
+        | Node::ComponentCall { .. } => false,
+    })
 }
 
 fn walk_list_source(source: &ListSource, visit: &mut impl FnMut(&Expr)) {

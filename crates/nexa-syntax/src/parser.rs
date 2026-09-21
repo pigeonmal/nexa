@@ -503,6 +503,22 @@ impl Parser {
                     span,
                 })
             }
+            "RefreshControl" => {
+                let mut args = self.named_args(&["isRefreshing"])?;
+                let is_refreshing = self.required_arg(
+                    &mut args,
+                    "isRefreshing",
+                    "RefreshControl requires `isRefreshing`",
+                )?;
+                let children = self.block_nodes()?;
+                let actions = self.block_stmts()?;
+                Ok(Node::RefreshControl {
+                    is_refreshing,
+                    children,
+                    actions,
+                    span,
+                })
+            }
             "FastList" => {
                 let mut args = self.named_args(&["count", "items", "index", "item"])?;
                 let count = args.remove("count");

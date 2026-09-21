@@ -515,15 +515,14 @@ Use native tab/navigation primitives wherever possible.
 
 ## RefreshControl
 
-Provide pull-to-refresh behavior using native refresh controls.
+The first pull-to-refresh slice is implemented as `RefreshControl(isRefreshing: mutableBool) { ... } { ... }`. Swift lowers to `.refreshable`; Kotlin lowers to Material 3 `PullToRefreshBox` with the callback block as its native refresh handler.
 
-Support:
+Remaining work:
 
-- refresh state,
-- native gesture behavior,
-- customizable indicator where supported.
+- customizable indicator where supported,
+- refresh event streams and cancellation state.
 
-Avoid implementing scrolling physics manually.
+The current implementation uses native gesture and scrolling behavior and does not add manual scrolling physics.
 
 ## BottomSheet
 

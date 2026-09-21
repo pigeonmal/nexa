@@ -22,6 +22,10 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
         features.uses_bottom_sheet,
         "androidx.compose.material3.ModalBottomSheet",
     );
+    add(
+        features.uses_refresh_control,
+        "androidx.compose.material3.pulltorefresh.PullToRefreshBox",
+    );
 
     add(
         features.uses_background,
@@ -36,7 +40,15 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
         "androidx.compose.foundation.rememberScrollState",
     );
     add(
+        features.uses_refresh_scroll,
+        "androidx.compose.foundation.rememberScrollState",
+    );
+    add(
         features.uses_keyboard_aware,
+        "androidx.compose.foundation.verticalScroll",
+    );
+    add(
+        features.uses_refresh_scroll,
         "androidx.compose.foundation.verticalScroll",
     );
     add(

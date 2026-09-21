@@ -192,6 +192,7 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
         | Node::NavigationLink { children, .. }
         | Node::KeyboardAware { children }
         | Node::BottomSheet { children, .. }
+        | Node::RefreshControl { children, .. }
         | Node::Pressable { children, .. }
         | Node::FastList { children, .. } => children.iter().any(contains_status_bar),
         Node::If {

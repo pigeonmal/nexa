@@ -178,6 +178,18 @@ fn walk_node(
                 walk_node(child, names, used, target, file, warnings);
             }
         }
+        ast::Node::RefreshControl {
+            is_refreshing,
+            children,
+            actions,
+            ..
+        } => {
+            walk_expression(is_refreshing, names, used);
+            for child in children {
+                walk_node(child, names, used, target, file, warnings);
+            }
+            walk_actions(actions, names, used, target, file, warnings);
+        }
         ast::Node::FastList {
             source,
             index,

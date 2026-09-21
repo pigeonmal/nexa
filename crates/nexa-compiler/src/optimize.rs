@@ -67,7 +67,8 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
         &mut |node| match node {
             Node::TextInput { state, .. }
             | Node::Switch { state, .. }
-            | Node::BottomSheet { state, .. } => {
+            | Node::BottomSheet { state, .. }
+            | Node::RefreshControl { state, .. } => {
                 bindings.push(state.clone());
             }
             _ => {}
@@ -186,6 +187,15 @@ fn optimize_node(node: Node) -> Option<Node> {
         Node::BottomSheet { state, children } => Some(Node::BottomSheet {
             state,
             children: optimize_nodes(children),
+        }),
+        Node::RefreshControl {
+            state,
+            children,
+            actions,
+        } => Some(Node::RefreshControl {
+            state,
+            children: optimize_nodes(children),
+            actions: optimize_actions(actions),
         }),
     }
 }

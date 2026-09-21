@@ -374,6 +374,28 @@ pub(super) fn lower_node(
                 children: lowered_children,
             })
         }
+        ast::Node::RefreshControl {
+            is_refreshing,
+            children,
+            actions,
+            span,
+        } => {
+            let state = require_mutable_binding(
+                &is_refreshing,
+                &Type::Bool,
+                symbols,
+                span,
+                "RefreshControl",
+            )?;
+            let lowered_children = lower_nodes(
+                children, symbols, screen_ids, themes, components, false, target,
+            )?;
+            Ok(Node::RefreshControl {
+                state,
+                children: lowered_children,
+                actions: lower_actions(actions, symbols)?,
+            })
+        }
         ast::Node::FastList {
             source,
             index,

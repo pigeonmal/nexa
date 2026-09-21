@@ -1,12 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
-use nexa_ir::walk::{walk_expression, walk_ir};
+use nexa_ir::walk::{contains_scrollable, walk_expression, walk_ir};
 use nexa_ir::{ColorValue, Component, Expr, LayoutKind, Module, Node, State, ViewStyle};
 
 #[derive(Default)]
 pub(super) struct Features {
     pub(super) uses_status_bar: bool,
     pub(super) uses_bottom_sheet: bool,
+    pub(super) uses_refresh_control: bool,
+    pub(super) uses_refresh_scroll: bool,
     pub(super) uses_image: bool,
     pub(super) uses_remote_image: bool,
     pub(super) uses_placeholder: bool,
@@ -50,6 +52,8 @@ impl Features {
         let mut features = Self {
             uses_status_bar: module.status_bar.is_some(),
             uses_bottom_sheet: false,
+            uses_refresh_control: false,
+            uses_refresh_scroll: false,
             uses_column: module.body.len() != 1
                 || module.screens.iter().any(|screen| screen.body.len() > 1)
                 || module
@@ -220,6 +224,15 @@ impl Features {
             }
             Node::BottomSheet { children, .. } => {
                 self.uses_bottom_sheet = true;
+                self.record_child_layout(children);
+            }
+            Node::RefreshControl { children, .. } => {
+                self.uses_refresh_control = true;
+                if !contains_scrollable(children) {
+                    self.uses_refresh_scroll = true;
+                    self.uses_column = true;
+                    self.uses_modifier = true;
+                }
                 self.record_child_layout(children);
             }
             Node::FastList { children, .. } => {
