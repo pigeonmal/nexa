@@ -525,6 +525,19 @@ impl Parser {
                     span,
                 })
             }
+            "Accessibility" => {
+                let mut args = self.named_args(&["label", "role"])?;
+                let label =
+                    self.required_arg(&mut args, "label", "Accessibility requires `label`")?;
+                let role = args.remove("role");
+                let children = self.block_nodes()?;
+                Ok(Node::Accessibility {
+                    label,
+                    role,
+                    children,
+                    span,
+                })
+            }
             "KeyboardAware" => {
                 let children = self.block_nodes()?;
                 Ok(Node::KeyboardAware { children, span })

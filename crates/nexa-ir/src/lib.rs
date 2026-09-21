@@ -178,6 +178,11 @@ pub enum Node {
         url: String,
         children: Vec<Node>,
     },
+    Accessibility {
+        label: String,
+        role: AccessibilityRole,
+        children: Vec<Node>,
+    },
     KeyboardAware {
         children: Vec<Node>,
     },
@@ -216,6 +221,15 @@ pub struct BottomBarTab {
     pub index: i32,
     pub label: String,
     pub children: Vec<Node>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AccessibilityRole {
+    None,
+    Button,
+    Link,
+    Header,
+    Image,
 }
 
 #[derive(Clone, Debug)]

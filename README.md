@@ -28,6 +28,7 @@ cargo run -p nexa-cli -- check examples/bottom-sheet.nx
 cargo run -p nexa-cli -- check examples/refresh-control.nx
 cargo run -p nexa-cli -- check examples/app-bottom-bar.nx
 cargo run -p nexa-cli -- check examples/linking.nx
+cargo run -p nexa-cli -- check examples/accessibility.nx
 cargo run -p nexa-cli -- check examples/counter.nx --deny-warnings
 cargo run -p nexa-cli -- check examples/platform-widgets.nx
 cargo run -p nexa-cli -- check examples/network-image.nx
@@ -55,6 +56,8 @@ cargo run -p nexa-cli -- build examples/app-bottom-bar.nx --target swift --out /
 cargo run -p nexa-cli -- build examples/app-bottom-bar.nx --target kotlin --out /tmp/AppBottomBar.kt
 cargo run -p nexa-cli -- build examples/linking.nx --target swift --out /tmp/Linking.swift
 cargo run -p nexa-cli -- build examples/linking.nx --target kotlin --out /tmp/Linking.kt
+cargo run -p nexa-cli -- build examples/accessibility.nx --target swift --out /tmp/Accessibility.swift
+cargo run -p nexa-cli -- build examples/accessibility.nx --target kotlin --out /tmp/Accessibility.kt
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target swift --out /tmp/PlatformWidgets.swift
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target kotlin --out /tmp/PlatformWidgets.kt
 cargo run -p nexa-cli -- build examples/network-image.nx --target swift --out /tmp/NetworkImage.swift

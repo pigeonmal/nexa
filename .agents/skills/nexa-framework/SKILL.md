@@ -43,6 +43,7 @@ Work on the Nexa framework itself: a Rust ahead-of-time compiler that turns `.nx
 - Keep `RefreshControl` as a typed mutable Boolean binding plus direct actions. Lower to SwiftUI `.refreshable` and Compose Material 3 `PullToRefreshBox`; reuse the existing action lowering and do not implement custom scrolling physics or a refresh event bus.
 - Keep `AppBottomBar` as a typed mutable `Int32` selection with static, unique non-negative tab indexes and labels. Lower to SwiftUI `TabView(selection:)` and Compose Material 3 `Scaffold`/`NavigationBar`; generate each tab body once, keep selection as ordinary native state, and defer icons, badges, and custom transitions until their cross-platform semantics are defined.
 - Keep `Link(url: ...)` as a static URL first slice. Validate the URL scheme during semantic lowering, lower iOS to SwiftUI `Link`, and lower Android to a direct `ACTION_VIEW` intent with handler checking. Keep incoming links, universal-link routing, and dynamic URL availability out of the IR until their compile-time and lifecycle semantics are defined.
+- Keep `Accessibility(label: ..., role: ...)` as a static semantics wrapper. Lower labels and roles directly to Swift accessibility modifiers and Compose semantics; map Android headings with `heading()` and do not invent a shared accessibility runtime. Defer hints, focus actions, and dynamic values until their native lifecycle behavior is defined.
 - Preserve FastList as the public component name. Do not reintroduce the former UltraFastList name.
 
 ## Change workflow

@@ -12,6 +12,7 @@ pub fn walk_ir(
             Node::Layout { children, .. }
             | Node::NavigationLink { children, .. }
             | Node::Link { children, .. }
+            | Node::Accessibility { children, .. }
             | Node::KeyboardAware { children }
             | Node::BottomSheet { children, .. } => walk_ir(children, visit_node, visit_expression),
             Node::Pressable {
@@ -118,6 +119,7 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         Node::Layout { children, .. }
         | Node::NavigationLink { children, .. }
         | Node::Link { children, .. }
+        | Node::Accessibility { children, .. }
         | Node::Pressable { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::RefreshControl { children, .. } => contains_scrollable(children),

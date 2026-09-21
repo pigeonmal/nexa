@@ -186,6 +186,15 @@ fn optimize_node(node: Node) -> Option<Node> {
             url,
             children: optimize_nodes(children),
         }),
+        Node::Accessibility {
+            label,
+            role,
+            children,
+        } => Some(Node::Accessibility {
+            label,
+            role,
+            children: optimize_nodes(children),
+        }),
         Node::KeyboardAware { children } => Some(Node::KeyboardAware {
             children: optimize_nodes(children),
         }),

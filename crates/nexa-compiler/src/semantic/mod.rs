@@ -191,6 +191,7 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
         Node::Layout { children, .. }
         | Node::NavigationLink { children, .. }
         | Node::Link { children, .. }
+        | Node::Accessibility { children, .. }
         | Node::KeyboardAware { children }
         | Node::BottomSheet { children, .. }
         | Node::RefreshControl { children, .. }

@@ -893,20 +893,23 @@ Do not rely on manual component mirroring when native platform behavior can perf
 
 ## Accessibility
 
-Accessibility must use native accessibility systems.
+The first accessibility slice is implemented:
 
-Support:
+```nexa
+Accessibility(label: "Open settings", role: Button) {
+    Button("Settings") {}
+}
+```
 
-- labels,
+Swift lowers labels and roles to native accessibility modifiers. Android lowers them to Compose semantics, using `contentDescription`, `Role` where the platform exposes a matching role, and `heading()` for `Header`. The wrapper emits no shared accessibility runtime.
+
+Remaining work:
+
 - hints,
-- roles,
-- traits,
-- focus,
-- actions,
-- dynamic text sizing,
-- screen readers,
-- reduced motion,
-- high contrast where available.
+- programmatic focus,
+- custom accessibility actions,
+- dynamic accessibility values,
+- reduced-motion and high-contrast environment bindings.
 
 The framework must preserve the accessibility advantages of native controls.
 

@@ -173,6 +173,11 @@ fn walk_node(
                 walk_node(child, names, used, target, file, warnings);
             }
         }
+        ast::Node::Accessibility { children, .. } => {
+            for child in children {
+                walk_node(child, names, used, target, file, warnings);
+            }
+        }
         ast::Node::BottomSheet {
             is_presented,
             children,

@@ -1,7 +1,7 @@
 use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 
 use super::{
-    bottom_bar, colors, controls,
+    accessibility, bottom_bar, colors, controls,
     expressions::text_expression,
     features::Features,
     images, input, keyboard, layout, links, lists, navigation, refresh, sheets,
@@ -87,6 +87,13 @@ pub(super) fn render_node(
         Node::Link { url, children } => {
             links::render_link(url, children, module, features, depth, out)
         }
+        Node::Accessibility {
+            label,
+            role,
+            children,
+        } => accessibility::render_accessibility(
+            label, *role, children, module, features, depth, out,
+        ),
         Node::KeyboardAware { children } => {
             keyboard::render_keyboard_aware(children, module, features, depth, out)
         }

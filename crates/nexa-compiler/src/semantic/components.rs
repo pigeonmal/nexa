@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
-    Action, BottomBarTab, Capitalization, Expr, ImageScale, ImageSource, KeyboardType, LayoutKind,
-    ListSource, Node, NumericType, ScreenId, StatusBarConfig, StatusBarStyle, TextStyle, Type,
+    AccessibilityRole, Action, BottomBarTab, Capitalization, Expr, ImageScale, ImageSource,
+    KeyboardType, LayoutKind, ListSource, Node, NumericType, ScreenId, StatusBarConfig,
+    StatusBarStyle, TextStyle, Type,
 };
 use nexa_syntax::ast;
 
@@ -367,6 +368,56 @@ pub(super) fn lower_node(
                 children, symbols, screen_ids, themes, components, false, target,
             )?;
             Ok(Node::Link { url, children })
+        }
+        ast::Node::Accessibility {
+            label,
+            role,
+            children,
+            span,
+        } => {
+            let label = require_string_literal(&label, "Accessibility label")?;
+            if label.is_empty() {
+                return Err(CompileError::new(
+                    span,
+                    "Accessibility label cannot be empty",
+                ));
+            }
+            let role = match role {
+                None => AccessibilityRole::None,
+                Some(ast::Expr::Name(name, role_span)) => match name.as_str() {
+                    "None" => AccessibilityRole::None,
+                    "Button" => AccessibilityRole::Button,
+                    "Link" => AccessibilityRole::Link,
+                    "Header" => AccessibilityRole::Header,
+                    "Image" => AccessibilityRole::Image,
+                    _ => {
+                        return Err(CompileError::new(
+                            role_span,
+                            "Accessibility role must be `None`, `Button`, `Link`, `Header`, or `Image`",
+                        ));
+                    }
+                },
+                Some(expr) => {
+                    return Err(CompileError::new(
+                        expr.span(),
+                        "Accessibility role must be a role name",
+                    ));
+                }
+            };
+            let children = lower_nodes(
+                children, symbols, screen_ids, themes, components, false, target,
+            )?;
+            if children.is_empty() {
+                return Err(CompileError::new(
+                    span,
+                    "Accessibility requires at least one child",
+                ));
+            }
+            Ok(Node::Accessibility {
+                label,
+                role,
+                children,
+            })
         }
         ast::Node::KeyboardAware { children, .. } => {
             let lowered_children = lower_nodes(

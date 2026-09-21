@@ -173,6 +173,12 @@ pub enum Node {
         children: Vec<Node>,
         span: Span,
     },
+    Accessibility {
+        label: Expr,
+        role: Option<Expr>,
+        children: Vec<Node>,
+        span: Span,
+    },
     KeyboardAware {
         children: Vec<Node>,
         span: Span,

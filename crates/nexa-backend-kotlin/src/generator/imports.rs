@@ -166,15 +166,19 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
         "androidx.compose.ui.layout.ContentScale",
     );
     add(
-        features.uses_pressable,
+        features.uses_pressable || features.uses_accessibility_role,
         "androidx.compose.ui.semantics.Role",
     );
     add(
-        features.uses_switch,
+        features.uses_accessibility_heading,
+        "androidx.compose.ui.semantics.heading",
+    );
+    add(
+        features.uses_switch || features.uses_accessibility,
         "androidx.compose.ui.semantics.contentDescription",
     );
     add(
-        features.uses_switch,
+        features.uses_switch || features.uses_accessibility,
         "androidx.compose.ui.semantics.semantics",
     );
     add(

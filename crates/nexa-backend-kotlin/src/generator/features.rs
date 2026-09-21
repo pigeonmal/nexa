@@ -16,6 +16,9 @@ pub(super) struct Features {
     pub(super) uses_navigation_link: bool,
     pub(super) uses_link: bool,
     pub(super) app_uses_link: bool,
+    pub(super) uses_accessibility: bool,
+    pub(super) uses_accessibility_role: bool,
+    pub(super) uses_accessibility_heading: bool,
     pub(super) uses_list: bool,
     pub(super) uses_keyboard_aware: bool,
     pub(super) uses_adaptive_color: bool,
@@ -243,6 +246,18 @@ impl Features {
             }
             Node::Link { children, .. } => {
                 self.uses_link = true;
+                self.uses_box = true;
+                self.uses_modifier = true;
+                self.record_child_layout(children);
+            }
+            Node::Accessibility { role, children, .. } => {
+                self.uses_accessibility = true;
+                self.uses_accessibility_role |= matches!(
+                    role,
+                    nexa_ir::AccessibilityRole::Button | nexa_ir::AccessibilityRole::Image
+                );
+                self.uses_accessibility_heading |=
+                    matches!(role, nexa_ir::AccessibilityRole::Header);
                 self.uses_box = true;
                 self.uses_modifier = true;
                 self.record_child_layout(children);
