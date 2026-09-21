@@ -3,16 +3,23 @@ use nexa_ir::{LayoutKind, Module, State, ViewStyle};
 mod components;
 mod controls;
 mod expressions;
+mod features;
 mod images;
 mod input;
 mod keyboard;
 mod layout;
+mod list_runtime;
 mod lists;
 mod navigation;
 mod utils;
 
 pub(super) fn generate(module: &Module) -> String {
-    let mut out = String::from("import SwiftUI\n\n");
+    let uses_fast_list = features::uses_fast_list(module);
+    let mut out = if uses_fast_list {
+        String::from("import SwiftUI\nimport UIKit\n\n@available(iOS 16.0, *)\n")
+    } else {
+        String::from("import SwiftUI\n\n")
+    };
     out.push_str(&format!(
         "public struct {}: View {{\n",
         nexa_codegen::names::screen_name(&module.app_name)
@@ -65,6 +72,9 @@ pub(super) fn generate(module: &Module) -> String {
         }
     }
     out.push_str("}\n");
+    if uses_fast_list {
+        list_runtime::render(&mut out);
+    }
     out
 }
 

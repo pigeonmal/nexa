@@ -20,6 +20,7 @@ Work on the Nexa framework itself: a Rust ahead-of-time compiler that turns `.nx
 - Generate ordinary native SwiftUI and Kotlin/Jetpack Compose code with direct platform calls and minimal framework machinery. Preserve platform behavior, accessibility, and native state semantics.
 - Prioritize predictable allocations and direct native primitives. Make performance claims only when supported by generated output or measurements; do not label the prototype native-equivalent without benchmarks.
 - Android image nodes must use Coil 3 (`coil3.compose.AsyncImage`) and keep image-specific code isolated in the Kotlin image generator.
+- iOS `FastList` should use native `UITableView` virtualization and cell reuse; host SwiftUI row content with `UIHostingConfiguration` instead of routing large lists through SwiftUI `List`. Keep row lookup direct and avoid materializing a second row collection.
 - Keep component generation separate by concern (controls, text input, image loading, layout, navigation, lists, keyboard handling, expressions, and shared formatting helpers).
 - Preserve FastList as the public component name. Do not reintroduce the former UltraFastList name.
 

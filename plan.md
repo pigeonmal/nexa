@@ -456,7 +456,7 @@ The implementation should minimize:
 
 Use native list primitives or lower-level native APIs whenever they provide better performance.
 
-For example, iOS may use SwiftUI list primitives or UICollectionView-based implementations depending on performance requirements.
+The iOS `FastList` default is a native `UITableView` with reusable cells and SwiftUI row content hosted through `UIHostingConfiguration`. This keeps UIKit responsible for cell virtualization and reuse without creating an intermediate row array. Horizontal, grid, or sectioned list components may use a different native collection primitive when those capabilities are implemented and measured.
 
 Android may use Compose lazy layouts or lower-level native mechanisms when necessary.
 

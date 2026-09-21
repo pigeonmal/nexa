@@ -16,7 +16,7 @@ pub(super) fn render_virtualized_list(
     match source {
         ListSource::Count(count) => {
             out.push_str(&format!(
-                "List(0..<max(0, Int({})), id: \\.self) {{ listPosition in\n",
+                "NexaFastList(rowCount: max(0, Int({}))) {{ listPosition in\n",
                 expression(count)
             ));
             indent(out, depth + 1);
@@ -32,7 +32,7 @@ pub(super) fn render_virtualized_list(
             let item = item.unwrap_or("item");
             let collection = expression(collection);
             out.push_str(&format!(
-                "List({collection}.indices, id: \\.self) {{ listPosition in\n"
+                "NexaFastList(rowCount: {collection}.count) {{ listPosition in\n"
             ));
             indent(out, depth + 1);
             out.push_str(&format!(
