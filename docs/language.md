@@ -28,7 +28,7 @@ Run `nexa check file.nx` to parse and type-check a source file. Run `nexa build 
 
 ## Types and state
 
-`state` is mutable and always uses an explicit type so bindings and updates have a clear contract. `let` declares an immutable value and can either use an explicit type or infer it from its initializer. Supported scalar types are `String`, `Bool`, `Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float32`, and `Float64`. Generic value types can be nested, including arrays, sets, maps, pairs, and triples.
+`state` is mutable. Both `state` and `let` can use an explicit type or infer it at compile time from a non-empty initializer. Inference uses the same deterministic defaults on both platforms: integer literals become `Int32`, decimal literals become `Float64`, and the type of a non-empty value expression is propagated. The inferred type is written into the typed IR before native generation, so bindings remain predictable. Supported scalar types are `String`, `Bool`, `Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float32`, and `Float64`. Generic value types can be nested, including arrays, sets, maps, pairs, and triples.
 
 The supported generic types are `Array<T>`, `Set<T>`, `Map<K, V>`, `Pair<A, B>`, and `Triple<A, B, C>`. Literals are checked against the declared or parameter type; Nexa does not infer generic element types from an untyped literal:
 
@@ -39,7 +39,8 @@ let versions: Map<String, Int32> = ["iOS": 16, "Android": 26]
 let selected: Pair<String, Int32> = Pair("Nexa", 3)
 let coordinates: Triple<Float32, Float32, Float32> = Triple(10.5, 20.0, 0.0)
 
-// Immutable values can omit the type when the initializer is non-empty and unambiguous.
+// Mutable and immutable values can omit the type when the initializer is non-empty and unambiguous.
+state retryCount = 3              // inferred as Int32
 let title = "Nexa"
 let retries = 3
 let releaseMap = ["iOS": 16, "Android": 26]
@@ -54,7 +55,7 @@ For compatible hashing behavior on both platforms, `Set<T>` elements and `Map<K,
 
 Numeric literal values are checked against the declared type, including signed negative literals. Numeric variables do not implicitly convert between types. `+` accepts operands of one numeric type; integer addition wraps on overflow and floating-point addition follows native IEEE behavior. A numeric literal takes its type from the other operand where possible, so `wideCount < 10` does not require a conversion.
 
-Immutable `let` initializers can refer to earlier declarations. Mutable state initializers must be literal expressions in this version. Forward references, nullable types, user-defined types, functions, generics beyond the five built-in collection/value types, and async expressions are not implemented yet.
+Inferred `let` and `state` initializers can use the same expression forms as explicitly typed declarations. Mutable state initializers must still be independent of other state values in this version. Forward references, nullable types, user-defined types, functions, generics beyond the five built-in collection/value types, and async expressions are not implemented yet.
 
 ## Conditions and operators
 

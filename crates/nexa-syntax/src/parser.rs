@@ -246,8 +246,6 @@ impl Parser {
         let (name, span) = self.ident()?;
         let ty = if self.take(&Kind::Colon) {
             Some(self.type_syntax()?)
-        } else if mutable {
-            return self.error_here("mutable `state` declarations require an explicit type");
         } else {
             None
         };
