@@ -69,6 +69,8 @@ Numeric types should include explicit types such as:
 
 The current compiler supports the scalar types above plus `Array<T>`, `Set<T>`, `Map<K, V>`, `Pair<A, B>`, and `Triple<A, B, C>` as contextually typed value declarations and literals. These map directly to Swift value types/tuples and Kotlin collection or tuple-value types. Set elements and map keys are currently limited to scalar `String`, `Bool`, and numeric types for native hashability. Collection lookup, mutation, iteration, and transformations are still roadmap work.
 
+Generated modules that use remote images also receive a feature-gated native network/file library. iOS uses URLSession with a 16 MiB memory and 64 MiB disk URLCache; Android uses Play Services Cronet with a 64 MiB disk cache, HTTP/2, QUIC, and Brotli, and Coil 3 is wired to that same Cronet client. The library exposes asynchronous fetch/download options, optional certificate pinning, path directories, and asynchronous file reads/writes without a shared runtime bridge.
+
 Avoid implicit numeric conversions that could create unpredictable behavior or performance costs.
 
 The implemented expression/control-flow slice includes short-circuit boolean operations, scalar equality, numeric comparisons, and `if`/`else` branches in UI bodies and event handlers. These lower directly to the target language's native operators and branches. See [language design decisions](docs/language-design.md) for choices around the remaining Kotlin/Swift concepts.
@@ -187,7 +189,7 @@ Column → SwiftUI container primitives
 
 Text → SwiftUI Text
 
-Image → SwiftUI Image or native optimized image implementation
+Image → SwiftUI Image or the generated URLSession-backed image implementation
 
 TextInput → TextField / SecureField / UIKit equivalent when needed
 
@@ -219,7 +221,7 @@ Column → Compose layout primitives
 
 Text → Compose Text
 
-Image → Compose/native image APIs
+Image → Coil 3 with the generated Cronet-backed network client
 
 TextInput → TextField / BasicTextField
 

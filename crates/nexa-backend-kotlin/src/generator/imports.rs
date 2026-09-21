@@ -151,6 +151,64 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
         "androidx.compose.ui.res.painterResource",
     );
     add(features.uses_image, "coil3.compose.AsyncImage");
+    add(features.uses_remote_image, "android.content.Context");
+    add(features.uses_remote_image, "android.net.Uri");
+    add(
+        features.uses_remote_image,
+        "androidx.compose.runtime.remember",
+    );
+    add(
+        features.uses_remote_image,
+        "androidx.compose.ui.platform.LocalContext",
+    );
+    add(features.uses_remote_image, "coil3.ImageLoader");
+    add(features.uses_remote_image, "coil3.network.NetworkClient");
+    add(features.uses_remote_image, "coil3.network.NetworkFetcher");
+    add(features.uses_remote_image, "coil3.network.NetworkHeaders");
+    add(features.uses_remote_image, "coil3.network.NetworkRequest");
+    add(features.uses_remote_image, "coil3.network.NetworkResponse");
+    add(
+        features.uses_remote_image,
+        "coil3.network.NetworkResponseBody",
+    );
+    add(
+        features.uses_remote_image,
+        "kotlinx.coroutines.CancellationException",
+    );
+    add(features.uses_remote_image, "kotlinx.coroutines.Dispatchers");
+    add(
+        features.uses_remote_image,
+        "kotlinx.coroutines.suspendCancellableCoroutine",
+    );
+    add(features.uses_remote_image, "kotlinx.coroutines.withContext");
+    add(features.uses_remote_image, "kotlinx.coroutines.withTimeout");
+    add(features.uses_remote_image, "okio.Buffer");
+    add(features.uses_remote_image, "org.chromium.net.CronetEngine");
+    add(
+        features.uses_remote_image,
+        "org.chromium.net.UploadDataProvider",
+    );
+    add(
+        features.uses_remote_image,
+        "org.chromium.net.UploadDataSink",
+    );
+    add(features.uses_remote_image, "org.chromium.net.UrlRequest");
+    add(
+        features.uses_remote_image,
+        "org.chromium.net.UrlResponseInfo",
+    );
+    add(features.uses_remote_image, "java.io.ByteArrayOutputStream");
+    add(features.uses_remote_image, "java.io.File");
+    add(features.uses_remote_image, "java.io.FileOutputStream");
+    add(features.uses_remote_image, "java.nio.ByteBuffer");
+    add(features.uses_remote_image, "java.util.Date");
+    add(features.uses_remote_image, "java.util.WeakHashMap");
+    add(features.uses_remote_image, "java.util.concurrent.Executors");
+    add(features.uses_remote_image, "kotlin.coroutines.resume");
+    add(
+        features.uses_remote_image,
+        "kotlin.coroutines.resumeWithException",
+    );
     add(
         features.uses_navigation_link,
         "androidx.compose.material3.TextButton",

@@ -18,37 +18,16 @@ pub(super) fn render_image(
         }
         ImageSource::RemoteUrl(url) => {
             out.push_str(&format!(
-                "AsyncImage(url: URL(string: {})) {{ phase in\n",
-                swift_string(url)
+                "NexaRemoteImage(url: {}, scale: {}, placeholder: {})",
+                swift_string(url),
+                match scale {
+                    ImageScale::Fit => "NexaImageScale.fit",
+                    ImageScale::Fill => "NexaImageScale.fill",
+                },
+                placeholder
+                    .map(swift_string)
+                    .unwrap_or_else(|| "nil".to_owned())
             ));
-            indent(out, depth + 1);
-            out.push_str("if let image = phase.image {\n");
-            indent(out, depth + 2);
-            out.push_str("image");
-            append_resizable_image(out, scale);
-            out.push('\n');
-            indent(out, depth + 1);
-            out.push_str("} else if phase.error != nil {\n");
-            indent(out, depth + 2);
-            if let Some(placeholder) = placeholder {
-                out.push_str(&format!("Image({})\n", swift_string(placeholder)));
-            } else {
-                out.push_str("Image(systemName: \"photo\")\n");
-            }
-            indent(out, depth + 1);
-            out.push_str("} else {\n");
-            indent(out, depth + 2);
-            if let Some(placeholder) = placeholder {
-                out.push_str(&format!("Image({})", swift_string(placeholder)));
-                append_resizable_image(out, scale);
-                out.push('\n');
-            } else {
-                out.push_str("ProgressView()\n");
-            }
-            indent(out, depth + 1);
-            out.push_str("}\n");
-            indent(out, depth);
-            out.push('}');
         }
     }
     if description.is_empty() {

@@ -13,16 +13,22 @@ mod layout;
 mod list_runtime;
 mod lists;
 mod navigation;
+mod network;
 mod utils;
 
 pub(super) fn generate(module: &Module) -> String {
     let features = features::Features::analyze(module);
     let uses_fast_list = features.uses_fast_list;
-    let mut out = if uses_fast_list {
-        String::from("import SwiftUI\nimport UIKit\n\n@available(iOS 16.0, *)\n")
+    let mut out = if uses_fast_list || features.uses_remote_image {
+        String::from("import SwiftUI\nimport UIKit\n")
     } else {
         String::from("import SwiftUI\n\n")
     };
+    if features.uses_remote_image {
+        out.push_str("import CryptoKit\nimport Foundation\n\n");
+    } else if uses_fast_list {
+        out.push_str("\n@available(iOS 16.0, *)\n");
+    }
     out.push_str(&format!(
         "public struct {}: View {{\n",
         nexa_codegen::names::screen_name(&module.app_name)
@@ -89,6 +95,9 @@ pub(super) fn generate(module: &Module) -> String {
     custom_components::render(module, &features, &mut out);
     if uses_fast_list {
         list_runtime::render(&mut out);
+    }
+    if features.uses_remote_image {
+        network::render(&mut out);
     }
     out
 }

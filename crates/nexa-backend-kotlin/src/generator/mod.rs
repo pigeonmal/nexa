@@ -13,6 +13,7 @@ mod keyboard;
 mod layout;
 mod lists;
 mod navigation;
+mod network;
 mod state;
 mod utils;
 
@@ -61,5 +62,8 @@ pub(super) fn generate(module: &Module) -> String {
     }
     out.push_str("\n}\n");
     custom_components::render(module, &features, &mut out);
+    if features.uses_remote_image {
+        network::render(&mut out);
+    }
     out
 }

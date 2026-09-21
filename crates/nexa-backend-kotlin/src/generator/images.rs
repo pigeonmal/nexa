@@ -25,8 +25,17 @@ pub(super) fn render_image(
         kotlin_string(description)
     };
     out.push_str(&format!(
-        "AsyncImage(\n{}    model = {model},\n{}    contentDescription = {description},\n",
-        "    ".repeat(depth),
+        "AsyncImage(\n{}    model = {model},\n",
+        "    ".repeat(depth)
+    ));
+    if matches!(source, ImageSource::RemoteUrl(_)) {
+        out.push_str(&format!(
+            "{}    imageLoader = nexaImageLoader(),\n",
+            "    ".repeat(depth)
+        ));
+    }
+    out.push_str(&format!(
+        "{}    contentDescription = {description},\n",
         "    ".repeat(depth)
     ));
     if let Some(placeholder) = placeholder {

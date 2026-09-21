@@ -6,6 +6,7 @@ use nexa_ir::{ColorValue, Component, Expr, LayoutKind, Module, Node, State, View
 #[derive(Default)]
 pub(super) struct Features {
     pub(super) uses_image: bool,
+    pub(super) uses_remote_image: bool,
     pub(super) uses_placeholder: bool,
     pub(super) uses_navigation_link: bool,
     pub(super) uses_list: bool,
@@ -188,6 +189,13 @@ impl Features {
             }
             Node::Image { placeholder, .. } => {
                 self.uses_image = true;
+                self.uses_remote_image |= matches!(
+                    node,
+                    Node::Image {
+                        source: nexa_ir::ImageSource::RemoteUrl(_),
+                        ..
+                    }
+                );
                 self.uses_placeholder |= placeholder.is_some();
             }
             Node::Pressable { children, .. } => {

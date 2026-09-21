@@ -11,6 +11,7 @@ Help extend Nexa with optional features that users can install without placing e
 
 - Keep the default Nexa compiler and core component set usable without optional plugins or their native dependencies.
 - Give each plugin a clear public API, platform implementations, dependency declarations, and generated bindings where the current architecture supports them. Keep platform-specific code isolated by platform and plugin.
+- Reuse the generated core network/path/file bindings for transport and storage-adjacent plugin work. Network plugins should call URLSession on iOS and Cronet on Android, preserve typed request options, and avoid introducing OkHttp, a second image loader, JSON/RPC, or a runtime service locator.
 - Core value types available to future typed plugin APIs include scalars, `Array<T>`, `Set<T>`, `Map<K, V>`, `Pair<A, B>`, and `Triple<A, B, C>`. Set elements and map keys are currently limited to scalar `String`, `Bool`, or numeric types; collection lookup and mutation are not exposed by the core language yet. Do not claim that future plugin APIs or generic collection operations already exist.
 - Prefer statically typed interfaces and generated direct calls. Avoid JSON/RPC, string-based dispatch, reflection, dynamic dictionaries, and per-frame boundary crossings.
 - Do not put plugin-specific behavior in the parser, common UI nodes, or both backends unless it is truly part of the shared language contract.
