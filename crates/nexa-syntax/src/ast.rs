@@ -183,6 +183,11 @@ pub enum Node {
         actions: Vec<Stmt>,
         span: Span,
     },
+    AppBottomBar {
+        selected: Expr,
+        tabs: Vec<TabDecl>,
+        span: Span,
+    },
     FastList {
         source: ListSource,
         index: Option<Expr>,
@@ -207,6 +212,14 @@ pub enum Node {
 pub enum ListSource {
     Count(Expr),
     Items(Expr),
+}
+
+#[derive(Clone, Debug)]
+pub struct TabDecl {
+    pub index: Expr,
+    pub label: Expr,
+    pub children: Vec<Node>,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, Default)]

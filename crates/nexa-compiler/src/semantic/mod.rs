@@ -195,6 +195,9 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
         | Node::RefreshControl { children, .. }
         | Node::Pressable { children, .. }
         | Node::FastList { children, .. } => children.iter().any(contains_status_bar),
+        Node::AppBottomBar { tabs, .. } => tabs
+            .iter()
+            .any(|tab| tab.children.iter().any(contains_status_bar)),
         Node::If {
             then_body,
             else_body,

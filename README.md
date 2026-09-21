@@ -26,6 +26,7 @@ cargo run -p nexa-cli -- check examples/interpolation.nx
 cargo run -p nexa-cli -- check examples/status-bar.nx
 cargo run -p nexa-cli -- check examples/bottom-sheet.nx
 cargo run -p nexa-cli -- check examples/refresh-control.nx
+cargo run -p nexa-cli -- check examples/app-bottom-bar.nx
 cargo run -p nexa-cli -- check examples/counter.nx --deny-warnings
 cargo run -p nexa-cli -- check examples/platform-widgets.nx
 cargo run -p nexa-cli -- check examples/network-image.nx
@@ -49,6 +50,8 @@ cargo run -p nexa-cli -- build examples/bottom-sheet.nx --target swift --out /tm
 cargo run -p nexa-cli -- build examples/bottom-sheet.nx --target kotlin --out /tmp/BottomSheet.kt
 cargo run -p nexa-cli -- build examples/refresh-control.nx --target swift --out /tmp/RefreshControl.swift
 cargo run -p nexa-cli -- build examples/refresh-control.nx --target kotlin --out /tmp/RefreshControl.kt
+cargo run -p nexa-cli -- build examples/app-bottom-bar.nx --target swift --out /tmp/AppBottomBar.swift
+cargo run -p nexa-cli -- build examples/app-bottom-bar.nx --target kotlin --out /tmp/AppBottomBar.kt
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target swift --out /tmp/PlatformWidgets.swift
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target kotlin --out /tmp/PlatformWidgets.kt
 cargo run -p nexa-cli -- build examples/network-image.nx --target swift --out /tmp/NetworkImage.swift
@@ -103,6 +106,8 @@ The authoring surface keeps mutability explicit while allowing both `state` and 
 String interpolation supports `$name` and `\(name)` for declared state and constant names. The compiler lowers each segment into direct Swift or Kotlin interpolation without a template runtime; see [interpolation.nx](examples/interpolation.nx).
 
 `StatusBar(style: Default|Light|Dark, hidden: true|false)` is a single top-level app configuration that lowers to native status-bar APIs; see [status-bar.nx](examples/status-bar.nx).
+
+`AppBottomBar(selected: ...)` provides static labeled tabs with native `TabView` and Material 3 `NavigationBar` output; see [app-bottom-bar.nx](examples/app-bottom-bar.nx).
 
 ## License
 

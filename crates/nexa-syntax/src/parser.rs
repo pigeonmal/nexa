@@ -288,6 +288,36 @@ impl Parser {
         Ok(nodes)
     }
 
+    fn tab_declarations(&mut self) -> Result<Vec<TabDecl>, CompileError> {
+        self.expect(Kind::LBrace, "expected `{` to open AppBottomBar tabs")?;
+        let mut tabs = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (name, span) = self.ident()?;
+            if name != "Tab" {
+                return Err(CompileError::new(
+                    span,
+                    "AppBottomBar accepts only `Tab(index: ..., label: ...)` entries",
+                ));
+            }
+            let mut args = self.named_args(&["index", "label"])?;
+            let index = self.required_arg(&mut args, "index", "Tab requires `index`")?;
+            let label = self.required_arg(&mut args, "label", "Tab requires `label`")?;
+            let children = self.block_nodes()?;
+            tabs.push(TabDecl {
+                index,
+                label,
+                children,
+                span,
+            });
+            self.optional_semicolon();
+        }
+        self.expect(Kind::RBrace, "expected `}` to close AppBottomBar tabs")?;
+        if tabs.is_empty() {
+            return self.error_here("AppBottomBar requires at least one `Tab`");
+        }
+        Ok(tabs)
+    }
+
     fn node(&mut self) -> Result<Node, CompileError> {
         if self.word_is("if") {
             return self.if_node();
@@ -516,6 +546,17 @@ impl Parser {
                     is_refreshing,
                     children,
                     actions,
+                    span,
+                })
+            }
+            "AppBottomBar" => {
+                let mut args = self.named_args(&["selected"])?;
+                let selected =
+                    self.required_arg(&mut args, "selected", "AppBottomBar requires `selected`")?;
+                let tabs = self.tab_declarations()?;
+                Ok(Node::AppBottomBar {
+                    selected,
+                    tabs,
                     span,
                 })
             }

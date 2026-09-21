@@ -1,0 +1,19 @@
+app AppBottomBarExample {
+    state selected: Int32 = 0
+
+    body {
+        AppBottomBar(selected: selected) {
+            Tab(index: 0, label: "Home") {
+                Column(spacing: 8) {
+                    Text("Home")
+                    Button("Refresh") {
+                        selected = 0
+                    }
+                }
+            }
+            Tab(index: 1, label: "Settings") {
+                Text("Settings")
+            }
+        }
+    }
+}

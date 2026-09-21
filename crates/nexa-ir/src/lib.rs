@@ -186,6 +186,10 @@ pub enum Node {
         children: Vec<Node>,
         actions: Vec<Action>,
     },
+    AppBottomBar {
+        state: String,
+        tabs: Vec<BottomBarTab>,
+    },
     FastList {
         source: ListSource,
         index: String,
@@ -201,6 +205,13 @@ pub enum Node {
         name: String,
         arguments: Vec<(String, Expr)>,
     },
+}
+
+#[derive(Clone, Debug)]
+pub struct BottomBarTab {
+    pub index: i32,
+    pub label: String,
+    pub children: Vec<Node>,
 }
 
 #[derive(Clone, Debug)]

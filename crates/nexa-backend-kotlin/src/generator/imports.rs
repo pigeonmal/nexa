@@ -23,6 +23,18 @@ pub(super) fn render(features: &Features, has_navigation: bool, out: &mut String
         "androidx.compose.material3.ModalBottomSheet",
     );
     add(
+        features.uses_bottom_bar,
+        "androidx.compose.material3.NavigationBar",
+    );
+    add(
+        features.uses_bottom_bar,
+        "androidx.compose.material3.NavigationBarItem",
+    );
+    add(
+        features.uses_bottom_bar,
+        "androidx.compose.material3.Scaffold",
+    );
+    add(
         features.uses_refresh_control,
         "androidx.compose.material3.pulltorefresh.PullToRefreshBox",
     );

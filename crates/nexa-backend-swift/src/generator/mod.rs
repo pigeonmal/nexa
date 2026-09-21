@@ -1,5 +1,6 @@
 use nexa_ir::{LayoutKind, Module, State, ViewStyle};
 
+mod bottom_bar;
 mod colors;
 mod components;
 mod controls;

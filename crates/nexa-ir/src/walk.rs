@@ -25,6 +25,11 @@ pub fn walk_ir(
                 walk_actions(actions, visit_expression);
                 walk_ir(children, visit_node, visit_expression);
             }
+            Node::AppBottomBar { tabs, .. } => {
+                for tab in tabs {
+                    walk_ir(&tab.children, visit_node, visit_expression);
+                }
+            }
             Node::FastList {
                 source, children, ..
             } => {
@@ -114,6 +119,9 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::Pressable { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::RefreshControl { children, .. } => contains_scrollable(children),
+        Node::AppBottomBar { tabs, .. } => {
+            tabs.iter().any(|tab| contains_scrollable(&tab.children))
+        }
         Node::If {
             then_body,
             else_body,

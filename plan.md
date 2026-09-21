@@ -498,17 +498,35 @@ The compiler rejects nested and repeated declarations and emits no shared status
 
 ## Application bottom bar
 
-Provide a native application bottom navigation/tab bar abstraction.
+The first native `AppBottomBar` slice is implemented as:
 
-Support:
+```nexa
+state selected: Int32 = 0
+
+AppBottomBar(selected: selected) {
+    Tab(index: 0, label: "Home") {
+        Text("Home")
+    }
+    Tab(index: 1, label: "Settings") {
+        Text("Settings")
+    }
+}
+```
+
+Swift lowers to `TabView(selection:)` with native tab items. Android lowers to Material 3 `Scaffold` and `NavigationBar`, with the active content selected by a direct `when` branch. This keeps tab content statically generated once per tab and leaves selection as ordinary typed mutable state.
+
+The current syntax supports:
 
 - tabs,
 - selected state,
-- icons,
 - labels,
+- native safe area handling through the target tab/navigation primitive.
+
+Remaining work:
+
+- icons,
 - badges,
-- native safe area handling,
-- native transition behavior,
+- native transition customization,
 - platform-specific customization.
 
 Use native tab/navigation primitives wherever possible.

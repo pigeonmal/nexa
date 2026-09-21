@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
-    Action, Capitalization, Expr, ImageScale, ImageSource, KeyboardType, LayoutKind, ListSource,
-    Node, NumericType, ScreenId, StatusBarConfig, StatusBarStyle, TextStyle, Type,
+    Action, BottomBarTab, Capitalization, Expr, ImageScale, ImageSource, KeyboardType, LayoutKind,
+    ListSource, Node, NumericType, ScreenId, StatusBarConfig, StatusBarStyle, TextStyle, Type,
 };
 use nexa_syntax::ast;
 
@@ -394,6 +394,63 @@ pub(super) fn lower_node(
                 state,
                 children: lowered_children,
                 actions: lower_actions(actions, symbols)?,
+            })
+        }
+        ast::Node::AppBottomBar {
+            selected,
+            tabs,
+            span,
+        } => {
+            let state = require_mutable_binding(
+                &selected,
+                &Type::Numeric(NumericType::Int32),
+                symbols,
+                span,
+                "AppBottomBar",
+            )?;
+            let mut lowered_tabs = Vec::with_capacity(tabs.len());
+            for tab in tabs {
+                let (index, index_span) = match tab.index {
+                    ast::Expr::Number(raw, index_span) => (raw, index_span),
+                    expr => {
+                        return Err(CompileError::new(
+                            expr.span(),
+                            "Tab index must be a non-negative Int32 literal",
+                        ));
+                    }
+                };
+                let index = index.parse::<i32>().map_err(|_| {
+                    CompileError::new(index_span, "Tab index must be a non-negative Int32 literal")
+                })?;
+                if index < 0
+                    || lowered_tabs
+                        .iter()
+                        .any(|tab: &BottomBarTab| tab.index == index)
+                {
+                    return Err(CompileError::new(
+                        index_span,
+                        "AppBottomBar tab indexes must be unique and non-negative",
+                    ));
+                }
+                let label = require_string_literal(&tab.label, "Tab label")?;
+                let children = lower_nodes(
+                    tab.children,
+                    symbols,
+                    screen_ids,
+                    themes,
+                    components,
+                    false,
+                    target,
+                )?;
+                lowered_tabs.push(BottomBarTab {
+                    index,
+                    label,
+                    children,
+                });
+            }
+            Ok(Node::AppBottomBar {
+                state,
+                tabs: lowered_tabs,
             })
         }
         ast::Node::FastList {

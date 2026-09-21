@@ -1,7 +1,7 @@
 use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 
 use super::{
-    colors, controls,
+    bottom_bar, colors, controls,
     expressions::text_expression,
     images, input, keyboard, layout, lists, navigation, refresh, sheets,
     utils::{indent, number},
@@ -93,6 +93,9 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             children,
             actions,
         } => refresh::render_refresh_control(state, children, actions, module, depth, out),
+        Node::AppBottomBar { state, tabs } => {
+            bottom_bar::render_app_bottom_bar(state, tabs, module, depth, out)
+        }
         Node::FastList {
             source,
             index,

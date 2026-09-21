@@ -6,6 +6,7 @@ use nexa_ir::{ColorValue, Component, Expr, LayoutKind, Module, Node, State, View
 #[derive(Default)]
 pub(super) struct Features {
     pub(super) uses_status_bar: bool,
+    pub(super) uses_bottom_bar: bool,
     pub(super) uses_bottom_sheet: bool,
     pub(super) uses_refresh_control: bool,
     pub(super) uses_refresh_scroll: bool,
@@ -51,6 +52,7 @@ impl Features {
     pub(super) fn analyze(module: &Module) -> Self {
         let mut features = Self {
             uses_status_bar: module.status_bar.is_some(),
+            uses_bottom_bar: false,
             uses_bottom_sheet: false,
             uses_refresh_control: false,
             uses_refresh_scroll: false,
@@ -225,6 +227,16 @@ impl Features {
             Node::BottomSheet { children, .. } => {
                 self.uses_bottom_sheet = true;
                 self.record_child_layout(children);
+            }
+            Node::AppBottomBar { tabs, .. } => {
+                self.uses_bottom_bar = true;
+                self.uses_column = true;
+                self.uses_text = true;
+                self.uses_modifier = true;
+                self.uses_padding = true;
+                for tab in tabs {
+                    self.record_child_layout(&tab.children);
+                }
             }
             Node::RefreshControl { children, .. } => {
                 self.uses_refresh_control = true;

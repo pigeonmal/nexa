@@ -41,6 +41,7 @@ Work on the Nexa framework itself: a Rust ahead-of-time compiler that turns `.nx
 - Keep `StatusBar` as a single app-level static configuration. Lower `style` and `hidden` directly to SwiftUI/native Android status-bar APIs, remove the declaration before body generation, and reject nested or repeated declarations; keep background and animated transitions out until their cross-platform semantics are defined.
 - Keep `BottomSheet` as a typed mutable Boolean binding with one native content tree. Lower to SwiftUI `.sheet` and Compose Material 3 `ModalBottomSheet`; do not add a cross-platform sheet manager or duplicate content, and defer snap-point/animation APIs until their native semantics are defined.
 - Keep `RefreshControl` as a typed mutable Boolean binding plus direct actions. Lower to SwiftUI `.refreshable` and Compose Material 3 `PullToRefreshBox`; reuse the existing action lowering and do not implement custom scrolling physics or a refresh event bus.
+- Keep `AppBottomBar` as a typed mutable `Int32` selection with static, unique non-negative tab indexes and labels. Lower to SwiftUI `TabView(selection:)` and Compose Material 3 `Scaffold`/`NavigationBar`; generate each tab body once, keep selection as ordinary native state, and defer icons, badges, and custom transitions until their cross-platform semantics are defined.
 - Preserve FastList as the public component name. Do not reintroduce the former UltraFastList name.
 
 ## Change workflow

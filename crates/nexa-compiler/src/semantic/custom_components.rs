@@ -282,6 +282,13 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
                 collect_component_calls(child, calls);
             }
         }
+        ast::Node::AppBottomBar { tabs, .. } => {
+            for tab in tabs {
+                for child in &tab.children {
+                    collect_component_calls(child, calls);
+                }
+            }
+        }
         ast::Node::If {
             then_body,
             else_body,
@@ -322,6 +329,11 @@ fn contains_navigation_link(node: &ast::Node, target: Target) -> bool {
         | ast::Node::FastList { children, .. } => children
             .iter()
             .any(|child| contains_navigation_link(child, target)),
+        ast::Node::AppBottomBar { tabs, .. } => tabs.iter().any(|tab| {
+            tab.children
+                .iter()
+                .any(|child| contains_navigation_link(child, target))
+        }),
         ast::Node::If {
             then_body,
             else_body,
@@ -367,6 +379,13 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::FastList { children, .. } => {
             for child in children {
                 collect_ir_component_calls(child, calls);
+            }
+        }
+        Node::AppBottomBar { tabs, .. } => {
+            for tab in tabs {
+                for child in &tab.children {
+                    collect_ir_component_calls(child, calls);
+                }
             }
         }
         Node::If {

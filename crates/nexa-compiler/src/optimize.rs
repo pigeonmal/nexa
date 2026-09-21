@@ -68,7 +68,8 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
             Node::TextInput { state, .. }
             | Node::Switch { state, .. }
             | Node::BottomSheet { state, .. }
-            | Node::RefreshControl { state, .. } => {
+            | Node::RefreshControl { state, .. }
+            | Node::AppBottomBar { state, .. } => {
                 bindings.push(state.clone());
             }
             _ => {}
@@ -196,6 +197,17 @@ fn optimize_node(node: Node) -> Option<Node> {
             state,
             children: optimize_nodes(children),
             actions: optimize_actions(actions),
+        }),
+        Node::AppBottomBar { state, tabs } => Some(Node::AppBottomBar {
+            state,
+            tabs: tabs
+                .into_iter()
+                .map(|tab| nexa_ir::BottomBarTab {
+                    index: tab.index,
+                    label: tab.label,
+                    children: optimize_nodes(tab.children),
+                })
+                .collect(),
         }),
     }
 }

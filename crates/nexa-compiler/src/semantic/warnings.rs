@@ -190,6 +190,14 @@ fn walk_node(
             }
             walk_actions(actions, names, used, target, file, warnings);
         }
+        ast::Node::AppBottomBar { selected, tabs, .. } => {
+            walk_expression(selected, names, used);
+            for tab in tabs {
+                for child in &tab.children {
+                    walk_node(child, names, used, target, file, warnings);
+                }
+            }
+        }
         ast::Node::FastList {
             source,
             index,
