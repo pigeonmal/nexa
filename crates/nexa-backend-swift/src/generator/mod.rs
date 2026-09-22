@@ -145,7 +145,7 @@ pub(super) fn generate(module: &Module) -> String {
         list_runtime::render(&mut out);
     }
     if features.uses_native_library {
-        network::render(&mut out);
+        network::render(&mut out, features.uses_remote_image);
     }
     functions::render(module, &mut out);
     out

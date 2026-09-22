@@ -3,7 +3,7 @@
 /// URLSession owns connection pooling, HTTP caching, redirects, TLS, and
 /// HTTP/2 negotiation. Nexa only adds the typed request options that generated
 /// code needs; it does not introduce a cross-platform request runtime.
-pub(super) fn render(out: &mut String) {
+pub(super) fn render(out: &mut String, include_image_support: bool) {
     out.push_str(
         r#"
 public enum NexaNetworkError: Error {
@@ -262,7 +262,11 @@ public enum NexaFile {
         FileManager.default.fileExists(atPath: path)
     }
 }
-
+"#,
+    );
+    if include_image_support {
+        out.push_str(
+            r#"
 private enum NexaImageScale {
     case fit
     case fill
@@ -303,5 +307,6 @@ private struct NexaRemoteImage: View {
     }
 }
 "#,
-    );
+        );
+    }
 }

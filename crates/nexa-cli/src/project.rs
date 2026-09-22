@@ -177,15 +177,15 @@ fn generate_android(root: &Path, app_name: &str, module: &Module) -> Result<(), 
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
     let generated = KotlinBackend.generate(module);
     let screen = nexa_codegen::names::screen_name(app_name);
-    let remote = generated.contains("NexaNetwork")
-        || generated.contains("coil3.network")
-        || generated.contains("org.chromium.net");
-    let cronet_import = if remote {
+    let uses_network = generated.contains("NexaNetwork") || generated.contains("org.chromium.net");
+    let uses_remote_image =
+        generated.contains("coil3.compose.AsyncImage") || generated.contains("coil3.network");
+    let cronet_import = if uses_network {
         "import com.google.android.gms.net.CronetProviderInstaller\n"
     } else {
         ""
     };
-    let content_setup = if remote {
+    let content_setup = if uses_network {
         format!(
             "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{\n            setContent {{ MaterialTheme {{ {screen}() }} }}\n        }}\n"
         )
@@ -204,7 +204,7 @@ fn generate_android(root: &Path, app_name: &str, module: &Module) -> Result<(), 
     )?;
     write_if_changed(
         &root.join("android/app/src/main/AndroidManifest.xml"),
-        &android_manifest(app_name, &package, remote, &module.permissions),
+        &android_manifest(app_name, &package, uses_network, &module.permissions),
     )?;
     write_if_changed(
         &root.join("android/settings.gradle.kts"),
@@ -220,7 +220,12 @@ fn generate_android(root: &Path, app_name: &str, module: &Module) -> Result<(), 
     )?;
     write_if_changed(
         &root.join("android/app/build.gradle.kts"),
-        &android_app_gradle(&package, remote, generated.contains("NavHost")),
+        &android_app_gradle(
+            &package,
+            uses_network,
+            uses_remote_image,
+            generated.contains("NavHost"),
+        ),
     )?;
     Ok(())
 }
@@ -378,7 +383,12 @@ fn android_manifest(
         "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{app_name}\" android:theme=\"@android:style/Theme.Material.Light.NoActionBar\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\">\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n        </activity>\n    </application>\n</manifest>\n"
     )
 }
-fn android_app_gradle(package: &str, remote: bool, navigation: bool) -> String {
+fn android_app_gradle(
+    package: &str,
+    uses_network: bool,
+    uses_remote_image: bool,
+    navigation: bool,
+) -> String {
     let mut dependencies = String::from(
         "    implementation(platform(\"androidx.compose:compose-bom:2024.12.01\"))\n    implementation(\"androidx.activity:activity-compose:1.10.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.ui:ui-graphics\")\n    implementation(\"androidx.compose.ui:ui-tooling-preview\")\n    implementation(\"androidx.compose.material3:material3\")\n    debugImplementation(\"androidx.compose.ui:ui-tooling\")\n",
     );
@@ -386,8 +396,15 @@ fn android_app_gradle(package: &str, remote: bool, navigation: bool) -> String {
         dependencies
             .push_str("    implementation(\"androidx.navigation:navigation-compose:2.8.5\")\n");
     }
-    if remote {
-        dependencies.push_str("    implementation(\"io.coil-kt.coil3:coil-compose:3.6.3\")\n    implementation(\"io.coil-kt.coil3:coil-network-core:3.6.3\")\n    implementation(\"com.google.android.gms:play-services-cronet:18.0.1\")\n    implementation(\"org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0\")\n");
+    if uses_remote_image {
+        dependencies.push_str(
+            "    implementation(\"io.coil-kt.coil3:coil-compose:3.6.3\")\n    implementation(\"io.coil-kt.coil3:coil-network-core:3.6.3\")\n",
+        );
+    }
+    if uses_network {
+        dependencies.push_str(
+            "    implementation(\"com.google.android.gms:play-services-cronet:18.0.1\")\n    implementation(\"org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0\")\n",
+        );
     }
     format!(
         "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.android\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 35\n    defaultConfig {{ applicationId = \"{package}\"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = \"1.0\" }}\n    buildFeatures {{ compose = true }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    kotlinOptions {{ jvmTarget = \"17\" }}\n}}\n\ndependencies {{\n{dependencies}}}\n"

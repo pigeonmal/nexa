@@ -136,7 +136,7 @@ pub(super) fn generate(module: &Module) -> String {
     out.push_str("\n}\n");
     custom_components::render(module, &features, &mut out);
     if features.uses_native_library {
-        network::render(&mut out);
+        network::render(&mut out, features.uses_remote_image);
     }
     functions::render(module, &mut out);
     out

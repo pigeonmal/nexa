@@ -303,16 +303,13 @@ pub(super) fn render(
         "androidx.compose.ui.platform.LocalContext",
     );
     add(features.uses_remote_image, "coil3.ImageLoader");
-    add(features.uses_native_library, "coil3.network.NetworkClient");
-    add(features.uses_native_library, "coil3.network.NetworkFetcher");
-    add(features.uses_native_library, "coil3.network.NetworkHeaders");
-    add(features.uses_native_library, "coil3.network.NetworkRequest");
+    add(features.uses_remote_image, "coil3.network.NetworkClient");
+    add(features.uses_remote_image, "coil3.network.NetworkFetcher");
+    add(features.uses_remote_image, "coil3.network.NetworkHeaders");
+    add(features.uses_remote_image, "coil3.network.NetworkRequest");
+    add(features.uses_remote_image, "coil3.network.NetworkResponse");
     add(
-        features.uses_native_library,
-        "coil3.network.NetworkResponse",
-    );
-    add(
-        features.uses_native_library,
+        features.uses_remote_image,
         "coil3.network.NetworkResponseBody",
     );
     add(
@@ -335,7 +332,7 @@ pub(super) fn render(
         features.uses_native_library,
         "kotlinx.coroutines.withTimeout",
     );
-    add(features.uses_native_library, "okio.Buffer");
+    add(features.uses_remote_image, "okio.Buffer");
     add(
         features.uses_native_library,
         "org.chromium.net.CronetEngine",

@@ -3,7 +3,7 @@
 /// Cronet owns connection pooling, HTTP/2, QUIC, Brotli, redirects, and the
 /// disk cache. Coil 3 is wired to the same client, so a remote Image never
 /// silently switches to OkHttp or another networking implementation.
-pub(super) fn render(out: &mut String) {
+pub(super) fn render(out: &mut String, include_image_support: bool) {
     out.push_str(
         r#"
 public data class NexaNetworkResponse(
@@ -82,21 +82,9 @@ private class NexaUploadProvider(private val payload: ByteArray) : UploadDataPro
     }
 }
 
-private class NexaCronetNetworkClient(
+private class NexaCronetRequestClient(
     private val engine: CronetEngine,
-) : NetworkClient {
-    override suspend fun <T> executeRequest(
-        request: NetworkRequest,
-        block: suspend (NetworkResponse) -> T,
-    ): T {
-        val response = execute(request.url, request.method, request.headers.asMap(), null, 64L * 1024L * 1024L, true)
-        val networkResponse = NetworkResponse(
-            code = response.statusCode,
-            headers = response.headers.toNetworkHeaders(),
-            body = NetworkResponseBody(Buffer().write(response.body)),
-        )
-        return block(networkResponse)
-    }
+)
 
     suspend fun execute(
         url: String,
@@ -163,12 +151,6 @@ private class NexaCronetNetworkClient(
     }
 }
 
-private fun Map<String, List<String>>.toNetworkHeaders(): NetworkHeaders {
-    val builder = NetworkHeaders.Builder()
-    for ((name, values) in this) for (value in values) builder.add(name, value)
-    return builder.build()
-}
-
 private fun hexPin(value: String): ByteArray {
     require(value.length % 2 == 0) { "certificate pins must be hexadecimal SHA-256 values" }
     return value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
@@ -196,7 +178,7 @@ public object NexaNetwork {
         val engine = NexaCronetRuntime.engine(context, pins)
         val requestHeaders = headers.mapValues { listOf(it.value) }
         val response = withTimeout(timeoutMillis) {
-            NexaCronetNetworkClient(engine).execute(
+            NexaCronetRequestClient(engine).execute(
                 url,
                 method,
                 requestHeaders,
@@ -238,7 +220,7 @@ public object NexaNetwork {
                 val engine = NexaCronetRuntime.engine(context, pins)
                 val requestHeaders = headers.mapValues { listOf(it.value) }
                 val response = withTimeout(timeoutMillis) {
-                    NexaCronetNetworkClient(engine).execute(
+                    NexaCronetRequestClient(engine).execute(
                         url,
                         method,
                         requestHeaders,
@@ -296,6 +278,41 @@ public object NexaFile {
     public fun exists(path: String): Boolean = File(path).exists()
 }
 
+"#,
+    );
+    if include_image_support {
+        out.push_str(
+            r#"
+private class NexaCronetNetworkClient(
+    private val engine: CronetEngine,
+) : NetworkClient {
+    override suspend fun <T> executeRequest(
+        request: NetworkRequest,
+        block: suspend (NetworkResponse) -> T,
+    ): T {
+        val response = NexaCronetRequestClient(engine).execute(
+            request.url,
+            request.method,
+            request.headers.asMap(),
+            null,
+            64L * 1024L * 1024L,
+            true,
+        )
+        val networkResponse = NetworkResponse(
+            code = response.statusCode,
+            headers = response.headers.toNetworkHeaders(),
+            body = NetworkResponseBody(Buffer().write(response.body)),
+        )
+        return block(networkResponse)
+    }
+}
+
+private fun Map<String, List<String>>.toNetworkHeaders(): NetworkHeaders {
+    val builder = NetworkHeaders.Builder()
+    for ((name, values) in this) for (value in values) builder.add(name, value)
+    return builder.build()
+}
+
 @Composable
 private fun nexaImageLoader(): ImageLoader {
     val context = LocalContext.current.applicationContext
@@ -309,5 +326,6 @@ private fun nexaImageLoader(): ImageLoader {
     }
 }
 "#,
-    );
+        );
+    }
 }
