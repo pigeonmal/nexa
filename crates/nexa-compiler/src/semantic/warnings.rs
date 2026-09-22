@@ -617,6 +617,7 @@ fn walk_actions(
 ) {
     for action in actions {
         match action {
+            ast::Stmt::Expression { expression, .. } => walk_expression(expression, names, used),
             ast::Stmt::Let { initial, .. } => walk_expression(initial, names, used),
             ast::Stmt::Assign { name, value, .. } => {
                 if names.contains(name) {
@@ -711,6 +712,7 @@ fn warn_unused_loop_binding(
 
 fn actions_reference_name(actions: &[ast::Stmt], name: &str) -> bool {
     actions.iter().any(|action| match action {
+        ast::Stmt::Expression { expression, .. } => expression_references_name(expression, name),
         ast::Stmt::Let { initial, .. } | ast::Stmt::Return { value: initial, .. } => {
             expression_references_name(initial, name)
         }
@@ -773,11 +775,17 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
             .iter()
             .any(|argument| expression_references_name(argument, name)),
         ast::Expr::MethodCall {
-            base, arguments, ..
+            base,
+            arguments,
+            named_arguments,
+            ..
         } => {
             expression_references_name(base, name)
                 || arguments
                     .iter()
+                    .any(|argument| expression_references_name(argument, name))
+                || named_arguments
+                    .values()
                     .any(|argument| expression_references_name(argument, name))
         }
         ast::Expr::Closure { body, .. } => expression_references_name(body, name),
@@ -874,10 +882,16 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
             }
         }
         ast::Expr::MethodCall {
-            base, arguments, ..
+            base,
+            arguments,
+            named_arguments,
+            ..
         } => {
             walk_expression(base, names, used);
             for argument in arguments {
+                walk_expression(argument, names, used);
+            }
+            for argument in named_arguments.values() {
                 walk_expression(argument, names, used);
             }
         }

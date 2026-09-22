@@ -183,7 +183,8 @@ fn idl_interface<'a>(
 
 fn plugin_type(namespace: &str, ty: &TypeRef, return_position: bool) -> Result<Type, String> {
     let mut result = match ty.name.as_str() {
-        "Void" => return Err("plugin methods cannot use `Void` in this language slice".to_owned()),
+        "Void" if return_position => Type::Void,
+        "Void" => return Err("`Void` is only valid as a native method return type".to_owned()),
         "String" => Type::String,
         "Bool" => Type::Bool,
         "Int8" => Type::Numeric(NumericType::Int8),
@@ -297,8 +298,15 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         }
         ast::Expr::Call(_, arguments, _) => arguments.iter().any(references_state),
         ast::Expr::MethodCall {
-            base, arguments, ..
-        } => references_state(base) || arguments.iter().any(references_state),
+            base,
+            arguments,
+            named_arguments,
+            ..
+        } => {
+            references_state(base)
+                || arguments.iter().any(references_state)
+                || named_arguments.values().any(references_state)
+        }
         ast::Expr::Closure { body, .. } => references_state(body),
         ast::Expr::QualifiedCall { arguments, .. } => arguments.values().any(references_state),
         ast::Expr::Index {
@@ -671,6 +679,7 @@ pub(super) fn lower_expr(
             base,
             name,
             arguments,
+            named_arguments,
             span,
         } => {
             if matches!(
@@ -681,6 +690,7 @@ pub(super) fn lower_expr(
                     base,
                     name,
                     arguments,
+                    named_arguments,
                     *span,
                     expected,
                     symbols,
@@ -689,6 +699,12 @@ pub(super) fn lower_expr(
                     false,
                 )
             } else {
+                if !named_arguments.is_empty() {
+                    return Err(CompileError::new(
+                        *span,
+                        "named arguments are only supported by native class methods",
+                    ));
+                }
                 lower_collection_transform(
                     base,
                     name,
@@ -946,6 +962,7 @@ pub(super) fn lower_expr(
                     base,
                     name,
                     arguments,
+                    named_arguments,
                     span: call_span,
                 } if matches!(
                     infer_expr_type(base, symbols, functions),
@@ -956,6 +973,7 @@ pub(super) fn lower_expr(
                         base,
                         name,
                         arguments,
+                        named_arguments,
                         *call_span,
                         expected,
                         symbols,
@@ -1462,6 +1480,7 @@ fn lower_plugin_method_call(
     base: &ast::Expr,
     name: &str,
     arguments: &[ast::Expr],
+    named_arguments: &BTreeMap<String, ast::Expr>,
     span: Span,
     expected: Option<&Type>,
     symbols: &HashMap<String, (Type, bool)>,
@@ -1498,7 +1517,7 @@ fn lower_plugin_method_call(
             format!("method `{name}` is not available on `{class}`"),
         ));
     }
-    if arguments.len() != signature.parameters.len() {
+    if named_arguments.is_empty() && arguments.len() != signature.parameters.len() {
         return Err(CompileError::new(
             span,
             format!(
@@ -1508,6 +1527,46 @@ fn lower_plugin_method_call(
             ),
         ));
     }
+    let ordered_arguments = if named_arguments.is_empty() {
+        signature
+            .parameters
+            .iter()
+            .zip(arguments.iter())
+            .map(|((_, ty), argument)| (argument, ty))
+            .collect::<Vec<_>>()
+    } else {
+        let known = signature
+            .parameters
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<HashSet<_>>();
+        if let Some(unknown) = named_arguments
+            .keys()
+            .find(|argument_name| !known.contains(argument_name.as_str()))
+        {
+            return Err(CompileError::new(
+                span,
+                format!("unknown argument `{unknown}` for native class method `{class}.{name}`"),
+            ));
+        }
+        signature
+            .parameters
+            .iter()
+            .map(|(parameter_name, ty)| {
+                named_arguments
+                    .get(parameter_name)
+                    .map(|argument| (argument, ty))
+                    .ok_or_else(|| {
+                        CompileError::new(
+                            span,
+                            format!(
+                                "native class method `{class}.{name}` requires `{parameter_name}`"
+                            ),
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
     if signature.is_async && !awaited {
         return Err(CompileError::new(
             span,
@@ -1528,10 +1587,9 @@ fn lower_plugin_method_call(
     }
     require_expected(expected, &signature.return_type, span)?;
     let receiver = lower_expr(base, Some(&base_type), symbols, functions, allow_await)?;
-    let lowered = arguments
+    let lowered = ordered_arguments
         .iter()
-        .zip(&signature.parameters)
-        .map(|(argument, (_, ty))| lower_expr(argument, Some(ty), symbols, functions, allow_await))
+        .map(|(argument, ty)| lower_expr(argument, Some(ty), symbols, functions, allow_await))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Expr::NativeCall {
         receiver: Some(Box::new(receiver)),
@@ -1758,7 +1816,7 @@ fn is_equatable_type(ty: &Type) -> bool {
         Type::Struct { fields, .. } => {
             !fields.is_empty() && fields.iter().all(|(_, field)| is_equatable_type(field))
         }
-        Type::Plugin { .. } | Type::NetworkResponse => false,
+        Type::Void | Type::Plugin { .. } | Type::NetworkResponse => false,
     }
 }
 
@@ -2082,7 +2140,8 @@ pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
             Box::new(resolve_struct_type(second, structs)),
             Box::new(resolve_struct_type(third, structs)),
         ),
-        Type::String
+        Type::Void
+        | Type::String
         | Type::Bool
         | Type::Numeric(_)
         | Type::Plugin { .. }
@@ -2153,7 +2212,8 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
             validate_type_constraints(third, span)
         }
         Type::Optional(inner) => validate_type_constraints(inner, span),
-        Type::String
+        Type::Void
+        | Type::String
         | Type::Bool
         | Type::Numeric(_)
         | Type::Enum(_)
@@ -2278,6 +2338,7 @@ fn require_expected(
 }
 pub(super) fn type_name(ty: &Type) -> String {
     match ty {
+        Type::Void => "Void".to_owned(),
         Type::String => "String".to_owned(),
         Type::Bool => "Bool".to_owned(),
         Type::Numeric(num) => numeric_name(*num).to_owned(),

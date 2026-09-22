@@ -137,9 +137,11 @@ contract. `native class` represents an independently constructible stateful
 object, and `native component` represents a platform visual contract. Native
 class constructors and instance method calls are lowered as direct object
 calls, so two constructor expressions produce two independent native objects.
-Read-only native properties are lowered as direct member access. Mutable
-property writes, deterministic disposal, events, visual component lowering,
-and generated implementation factories are still future phases.
+Read-only native properties are lowered as direct member access. Methods accept
+named arguments, and `Void` methods can be invoked in event actions, including
+`await` for asynchronous methods. Mutable property writes, deterministic
+disposal, events, visual component lowering, and generated implementation
+factories are still future phases.
 
 ## Compile-time options
 

@@ -1621,6 +1621,13 @@ impl Parser {
                 self.optional_semicolon();
                 continue;
             }
+            if self.word_is("await") {
+                let span = self.peek().span;
+                let expression = self.expr()?;
+                stmts.push(Stmt::Expression { expression, span });
+                self.optional_semicolon();
+                continue;
+            }
             if self.word_is("if") {
                 stmts.push(self.if_stmt()?);
                 self.optional_semicolon();
@@ -1803,7 +1810,8 @@ impl Parser {
                     ..expression.span()
                 };
                 if self.take(&Kind::LParen) {
-                    let mut arguments = self.call_arguments_after_open()?;
+                    let (mut arguments, named_arguments) =
+                        self.method_call_arguments_after_open()?;
                     if self.check(&Kind::LBrace) {
                         arguments.push(self.closure_expression()?);
                     }
@@ -1811,6 +1819,7 @@ impl Parser {
                         base: Box::new(expression),
                         name,
                         arguments,
+                        named_arguments,
                         span,
                     };
                 } else if self.check(&Kind::LBrace) && matches!(name.as_str(), "map" | "filter") {
@@ -1818,6 +1827,7 @@ impl Parser {
                         base: Box::new(expression),
                         name,
                         arguments: vec![self.closure_expression()?],
+                        named_arguments: BTreeMap::new(),
                         span,
                     };
                 } else {
@@ -2171,6 +2181,38 @@ impl Parser {
         }
         self.expect(Kind::RParen, "expected `)` after function arguments")?;
         Ok(arguments)
+    }
+
+    fn method_call_arguments_after_open(
+        &mut self,
+    ) -> Result<(Vec<Expr>, BTreeMap<String, Expr>), CompileError> {
+        let named = matches!(
+            (
+                &self.peek().kind,
+                self.tokens.get(self.cursor + 1).map(|token| &token.kind)
+            ),
+            (Kind::Ident(_), Some(Kind::Colon))
+        );
+        if !named {
+            return Ok((self.call_arguments_after_open()?, BTreeMap::new()));
+        }
+        let mut arguments = BTreeMap::new();
+        while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            let (name, span) = self.ident()?;
+            if arguments.contains_key(&name) {
+                return Err(CompileError::new(
+                    span,
+                    format!("argument `{name}` was provided more than once"),
+                ));
+            }
+            self.expect(Kind::Colon, "expected `:` after argument name")?;
+            arguments.insert(name, self.expr()?);
+            if !self.take(&Kind::Comma) {
+                break;
+            }
+        }
+        self.expect(Kind::RParen, "expected `)` after method arguments")?;
+        Ok((Vec::new(), arguments))
     }
 
     fn closure_expression(&mut self) -> Result<Expr, CompileError> {

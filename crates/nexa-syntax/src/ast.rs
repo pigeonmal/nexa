@@ -490,6 +490,7 @@ pub enum Expr {
         base: Box<Expr>,
         name: String,
         arguments: Vec<Expr>,
+        named_arguments: BTreeMap<String, Expr>,
         span: Span,
     },
     Closure {
@@ -584,6 +585,10 @@ impl Expr {
 
 #[derive(Clone, Debug)]
 pub enum Stmt {
+    Expression {
+        expression: Expr,
+        span: Span,
+    },
     Let {
         name: String,
         ty: Option<TypeSyntax>,

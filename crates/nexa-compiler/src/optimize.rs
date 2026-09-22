@@ -362,6 +362,9 @@ fn collect_action_function_references(
 ) {
     for action in actions {
         match action {
+            Action::Expression(expression) => {
+                collect_expression_function_references(expression, declared, used)
+            }
             Action::Assign { value, .. } => {
                 collect_expression_function_references(value, declared, used)
             }
@@ -600,6 +603,7 @@ fn prune_unused_plugins(module: &mut Module) {
 fn collect_action_plugin_references(actions: &[Action], collect: &mut impl FnMut(&Expr)) {
     for action in actions {
         match action {
+            Action::Expression(expression) => nexa_ir::walk::walk_expression(expression, collect),
             Action::Assign { value, .. } => nexa_ir::walk::walk_expression(value, collect),
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {
@@ -651,7 +655,8 @@ fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
             collect_type_struct_names(second, used);
             collect_type_struct_names(third, used);
         }
-        nexa_ir::Type::String
+        nexa_ir::Type::Void
+        | nexa_ir::Type::String
         | nexa_ir::Type::Bool
         | nexa_ir::Type::Numeric(_)
         | nexa_ir::Type::Enum(_)
@@ -723,6 +728,7 @@ fn collect_node_struct_names(nodes: &[Node], used: &mut HashSet<String>) {
 fn collect_action_struct_names(actions: &[Action], used: &mut HashSet<String>) {
     for action in actions {
         match action {
+            Action::Expression(expression) => collect_expression_struct_names(expression, used),
             Action::Assign { value, .. } => collect_expression_struct_names(value, used),
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {
@@ -842,6 +848,13 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
 fn collect_action_bindings(actions: &[Action], used: &mut Vec<String>) {
     for action in actions {
         match action {
+            Action::Expression(expression) => {
+                nexa_ir::walk::walk_expression(expression, &mut |expression| {
+                    if let Expr::State(name, _) = expression {
+                        used.push(name.clone());
+                    }
+                });
+            }
             Action::Assign { name, .. } => used.push(name.clone()),
             Action::CollectionMutation { name, .. } => used.push(name.clone()),
             Action::If {
@@ -866,6 +879,7 @@ fn collect_action_bindings(actions: &[Action], used: &mut Vec<String>) {
 fn collect_action_state_references(actions: &[Action], used: &mut HashSet<String>) {
     for action in actions {
         match action {
+            Action::Expression(expression) => collect_expression_state_references(expression, used),
             Action::Assign { name, value } => {
                 used.insert(name.clone());
                 collect_expression_state_references(value, used);
@@ -1213,6 +1227,9 @@ fn optimize_actions(actions: Vec<Action>) -> Vec<Action> {
     let mut optimized = Vec::with_capacity(actions.len());
     for action in actions {
         match action {
+            Action::Expression(expression) => {
+                optimized.push(Action::Expression(fold_expression(expression)))
+            }
             Action::Assign { name, value } => optimized.push(Action::Assign {
                 name,
                 value: fold_expression(value),

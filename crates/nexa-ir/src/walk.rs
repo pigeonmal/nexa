@@ -348,6 +348,7 @@ fn walk_list_source(source: &ListSource, visit: &mut impl FnMut(&Expr)) {
 pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
     for action in actions {
         match action {
+            Action::Expression(expression) => walk_expression(expression, visit),
             Action::Assign { value, .. } => walk_expression(value, visit),
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {

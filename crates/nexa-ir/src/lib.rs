@@ -183,6 +183,7 @@ pub enum StatusBarStyle {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
+    Void,
     String,
     Bool,
     Numeric(NumericType),
@@ -636,6 +637,7 @@ pub enum FontWeight {
 
 #[derive(Clone, Debug)]
 pub enum Action {
+    Expression(Expr),
     Assign {
         name: String,
         value: Expr,
@@ -713,6 +715,7 @@ impl NumericType {
 impl Type {
     pub fn swift(&self) -> String {
         match self {
+            Self::Void => "Void".to_owned(),
             Self::String => "String".to_owned(),
             Self::Bool => "Bool".to_owned(),
             Self::Numeric(n) => n.swift().to_owned(),
@@ -732,6 +735,7 @@ impl Type {
     }
     pub fn kotlin(&self) -> String {
         match self {
+            Self::Void => "Unit".to_owned(),
             Self::String => "String".to_owned(),
             Self::Bool => "Boolean".to_owned(),
             Self::Numeric(n) => n.kotlin().to_owned(),

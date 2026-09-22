@@ -747,7 +747,8 @@ fn validate_type_names(
         Type::Struct { fields, .. } => fields
             .iter()
             .try_for_each(|(_, field)| validate_type_names(field, enum_names, span)),
-        Type::String
+        Type::Void
+        | Type::String
         | Type::Bool
         | Type::Numeric(_)
         | Type::Enum(_)
@@ -783,6 +784,12 @@ fn lower_functions(
             let mut return_value = None;
             for statement in declaration.body {
                 match statement {
+                    ast::Stmt::Expression { span, .. } => {
+                        return Err(CompileError::new(
+                            span,
+                            "expression statements are only allowed in event handlers",
+                        ));
+                    }
                     ast::Stmt::Let {
                         name,
                         ty,

@@ -178,6 +178,10 @@ fn render_haptic(style: HapticStyle, depth: usize, out: &mut String) {
 pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String) {
     for action in actions {
         match action {
+            Action::Expression(value) => {
+                indent(out, depth);
+                out.push_str(&format!("{}\n", expression(value)));
+            }
             Action::Assign { name, value } => {
                 indent(out, depth);
                 out.push_str(&format!("{} = {}\n", state_name(name), expression(value)));

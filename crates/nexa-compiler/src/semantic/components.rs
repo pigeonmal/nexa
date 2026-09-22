@@ -1628,6 +1628,15 @@ fn lower_actions_with_depth(
     let mut lowered = Vec::with_capacity(actions.len());
     for action in actions {
         match action {
+            ast::Stmt::Expression { expression, .. } => {
+                lowered.push(Action::Expression(lower_expr(
+                    &expression,
+                    None,
+                    symbols,
+                    functions,
+                    allow_await,
+                )?));
+            }
             ast::Stmt::Let { span, .. } => {
                 return Err(CompileError::new(
                     span,
@@ -1656,6 +1665,23 @@ fn lower_actions_with_depth(
                 let Some((ty, mutable)) = symbols.get(&name) else {
                     return Err(CompileError::new(span, format!("unknown state `{name}`")));
                 };
+                if matches!(ty, Type::Plugin { .. }) {
+                    let expression = ast::Expr::MethodCall {
+                        base: Box::new(ast::Expr::Name(name, span)),
+                        name: method,
+                        arguments,
+                        named_arguments: std::collections::BTreeMap::new(),
+                        span,
+                    };
+                    lowered.push(Action::Expression(lower_expr(
+                        &expression,
+                        None,
+                        symbols,
+                        functions,
+                        allow_await,
+                    )?));
+                    continue;
+                }
                 if !mutable {
                     return Err(CompileError::new(
                         span,
