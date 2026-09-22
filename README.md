@@ -234,7 +234,7 @@ String interpolation supports `$name` and `\(expression)`. Embedded expressions 
 
 `Button` supports optional `loading` and `disabled` Boolean expressions. The compiler emits native loading indicators and combines both conditions into one platform-native enabled/disabled expression; see [button-loading.nx](examples/button-loading.nx) and [button-disabled.nx](examples/button-disabled.nx).
 
-`TextInput` supports an optional mutable `focused` Boolean binding. It maps to SwiftUI focus state and Compose `FocusRequester`/focus callbacks; submit actions remain native `.onSubmit`/`KeyboardActions`. See [text-input-submit.nx](examples/text-input-submit.nx).
+`TextInput` supports optional mutable `focused` and positive literal `maxLength` bindings. Focus maps to SwiftUI focus state and Compose `FocusRequester`/focus callbacks; submit actions remain native `.onSubmit`/`KeyboardActions`; length limits use direct SwiftUI `onChange`/`String.prefix` and Compose `onValueChange`/`take` callbacks. See [text-input-submit.nx](examples/text-input-submit.nx).
 
 `Column` and `Row` support paired static `borderColor` and `borderWidth` values, compiled to native SwiftUI and Compose border primitives; see [borders.nx](examples/borders.nx).
 
