@@ -147,16 +147,46 @@ pub(super) fn expression(expr: &Expr) -> String {
             expression(third)
         ),
         Expr::Call {
-            name, arguments, ..
-        } => format!(
-            "{}({})",
-            function_name(name),
-            arguments
-                .iter()
-                .map(expression)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+            name,
+            arguments,
+            return_type,
+            is_constructor,
+            ..
+        } => {
+            let callee = if *is_constructor {
+                return_type.swift()
+            } else {
+                function_name(name)
+            };
+            let arguments = if *is_constructor {
+                match return_type {
+                    Type::Struct { fields, .. } => arguments
+                        .iter()
+                        .zip(fields)
+                        .map(|(argument, (field, _))| {
+                            format!(
+                                "{}: {}",
+                                nexa_codegen::names::struct_field_name(field),
+                                expression(argument)
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    _ => arguments
+                        .iter()
+                        .map(expression)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                }
+            } else {
+                arguments
+                    .iter()
+                    .map(expression)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            format!("{callee}({arguments})")
+        }
         Expr::Await(value) => format!("await {}", expression(value)),
         Expr::Add(left, right, ty) => {
             let operator = if matches!(ty, NumericType::Float32 | NumericType::Float64) {

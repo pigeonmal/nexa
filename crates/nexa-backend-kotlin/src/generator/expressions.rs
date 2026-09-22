@@ -118,16 +118,26 @@ pub(super) fn expression(expr: &Expr) -> String {
             expression(third)
         ),
         Expr::Call {
-            name, arguments, ..
-        } => format!(
-            "{}({})",
-            function_name(name),
-            arguments
-                .iter()
-                .map(expression)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+            name,
+            arguments,
+            return_type,
+            is_constructor,
+            ..
+        } => {
+            let callee = if *is_constructor {
+                return_type.kotlin()
+            } else {
+                function_name(name)
+            };
+            format!(
+                "{callee}({})",
+                arguments
+                    .iter()
+                    .map(expression)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
         Expr::Await(value) => expression(value),
         Expr::Add(left, right, ty) => {
             let sum = format!("({} + {})", expression(left), expression(right));

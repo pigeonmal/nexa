@@ -198,6 +198,7 @@ pub enum Expr {
         arguments: Vec<Expr>,
         return_type: Type,
         is_async: bool,
+        is_constructor: bool,
     },
     Index {
         collection: Box<Expr>,

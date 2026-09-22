@@ -635,6 +635,13 @@ fn lower_call(
         arguments: lowered,
         return_type: signature.return_type.clone(),
         is_async: signature.is_async,
+        is_constructor: matches!(
+            &signature.return_type,
+            Type::Struct {
+                name: struct_name,
+                ..
+            } if struct_name == name
+        ),
     })
 }
 

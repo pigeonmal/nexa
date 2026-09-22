@@ -999,11 +999,13 @@ fn fold_expression(expression: Expr) -> Expr {
             arguments,
             return_type,
             is_async,
+            is_constructor,
         } => Expr::Call {
             name,
             arguments: arguments.into_iter().map(fold_expression).collect(),
             return_type,
             is_async,
+            is_constructor,
         },
         Expr::Index {
             collection,
