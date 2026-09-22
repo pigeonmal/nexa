@@ -406,6 +406,23 @@ pub enum Stmt {
         else_branch: Option<Vec<Stmt>>,
         span: Span,
     },
+    For {
+        name: String,
+        iterable: Expr,
+        body: Vec<Stmt>,
+        span: Span,
+    },
+    While {
+        condition: Expr,
+        body: Vec<Stmt>,
+        span: Span,
+    },
+    Break {
+        span: Span,
+    },
+    Continue {
+        span: Span,
+    },
     Return {
         value: Expr,
         span: Span,

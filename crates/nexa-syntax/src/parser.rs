@@ -864,6 +864,28 @@ impl Parser {
                 self.optional_semicolon();
                 continue;
             }
+            if self.word_is("for") {
+                stmts.push(self.for_stmt()?);
+                self.optional_semicolon();
+                continue;
+            }
+            if self.word_is("while") {
+                stmts.push(self.while_stmt()?);
+                self.optional_semicolon();
+                continue;
+            }
+            if self.word_is("break") {
+                let span = self.advance().span;
+                stmts.push(Stmt::Break { span });
+                self.optional_semicolon();
+                continue;
+            }
+            if self.word_is("continue") {
+                let span = self.advance().span;
+                stmts.push(Stmt::Continue { span });
+                self.optional_semicolon();
+                continue;
+            }
             let (name, span) = self.ident()?;
             self.expect(Kind::Equal, "expected `=` in state assignment")?;
             let value = self.expr()?;
@@ -1284,6 +1306,31 @@ impl Parser {
             condition,
             then_branch,
             else_branch,
+            span,
+        })
+    }
+
+    fn for_stmt(&mut self) -> Result<Stmt, CompileError> {
+        let span = self.advance().span;
+        let (name, _) = self.ident()?;
+        self.expect_word("in")?;
+        let iterable = self.expr()?;
+        let body = self.block_stmts()?;
+        Ok(Stmt::For {
+            name,
+            iterable,
+            body,
+            span,
+        })
+    }
+
+    fn while_stmt(&mut self) -> Result<Stmt, CompileError> {
+        let span = self.advance().span;
+        let condition = self.expr()?;
+        let body = self.block_stmts()?;
+        Ok(Stmt::While {
+            condition,
+            body,
             span,
         })
     }

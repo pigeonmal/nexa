@@ -450,6 +450,17 @@ pub enum Action {
         then_branch: Vec<Action>,
         else_branch: Option<Vec<Action>>,
     },
+    For {
+        name: String,
+        iterable: Expr,
+        body: Vec<Action>,
+    },
+    While {
+        condition: Expr,
+        body: Vec<Action>,
+    },
+    Break,
+    Continue,
 }
 
 impl NumericType {

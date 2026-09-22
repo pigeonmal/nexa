@@ -1,0 +1,30 @@
+app ActionLoops {
+    state total: Int32 = 0
+    let values: Array<Int32> = [1, 2, 3]
+
+    body {
+        Column(spacing: 12, padding: 20) {
+            Text("Total: \(total)")
+            Button("Sum odd values") {
+                total = 0
+                for value in values {
+                    if value == 2 {
+                        continue
+                    }
+                    total = total + value
+                }
+            }
+            Button("Count to eight") {
+                while total < 10 {
+                    total = total + 1
+                    if total == 8 {
+                        break
+                    }
+                }
+            }
+            Button("Reset") {
+                total = 0
+            }
+        }
+    }
+}

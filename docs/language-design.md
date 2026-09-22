@@ -31,7 +31,7 @@ Nexa borrows useful ideas from Kotlin and Swift, but keeps one source language a
 | Nullable / optional | Integrate first slice | Explicit `T?` and `null` lower directly to Swift optionals and Kotlin nullable types. Safe member access and explicit unwrap operators remain deferred. |
 | Default value if null | Integrate first slice | Nexa uses `??` and lowers to Swift `??` or Kotlin `?:` while preserving native short-circuit evaluation. |
 | Safe access | Adopt | `?.` with compile-time member/type checking; depends on optionals and user-defined types. |
-| Loops | Adopt | Direct native `for`/`while` control flow. For UI collections, use `FastList` so large lists stay virtualized. Not implemented yet. |
+| Loops | Integrate first slice | Action blocks support direct native `for item in array` and `while condition` control flow. `break` and `continue` are checked to stay inside loops; array loop bindings are immutable. Functions remain pure and reject loops, ranges remain deferred, and UI collections should use `FastList` so large lists stay virtualized. |
 | `break` / `continue` | Adopt with loops | Direct loop control, validated by the parser/type checker. |
 | Range | Adopt with loops | A compact start/end/step IR, without eagerly materializing an array. Not implemented yet. |
 | Anonymous function / closure | Adopt selectively | Permit closures at callback boundaries after capture and escape rules are explicit; avoid boxing or heap allocation for non-escaping callbacks. |

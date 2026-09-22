@@ -243,7 +243,12 @@ fn lower_functions(
                             ));
                         }
                     }
-                    ast::Stmt::Assign { span, .. } | ast::Stmt::If { span, .. } => {
+                    ast::Stmt::Assign { span, .. }
+                    | ast::Stmt::If { span, .. }
+                    | ast::Stmt::For { span, .. }
+                    | ast::Stmt::While { span, .. }
+                    | ast::Stmt::Break { span }
+                    | ast::Stmt::Continue { span } => {
                         return Err(CompileError::new(
                             span,
                             format!(

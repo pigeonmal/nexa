@@ -445,6 +445,17 @@ fn walk_actions(
                     walk_actions(else_branch, names, used, target, file, warnings);
                 }
             }
+            ast::Stmt::For { iterable, body, .. } => {
+                walk_expression(iterable, names, used);
+                walk_actions(body, names, used, target, file, warnings);
+            }
+            ast::Stmt::While {
+                condition, body, ..
+            } => {
+                walk_expression(condition, names, used);
+                walk_actions(body, names, used, target, file, warnings);
+            }
+            ast::Stmt::Break { .. } | ast::Stmt::Continue { .. } => {}
             ast::Stmt::Return { value, .. } => walk_expression(value, names, used),
         }
     }

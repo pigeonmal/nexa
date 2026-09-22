@@ -270,6 +270,15 @@ fn collect_action_function_references(
                     collect_action_function_references(else_branch, declared, used);
                 }
             }
+            Action::For { iterable, body, .. } => {
+                collect_expression_function_references(iterable, declared, used);
+                collect_action_function_references(body, declared, used);
+            }
+            Action::While { condition, body } => {
+                collect_expression_function_references(condition, declared, used);
+                collect_action_function_references(body, declared, used);
+            }
+            Action::Break | Action::Continue => {}
         }
     }
 }
@@ -379,6 +388,10 @@ fn collect_action_bindings(actions: &[Action], used: &mut Vec<String>) {
                     collect_action_bindings(else_branch, used);
                 }
             }
+            Action::For { body, .. } | Action::While { body, .. } => {
+                collect_action_bindings(body, used);
+            }
+            Action::Break | Action::Continue => {}
         }
     }
 }
@@ -401,6 +414,15 @@ fn collect_action_state_references(actions: &[Action], used: &mut HashSet<String
                     collect_action_state_references(else_branch, used);
                 }
             }
+            Action::For { iterable, body, .. } => {
+                collect_expression_state_references(iterable, used);
+                collect_action_state_references(body, used);
+            }
+            Action::While { condition, body } => {
+                collect_expression_state_references(condition, used);
+                collect_action_state_references(body, used);
+            }
+            Action::Break | Action::Continue => {}
         }
     }
 }
@@ -660,6 +682,21 @@ fn optimize_actions(actions: Vec<Action>) -> Vec<Action> {
                     }),
                 }
             }
+            Action::For {
+                name,
+                iterable,
+                body,
+            } => optimized.push(Action::For {
+                name,
+                iterable: fold_expression(iterable),
+                body: optimize_actions(body),
+            }),
+            Action::While { condition, body } => optimized.push(Action::While {
+                condition: fold_expression(condition),
+                body: optimize_actions(body),
+            }),
+            Action::Break => optimized.push(Action::Break),
+            Action::Continue => optimized.push(Action::Continue),
         }
     }
     optimized

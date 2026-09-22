@@ -155,6 +155,36 @@ pub(super) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
                 indent(out, depth);
                 out.push_str("}\n");
             }
+            Action::For {
+                name,
+                iterable,
+                body,
+            } => {
+                indent(out, depth);
+                out.push_str(&format!(
+                    "for ({} in {}) {{\n",
+                    state_name(name),
+                    expression(iterable)
+                ));
+                render_actions(body, depth + 1, out);
+                indent(out, depth);
+                out.push_str("}\n");
+            }
+            Action::While { condition, body } => {
+                indent(out, depth);
+                out.push_str(&format!("while ({}) {{\n", expression(condition)));
+                render_actions(body, depth + 1, out);
+                indent(out, depth);
+                out.push_str("}\n");
+            }
+            Action::Break => {
+                indent(out, depth);
+                out.push_str("break\n");
+            }
+            Action::Continue => {
+                indent(out, depth);
+                out.push_str("continue\n");
+            }
         }
     }
 }

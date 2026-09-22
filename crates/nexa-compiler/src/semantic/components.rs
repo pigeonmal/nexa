@@ -943,6 +943,16 @@ fn lower_actions(
     functions: &FunctionSignatures,
     allow_await: bool,
 ) -> Result<Vec<Action>, CompileError> {
+    lower_actions_with_depth(actions, symbols, functions, allow_await, 0)
+}
+
+fn lower_actions_with_depth(
+    actions: Vec<ast::Stmt>,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+    loop_depth: usize,
+) -> Result<Vec<Action>, CompileError> {
     let mut lowered = Vec::with_capacity(actions.len());
     for action in actions {
         match action {
@@ -980,11 +990,105 @@ fn lower_actions(
                 )?;
                 lowered.push(Action::If {
                     condition,
-                    then_branch: lower_actions(then_branch, symbols, functions, allow_await)?,
+                    then_branch: lower_actions_with_depth(
+                        then_branch,
+                        symbols,
+                        functions,
+                        allow_await,
+                        loop_depth,
+                    )?,
                     else_branch: else_branch
-                        .map(|branch| lower_actions(branch, symbols, functions, allow_await))
+                        .map(|branch| {
+                            lower_actions_with_depth(
+                                branch,
+                                symbols,
+                                functions,
+                                allow_await,
+                                loop_depth,
+                            )
+                        })
                         .transpose()?,
                 });
+            }
+            ast::Stmt::For {
+                name,
+                iterable,
+                body,
+                span,
+            } => {
+                if symbols.contains_key(&name) {
+                    return Err(CompileError::new(
+                        span,
+                        format!("loop binding `{name}` shadows an existing binding"),
+                    ));
+                }
+                let Some(Type::Array(element_type)) =
+                    infer_expr_type(&iterable, symbols, functions)
+                else {
+                    return Err(CompileError::new(
+                        span,
+                        "for loops currently require an Array<T> iterable",
+                    ));
+                };
+                let iterable_type = Type::Array(element_type.clone());
+                let iterable = lower_expr(
+                    &iterable,
+                    Some(&iterable_type),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?;
+                let mut loop_symbols = symbols.clone();
+                loop_symbols.insert(name.clone(), ((*element_type).clone(), false));
+                let body = lower_actions_with_depth(
+                    body,
+                    &loop_symbols,
+                    functions,
+                    allow_await,
+                    loop_depth + 1,
+                )?;
+                lowered.push(Action::For {
+                    name,
+                    iterable,
+                    body,
+                });
+            }
+            ast::Stmt::While {
+                condition, body, ..
+            } => {
+                let condition = lower_expr(
+                    &condition,
+                    Some(&Type::Bool),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?;
+                let body = lower_actions_with_depth(
+                    body,
+                    symbols,
+                    functions,
+                    allow_await,
+                    loop_depth + 1,
+                )?;
+                lowered.push(Action::While { condition, body });
+            }
+            ast::Stmt::Break { span } => {
+                if loop_depth == 0 {
+                    return Err(CompileError::new(
+                        span,
+                        "`break` is only allowed inside a loop",
+                    ));
+                }
+                lowered.push(Action::Break);
+            }
+            ast::Stmt::Continue { span } => {
+                if loop_depth == 0 {
+                    return Err(CompileError::new(
+                        span,
+                        "`continue` is only allowed inside a loop",
+                    ));
+                }
+                lowered.push(Action::Continue);
             }
             ast::Stmt::Return { span, .. } => {
                 return Err(CompileError::new(
