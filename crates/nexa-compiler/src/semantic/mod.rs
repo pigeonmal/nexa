@@ -246,6 +246,7 @@ fn lower_functions(
                     ast::Stmt::Assign { span, .. }
                     | ast::Stmt::If { span, .. }
                     | ast::Stmt::For { span, .. }
+                    | ast::Stmt::ForMap { span, .. }
                     | ast::Stmt::While { span, .. }
                     | ast::Stmt::Break { span }
                     | ast::Stmt::Continue { span } => {

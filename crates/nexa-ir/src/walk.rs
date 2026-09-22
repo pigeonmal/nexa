@@ -240,6 +240,10 @@ fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
                 walk_expression(iterable, visit);
                 walk_actions(body, visit);
             }
+            Action::ForMap { iterable, body, .. } => {
+                walk_expression(iterable, visit);
+                walk_actions(body, visit);
+            }
             Action::While { condition, body } => {
                 walk_expression(condition, visit);
                 walk_actions(body, visit);

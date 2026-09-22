@@ -449,6 +449,10 @@ fn walk_actions(
                 walk_expression(iterable, names, used);
                 walk_actions(body, names, used, target, file, warnings);
             }
+            ast::Stmt::ForMap { iterable, body, .. } => {
+                walk_expression(iterable, names, used);
+                walk_actions(body, names, used, target, file, warnings);
+            }
             ast::Stmt::While {
                 condition, body, ..
             } => {

@@ -427,6 +427,13 @@ pub enum Stmt {
         body: Vec<Stmt>,
         span: Span,
     },
+    ForMap {
+        key_name: String,
+        value_name: String,
+        iterable: Expr,
+        body: Vec<Stmt>,
+        span: Span,
+    },
     While {
         condition: Expr,
         body: Vec<Stmt>,

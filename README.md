@@ -21,6 +21,7 @@ cargo run -p nexa-cli -- check examples/collection-indexing.nx
 cargo run -p nexa-cli -- check examples/collection-membership.nx
 cargo run -p nexa-cli -- check examples/tuple-members.nx
 cargo run -p nexa-cli -- check examples/optional-members.nx
+cargo run -p nexa-cli -- check examples/map-iteration.nx
 cargo run -p nexa-cli -- check examples/nullable-values.nx
 cargo run -p nexa-cli -- check examples/when.nx
 cargo run -p nexa-cli -- check examples/action-loops.nx
@@ -162,7 +163,7 @@ String interpolation supports `$name` and `\(name)` for declared state and const
 
 `OnAppear { ... }` and `OnDisappear { ... }` are top-level app or named-screen lifecycle callbacks. Use `OnAppear async { ... }` to await an app-local `async fn`; Swift lowers it to `.task`, while Android uses `LaunchedEffect(Unit)` for the same native coroutine lifecycle. See [lifecycle.nx](examples/lifecycle.nx), [async.nx](examples/async.nx), and [navigation.nx](examples/navigation.nx). App background events remain future lifecycle slices.
 
-Button, pressable, submit, refresh, and lifecycle action blocks support direct native `for item in array/set`, `for item in start..end`, and `while condition` loops with `break` and `continue`. `..` is inclusive, `..<` is exclusive, and `...` is an inclusive alias; range bounds are `Int32` and do not materialize an array. Loop bindings are immutable, map entry iteration remains deferred, and functions remain pure; use `FastList` for repeated UI rows. See [action-loops.nx](examples/action-loops.nx), [ranges.nx](examples/ranges.nx), and [collection-membership.nx](examples/collection-membership.nx).
+Button, pressable, submit, refresh, and lifecycle action blocks support direct native `for item in array/set`, `for (key, value) in map`, `for item in start..end`, and `while condition` loops with `break` and `continue`. `..` is inclusive, `..<` is exclusive, and `...` is an inclusive alias; range bounds are `Int32` and do not materialize an array. All loop bindings are immutable and functions remain pure; use `FastList` for repeated UI rows. See [action-loops.nx](examples/action-loops.nx), [ranges.nx](examples/ranges.nx), [collection-membership.nx](examples/collection-membership.nx), and [map-iteration.nx](examples/map-iteration.nx).
 
 Scalar membership uses `value in collection` for arrays and sets, or `key in map` for map keys. The compiler lowers this directly to Swift `contains`/dictionary-key lookup and Kotlin `in`, without a shared collection runtime; see [collection-membership.nx](examples/collection-membership.nx).
 

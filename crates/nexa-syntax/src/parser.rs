@@ -1347,6 +1347,22 @@ impl Parser {
 
     fn for_stmt(&mut self) -> Result<Stmt, CompileError> {
         let span = self.advance().span;
+        if self.take(&Kind::LParen) {
+            let (key_name, _) = self.ident()?;
+            self.expect(Kind::Comma, "expected `,` between map loop bindings")?;
+            let (value_name, _) = self.ident()?;
+            self.expect(Kind::RParen, "expected `)` after map loop bindings")?;
+            self.expect_word("in")?;
+            let iterable = self.expr()?;
+            let body = self.block_stmts()?;
+            return Ok(Stmt::ForMap {
+                key_name,
+                value_name,
+                iterable,
+                body,
+                span,
+            });
+        }
         let (name, _) = self.ident()?;
         self.expect_word("in")?;
         let start = self.expr()?;

@@ -290,6 +290,10 @@ fn collect_action_function_references(
                 collect_expression_function_references(iterable, declared, used);
                 collect_action_function_references(body, declared, used);
             }
+            Action::ForMap { iterable, body, .. } => {
+                collect_expression_function_references(iterable, declared, used);
+                collect_action_function_references(body, declared, used);
+            }
             Action::While { condition, body } => {
                 collect_expression_function_references(condition, declared, used);
                 collect_action_function_references(body, declared, used);
@@ -407,6 +411,7 @@ fn collect_action_bindings(actions: &[Action], used: &mut Vec<String>) {
             Action::For { body, .. } | Action::While { body, .. } => {
                 collect_action_bindings(body, used);
             }
+            Action::ForMap { body, .. } => collect_action_bindings(body, used),
             Action::Break | Action::Continue => {}
         }
     }
@@ -431,6 +436,10 @@ fn collect_action_state_references(actions: &[Action], used: &mut HashSet<String
                 }
             }
             Action::For { iterable, body, .. } => {
+                collect_expression_state_references(iterable, used);
+                collect_action_state_references(body, used);
+            }
+            Action::ForMap { iterable, body, .. } => {
                 collect_expression_state_references(iterable, used);
                 collect_action_state_references(body, used);
             }
@@ -704,6 +713,17 @@ fn optimize_actions(actions: Vec<Action>) -> Vec<Action> {
                 body,
             } => optimized.push(Action::For {
                 name,
+                iterable: fold_expression(iterable),
+                body: optimize_actions(body),
+            }),
+            Action::ForMap {
+                key_name,
+                value_name,
+                iterable,
+                body,
+            } => optimized.push(Action::ForMap {
+                key_name,
+                value_name,
                 iterable: fold_expression(iterable),
                 body: optimize_actions(body),
             }),

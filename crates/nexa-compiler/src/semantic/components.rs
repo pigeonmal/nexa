@@ -1080,6 +1080,58 @@ fn lower_actions_with_depth(
                     body,
                 });
             }
+            ast::Stmt::ForMap {
+                key_name,
+                value_name,
+                iterable,
+                body,
+                span,
+            } => {
+                if key_name == value_name {
+                    return Err(CompileError::new(
+                        span,
+                        "map loop key and value bindings must have different names",
+                    ));
+                }
+                if symbols.contains_key(&key_name) || symbols.contains_key(&value_name) {
+                    return Err(CompileError::new(
+                        span,
+                        "map loop bindings cannot shadow an existing binding",
+                    ));
+                }
+                let Some(Type::Map(key_type, value_type)) =
+                    infer_expr_type(&iterable, symbols, functions)
+                else {
+                    return Err(CompileError::new(
+                        span,
+                        "map destructuring loops require a Map<K, V> iterable",
+                    ));
+                };
+                let iterable_type = Type::Map(key_type.clone(), value_type.clone());
+                let iterable = lower_expr(
+                    &iterable,
+                    Some(&iterable_type),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?;
+                let mut loop_symbols = symbols.clone();
+                loop_symbols.insert(key_name.clone(), ((*key_type).clone(), false));
+                loop_symbols.insert(value_name.clone(), ((*value_type).clone(), false));
+                let body = lower_actions_with_depth(
+                    body,
+                    &loop_symbols,
+                    functions,
+                    allow_await,
+                    loop_depth + 1,
+                )?;
+                lowered.push(Action::ForMap {
+                    key_name,
+                    value_name,
+                    iterable,
+                    body,
+                });
+            }
             ast::Stmt::While {
                 condition, body, ..
             } => {

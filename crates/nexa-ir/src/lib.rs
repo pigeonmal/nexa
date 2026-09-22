@@ -473,6 +473,12 @@ pub enum Action {
         iterable: Expr,
         body: Vec<Action>,
     },
+    ForMap {
+        key_name: String,
+        value_name: String,
+        iterable: Expr,
+        body: Vec<Action>,
+    },
     While {
         condition: Expr,
         body: Vec<Action>,
