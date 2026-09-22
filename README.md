@@ -45,6 +45,7 @@ cargo run -p nexa-cli -- check examples/linking.nx
 cargo run -p nexa-cli -- check examples/accessibility.nx
 cargo run -p nexa-cli -- check examples/direction.nx
 cargo run -p nexa-cli -- check examples/permissions.nx
+cargo run -p nexa-cli -- check examples/permissions-status.nx
 cargo run -p nexa-cli -- check examples/lifecycle.nx
 cargo run -p nexa-cli -- check examples/text-style.nx
 cargo run -p nexa-cli -- check examples/button-loading.nx
@@ -125,7 +126,7 @@ config {
 }
 ```
 
-The CLI validates the permission names and messages, uses the messages for iOS usage-description keys, and emits only the selected Android manifest permissions. App source files do not declare host permissions; edit the generated config when a permission is needed.
+The CLI validates the permission names and messages, uses the messages for iOS usage-description keys, and emits only the selected Android manifest permissions. App source files do not declare host permissions; edit the generated config when a permission is needed. Source can read a typed status with `await Permissions.status(permission: Camera)` or trigger the native authorization flow with `await Permissions.request(permission: Camera)` from `OnAppear async` or an async function. The request result is `PermissionStatus.granted`, `denied`, `restricted`, or `notDetermined` according to the platform framework.
 
 Plugins declare their compile-time option schema in `interfaces.nxid`, and the
 same generated config carries user values:
