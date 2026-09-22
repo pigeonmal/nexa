@@ -310,6 +310,7 @@ pub enum Node {
     },
     BottomSheet {
         is_presented: Expr,
+        partial: Option<Expr>,
         children: Vec<Node>,
         span: Span,
     },

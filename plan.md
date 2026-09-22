@@ -569,11 +569,10 @@ The current implementation uses native gesture and scrolling behavior and does n
 
 ## BottomSheet
 
-The first native bottom sheet slice is implemented with `BottomSheet(isPresented: mutableBool) { ... }`. Swift lowers to `.sheet(isPresented:)`; Kotlin lowers to Material 3 `ModalBottomSheet` with a function-level experimental API opt-in and native dismissal updating the binding.
+The first native bottom sheet slice is implemented with `BottomSheet(isPresented: mutableBool, partial: true|false) { ... }`. Swift lowers to `.sheet(isPresented:)` and uses native `.presentationDetents([.medium, .large])` for partial sheets; Kotlin uses Material 3 `ModalBottomSheet` with `rememberModalBottomSheetState(skipPartiallyExpanded = false)` for the same static option. Both retain native dismissal updating the binding.
 
 Remaining work:
 
-- partial-height sheets,
 - snap points,
 - drag gestures,
 - dismiss gestures,

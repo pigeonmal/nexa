@@ -527,6 +527,7 @@ pub(super) fn lower_node(
         }
         ast::Node::BottomSheet {
             is_presented,
+            partial,
             children,
             span,
         } => {
@@ -537,6 +538,7 @@ pub(super) fn lower_node(
             )?;
             Ok(Node::BottomSheet {
                 state,
+                partial: optional_bool(partial, false, "BottomSheet partial")?,
                 children: lowered_children,
             })
         }

@@ -6,7 +6,7 @@ app BottomSheetExample {
             Button("Open") {
                 isOpen = true
             }
-            BottomSheet(isPresented: isOpen) {
+            BottomSheet(isPresented: isOpen, partial: true) {
                 Text("Sheet content")
                 Button("Close") {
                     isOpen = false

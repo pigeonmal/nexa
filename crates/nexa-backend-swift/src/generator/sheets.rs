@@ -5,6 +5,7 @@ use super::{components::render_children, utils::indent};
 
 pub(super) fn render_bottom_sheet(
     state: &str,
+    partial: bool,
     children: &[Node],
     module: &Module,
     depth: usize,
@@ -16,6 +17,11 @@ pub(super) fn render_bottom_sheet(
         state_name(state)
     ));
     render_children(children, module, depth + 1, out);
+    if partial {
+        out.push('\n');
+        indent(out, depth + 1);
+        out.push_str(".presentationDetents([.medium, .large])");
+    }
     out.push('\n');
     indent(out, depth);
     out.push('}');

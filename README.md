@@ -244,6 +244,8 @@ String interpolation supports `$name` and `\(expression)`. Embedded expressions 
 
 `AppBottomBar(selected: ...)` provides static tabs with native `TabView` and Material 3 `NavigationBar` output. Optional icon names map to SF Symbols on iOS and drawable resources on Android, and optional static badges use native tab badge controls; see [app-bottom-bar.nx](examples/app-bottom-bar.nx).
 
+`BottomSheet(isPresented: state, partial: true|false)` maps to native SwiftUI and Material 3 sheets. `partial: true` enables native medium/large detents or a partially expanded Android sheet; custom snap points and transitions remain future work. See [bottom-sheet.nx](examples/bottom-sheet.nx).
+
 `Direction(value: LTR|RTL)` applies a static native layout direction at the app root; see [direction.nx](examples/direction.nx).
 
 `OnAppear { ... }` and `OnDisappear { ... }` are top-level app or named-screen lifecycle callbacks. Use `OnAppear async { ... }` to await an app-local `async fn`; Swift lowers it to `.task`, while Android uses `LaunchedEffect(Unit)` for the same native coroutine lifecycle. See [lifecycle.nx](examples/lifecycle.nx), [async.nx](examples/async.nx), and [navigation.nx](examples/navigation.nx). App background events remain future lifecycle slices.

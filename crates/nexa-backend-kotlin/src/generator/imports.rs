@@ -49,6 +49,10 @@ pub(super) fn render(
         "androidx.compose.material3.ModalBottomSheet",
     );
     add(
+        features.uses_bottom_sheet_partial,
+        "androidx.compose.material3.rememberModalBottomSheetState",
+    );
+    add(
         features.uses_bottom_bar,
         "androidx.compose.material3.NavigationBar",
     );

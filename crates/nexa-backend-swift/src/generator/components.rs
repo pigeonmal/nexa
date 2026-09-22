@@ -158,9 +158,11 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
         Node::KeyboardAware { dismiss, children } => {
             keyboard::render_keyboard_aware(*dismiss, children, module, depth, out)
         }
-        Node::BottomSheet { state, children } => {
-            sheets::render_bottom_sheet(state, children, module, depth, out)
-        }
+        Node::BottomSheet {
+            state,
+            partial,
+            children,
+        } => sheets::render_bottom_sheet(state, *partial, children, module, depth, out),
         Node::RefreshControl {
             state,
             children,

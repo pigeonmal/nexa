@@ -26,6 +26,7 @@ pub(super) struct Features {
     pub(super) uses_status_bar: bool,
     pub(super) uses_bottom_bar: bool,
     pub(super) uses_bottom_sheet: bool,
+    pub(super) uses_bottom_sheet_partial: bool,
     pub(super) uses_refresh_control: bool,
     pub(super) uses_refresh_scroll: bool,
     pub(super) uses_image: bool,
@@ -455,8 +456,11 @@ impl Features {
                 self.uses_column = true;
                 self.uses_modifier = true;
             }
-            Node::BottomSheet { children, .. } => {
+            Node::BottomSheet {
+                partial, children, ..
+            } => {
                 self.uses_bottom_sheet = true;
+                self.uses_bottom_sheet_partial |= *partial;
                 self.record_child_layout(children);
             }
             Node::AppBottomBar { tabs, .. } => {

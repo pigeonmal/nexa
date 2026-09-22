@@ -984,8 +984,13 @@ fn optimize_node(node: Node) -> Option<Node> {
             dismiss,
             children: optimize_nodes(children),
         }),
-        Node::BottomSheet { state, children } => Some(Node::BottomSheet {
+        Node::BottomSheet {
             state,
+            partial,
+            children,
+        } => Some(Node::BottomSheet {
+            state,
+            partial,
             children: optimize_nodes(children),
         }),
         Node::RefreshControl {

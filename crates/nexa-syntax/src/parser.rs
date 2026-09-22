@@ -1004,7 +1004,7 @@ impl Parser {
                 })
             }
             "BottomSheet" => {
-                let mut args = self.named_args(&["isPresented"])?;
+                let mut args = self.named_args(&["isPresented", "partial"])?;
                 let is_presented = self.required_arg(
                     &mut args,
                     "isPresented",
@@ -1013,6 +1013,7 @@ impl Parser {
                 let children = self.block_nodes()?;
                 Ok(Node::BottomSheet {
                     is_presented,
+                    partial: args.remove("partial"),
                     children,
                     span,
                 })

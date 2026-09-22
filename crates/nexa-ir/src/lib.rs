@@ -380,6 +380,7 @@ pub enum Node {
     },
     BottomSheet {
         state: String,
+        partial: bool,
         children: Vec<Node>,
     },
     RefreshControl {
