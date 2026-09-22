@@ -5,22 +5,16 @@ use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle, walk::walk_ir};
 use super::{components::render_node, features::Features, layout, render_immutable_state};
 
 pub(super) fn render(module: &Module, features: &Features, out: &mut String) {
-    let needs_ios16 = features.uses_fast_list;
     for component in &module.components {
-        render_component(component, module, features, needs_ios16, out);
+        render_component(component, module, features, out);
     }
 }
 
-fn render_component(
-    component: &Component,
-    module: &Module,
-    features: &Features,
-    needs_ios16: bool,
-    out: &mut String,
-) {
+fn render_component(component: &Component, module: &Module, features: &Features, out: &mut String) {
     let name = nexa_codegen::names::component_name(&component.name);
     let focus_bindings = collect_focus_bindings(&component.body);
     let has_content_slot = component_has_content_slot(component);
+    let needs_ios16 = component_uses_fast_list(component);
     if needs_ios16 {
         out.push_str("\n@available(iOS 16.0, *)\n");
     } else {
@@ -120,6 +114,16 @@ fn component_has_content_slot(component: &Component) -> bool {
     walk_ir(
         &component.body,
         &mut |node| found |= matches!(node, Node::Content),
+        &mut |_| {},
+    );
+    found
+}
+
+fn component_uses_fast_list(component: &Component) -> bool {
+    let mut found = false;
+    walk_ir(
+        &component.body,
+        &mut |node| found |= matches!(node, Node::FastList { .. }),
         &mut |_| {},
     );
     found

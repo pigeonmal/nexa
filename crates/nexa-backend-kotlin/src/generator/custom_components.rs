@@ -15,7 +15,7 @@ pub(super) fn render(module: &Module, features: &Features, out: &mut String) {
 }
 
 fn render_component(component: &Component, module: &Module, features: &Features, out: &mut String) {
-    if features.uses_bottom_sheet {
+    if component_uses_bottom_sheet(component) {
         out.push_str("\n@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)");
     }
     out.push_str(&format!(
@@ -88,6 +88,16 @@ fn component_has_content_slot(component: &Component) -> bool {
     walk_ir(
         &component.body,
         &mut |node| found |= matches!(node, Node::Content),
+        &mut |_| {},
+    );
+    found
+}
+
+fn component_uses_bottom_sheet(component: &Component) -> bool {
+    let mut found = false;
+    walk_ir(
+        &component.body,
+        &mut |node| found |= matches!(node, Node::BottomSheet { .. }),
         &mut |_| {},
     );
     found
