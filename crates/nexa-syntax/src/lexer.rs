@@ -25,6 +25,8 @@ pub enum Kind {
     OrOr,
     LessEqual,
     GreaterEqual,
+    Question,
+    QuestionQuestion,
     Plus,
     Minus,
     Eof,
@@ -113,6 +115,15 @@ impl Lexer<'_> {
                         Kind::GreaterEqual
                     } else {
                         Kind::Greater
+                    }
+                }
+                '?' => {
+                    self.bump();
+                    if self.peek() == Some('?') {
+                        self.bump();
+                        Kind::QuestionQuestion
+                    } else {
+                        Kind::Question
                     }
                 }
                 ':' => {

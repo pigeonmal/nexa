@@ -109,12 +109,13 @@ pub struct StateDecl {
 pub enum TypeSyntax {
     Named(String, Span),
     Generic(String, Vec<TypeSyntax>, Span),
+    Optional(Box<TypeSyntax>, Span),
 }
 
 impl TypeSyntax {
     pub fn span(&self) -> Span {
         match self {
-            Self::Named(_, span) | Self::Generic(_, _, span) => *span,
+            Self::Named(_, span) | Self::Generic(_, _, span) | Self::Optional(_, span) => *span,
         }
     }
 }
@@ -324,6 +325,8 @@ pub enum Expr {
     Triple(Box<Expr>, Box<Expr>, Box<Expr>, Span),
     Call(String, Vec<Expr>, Span),
     Index(Box<Expr>, Box<Expr>, Span),
+    Null(Span),
+    Coalesce(Box<Expr>, Box<Expr>, Span),
     Await(Box<Expr>, Span),
 }
 
@@ -364,6 +367,8 @@ impl Expr {
             | Self::Triple(_, _, _, s)
             | Self::Call(_, _, s)
             | Self::Index(_, _, s)
+            | Self::Null(s)
+            | Self::Coalesce(_, _, s)
             | Self::Await(_, s) => *s,
         }
     }

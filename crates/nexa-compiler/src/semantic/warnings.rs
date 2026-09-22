@@ -490,6 +490,10 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
             walk_expression(collection, names, used);
             walk_expression(index, names, used);
         }
+        ast::Expr::Coalesce(left, right, _) => {
+            walk_expression(left, names, used);
+            walk_expression(right, names, used);
+        }
         ast::Expr::Await(value, _) => walk_expression(value, names, used),
         ast::Expr::Interpolation(parts, _) => {
             for part in parts {
@@ -503,6 +507,7 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
         ast::Expr::String(_, _)
         | ast::Expr::Number(_, _)
         | ast::Expr::Bool(_, _)
+        | ast::Expr::Null(_)
         | ast::Expr::ThemeToken(_, _)
         | ast::Expr::IsRegularWidth(_) => {}
     }

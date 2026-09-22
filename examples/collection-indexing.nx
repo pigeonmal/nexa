@@ -1,10 +1,13 @@
 app CollectionIndexingDemo {
     let labels = ["Nexa", "Swift", "Kotlin"]
     let selected = 1
+    let versions: Map<String, Int32> = ["iOS": 18, "Android": 35]
+    let release = versions["iOS"] ?? 0
 
     body {
         Column {
             Text(labels[selected])
+            Text(release)
             FastList(items: labels, index: position, item: label) {
                 Row(spacing: 8, alignment: Center) {
                     Text(position)

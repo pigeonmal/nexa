@@ -315,18 +315,23 @@ impl Parser {
 
     fn type_syntax(&mut self) -> Result<TypeSyntax, CompileError> {
         let (name, span) = self.ident()?;
-        if !self.take(&Kind::Less) {
-            return Ok(TypeSyntax::Named(name, span));
+        let mut syntax = if !self.take(&Kind::Less) {
+            TypeSyntax::Named(name, span)
+        } else {
+            let mut arguments = vec![self.type_syntax()?];
+            while self.take(&Kind::Comma) {
+                arguments.push(self.type_syntax()?);
+            }
+            self.expect(
+                Kind::Greater,
+                "expected `>` to close generic type arguments",
+            )?;
+            TypeSyntax::Generic(name, arguments, span)
+        };
+        if self.take(&Kind::Question) {
+            syntax = TypeSyntax::Optional(Box::new(syntax), span);
         }
-        let mut arguments = vec![self.type_syntax()?];
-        while self.take(&Kind::Comma) {
-            arguments.push(self.type_syntax()?);
-        }
-        self.expect(
-            Kind::Greater,
-            "expected `>` to close generic type arguments",
-        )?;
-        Ok(TypeSyntax::Generic(name, arguments, span))
+        Ok(syntax)
     }
 
     fn block_nodes(&mut self) -> Result<Vec<Node>, CompileError> {
@@ -867,7 +872,13 @@ impl Parser {
     }
 
     fn expr(&mut self) -> Result<Expr, CompileError> {
-        self.logical_or()
+        let mut left = self.logical_or()?;
+        while self.take(&Kind::QuestionQuestion) {
+            let span = left.span();
+            let right = self.logical_or()?;
+            left = Expr::Coalesce(Box::new(left), Box::new(right), span);
+        }
+        Ok(left)
     }
 
     fn logical_or(&mut self) -> Result<Expr, CompileError> {
@@ -1021,6 +1032,7 @@ impl Parser {
             Kind::Number(value) => Ok(Expr::Number(value, token.span)),
             Kind::Ident(value) if value == "true" => Ok(Expr::Bool(true, token.span)),
             Kind::Ident(value) if value == "false" => Ok(Expr::Bool(false, token.span)),
+            Kind::Ident(value) if value == "null" => Ok(Expr::Null(token.span)),
             Kind::Ident(value) => {
                 if !self.take(&Kind::Dot) {
                     if value == "await" {

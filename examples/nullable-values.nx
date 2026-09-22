@@ -1,0 +1,16 @@
+app NullableValuesDemo {
+    state retryLimit: Int32? = null
+    let explicitOptional: Int32? = 5
+    let emptyOptional: Array<String>? = []
+    let retries = retryLimit ?? 3
+    let hasCustomLimit = retryLimit != null
+
+    body {
+        Column(spacing: 8) {
+            Text(retries)
+            Text(explicitOptional ?? 0)
+            Text(emptyOptional)
+            Text(hasCustomLimit)
+        }
+    }
+}

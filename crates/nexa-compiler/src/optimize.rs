@@ -79,6 +79,10 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
             collect_expression_state_names(collection, names);
             collect_expression_state_names(index, names);
         }
+        Expr::Coalesce(left, right) => {
+            collect_expression_state_names(left, names);
+            collect_expression_state_names(right, names);
+        }
         Expr::Array(items) | Expr::Set(items) => {
             for item in items {
                 collect_expression_state_names(item, names);
@@ -111,7 +115,11 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
                 }
             }
         }
-        Expr::String(_) | Expr::Bool(_) | Expr::Number { .. } | Expr::IsRegularWidth => {}
+        Expr::String(_)
+        | Expr::Bool(_)
+        | Expr::Number { .. }
+        | Expr::Null(_)
+        | Expr::IsRegularWidth => {}
     }
 }
 
@@ -130,6 +138,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
         Expr::Index {
             collection, index, ..
         } => is_pure_expression(collection) && is_pure_expression(index),
+        Expr::Coalesce(left, right) => is_pure_expression(left) && is_pure_expression(right),
         Expr::Array(items) | Expr::Set(items) => items.iter().all(is_pure_expression),
         Expr::Map(entries) => entries
             .iter()
@@ -146,6 +155,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
         | Expr::Bool(_)
         | Expr::Number { .. }
         | Expr::State(_, _)
+        | Expr::Null(_)
         | Expr::IsRegularWidth => true,
     }
 }
@@ -698,12 +708,24 @@ fn fold_expression(expression: Expr) -> Expr {
         Expr::Index {
             collection,
             index,
+            collection_type,
             element_type,
         } => Expr::Index {
             collection: Box::new(fold_expression(*collection)),
             index: Box::new(fold_expression(*index)),
+            collection_type,
             element_type,
         },
+        Expr::Null(ty) => Expr::Null(ty),
+        Expr::Coalesce(left, right) => {
+            let left = fold_expression(*left);
+            let right = fold_expression(*right);
+            if matches!(left, Expr::Null(_)) {
+                right
+            } else {
+                Expr::Coalesce(Box::new(left), Box::new(right))
+            }
+        }
         Expr::Await(value) => Expr::Await(Box::new(fold_expression(*value))),
         Expr::Interpolation(parts) => Expr::Interpolation(
             parts

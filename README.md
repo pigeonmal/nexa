@@ -18,6 +18,7 @@ cargo run -p nexa-cli -- check examples/virtualized-list.nx
 cargo run -p nexa-cli -- check examples/collection-list.nx
 cargo run -p nexa-cli -- check examples/collection-values.nx
 cargo run -p nexa-cli -- check examples/collection-indexing.nx
+cargo run -p nexa-cli -- check examples/nullable-values.nx
 cargo run -p nexa-cli -- check examples/themed-app.nx
 cargo run -p nexa-cli -- check examples/custom-components.nx
 cargo run -p nexa-cli -- check examples/function-locals.nx
@@ -133,7 +134,7 @@ These skills distinguish the current prototype from the longer-term goals in `pl
 
 See the [language guide](docs/language.md) for syntax, supported types, themes, current limits, and native mappings, and the [language design decisions](docs/language-design.md) for how Nexa adopts or defers Kotlin/Swift concepts. The full roadmap remains in [plan.md](plan.md).
 
-The authoring surface keeps mutability explicit: `state` stays mutable and `let` stays immutable. Both declarations infer their type from non-empty initializers using the same defaults: integer literals become `Int32` and decimal literals become `Float64`; the resolved type is fixed in the typed IR before native bindings are generated. `Column` is the single vertical container; it emits direct native stack code on both platforms. `View` is no longer a Nexa component; replace it with `Column` in existing `.nx` files. SwiftUI's native `View` protocol remains part of generated Swift output.
+The authoring surface keeps mutability explicit: `state` stays mutable and `let` stays immutable. Both declarations infer their type from non-empty initializers using the same defaults: integer literals become `Int32` and decimal literals become `Float64`; the resolved type is fixed in the typed IR before native bindings are generated. Nullable `T?`, `null`, and `??` lower directly to native Swift/Kotlin optional semantics. `Column` is the single vertical container; it emits direct native stack code on both platforms. `View` is no longer a Nexa component; replace it with `Column` in existing `.nx` files. SwiftUI's native `View` protocol remains part of generated Swift output.
 
 String interpolation supports `$name` and `\(name)` for declared state and constant names. The compiler lowers each segment into direct Swift or Kotlin interpolation without a template runtime; see [interpolation.nx](examples/interpolation.nx).
 

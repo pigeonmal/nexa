@@ -32,9 +32,24 @@ pub(super) fn expression(expr: &Expr) -> String {
         },
         Expr::State(name, _) => state_name(name),
         Expr::Not(value) => format!("(!{})", expression(value)),
+        Expr::Null(_) => "nil".to_owned(),
+        Expr::Coalesce(left, right) => {
+            format!("({} ?? {})", expression(left), expression(right))
+        }
         Expr::Index {
-            collection, index, ..
-        } => format!("{}[Int({})]", expression(collection), expression(index)),
+            collection,
+            index,
+            collection_type,
+            ..
+        } => {
+            let index = expression(index);
+            let index = if matches!(collection_type, Type::Array(_)) {
+                format!("Int({index})")
+            } else {
+                index
+            };
+            format!("{}[{index}]", expression(collection))
+        }
         Expr::Array(items) => format!(
             "[{}]",
             items.iter().map(expression).collect::<Vec<_>>().join(", ")

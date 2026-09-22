@@ -69,6 +69,7 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         ast::Expr::Index(collection, index, _) => {
             references_state(collection) || references_state(index)
         }
+        ast::Expr::Coalesce(left, right, _) => references_state(left) || references_state(right),
         ast::Expr::Await(value, _) => references_state(value),
         ast::Expr::Interpolation(parts, _) => parts
             .iter()
@@ -76,6 +77,7 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         ast::Expr::String(_, _)
         | ast::Expr::Number(_, _)
         | ast::Expr::Bool(_, _)
+        | ast::Expr::Null(_)
         | ast::Expr::ThemeToken(_, _)
         | ast::Expr::IsRegularWidth(_) => false,
     }
@@ -88,6 +90,21 @@ pub(super) fn lower_expr(
     functions: &FunctionSignatures,
     allow_await: bool,
 ) -> Result<Expr, CompileError> {
+    // A non-null value may be promoted to its optional type without a runtime
+    // wrapper. Keep an already-optional expression and the `null` literal on
+    // the outer type so their nullability is checked exactly.
+    let expected = match expected {
+        Some(Type::Optional(inner))
+            if !matches!(expr, ast::Expr::Null(_))
+                && !matches!(
+                    infer_expr_type(expr, symbols, functions),
+                    Some(Type::Optional(_))
+                ) =>
+        {
+            Some(inner.as_ref())
+        }
+        _ => expected,
+    };
     match expr {
         ast::Expr::String(value, _) => {
             require_expected(expected, &Type::String, expr.span())?;
@@ -118,6 +135,15 @@ pub(super) fn lower_expr(
         ast::Expr::Bool(value, _) => {
             require_expected(expected, &Type::Bool, expr.span())?;
             Ok(Expr::Bool(*value))
+        }
+        ast::Expr::Null(span) => {
+            let Some(Type::Optional(inner)) = expected else {
+                return Err(CompileError::new(
+                    *span,
+                    "`null` requires an explicitly typed optional value",
+                ));
+            };
+            Ok(Expr::Null(Type::Optional(inner.clone())))
         }
         ast::Expr::IsRegularWidth(_) => {
             require_expected(expected, &Type::Bool, expr.span())?;
@@ -310,29 +336,58 @@ pub(super) fn lower_expr(
             false,
         ),
         ast::Expr::Index(collection, index, span) => {
-            let Some(Type::Array(element_type)) = infer_expr_type(collection, symbols, functions)
-            else {
-                return Err(CompileError::new(
-                    *span,
-                    "collection indexing requires an Array<T> value",
-                ));
+            let collection_type = infer_expr_type(collection, symbols, functions);
+            let (index_type, result_type, collection_type) = match collection_type {
+                Some(Type::Array(element_type)) => (
+                    Type::Numeric(NumericType::Int32),
+                    (*element_type).clone(),
+                    Type::Array(element_type),
+                ),
+                Some(Type::Map(key_type, value_type)) => (
+                    (*key_type).clone(),
+                    Type::Optional(value_type.clone()),
+                    Type::Map(key_type, value_type),
+                ),
+                _ => {
+                    return Err(CompileError::new(
+                        *span,
+                        "collection indexing requires an Array<T> or Map<K, V> value",
+                    ));
+                }
             };
-            let index_type = Type::Numeric(NumericType::Int32);
             let lowered_collection = lower_expr(
                 collection,
-                Some(&Type::Array(element_type.clone())),
+                Some(&collection_type),
                 symbols,
                 functions,
                 allow_await,
             )?;
             let lowered_index =
                 lower_expr(index, Some(&index_type), symbols, functions, allow_await)?;
-            require_expected(expected, &element_type, *span)?;
+            require_expected(expected, &result_type, *span)?;
             Ok(Expr::Index {
                 collection: Box::new(lowered_collection),
                 index: Box::new(lowered_index),
-                element_type: (*element_type).clone(),
+                collection_type,
+                element_type: result_type,
             })
+        }
+        ast::Expr::Coalesce(left, right, span) => {
+            let Some(Type::Optional(inner)) = infer_expr_type(left, symbols, functions) else {
+                return Err(CompileError::new(
+                    *span,
+                    "left side of `??` must be an optional value",
+                ));
+            };
+            let optional_type = Type::Optional(inner.clone());
+            let lowered_left =
+                lower_expr(left, Some(&optional_type), symbols, functions, allow_await)?;
+            let lowered_right = lower_expr(right, Some(&inner), symbols, functions, allow_await)?;
+            require_expected(expected, &inner, *span)?;
+            Ok(Expr::Coalesce(
+                Box::new(lowered_left),
+                Box::new(lowered_right),
+            ))
         }
         ast::Expr::Await(value, span) => {
             if !allow_await {
@@ -471,6 +526,8 @@ fn lower_binary(
     let left_type = infer_expr_type(left, symbols, functions);
     let right_type = infer_expr_type(right, symbols, functions);
     let common_type = match (left_type, right_type) {
+        (None, Some(right_type)) if !is_ordered && matches!(left, ast::Expr::Null(_)) => right_type,
+        (Some(left_type), None) if !is_ordered && matches!(right, ast::Expr::Null(_)) => left_type,
         (Some(left_type), Some(right_type)) if left_type == right_type => left_type,
         (Some(left_type @ Type::Numeric(_)), Some(Type::Numeric(_)))
             if matches!(right, ast::Expr::Number(_, _)) =>
@@ -509,7 +566,12 @@ fn lower_binary(
             "ordering comparisons are supported for numeric values only",
         ));
     }
-    if !is_ordered && !matches!(common_type, Type::Numeric(_) | Type::Bool | Type::String) {
+    if !is_ordered
+        && !matches!(
+            common_type,
+            Type::Numeric(_) | Type::Bool | Type::String | Type::Optional(_)
+        )
+    {
         return Err(CompileError::new(
             span,
             "equality is supported for numeric, Bool, and String values",
@@ -547,8 +609,21 @@ pub(super) fn infer_expr_type(
         ast::Expr::Index(collection, _, _) => match infer_expr_type(collection, symbols, functions)
         {
             Some(Type::Array(element_type)) => Some(*element_type),
+            Some(Type::Map(_, value_type)) => Some(Type::Optional(value_type)),
             _ => None,
         },
+        ast::Expr::Null(_) => None,
+        ast::Expr::Coalesce(left, right, _) => {
+            let Some(Type::Optional(inner)) = infer_expr_type(left, symbols, functions) else {
+                return None;
+            };
+            let right_type = infer_expr_type(right, symbols, functions)?;
+            if *inner == right_type {
+                Some(*inner)
+            } else {
+                None
+            }
+        }
         ast::Expr::Await(value, _) => infer_expr_type(value, symbols, functions),
         ast::Expr::ThemeToken(_, _) => None,
         ast::Expr::Add(left_expr, right_expr, _) => {
@@ -607,6 +682,7 @@ fn as_numeric_type(ty: &Type) -> Option<NumericType> {
 pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError> {
     match syntax {
         ast::TypeSyntax::Named(name, span) => parse_named_type(name, *span),
+        ast::TypeSyntax::Optional(inner, _) => Ok(Type::Optional(Box::new(parse_type(inner)?))),
         ast::TypeSyntax::Generic(name, arguments, span) => {
             let expected_arity = match name.as_str() {
                 "Array" | "Set" => 1,
@@ -732,6 +808,7 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
             validate_type_constraints(second, span)?;
             validate_type_constraints(third, span)
         }
+        Type::Optional(inner) => validate_type_constraints(inner, span),
         Type::String | Type::Bool | Type::Numeric(_) => Ok(()),
     }
 }
@@ -844,6 +921,7 @@ pub(super) fn type_name(ty: &Type) -> String {
             type_name(second),
             type_name(third)
         ),
+        Type::Optional(inner) => format!("{}?", type_name(inner)),
     }
 }
 fn numeric_name(ty: NumericType) -> &'static str {

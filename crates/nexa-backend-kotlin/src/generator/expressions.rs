@@ -28,6 +28,10 @@ pub(super) fn expression(expr: &Expr) -> String {
         Expr::Number { raw, ty } => kotlin_number(raw, *ty),
         Expr::State(name, _) => state_name(name),
         Expr::Not(value) => format!("(!{})", expression(value)),
+        Expr::Null(_) => "null".to_owned(),
+        Expr::Coalesce(left, right) => {
+            format!("({} ?: {})", expression(left), expression(right))
+        }
         Expr::Index {
             collection, index, ..
         } => format!("{}[{}]", expression(collection), expression(index)),
