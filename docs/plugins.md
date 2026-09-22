@@ -137,7 +137,8 @@ contract. `native class` represents an independently constructible stateful
 object, and `native component` represents a platform visual contract. Native
 class constructors and instance method calls are lowered as direct object
 calls, so two constructor expressions produce two independent native objects.
-Property metadata, deterministic disposal, events, visual component lowering,
+Read-only native properties are lowered as direct member access. Mutable
+property writes, deterministic disposal, events, visual component lowering,
 and generated implementation factories are still future phases.
 
 ## Compile-time options
@@ -174,7 +175,7 @@ direct generated Swift/Kotlin constants; no runtime option map is emitted.
 Local package discovery, pure-source loading, typed native parsing, direct
 Swift/Kotlin contract generation, asset reachability, and compile-time options
 are implemented. Package installation/version resolution, native implementation
-conformance checks, property and disposal lowering, typed error recovery in
+conformance checks, mutable property writes and disposal, typed error recovery in
 `.nx`, instance-scoped events, native visual component lowering, SPM/Maven
 dependency injection, and optional generated C++ adapters remain planned work. See
 `plugin-plan.md` for the full migration and test matrix.

@@ -120,6 +120,14 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                         nexa_codegen::names::struct_field_name(field)
                     );
                 }
+                (Type::Plugin { .. }, field) => {
+                    return format!(
+                        "{}{}.{}",
+                        render(base),
+                        if *optional { "?" } else { "" },
+                        field
+                    );
+                }
                 (Type::NetworkResponse, "statusCode") => ".statusCode",
                 (Type::NetworkResponse, "headers") => ".headers",
                 (Type::NetworkResponse, "body") => ".text",

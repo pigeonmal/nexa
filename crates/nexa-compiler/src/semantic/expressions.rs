@@ -137,6 +137,36 @@ pub(super) fn collect_plugin_signatures(
                 },
             );
         }
+        if native_class {
+            for property in &interface.properties {
+                let key = format!("{}.#property.{}", interface.name, property.name);
+                if signatures.contains_key(&key) {
+                    return Err(CompileError::new(
+                        plugin.span,
+                        format!(
+                            "native class property `{}` is declared more than once",
+                            property.name
+                        ),
+                    ));
+                }
+                let return_type = plugin_type(&plugin.namespace, &property.ty, false)
+                    .map_err(|message| CompileError::new(plugin.span, message))?;
+                signatures.insert(
+                    key,
+                    FunctionSignature {
+                        parameters: Vec::new(),
+                        return_type,
+                        is_async: false,
+                        is_throwing: false,
+                        receiver: Some(Type::Plugin {
+                            namespace: plugin.namespace.clone(),
+                            name: interface.name.clone(),
+                        }),
+                        is_constructor: false,
+                    },
+                );
+            }
+        }
     }
     Ok(signatures)
 }
@@ -817,7 +847,8 @@ pub(super) fn lower_expr(
                         "`?.` requires an optional Pair, Triple, or struct value",
                     ));
                 };
-                let Some(field_type) = member_field_type(inner, name) else {
+                let Some(field_type) = member_field_type_with_plugins(inner, name, functions)
+                else {
                     return Err(CompileError::new(
                         *span,
                         format!("`{}` has no member `{name}`", type_name(inner)),
@@ -831,7 +862,8 @@ pub(super) fn lower_expr(
                         "optional values require `?.` for member access",
                     ));
                 }
-                let Some(field_type) = member_field_type(&base_type, name) else {
+                let Some(field_type) = member_field_type_with_plugins(&base_type, name, functions)
+                else {
                     return Err(CompileError::new(
                         *span,
                         format!("`{}` has no member `{name}`", type_name(&base_type)),
@@ -1832,9 +1864,10 @@ pub(super) fn infer_expr_type(
                     let Type::Optional(inner) = base_type else {
                         return None;
                     };
-                    member_field_type(&inner, name).map(|field| Type::Optional(Box::new(field)))
+                    member_field_type_with_plugins(&inner, name, functions)
+                        .map(|field| Type::Optional(Box::new(field)))
                 } else {
-                    member_field_type(&base_type, name)
+                    member_field_type_with_plugins(&base_type, name, functions)
                 }
             })
         }
@@ -1943,6 +1976,20 @@ fn member_field_type(base_type: &Type, name: &str) -> Option<Type> {
         (Type::NetworkResponse, "body") => Some(Type::String),
         _ => None,
     }
+}
+
+fn member_field_type_with_plugins(
+    base_type: &Type,
+    name: &str,
+    functions: &FunctionSignatures,
+) -> Option<Type> {
+    if let Type::Plugin { name: class, .. } = base_type {
+        return functions
+            .get(&format!("{class}.#property.{name}"))
+            .filter(|signature| signature.receiver.as_ref() == Some(base_type))
+            .map(|signature| signature.return_type.clone());
+    }
+    member_field_type(base_type, name)
 }
 
 pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError> {

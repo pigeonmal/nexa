@@ -91,6 +91,8 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             };
             let name = if matches!(member_name, Type::Struct { .. }) {
                 nexa_codegen::names::struct_field_name(name)
+            } else if matches!(member_name, Type::Plugin { .. }) {
+                name.clone()
             } else if matches!(member_name, Type::NetworkResponse) && name == "body" {
                 "text".to_owned()
             } else {
