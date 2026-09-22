@@ -60,6 +60,11 @@ private object NexaCronetRuntime {
     }
 }
 
+"#,
+        );
+        if include_network {
+            out.push_str(
+            r#"
 private class NexaUploadProvider(private val payload: ByteArray) : UploadDataProvider() {
     private var offset = 0
 
@@ -151,6 +156,65 @@ private class NexaCronetRequestClient(
 
 "#,
         );
+        }
+        if include_image_support {
+            out.push_str(
+            r#"
+private class NexaCronetImageRequestClient(
+    private val engine: CronetEngine,
+) {
+    suspend fun execute(url: String): NexaNetworkResponse = suspendCancellableCoroutine { continuation ->
+        val output = ByteArrayOutputStream()
+        var receivedBytes = 0L
+        val callback = object : UrlRequest.Callback() {
+            override fun onRedirectReceived(request: UrlRequest, info: UrlResponseInfo, newLocationUrl: String) {
+                request.followRedirect()
+            }
+
+            override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
+                request.read(ByteBuffer.allocateDirect(32 * 1024))
+            }
+
+            override fun onReadCompleted(request: UrlRequest, info: UrlResponseInfo, byteBuffer: ByteBuffer) {
+                byteBuffer.flip()
+                if (receivedBytes + byteBuffer.remaining() > 64L * 1024L * 1024L) {
+                    request.cancel()
+                    continuation.resumeWithException(NexaNetworkException("image response exceeds 64 MiB"))
+                    return
+                }
+                val bytes = ByteArray(byteBuffer.remaining())
+                byteBuffer.get(bytes)
+                receivedBytes += bytes.size
+                output.write(bytes)
+                byteBuffer.clear()
+                request.read(byteBuffer)
+            }
+
+            override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
+                continuation.resume(
+                    NexaNetworkResponse(info.httpStatusCode, info.allHeaders, output.toByteArray())
+                )
+            }
+
+            override fun onFailed(request: UrlRequest, info: UrlResponseInfo?, error: org.chromium.net.CronetException) {
+                continuation.resumeWithException(error)
+            }
+
+            override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) {
+                if (continuation.isActive) continuation.resumeWithException(CancellationException("request cancelled"))
+            }
+        }
+        val request = engine.newUrlRequestBuilder(url, callback, NexaCronetRuntime.executor())
+            .setHttpMethod("GET")
+            .build()
+        continuation.invokeOnCancellation { request.cancel() }
+        request.start()
+    }
+}
+
+"#,
+        );
+        }
     }
     if include_network {
         out.push_str(
@@ -312,14 +376,7 @@ private class NexaCronetNetworkClient(
         request: NetworkRequest,
         block: suspend (NetworkResponse) -> T,
     ): T {
-        val response = NexaCronetRequestClient(engine).execute(
-            request.url,
-            request.method,
-            request.headers.asMap(),
-            null,
-            64L * 1024L * 1024L,
-            true,
-        )
+        val response = NexaCronetImageRequestClient(engine).execute(request.url)
         val networkResponse = NetworkResponse(
             code = response.statusCode,
             headers = response.headers.toNetworkHeaders(),

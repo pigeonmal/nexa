@@ -503,10 +503,10 @@ pub(super) fn render(
     add(features.uses_remote_image, "okio.Buffer");
     add(uses_network_transport, "org.chromium.net.CronetEngine");
     add(
-        uses_network_transport,
+        features.uses_network_api,
         "org.chromium.net.UploadDataProvider",
     );
-    add(uses_network_transport, "org.chromium.net.UploadDataSink");
+    add(features.uses_network_api, "org.chromium.net.UploadDataSink");
     add(uses_network_transport, "org.chromium.net.UrlRequest");
     add(uses_network_transport, "org.chromium.net.UrlResponseInfo");
     add(uses_network_transport, "java.io.ByteArrayOutputStream");
@@ -515,7 +515,7 @@ pub(super) fn render(
         "java.io.File",
     );
     add(features.uses_network_api, "java.io.FileOutputStream");
-    add(uses_network_transport, "java.io.OutputStream");
+    add(features.uses_network_api, "java.io.OutputStream");
     add(uses_network_transport, "java.nio.ByteBuffer");
     add(uses_network_transport, "java.util.WeakHashMap");
     add(uses_network_transport, "java.util.concurrent.Executors");
