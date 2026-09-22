@@ -446,6 +446,7 @@ fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
         | nexa_ir::Type::Bool
         | nexa_ir::Type::Numeric(_)
         | nexa_ir::Type::Enum(_)
+        | nexa_ir::Type::Plugin { .. }
         | nexa_ir::Type::NetworkResponse => {}
     }
 }

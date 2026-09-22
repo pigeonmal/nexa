@@ -234,7 +234,16 @@ fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> Str
             argument("path")
         ),
         ("File", "delete") => format!("NexaFile.delete({})", argument("path")),
-        _ => unreachable!("semantic analysis validates native calls"),
+        _ => format!(
+            "{}Plugin.instance.{}({})",
+            namespace,
+            name,
+            arguments
+                .iter()
+                .map(|(_, value)| expression(value))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 

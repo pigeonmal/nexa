@@ -152,7 +152,7 @@ fn generate_ios(root: &Path, app_name: &str, module: &Module) -> Result<(), Stri
     let directory = root.join("ios").join(app_name);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let screen = nexa_codegen::names::screen_name(app_name);
-    let source = SwiftBackend.generate(module);
+    let source = ios_generated_source(module)?;
     write_if_changed(&directory.join("NexaGenerated.swift"), &source)?;
     write_if_changed(
         &directory.join(format!("{app_name}App.swift")),
@@ -180,6 +180,7 @@ fn generate_android(root: &Path, app_name: &str, module: &Module) -> Result<(), 
     fs::create_dir_all(&source_dir)
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
     let generated = KotlinBackend.generate(module);
+    copy_android_plugin_sources(root, module)?;
     let screen = nexa_codegen::names::screen_name(app_name);
     let uses_network = generated.contains("NexaNetwork") || generated.contains("org.chromium.net");
     let uses_remote_image =
@@ -231,6 +232,104 @@ fn generate_android(root: &Path, app_name: &str, module: &Module) -> Result<(), 
             generated.contains("NavHost"),
         ),
     )?;
+    Ok(())
+}
+
+fn ios_generated_source(module: &Module) -> Result<String, String> {
+    let generated = SwiftBackend.generate(module);
+    if module.plugins.is_empty() {
+        return Ok(generated);
+    }
+    let mut imports = vec!["import Foundation".to_owned()];
+    let mut declarations = Vec::new();
+    for line in generated.lines() {
+        if line.trim_start().starts_with("import ") {
+            imports.push(line.to_owned());
+        } else {
+            declarations.push(line.to_owned());
+        }
+    }
+    for plugin in &module.plugins {
+        for path in native_plugin_sources(plugin, "ios/Sources", "swift")? {
+            let contents = fs::read_to_string(&path)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            for line in contents.lines() {
+                if line.trim_start().starts_with("import ") {
+                    imports.push(line.to_owned());
+                } else {
+                    declarations.push(line.to_owned());
+                }
+            }
+            declarations.push(format!("// Nexa plugin: {}", plugin.namespace));
+        }
+    }
+    imports.sort();
+    imports.dedup();
+    let mut source = imports.join("\n");
+    source.push_str("\n\n");
+    source.push_str(&declarations.join("\n"));
+    source.push('\n');
+    Ok(source)
+}
+
+fn copy_android_plugin_sources(root: &Path, module: &Module) -> Result<(), String> {
+    let destination = root.join("android/app/src/main/java");
+    for plugin in &module.plugins {
+        for path in native_plugin_sources(plugin, "android/src/main/kotlin", "kt")? {
+            let plugin_root = Path::new(&plugin.idl_path)
+                .parent()
+                .ok_or_else(|| format!("invalid plugin IDL path `{}`", plugin.idl_path))?;
+            let source_root = plugin_root.join("android/src/main/kotlin");
+            let relative = path.strip_prefix(&source_root).map_err(|_| {
+                format!(
+                    "plugin source is outside its Kotlin source root: {}",
+                    path.display()
+                )
+            })?;
+            write_if_changed(
+                &destination.join(relative),
+                &fs::read_to_string(&path)
+                    .map_err(|error| format!("{}: {error}", path.display()))?,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn native_plugin_sources(
+    plugin: &nexa_ir::Plugin,
+    relative_root: &str,
+    extension: &str,
+) -> Result<Vec<PathBuf>, String> {
+    let plugin_root = Path::new(&plugin.idl_path)
+        .parent()
+        .ok_or_else(|| format!("invalid plugin IDL path `{}`", plugin.idl_path))?;
+    let source_root = plugin_root.join(relative_root);
+    if !source_root.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    collect_files(&source_root, extension, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+fn collect_files(
+    directory: &Path,
+    extension: &str,
+    files: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    for entry in
+        fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?
+    {
+        let entry = entry.map_err(|error| format!("{}: {error}", directory.display()))?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files(&path, extension, files)?;
+        } else if path.extension().and_then(|value| value.to_str()) == Some(extension) {
+            files.push(path);
+        }
+    }
     Ok(())
 }
 

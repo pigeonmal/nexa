@@ -27,6 +27,7 @@ dependencies = [
  "nexa-codegen",
  "nexa-compiler",
  "nexa-ir",
+ "nexa-plugin-idl",
 ]
 
 [[package]]
@@ -42,6 +43,7 @@ version = "0.1.0"
 dependencies = [
  "nexa-diagnostics",
  "nexa-ir",
+ "nexa-plugin-idl",
  "nexa-syntax",
 ]
 
@@ -54,8 +56,13 @@ name = "nexa-ir"
 version = "0.1.0"
 
 [[package]]
+name = "nexa-plugin-idl"
+version = "0.1.0"
+
+[[package]]
 name = "nexa-syntax"
 version = "0.1.0"
 dependencies = [
  "nexa-diagnostics",
+ "nexa-plugin-idl",
 ]

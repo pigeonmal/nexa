@@ -12,8 +12,8 @@ use self::{
     custom_components::{lower_components, retain_reachable},
     expressions::{
         FunctionSignature, FunctionSignatures, StructTypes, collect_function_signatures,
-        lower_expr, parse_type, references_state, resolve_declaration_type, resolve_struct_type,
-        resolve_value_type,
+        collect_plugin_signatures, lower_expr, parse_type, references_state,
+        resolve_declaration_type, resolve_struct_type, resolve_value_type,
     },
     themes::lower_theme,
 };
@@ -75,6 +75,15 @@ pub fn lower_with_warnings(
         }
     }
     let mut function_signatures = collect_function_signatures(&app.functions, &struct_types)?;
+    for (name, signature) in collect_plugin_signatures(&app.plugins)? {
+        if function_signatures.contains_key(&name) {
+            return Err(CompileError::new(
+                app.span,
+                format!("plugin method `{name}` conflicts with an app function"),
+            ));
+        }
+        function_signatures.insert(name, signature);
+    }
     for declaration in &struct_declarations {
         if function_signatures.contains_key(&declaration.name) {
             return Err(CompileError::new(
@@ -102,6 +111,7 @@ pub fn lower_with_warnings(
                         .collect(),
                 },
                 is_async: false,
+                is_throwing: false,
             },
         );
     }
@@ -255,8 +265,17 @@ pub fn lower_with_warnings(
     let (on_appear, on_appear_async, body) = extract_on_appear(body, app.span, "app")?;
     let (on_disappear, body) = extract_on_disappear(body, app.span, "app")?;
     let components = retain_reachable(components, &body, &screens);
+    let plugins = app
+        .plugins
+        .iter()
+        .map(|plugin| nexa_ir::Plugin {
+            namespace: plugin.namespace.clone(),
+            idl_path: plugin.path.clone(),
+        })
+        .collect();
     let mut module = Module {
         app_name: app.name,
+        plugins,
         enums: enum_declarations,
         structs: struct_declarations,
         permissions,
@@ -632,9 +651,12 @@ fn validate_type_names(
         Type::Struct { fields, .. } => fields
             .iter()
             .try_for_each(|(_, field)| validate_type_names(field, enum_names, span)),
-        Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_) | Type::NetworkResponse => {
-            Ok(())
-        }
+        Type::String
+        | Type::Bool
+        | Type::Numeric(_)
+        | Type::Enum(_)
+        | Type::Plugin { .. }
+        | Type::NetworkResponse => Ok(()),
     }
 }
 

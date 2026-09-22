@@ -6,7 +6,7 @@ use std::{
 };
 
 mod bindings;
-mod idl;
+use nexa_plugin_idl as idl;
 
 pub(super) fn run(args: &[String]) -> Result<(), String> {
     let Some(command) = args.first().map(String::as_str) else {
@@ -98,7 +98,7 @@ fn init(args: &[String]) -> Result<(), String> {
     write_if_absent(
         &output.join("interfaces.nxid"),
         &format!(
-            "// Public typed interface declarations for {type_name}.\n// Use `type Name` for value models and `type Error: Error` for typed failures.\n\ninterface {type_name} {{\n    // async fn method(input: String) -> Void\n}}\n"
+            "// Public typed interface declarations for {type_name}.\n// Use `type Name` for value models and `type Error: Error` for typed failures.\n// Add methods here, then implement the matching native methods in both source trees.\n\ninterface {type_name} {{\n    // async fn method(input: String) -> String\n}}\n"
         ),
     )?;
     println!("created plugin scaffold {}", output.display());
@@ -320,18 +320,20 @@ fn manifest(
 
 fn readme(id: &str, version: &str, type_name: &str) -> String {
     format!(
-        "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `nexa.plugin.json` declares the package identity, IDL path, and platform source entry points.\n- `interfaces.nxid` contains typed public interface declarations.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nValidate the IDL with `nexa plugin check .`. Generate direct native binding skeletons with `nexa plugin generate . --target swift` or `--target kotlin`. The current slice does not install dependencies or connect a plugin to `.nx` calls yet.\n"
+        "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `nexa.plugin.json` declares the package identity, IDL path, and platform source entry points.\n- `interfaces.nxid` contains typed public interface declarations.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nValidate the IDL with `nexa plugin check .`. Generate direct native binding skeletons with `nexa plugin generate . --target swift` or `--target kotlin`. A local `.nx` app can declare `plugin \"path\" as Namespace`; project generation then includes these platform source trees. Package installation, dependency resolution, and generated implementation methods are not included yet.\n"
     )
 }
 
 fn ios_stub(type_name: &str) -> String {
     format!(
-        "import Foundation\n\npublic enum {type_name}PluginError: Error {{\n    case unavailable\n}}\n\npublic struct {type_name}Plugin {{\n    public init() {{}}\n}}\n"
+        "import Foundation\n\npublic enum {type_name}PluginError: Error {{\n    case unavailable\n}}\n\npublic final class {type_name}Plugin {{\n    public static let shared = {type_name}Plugin()\n    public init() {{}}\n}}\n"
     )
 }
 
 fn android_stub(package: &str, type_name: &str) -> String {
-    format!("package {package}\n\nclass {type_name}Plugin\n")
+    format!(
+        "package {package}\n\nobject {type_name}Plugin {{\n    val instance: {type_name}Plugin = this\n}}\n"
+    )
 }
 
 fn write_if_absent(path: &Path, contents: &str) -> Result<(), String> {

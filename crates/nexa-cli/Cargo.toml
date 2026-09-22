@@ -14,3 +14,4 @@ nexa-backend-swift = { path = "../nexa-backend-swift" }
 nexa-codegen = { path = "../nexa-codegen" }
 nexa-compiler = { path = "../nexa-compiler" }
 nexa-ir = { path = "../nexa-ir" }
+nexa-plugin-idl = { path = "../nexa-plugin-idl" }

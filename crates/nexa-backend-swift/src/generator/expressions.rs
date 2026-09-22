@@ -205,11 +205,16 @@ pub(super) fn expression(expr: &Expr) -> String {
             ..
         } => native_call(namespace, name, arguments),
         Expr::Await(value) => match value.as_ref() {
-            Expr::NativeCall { return_type, .. } => format!(
+            Expr::NativeCall {
+                return_type,
+                is_throwing,
+                ..
+            } if *is_throwing => format!(
                 "(try? await {}) ?? {}",
                 expression(value),
                 native_failure_default(return_type)
             ),
+            Expr::NativeCall { .. } => format!("await {}", expression(value)),
             _ => format!("await {}", expression(value)),
         },
         Expr::Add(left, right, ty) => {
@@ -306,7 +311,16 @@ fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> Str
             argument("path")
         ),
         ("File", "delete") => format!("NexaFile.delete({})", argument("path")),
-        _ => unreachable!("semantic analysis validates native calls"),
+        _ => format!(
+            "{}Plugin.shared.{}({})",
+            namespace,
+            name,
+            arguments
+                .iter()
+                .map(|(argument_name, value)| { format!("{argument_name}: {}", expression(value)) })
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 

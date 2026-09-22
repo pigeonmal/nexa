@@ -22,6 +22,7 @@ pub fn parse(tokens: Vec<Token>) -> Result<App, CompileError> {
     };
     app.components = program.components;
     app.structs = program.structs;
+    app.plugins = program.plugins;
     Ok(app)
 }
 
@@ -43,12 +44,15 @@ struct Parser {
 impl Parser {
     fn program(mut self) -> Result<Program, CompileError> {
         let mut imports = Vec::new();
+        let mut plugins = Vec::new();
         let mut components = Vec::new();
         let mut structs = Vec::new();
         let mut app = None;
         while !self.check(&Kind::Eof) {
             if self.word_is("import") {
                 imports.push(self.import_decl()?);
+            } else if self.word_is("plugin") {
+                plugins.push(self.plugin_decl()?);
             } else if self.word_is("struct") {
                 structs.push(self.struct_decl()?);
             } else if self.word_is("component") {
@@ -60,12 +64,13 @@ impl Parser {
                 app = Some(self.app_decl()?);
             } else {
                 return self.error_here(
-                    "expected an `import`, `struct`, `component`, or `app` declaration",
+                    "expected an `import`, `plugin`, `struct`, `component`, or `app` declaration",
                 );
             }
         }
         Ok(Program {
             imports,
+            plugins,
             components,
             structs,
             app,
@@ -132,6 +137,32 @@ impl Parser {
         Ok(ImportDecl {
             path,
             span: keyword,
+        })
+    }
+
+    fn plugin_decl(&mut self) -> Result<PluginDecl, CompileError> {
+        let keyword = self.advance().span;
+        let token = self.advance().clone();
+        let Kind::String(path) = token.kind else {
+            return Err(CompileError::new(
+                token.span,
+                "a plugin path must be a quoted directory or IDL path",
+            ));
+        };
+        if path.is_empty() {
+            return Err(CompileError::new(
+                token.span,
+                "a plugin path cannot be empty",
+            ));
+        }
+        self.expect_word("as")?;
+        let (namespace, _) = self.ident()?;
+        self.optional_semicolon();
+        Ok(PluginDecl {
+            path,
+            namespace,
+            span: keyword,
+            idl: None,
         })
     }
 
@@ -249,6 +280,7 @@ impl Parser {
         let body = body.ok_or_else(|| CompileError::new(span, "app is missing a `body` block"))?;
         Ok(App {
             name,
+            plugins: Vec::new(),
             enums,
             structs: Vec::new(),
             permissions,

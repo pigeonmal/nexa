@@ -958,9 +958,12 @@ stubs. `interfaces.nxid` supports typed value/error models and interface
 methods with primitive, collection, pair/triple, optional, and generic types.
 The checker validates names, generic syntax, and asynchronous `Result` methods;
 the binding generator emits direct Swift protocols or Kotlin interfaces with
-native model declarations. Typed `.nx` call sites, dependency resolution,
-installation, and generated implementation wiring remain future work. See
-[`docs/plugins.md`](docs/plugins.md).
+native model declarations. A local `.nx` entry file can declare
+`plugin "path" as Namespace`; the compiler resolves its typed calls statically
+and generated projects include the plugin's `ios/Sources` and
+`android/src/main/kotlin` source trees. Dependency resolution, installation,
+version selection, generated implementation methods, and typed error recovery
+remain future work. See [`docs/plugins.md`](docs/plugins.md).
 
 The plugin system should take inspiration from systems such as:
 

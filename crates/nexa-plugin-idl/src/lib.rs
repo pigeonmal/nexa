@@ -7,42 +7,42 @@
 use std::{fs, path::Path};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PluginIdl {
-    pub(crate) types: Vec<NamedType>,
-    pub(crate) interfaces: Vec<Interface>,
+pub struct PluginIdl {
+    pub types: Vec<NamedType>,
+    pub interfaces: Vec<Interface>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct NamedType {
-    pub(crate) name: String,
-    pub(crate) is_error: bool,
+pub struct NamedType {
+    pub name: String,
+    pub is_error: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Interface {
-    pub(crate) name: String,
-    pub(crate) methods: Vec<Method>,
+pub struct Interface {
+    pub name: String,
+    pub methods: Vec<Method>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Method {
-    pub(crate) name: String,
-    pub(crate) is_async: bool,
-    pub(crate) parameters: Vec<Parameter>,
-    pub(crate) return_type: TypeRef,
+pub struct Method {
+    pub name: String,
+    pub is_async: bool,
+    pub parameters: Vec<Parameter>,
+    pub return_type: TypeRef,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Parameter {
-    pub(crate) name: String,
-    pub(crate) ty: TypeRef,
+pub struct Parameter {
+    pub name: String,
+    pub ty: TypeRef,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct TypeRef {
-    pub(crate) name: String,
-    pub(crate) arguments: Vec<TypeRef>,
-    pub(crate) optional: bool,
+pub struct TypeRef {
+    pub name: String,
+    pub arguments: Vec<TypeRef>,
+    pub optional: bool,
 }
 
 impl TypeRef {
@@ -89,13 +89,13 @@ struct Token {
     location: Location,
 }
 
-pub(crate) fn parse_file(path: &Path) -> Result<PluginIdl, String> {
+pub fn parse_file(path: &Path) -> Result<PluginIdl, String> {
     let source =
         fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
     parse(&source).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-pub(crate) fn parse(source: &str) -> Result<PluginIdl, String> {
+pub fn parse(source: &str) -> Result<PluginIdl, String> {
     let tokens = lex(source)?;
     Parser { tokens, cursor: 0 }.parse()
 }

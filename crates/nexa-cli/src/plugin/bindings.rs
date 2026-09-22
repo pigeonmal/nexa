@@ -1,6 +1,6 @@
 //! Direct native binding skeletons generated from the plugin IDL.
 
-use super::idl::{Method, NamedType, PluginIdl, TypeRef};
+use nexa_plugin_idl::{Method, NamedType, PluginIdl, TypeRef};
 
 pub(crate) fn swift(idl: &PluginIdl) -> String {
     let mut out = String::from("import Foundation\n\n");

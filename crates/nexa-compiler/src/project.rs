@@ -5,6 +5,7 @@ use std::{
 };
 
 use nexa_diagnostics::{CompileError, Span};
+use nexa_plugin_idl::parse_file as parse_plugin_idl;
 use nexa_syntax::ast::{App, ComponentDecl, ImportDecl, StructDecl};
 
 use crate::{Target, semantic};
@@ -127,8 +128,45 @@ fn load_file(
         )
         .with_file(canonical_path.display().to_string())
     })?;
-    let program = nexa_syntax::parse_program(&source)
+    let mut program = nexa_syntax::parse_program(&source)
         .map_err(|error| error.with_file(canonical_path.display().to_string()))?;
+
+    if !program.plugins.is_empty() {
+        if !is_entry {
+            let plugin = &program.plugins[0];
+            return Err(CompileError::new(
+                plugin.span,
+                "plugin declarations are only allowed in the entry file",
+            )
+            .with_file(canonical_path.display().to_string()));
+        }
+        for plugin in &mut program.plugins {
+            let declared_path = canonical_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(&plugin.path);
+            let idl_path = if declared_path.is_dir() {
+                declared_path.join("interfaces.nxid")
+            } else {
+                declared_path
+            };
+            let idl_path = fs::canonicalize(&idl_path).map_err(|error| {
+                CompileError::new(
+                    plugin.span,
+                    format!("cannot resolve plugin IDL `{}`: {error}", plugin.path),
+                )
+                .with_file(canonical_path.display().to_string())
+            })?;
+            plugin.idl = Some(parse_plugin_idl(&idl_path).map_err(|error| {
+                CompileError::new(plugin.span, error)
+                    .with_file(canonical_path.display().to_string())
+            })?);
+            plugin.path = idl_path.display().to_string();
+        }
+        if let Some(app) = program.app.as_mut() {
+            app.plugins = program.plugins.clone();
+        }
+    }
 
     active.insert(canonical_path.clone());
     for import in &program.imports {

@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{BinaryOp, Expr, InterpolatedPart, NumericType, Type};
+use nexa_plugin_idl::{PluginIdl, TypeRef};
 use nexa_syntax::ast;
 
 #[derive(Clone)]
@@ -9,10 +10,137 @@ pub(super) struct FunctionSignature {
     pub(super) parameters: Vec<(String, Type)>,
     pub(super) return_type: Type,
     pub(super) is_async: bool,
+    pub(super) is_throwing: bool,
 }
 
 pub(super) type FunctionSignatures = HashMap<String, FunctionSignature>;
 pub(super) type StructTypes = HashMap<String, Type>;
+
+pub(super) fn collect_plugin_signatures(
+    plugins: &[ast::PluginDecl],
+) -> Result<FunctionSignatures, CompileError> {
+    let mut signatures = HashMap::new();
+    for plugin in plugins {
+        if is_core_native_namespace(&plugin.namespace) {
+            return Err(CompileError::new(
+                plugin.span,
+                format!(
+                    "plugin namespace `{}` is reserved for Nexa native APIs",
+                    plugin.namespace
+                ),
+            ));
+        }
+        let Some(idl) = plugin.idl.as_ref() else {
+            return Err(CompileError::new(
+                plugin.span,
+                format!("plugin `{}` has not been resolved", plugin.namespace),
+            ));
+        };
+        let interface = idl_interface(idl, &plugin.namespace).ok_or_else(|| {
+            CompileError::new(
+                plugin.span,
+                format!(
+                    "plugin `{}` does not declare an interface with that name",
+                    plugin.namespace
+                ),
+            )
+        })?;
+        for method in &interface.methods {
+            let key = format!("{}.{}", plugin.namespace, method.name);
+            if signatures.contains_key(&key) {
+                return Err(CompileError::new(
+                    plugin.span,
+                    format!("plugin method `{key}` is declared more than once"),
+                ));
+            }
+            let return_type = plugin_type(&plugin.namespace, &method.return_type, true)
+                .map_err(|message| CompileError::new(plugin.span, message))?;
+            let parameters = method
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    plugin_type(&plugin.namespace, &parameter.ty, false)
+                        .map(|ty| (parameter.name.clone(), ty))
+                        .map_err(|message| CompileError::new(plugin.span, message))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            signatures.insert(
+                key,
+                FunctionSignature {
+                    parameters,
+                    return_type,
+                    is_async: method.is_async,
+                    is_throwing: method.return_type.name == "Result",
+                },
+            );
+        }
+    }
+    Ok(signatures)
+}
+
+fn idl_interface<'a>(
+    idl: &'a PluginIdl,
+    namespace: &str,
+) -> Option<&'a nexa_plugin_idl::Interface> {
+    idl.interfaces
+        .iter()
+        .find(|interface| interface.name == namespace)
+        .or_else(|| (idl.interfaces.len() == 1).then(|| &idl.interfaces[0]))
+}
+
+fn plugin_type(namespace: &str, ty: &TypeRef, return_position: bool) -> Result<Type, String> {
+    let mut result = match ty.name.as_str() {
+        "Void" => return Err("plugin methods cannot use `Void` in this language slice".to_owned()),
+        "String" => Type::String,
+        "Bool" => Type::Bool,
+        "Int8" => Type::Numeric(NumericType::Int8),
+        "Int16" => Type::Numeric(NumericType::Int16),
+        "Int32" => Type::Numeric(NumericType::Int32),
+        "Int64" => Type::Numeric(NumericType::Int64),
+        "UInt8" => Type::Numeric(NumericType::UInt8),
+        "UInt16" => Type::Numeric(NumericType::UInt16),
+        "UInt32" => Type::Numeric(NumericType::UInt32),
+        "UInt64" => Type::Numeric(NumericType::UInt64),
+        "Float32" => Type::Numeric(NumericType::Float32),
+        "Float64" => Type::Numeric(NumericType::Float64),
+        "Bytes" => Type::Array(Box::new(Type::Numeric(NumericType::UInt8))),
+        "Array" if ty.arguments.len() == 1 => {
+            Type::Array(Box::new(plugin_type(namespace, &ty.arguments[0], false)?))
+        }
+        "Set" if ty.arguments.len() == 1 => {
+            Type::Set(Box::new(plugin_type(namespace, &ty.arguments[0], false)?))
+        }
+        "Map" if ty.arguments.len() == 2 => Type::Map(
+            Box::new(plugin_type(namespace, &ty.arguments[0], false)?),
+            Box::new(plugin_type(namespace, &ty.arguments[1], false)?),
+        ),
+        "Pair" if ty.arguments.len() == 2 => Type::Pair(
+            Box::new(plugin_type(namespace, &ty.arguments[0], false)?),
+            Box::new(plugin_type(namespace, &ty.arguments[1], false)?),
+        ),
+        "Triple" if ty.arguments.len() == 3 => Type::Triple(
+            Box::new(plugin_type(namespace, &ty.arguments[0], false)?),
+            Box::new(plugin_type(namespace, &ty.arguments[1], false)?),
+            Box::new(plugin_type(namespace, &ty.arguments[2], false)?),
+        ),
+        "Result" if return_position && ty.arguments.len() == 2 => {
+            plugin_type(namespace, &ty.arguments[0], false)?
+        }
+        "Result" => {
+            return Err(
+                "`Result<Success, Failure>` is only valid as a plugin return type".to_owned(),
+            );
+        }
+        name => Type::Plugin {
+            namespace: namespace.to_owned(),
+            name: name.to_owned(),
+        },
+    };
+    if ty.optional {
+        result = Type::Optional(Box::new(result));
+    }
+    Ok(result)
+}
 
 pub(super) fn collect_function_signatures(
     declarations: &[ast::FunctionDecl],
@@ -49,6 +177,7 @@ pub(super) fn collect_function_signatures(
                 parameters,
                 return_type: resolve_struct_type(&parse_type(&declaration.return_type)?, structs),
                 is_async: declaration.is_async,
+                is_throwing: false,
             },
         );
     }
@@ -692,6 +821,19 @@ fn lower_native_call(
     awaited: bool,
 ) -> Result<Expr, CompileError> {
     let qualified_name = format!("{namespace}.{name}");
+    if !is_core_native_namespace(namespace) && functions.contains_key(&qualified_name) {
+        return lower_plugin_call(
+            namespace,
+            name,
+            arguments,
+            span,
+            expected,
+            symbols,
+            functions,
+            allow_await,
+            awaited,
+        );
+    }
     let (return_type, is_async, specs): (Type, bool, Vec<(&str, Type, Option<ast::Expr>)>) =
         match qualified_name.as_str() {
             "Network.fetch" => (Type::NetworkResponse, true, network_specs(span, false)),
@@ -780,6 +922,85 @@ fn lower_native_call(
         arguments: lowered,
         return_type,
         is_async,
+        is_throwing: is_async,
+    })
+}
+
+fn is_core_native_namespace(namespace: &str) -> bool {
+    matches!(namespace, "Network" | "Path" | "File")
+}
+
+fn lower_plugin_call(
+    namespace: &str,
+    name: &str,
+    arguments: &BTreeMap<String, ast::Expr>,
+    span: Span,
+    expected: Option<&Type>,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+    awaited: bool,
+) -> Result<Expr, CompileError> {
+    let qualified_name = format!("{namespace}.{name}");
+    let signature = functions
+        .get(&qualified_name)
+        .expect("plugin signature checked before lowering");
+    if signature.is_async && !awaited {
+        return Err(CompileError::new(
+            span,
+            format!("async plugin call `{qualified_name}` must be awaited"),
+        ));
+    }
+    if awaited && !signature.is_async {
+        return Err(CompileError::new(
+            span,
+            format!("plugin call `{qualified_name}` is not async and cannot be awaited"),
+        ));
+    }
+    if awaited && !allow_await {
+        return Err(CompileError::new(
+            span,
+            "`await` is only allowed in an async function or `OnAppear async` block",
+        ));
+    }
+    require_expected(expected, &signature.return_type, span)?;
+    let known = signature
+        .parameters
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<HashSet<_>>();
+    if let Some(unknown) = arguments.keys().find(|name| !known.contains(name.as_str())) {
+        return Err(CompileError::new(
+            span,
+            format!("unknown argument `{unknown}` for plugin method `{qualified_name}`"),
+        ));
+    }
+    let mut lowered = Vec::with_capacity(signature.parameters.len());
+    for (argument_name, argument_type) in &signature.parameters {
+        let argument = arguments.get(argument_name).ok_or_else(|| {
+            CompileError::new(
+                span,
+                format!("plugin method `{qualified_name}` requires `{argument_name}`"),
+            )
+        })?;
+        lowered.push((
+            argument_name.clone(),
+            lower_expr(
+                argument,
+                Some(argument_type),
+                symbols,
+                functions,
+                allow_await,
+            )?,
+        ));
+    }
+    Ok(Expr::NativeCall {
+        namespace: namespace.to_owned(),
+        name: name.to_owned(),
+        arguments: lowered,
+        return_type: signature.return_type.clone(),
+        is_async: signature.is_async,
+        is_throwing: signature.is_throwing,
     })
 }
 
@@ -1025,7 +1246,9 @@ pub(super) fn infer_expr_type(
             | ("Path", "appSupport")
             | ("Path", "join")
             | ("File", "readText") => Some(Type::String),
-            _ => None,
+            _ => functions
+                .get(&format!("{namespace}.{name}"))
+                .map(|signature| signature.return_type.clone()),
         },
         ast::Expr::Index {
             collection,
@@ -1253,6 +1476,7 @@ pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
         Type::String
         | Type::Bool
         | Type::Numeric(_)
+        | Type::Plugin { .. }
         | Type::NetworkResponse
         | Type::Struct { .. } => ty.clone(),
     }
@@ -1324,6 +1548,7 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
         | Type::Bool
         | Type::Numeric(_)
         | Type::Enum(_)
+        | Type::Plugin { .. }
         | Type::NetworkResponse
         | Type::Struct { .. } => Ok(()),
     }
@@ -1438,6 +1663,7 @@ pub(super) fn type_name(ty: &Type) -> String {
             type_name(third)
         ),
         Type::Enum(name) => name.clone(),
+        Type::Plugin { namespace, name } => format!("{namespace}.{name}"),
         Type::NetworkResponse => "NetworkResponse".to_owned(),
         Type::Struct { name, .. } => name.clone(),
         Type::Optional(inner) => format!("{}?", type_name(inner)),

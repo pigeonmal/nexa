@@ -3,6 +3,7 @@ pub mod walk;
 #[derive(Clone, Debug)]
 pub struct Module {
     pub app_name: String,
+    pub plugins: Vec<Plugin>,
     pub enums: Vec<EnumDecl>,
     pub structs: Vec<StructDecl>,
     pub permissions: Vec<Permission>,
@@ -16,6 +17,12 @@ pub struct Module {
     pub on_appear: Option<Vec<Action>>,
     pub on_appear_async: bool,
     pub on_disappear: Option<Vec<Action>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Plugin {
+    pub namespace: String,
+    pub idl_path: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -156,6 +163,10 @@ pub enum Type {
     Pair(Box<Type>, Box<Type>),
     Triple(Box<Type>, Box<Type>, Box<Type>),
     Enum(String),
+    Plugin {
+        namespace: String,
+        name: String,
+    },
     NetworkResponse,
     Struct {
         name: String,
@@ -207,6 +218,7 @@ pub enum Expr {
         arguments: Vec<(String, Expr)>,
         return_type: Type,
         is_async: bool,
+        is_throwing: bool,
     },
     Index {
         collection: Box<Expr>,
@@ -586,6 +598,7 @@ impl Type {
                 format!("({}, {}, {})", first.swift(), second.swift(), third.swift())
             }
             Self::Enum(name) => native_enum_name(name),
+            Self::Plugin { name, .. } => name.clone(),
             Self::NetworkResponse => "NexaNetworkResponse".to_owned(),
             Self::Struct { name, .. } => native_struct_name(name),
         }
@@ -609,6 +622,7 @@ impl Type {
                 third.kotlin()
             ),
             Self::Enum(name) => native_enum_name(name),
+            Self::Plugin { name, .. } => name.clone(),
             Self::NetworkResponse => "NexaNetworkResponse".to_owned(),
             Self::Struct { name, .. } => native_struct_name(name),
         }

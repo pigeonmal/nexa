@@ -118,6 +118,7 @@ The default output replaces the input file extension, producing `counter.swift` 
 | `nexa-syntax` | Lexer, parser, and source AST |
 | `nexa-compiler` | Semantic checks and source-to-IR compilation |
 | `nexa-ir` | Shared platform-independent typed IR |
+| `nexa-plugin-idl` | Dependency-free parser for typed plugin interfaces |
 | `nexa-codegen` | Backend contract and generated-name rules |
 | `nexa-backend-swift` | SwiftUI source generation |
 | `nexa-backend-kotlin` | Jetpack Compose source generation |
@@ -147,9 +148,11 @@ The repository includes three project-scoped Codex skills under `.agents/skills/
 
 These skills distinguish the current prototype from the longer-term goals in `plan.md` and guide changes toward modular, native code generation.
 
-Use [`docs/plugins.md`](docs/plugins.md) for the current plugin scaffold and
-its limits. The scaffold keeps optional iOS and Android implementations outside
-the core compiler while the typed plugin IDL is being designed.
+Use [`docs/plugins.md`](docs/plugins.md) for the current plugin workflow. A
+`.nx` entry file can declare a local plugin with `plugin "path" as Namespace`;
+the compiler checks its IDL and lowers calls directly to the generated Swift or
+Kotlin implementation source. Package installation and version resolution are
+still future work.
 
 ## Language slice
 

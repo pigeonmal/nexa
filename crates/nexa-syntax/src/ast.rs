@@ -5,6 +5,7 @@ use nexa_diagnostics::Span;
 #[derive(Clone, Debug)]
 pub struct App {
     pub name: String,
+    pub plugins: Vec<PluginDecl>,
     pub enums: Vec<EnumDecl>,
     pub structs: Vec<StructDecl>,
     pub permissions: Vec<PermissionDecl>,
@@ -15,6 +16,14 @@ pub struct App {
     pub components: Vec<ComponentDecl>,
     pub body: Vec<Node>,
     pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct PluginDecl {
+    pub path: String,
+    pub namespace: String,
+    pub span: Span,
+    pub idl: Option<nexa_plugin_idl::PluginIdl>,
 }
 
 #[derive(Clone, Debug)]
@@ -54,6 +63,7 @@ pub struct EnumCaseDecl {
 #[derive(Clone, Debug)]
 pub struct Program {
     pub imports: Vec<ImportDecl>,
+    pub plugins: Vec<PluginDecl>,
     pub components: Vec<ComponentDecl>,
     pub structs: Vec<StructDecl>,
     pub app: Option<App>,

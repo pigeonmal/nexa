@@ -24,6 +24,7 @@ Work on the Nexa framework itself: a Rust ahead-of-time compiler that turns `.nx
 - Add core default components to Nexa's shared language/IR and both native backends when requested. Optional integrations such as SQLite, MMKV, and maps belong in a future plugin layer; do not add them to core by default.
 - Keep the authored app in `.nx`. Generated Swift/Kotlin is compiler output; do not ask app authors to write native code to use supported Nexa features.
 - Keep project scaffolding in the CLI's dedicated project module. `nexa generate` may write Xcode and Gradle host files, but templates must remain separate from compiler semantics and backend generators, use feature-gated dependencies, and be deterministic/idempotent so regeneration only changes affected outputs.
+- Keep local plugin declarations and calls in the typed frontend. Resolve each declared `interfaces.nxid` at compile time, merge its method signatures into the normal call checker, and lower calls to the existing `Expr::NativeCall` without a plugin registry, reflection, or boxed boundary. Project generation may include conventional plugin source trees (`ios/Sources` and `android/src/main/kotlin`) as native build inputs; package installation and version resolution remain outside this slice.
 
 ## Native output and performance
 

@@ -8,3 +8,4 @@ license.workspace = true
 nexa-diagnostics = { path = "../nexa-diagnostics" }
 nexa-ir = { path = "../nexa-ir" }
 nexa-syntax = { path = "../nexa-syntax" }
+nexa-plugin-idl = { path = "../nexa-plugin-idl" }
