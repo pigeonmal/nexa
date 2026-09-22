@@ -197,7 +197,9 @@ Use [`docs/plugins.md`](docs/plugins.md) for the current plugin workflow. A
 `.nx` entry file can declare a local plugin with `plugin "path" as Namespace`;
 the compiler checks its IDL and lowers calls directly to the generated Swift or
 Kotlin implementation source. Package installation and version resolution are
-still future work.
+still future work. The [`examples/plugins/video-player`](examples/plugins/video-player)
+package shows a manifest-driven native class, direct Swift/Kotlin implementations,
+and independent object calls.
 
 ## Language slice
 
