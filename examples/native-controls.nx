@@ -24,7 +24,7 @@ app NativeControls {
                         Text("Press count")
                         Text(taps)
                     }
-                } {
+                }.onPress {
                     taps = taps + 1
                 }
                 Button("Clear") {

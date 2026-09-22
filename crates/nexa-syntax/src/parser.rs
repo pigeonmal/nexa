@@ -938,18 +938,59 @@ impl Parser {
                 let disabled = args.remove("disabled");
                 let haptic = args.remove("haptic");
                 let children = self.block_nodes()?;
-                let actions = self.block_stmts()?;
-                let long_press_actions = if self.check(&Kind::LBrace) {
-                    self.block_stmts()?
-                } else {
-                    Vec::new()
-                };
+                let mut actions = None;
+                let mut long_press_actions = None;
+                while self.take(&Kind::Dot) {
+                    let (modifier, modifier_span) = self.ident()?;
+                    match modifier.as_str() {
+                        "onPress" => {
+                            if actions.is_some() {
+                                return Err(CompileError::new(
+                                    modifier_span,
+                                    "Pressable accepts only one `.onPress` modifier",
+                                ));
+                            }
+                            actions = Some(self.block_stmts()?);
+                        }
+                        "onLongPress" => {
+                            if long_press_actions.is_some() {
+                                return Err(CompileError::new(
+                                    modifier_span,
+                                    "Pressable accepts only one `.onLongPress` modifier",
+                                ));
+                            }
+                            long_press_actions = Some(self.block_stmts()?);
+                        }
+                        _ => {
+                            return Err(CompileError::new(
+                                modifier_span,
+                                format!(
+                                    "unknown Pressable modifier `.{modifier}`; expected `.onPress` or `.onLongPress`"
+                                ),
+                            ));
+                        }
+                    }
+                }
+                if self.check(&Kind::LBrace)
+                    || self.word_is("onPress")
+                    || self.word_is("onLongPress")
+                {
+                    return self.error_here(
+                        "Pressable actions must use `.onPress { ... }` or `.onLongPress { ... }`",
+                    );
+                }
+                let actions = actions.ok_or_else(|| {
+                    CompileError::new(
+                        span,
+                        "Pressable requires an `.onPress { ... }` action block",
+                    )
+                })?;
                 Ok(Node::Pressable {
                     disabled,
                     haptic,
                     children,
                     actions,
-                    long_press_actions,
+                    long_press_actions: long_press_actions.unwrap_or_default(),
                     span,
                 })
             }
@@ -1035,7 +1076,33 @@ impl Parser {
                     "RefreshControl requires `isRefreshing`",
                 )?;
                 let children = self.block_nodes()?;
-                let actions = self.block_stmts()?;
+                let mut actions = None;
+                while self.take(&Kind::Dot) {
+                    let (modifier, modifier_span) = self.ident()?;
+                    if modifier != "onRefresh" {
+                        return Err(CompileError::new(
+                            modifier_span,
+                            format!(
+                                "unknown RefreshControl modifier `.{modifier}`; expected `.onRefresh`"
+                            ),
+                        ));
+                    }
+                    if actions.is_some() {
+                        return Err(CompileError::new(
+                            modifier_span,
+                            "RefreshControl accepts only one `.onRefresh` modifier",
+                        ));
+                    }
+                    actions = Some(self.block_stmts()?);
+                }
+                if self.word_is("onRefresh") {
+                    return self.error_here("RefreshControl actions must use `.onRefresh { ... }`");
+                }
+                let Some(actions) = actions else {
+                    return self.error_here(
+                        "RefreshControl requires an `.onRefresh { ... }` action block",
+                    );
+                };
                 Ok(Node::RefreshControl {
                     is_refreshing,
                     children,

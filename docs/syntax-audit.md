@@ -109,8 +109,8 @@ surface readable without making every value a verbose named option.
 | `Text`, `Button` | One positional primary value, then named options | Optional action block for `Button` | The first value is always the label/text; all configuration is named. |
 | `TextInput`, `Switch`, `NavigationStack`, `NavigationLink`, `Link`, `Accessibility`, `BottomSheet` | Named options only | A fixed content block where applicable | Required options and unknown names are checked before lowering. |
 | `Image` | Named `asset:` or `url:` source plus named options | None | Exactly one source is required; providing both is an error. |
-| `Pressable` | Named `disabled:` and `haptic:` | Content, tap action, optional long-press action in that order | The parser consumes a fixed block sequence; a missing block is diagnosed at the component span. |
-| `RefreshControl` | Named `isRefreshing:` | Content followed by refresh action | The direct `FastList` child is recognized structurally for native refresh integration. |
+| `Pressable` | Named `disabled:` and `haptic:` | Content followed by `.onPress { ... }` and optional `.onLongPress { ... }` modifiers | Action names identify their gesture; duplicate modifiers and missing `.onPress` are errors. |
+| `RefreshControl` | Named `isRefreshing:` | Content followed by `.onRefresh { ... }` | The direct `FastList` child is recognized structurally for native refresh integration. |
 | `FastList` | One source plus closed named options | Explicit row block followed by dot modifiers | Source shape fixes row binding arity; see the detailed rules above. |
 | `AppBottomBar` and `Tab` | Named selection/tab options | Tab declarations with one content block each | Tab indexes are static, unique, and non-negative. |
 | `Content()` and custom components | `Content()` has zero values; custom component properties are named | Optional custom content slot | Custom calls reject missing, unknown, or duplicate properties during semantic analysis. |
@@ -129,10 +129,10 @@ with a row binding, while keeping common UI calls short.
   dot modifiers.
 - `Image` has two source modes, so the parser now requires exactly one of
   `asset:` and `url:` instead of choosing one silently.
-- `Pressable` and `RefreshControl` use ordered blocks. Their arity is fixed and
-  documented; changing them to named nested blocks would add syntax without
-  changing generated native behavior, so the current alpha keeps the compact
-  form and diagnoses missing blocks clearly.
+- `Pressable` and `RefreshControl` previously used adjacent anonymous action
+  blocks. They now use named dot modifiers (`.onPress`, `.onLongPress`, and
+  `.onRefresh`) so a block cannot be mistaken for a different gesture or
+  refresh callback. The parser rejects the old adjacent-block form.
 - Native calls use named arguments and an explicit `await`, which keeps method,
   body, headers, timeout, cache, redirect, response-limit, and pinning options
   distinguishable across Swift and Kotlin.

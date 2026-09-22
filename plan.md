@@ -373,7 +373,7 @@ Support:
 
 Map directly to native gesture/event systems.
 
-The first interaction slice is implemented: `Pressable` accepts a Boolean `disabled` expression, an optional static `haptic: Light|Medium|Heavy` style, and an optional third action block for long press. Swift emits native `.disabled(...)`, UIKit impact feedback, and `.onLongPressGesture`; Compose passes the expression to `clickable` or `combinedClickable` and calls Android's native haptic feedback API. A static `false` is removed from Swift output and omitted haptics add no imports or calls. Pressed state, hover, focus, and custom accessibility actions remain future slices. See [pressable-long-press.nx](examples/pressable-long-press.nx).
+The first interaction slice is implemented: `Pressable` accepts a Boolean `disabled` expression, an optional static `haptic: Light|Medium|Heavy` style, a required `.onPress { ... }` action modifier, and an optional `.onLongPress { ... }` modifier. Swift emits native `.disabled(...)`, UIKit impact feedback, and `.onLongPressGesture`; Compose passes the expression to `clickable` or `combinedClickable` and calls Android's native haptic feedback API. A static `false` is removed from Swift output and omitted haptics add no imports or calls. Pressed state, hover, focus, and custom accessibility actions remain future slices. See [pressable-long-press.nx](examples/pressable-long-press.nx).
 
 ## Text
 
@@ -562,7 +562,7 @@ Use native tab/navigation primitives wherever possible.
 
 ## RefreshControl
 
-The first pull-to-refresh slice is implemented as `RefreshControl(isRefreshing: mutableBool) { ... } { ... }`. Generic content lowers to SwiftUI `.refreshable`; Kotlin lowers to Material 3 `PullToRefreshBox` with the callback block as its native refresh handler. A direct `FastList` child keeps the native list path: UIKit attaches `UIRefreshControl` to the table or collection view, while Compose emits `PullToRefreshBox` around the lazy list.
+The first pull-to-refresh slice is implemented as `RefreshControl(isRefreshing: mutableBool) { ... }.onRefresh { ... }`. Generic content lowers to SwiftUI `.refreshable`; Kotlin lowers to Material 3 `PullToRefreshBox` with the named callback modifier as its native refresh handler. A direct `FastList` child keeps the native list path: UIKit attaches `UIRefreshControl` to the table or collection view, while Compose emits `PullToRefreshBox` around the lazy list.
 
 Remaining work:
 

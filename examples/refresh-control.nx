@@ -4,7 +4,7 @@ app RefreshExample {
     body {
         RefreshControl(isRefreshing: refreshing) {
             Text("Pull down to refresh")
-        } {
+        }.onRefresh {
             refreshing = true
             refreshing = false
         }

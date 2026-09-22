@@ -7,7 +7,7 @@ app FastListRefreshDemo {
             FastList(rows, key: .self, rowHeight: 56) { row, index in
                 Text("\(index): \(row)")
             }
-        } {
+        }.onRefresh {
             refreshing = true
             rows.append("Refreshed")
             refreshing = false

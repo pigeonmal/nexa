@@ -7,9 +7,9 @@ app PressableLongPress {
         Column(spacing: 12, padding: 20) {
             Pressable(disabled: isDisabled, haptic: Light) {
                 Text("Press or hold")
-            } {
+            }.onPress {
                 taps = taps + 1
-            } {
+            }.onLongPress {
                 longPresses = longPresses + 1
             }
             Button("Toggle pressable") {
