@@ -6,7 +6,6 @@ pub struct Module {
     pub plugins: Vec<Plugin>,
     pub enums: Vec<EnumDecl>,
     pub structs: Vec<StructDecl>,
-    pub permissions: Vec<Permission>,
     pub functions: Vec<Function>,
     pub states: Vec<State>,
     pub screens: Vec<Screen>,

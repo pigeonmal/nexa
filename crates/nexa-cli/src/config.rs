@@ -70,17 +70,10 @@ impl ProjectConfig {
         })
     }
 
-    pub(super) fn from_permissions(
-        permissions: &[Permission],
-        plugin_definitions: &[PluginDefinition],
-    ) -> Result<Self, String> {
+    pub(super) fn from_defaults(plugin_definitions: &[PluginDefinition]) -> Result<Self, String> {
         let plugins = resolve_plugins(Path::new("nexa.config.nx"), &[], plugin_definitions)?;
         Ok(Self {
-            permissions: permissions
-                .iter()
-                .copied()
-                .map(|permission| (permission, default_message(permission).to_owned()))
-                .collect(),
+            permissions: Vec::new(),
             plugins,
         })
     }
@@ -182,22 +175,8 @@ pub(super) fn load_plugin_definitions(entry: &Path) -> Result<Vec<PluginDefiniti
     Ok(definitions)
 }
 
-pub(super) fn render_template(
-    permissions: &[Permission],
-    plugin_definitions: &[PluginDefinition],
-) -> String {
-    let mut output = String::from("config {\n    permissions {\n");
-    for (index, permission) in permissions.iter().enumerate() {
-        output.push_str("        ");
-        output.push_str(permission_name(*permission));
-        output.push_str(": ");
-        output.push_str(&nexa_config_string(default_message(*permission)));
-        if index + 1 < permissions.len() {
-            output.push(',');
-        }
-        output.push('\n');
-    }
-    output.push_str("    }\n");
+pub(super) fn render_template(plugin_definitions: &[PluginDefinition]) -> String {
+    let mut output = String::from("config {\n    permissions {}\n");
     let configured_plugins = plugin_definitions
         .iter()
         .filter(|definition| !definition.idl.config.is_empty())
@@ -428,8 +407,8 @@ fn integer_value_fits(raw: &str, name: &str) -> bool {
 pub(super) fn parse_permission(name: &str) -> Option<Permission> {
     match name.to_ascii_lowercase().as_str() {
         "camera" => Some(Permission::Camera),
-        "microphone" | "microphoneaudio" => Some(Permission::Microphone),
-        "photos" | "media" => Some(Permission::Photos),
+        "microphone" => Some(Permission::Microphone),
+        "photos" => Some(Permission::Photos),
         "location" => Some(Permission::Location),
         "notifications" => Some(Permission::Notifications),
         "contacts" => Some(Permission::Contacts),
@@ -449,19 +428,6 @@ fn permission_name(permission: Permission) -> &'static str {
         Permission::Contacts => "contacts",
         Permission::Calendar => "calendar",
         Permission::Bluetooth => "bluetooth",
-    }
-}
-
-fn default_message(permission: Permission) -> &'static str {
-    match permission {
-        Permission::Camera => "This app uses the camera to capture photos.",
-        Permission::Microphone => "This app uses the microphone to record audio.",
-        Permission::Photos => "This app uses your photos so you can choose images.",
-        Permission::Location => "This app uses your location to provide location-based features.",
-        Permission::Notifications => "This app sends notifications about important updates.",
-        Permission::Contacts => "This app uses your contacts when you choose to share with them.",
-        Permission::Calendar => "This app uses your calendar to show and manage events.",
-        Permission::Bluetooth => "This app uses Bluetooth to connect to nearby devices.",
     }
 }
 

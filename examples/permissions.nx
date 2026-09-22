@@ -1,18 +1,7 @@
 app PermissionsExample {
-    permissions {
-        camera,
-        microphone,
-        photos,
-        location,
-        notifications,
-        contacts,
-        calendar,
-        bluetooth
-    }
-
     body {
         Column(spacing: 12, padding: 20) {
-            Text("Permissions are declared in Nexa")
+            Text("Permissions are configured in nexa.config.nx")
             Text("The host project receives native platform declarations")
         }
     }

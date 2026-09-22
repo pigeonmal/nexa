@@ -1,9 +1,4 @@
 app PermissionStatusExample {
-    permissions {
-        camera,
-        notifications
-    }
-
     state cameraStatus: PermissionStatus = PermissionStatus.notDetermined
     state notificationStatus: PermissionStatus = PermissionStatus.notDetermined
 

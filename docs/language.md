@@ -330,13 +330,10 @@ Supported names are `camera`, `microphone`, `photos`, `location`,
 Notifications do not create an iOS usage-description key because Apple does not
 require one; Android receives `POST_NOTIFICATIONS`. Editing the config and
 regenerating updates the native host metadata without changing `.nx` UI code.
-The existing app-level `permissions { camera, ... }` block remains accepted as a
-backward-compatible fallback when no generated config exists; a generated config
-takes precedence. The iOS mapping follows Apple's
+Permissions are configured only in this project file. The iOS mapping follows Apple's
 [protected resources documentation](https://developer.apple.com/documentation/bundleresources/protected-resources),
 including the required camera and photo-library usage-description keys. Calendar
-projects receive the current full-access key plus the deprecated calendar key so
-the generated iOS 16 deployment target remains compatible.
+projects receive the current full-access usage-description key.
 
 Runtime status is available as `await Permissions.status(permission: Camera)`
 and returns the typed `PermissionStatus.granted`, `.denied`, `.restricted`, or

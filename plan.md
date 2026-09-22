@@ -884,9 +884,8 @@ config {
 names, duplicate entries, and non-empty purpose messages. iOS uses the messages
 for the required `Info.plist` usage-description keys, while Android uses the
 permission set for manifest declarations. Notifications do not require an iOS
-usage-description key. The legacy app-level `permissions` block remains a
-backward-compatible fallback when no config file exists; the generated config
-takes precedence.
+usage-description key. Permissions are configured only in the generated project
+config; app source files do not carry host permission declarations.
 
 Typed runtime status is available as the asynchronous native call
 `await Permissions.status(permission: Camera)`, returning

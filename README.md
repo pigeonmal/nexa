@@ -121,7 +121,7 @@ config {
 }
 ```
 
-The CLI validates the permission names and messages, uses the messages for iOS usage-description keys, and emits only the selected Android manifest permissions. The legacy app-level `permissions { camera, ... }` block remains supported when no generated config exists.
+The CLI validates the permission names and messages, uses the messages for iOS usage-description keys, and emits only the selected Android manifest permissions. App source files do not declare host permissions; edit the generated config when a permission is needed.
 
 Plugins declare their compile-time option schema in `interfaces.nxid`, and the
 same generated config carries user values:

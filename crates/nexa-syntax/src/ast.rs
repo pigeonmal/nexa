@@ -8,7 +8,6 @@ pub struct App {
     pub plugins: Vec<PluginDecl>,
     pub enums: Vec<EnumDecl>,
     pub structs: Vec<StructDecl>,
-    pub permissions: Vec<PermissionDecl>,
     pub states: Vec<StateDecl>,
     pub functions: Vec<FunctionDecl>,
     pub screens: Vec<ScreenDecl>,
@@ -38,12 +37,6 @@ pub struct StructDecl {
 pub struct StructFieldDecl {
     pub name: String,
     pub ty: TypeSyntax,
-    pub span: Span,
-}
-
-#[derive(Clone, Debug)]
-pub struct PermissionDecl {
-    pub name: String,
     pub span: Span,
 }
 

@@ -141,25 +141,16 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
 
     let project_config = match project_config {
         Some(config) => config,
-        None => {
-            let permissions = compiled
-                .first()
-                .map(|(_, module)| module.permissions.clone())
-                .unwrap_or_default();
-            match ProjectConfig::from_permissions(&permissions, &plugin_definitions) {
-                Ok(config) => config,
-                Err(error) => {
-                    write_if_changed(
-                        &config_path,
-                        &config::render_template(&permissions, &plugin_definitions),
-                    )?;
-                    return Err(format!(
-                        "{error}; edit {} and run `nexa generate` again",
-                        config_path.display()
-                    ));
-                }
+        None => match ProjectConfig::from_defaults(&plugin_definitions) {
+            Ok(config) => config,
+            Err(error) => {
+                write_if_changed(&config_path, &config::render_template(&plugin_definitions))?;
+                return Err(format!(
+                    "{error}; edit {} and run `nexa generate` again",
+                    config_path.display()
+                ));
             }
-        }
+        },
     };
     if !existing_config {
         write_if_changed(&config_path, &project_config.render())?;
@@ -749,12 +740,7 @@ fn ios_info_plist(app_name: &str, config: &ProjectConfig) -> String {
             // iOS notification authorization has no Info.plist usage-description key.
             nexa_ir::Permission::Notifications => &[],
             nexa_ir::Permission::Contacts => &["NSContactsUsageDescription"],
-            // Keep the deprecated key for iOS 16 deployment targets while using
-            // the full-access key required by current EventKit APIs.
-            nexa_ir::Permission::Calendar => &[
-                "NSCalendarsFullAccessUsageDescription",
-                "NSCalendarsUsageDescription",
-            ],
+            nexa_ir::Permission::Calendar => &["NSCalendarsFullAccessUsageDescription"],
             nexa_ir::Permission::Bluetooth => &["NSBluetoothAlwaysUsageDescription"],
         };
         for key in keys {
