@@ -150,11 +150,8 @@ private struct NexaFastSectionedList<RowContent: View>: UIViewRepresentable {
             tableView.reloadData()
             return
         }
-        let visibleRows = tableView.indexPathsForVisibleRows ?? []
-        if !visibleRows.isEmpty {
-            UIView.performWithoutAnimation {
-                tableView.reconfigureRows(at: visibleRows)
-            }
+        if let visibleRows = tableView.indexPathsForVisibleRows, !visibleRows.isEmpty {
+            tableView.reconfigureRows(at: visibleRows)
         }
         if let headerContent {
             for section in 0..<coordinator.sectionCount {
@@ -379,11 +376,8 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         }
 
         guard previousRowCount != rowCount else {
-            let visibleRows = tableView.indexPathsForVisibleRows ?? []
-            if !visibleRows.isEmpty {
-                UIView.performWithoutAnimation {
-                    tableView.reconfigureRows(at: visibleRows)
-                }
+            if let visibleRows = tableView.indexPathsForVisibleRows, !visibleRows.isEmpty {
+                tableView.reconfigureRows(at: visibleRows)
             }
             // <nexa:sticky-header-update-view:begin>
             if let header = tableView.headerView(forSection: 0), let headerContent {
@@ -493,12 +487,12 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             // <nexa:scroll-events-condition-active:begin>
             if (onScrollPositionChanged != nil || onScroll != nil),
-               let position = (scrollView as? UITableView)?.indexPathsForVisibleRows?.map(\.row).min(),
+               let position = (scrollView as? UITableView)?.indexPathsForVisibleRows?.first?.row,
                lastReportedScrollPosition != position
             // <nexa:scroll-events-condition-active:end>
             // <nexa:scroll-events-condition-inactive:begin>
             if onScrollPositionChanged != nil,
-               let position = (scrollView as? UITableView)?.indexPathsForVisibleRows?.map(\.row).min(),
+               let position = (scrollView as? UITableView)?.indexPathsForVisibleRows?.first?.row,
                lastReportedScrollPosition != position
             // <nexa:scroll-events-condition-inactive:end>
             {
@@ -520,7 +514,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         func applyScrollPosition(to tableView: UITableView) {
             guard let scrollPosition, rowCount > 0 else { return }
             let target = min(max(Int(scrollPosition), 0), rowCount - 1)
-            guard (tableView.indexPathsForVisibleRows?.map(\.row).min() ?? -1) != target else {
+            guard (tableView.indexPathsForVisibleRows?.first?.row ?? -1) != target else {
                 return
             }
             lastReportedScrollPosition = target

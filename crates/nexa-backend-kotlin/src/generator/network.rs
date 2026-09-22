@@ -92,7 +92,7 @@ private class NexaCronetRequestClient(
     suspend fun execute(
         url: String,
         method: String,
-        headers: Map<String, List<String>>,
+        headers: Map<String, String>,
         body: ByteArray?,
         maxResponseBytes: Long,
         followRedirects: Boolean,
@@ -142,9 +142,7 @@ private class NexaCronetRequestClient(
         val builder = engine.newUrlRequestBuilder(url, callback, NexaCronetRuntime.executor())
             .setHttpMethod(method)
         if (!useCache) builder.disableCache()
-        for ((name, values) in headers) {
-            for (value in values) builder.addHeader(name, value)
-        }
+        for ((name, value) in headers) builder.addHeader(name, value)
         if (body != null) {
             builder.setUploadDataProvider(NexaUploadProvider(body), NexaCronetRuntime.executor())
         }
@@ -243,12 +241,11 @@ public object NexaNetwork {
             emptyMap()
         }
         val engine = NexaCronetRuntime.engine(context, pins)
-        val requestHeaders = headers.mapValues { listOf(it.value) }
         val response = withTimeout(timeoutMillis) {
             NexaCronetRequestClient(engine).execute(
                 url,
                 method,
-                requestHeaders,
+                headers,
                 body,
                 maxResponseBytes,
                 followRedirects,
@@ -285,12 +282,11 @@ public object NexaNetwork {
                     emptyMap()
                 }
                 val engine = NexaCronetRuntime.engine(context, pins)
-                val requestHeaders = headers.mapValues { listOf(it.value) }
                 val response = withTimeout(timeoutMillis) {
                     NexaCronetRequestClient(engine).execute(
                         url,
                         method,
-                        requestHeaders,
+                        headers,
                         body,
                         maxResponseBytes,
                         followRedirects,
@@ -393,17 +389,29 @@ private fun Map<String, List<String>>.toNetworkHeaders(): NetworkHeaders {
 }
 
 @OptIn(coil3.annotation.ExperimentalCoilApi::class)
+private object NexaImageLoaderStore {
+    @Volatile private var loader: ImageLoader? = null
+
+    fun get(applicationContext: Context): ImageLoader {
+        loader?.let { return it }
+        return synchronized(this) {
+            loader?.let { return@synchronized it }
+            ImageLoader.Builder(applicationContext)
+                .components {
+                    add(NetworkFetcher.Factory(networkClient = { NexaCronetNetworkClient(NexaCronetRuntime.engine(applicationContext)) }))
+                }
+                .build()
+                .also {
+                    loader = it
+                }
+        }
+    }
+}
+
+@OptIn(coil3.annotation.ExperimentalCoilApi::class)
 @Composable
 private fun nexaImageLoader(): ImageLoader {
-    val context = LocalContext.current.applicationContext
-    return remember(context) {
-        val engine = NexaCronetRuntime.engine(context)
-        ImageLoader.Builder(context)
-            .components {
-                add(NetworkFetcher.Factory(networkClient = { NexaCronetNetworkClient(engine) }))
-            }
-            .build()
-    }
+    return NexaImageLoaderStore.get(LocalContext.current.applicationContext)
 }
 "#,
         );

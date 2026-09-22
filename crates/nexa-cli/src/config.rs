@@ -133,6 +133,9 @@ pub(super) fn load_plugin_definitions(entry: &Path) -> Result<Vec<PluginDefiniti
     let mut definitions = Vec::with_capacity(program.plugins.len());
     for plugin in program.plugins {
         let declared_path = base.join(&plugin.path);
+        if declared_path.is_dir() && declared_path.join("plugin.nx").is_file() {
+            continue;
+        }
         let idl_path = if declared_path.is_dir() {
             declared_path.join("interfaces.nxid")
         } else {

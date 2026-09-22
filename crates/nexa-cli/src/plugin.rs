@@ -25,6 +25,7 @@ fn init(args: &[String]) -> Result<(), String> {
     let mut output = None;
     let mut display_name = None;
     let mut version = "0.1.0".to_owned();
+    let mut kind = "native";
     let mut cursor = 0;
     while cursor < args.len() {
         match args[cursor].as_str() {
@@ -48,6 +49,18 @@ fn init(args: &[String]) -> Result<(), String> {
                     .get(cursor)
                     .ok_or("`--version` requires a version")?
                     .clone();
+            }
+            "--kind" => {
+                cursor += 1;
+                kind = args
+                    .get(cursor)
+                    .ok_or("`--kind` requires `pure` or `native`")?
+                    .as_str();
+                if !matches!(kind, "pure" | "native") {
+                    return Err(format!(
+                        "unknown plugin kind `{kind}`; expected `pure` or `native`"
+                    ));
+                }
             }
             option if option.starts_with('-') => return Err(format!("unknown option `{option}`")),
             value if id.is_none() => id = Some(value.to_owned()),
@@ -81,6 +94,7 @@ fn init(args: &[String]) -> Result<(), String> {
         &manifest(
             &id,
             &version,
+            kind,
             &ios_source,
             &android_source,
             "interfaces.nxid",
@@ -88,19 +102,30 @@ fn init(args: &[String]) -> Result<(), String> {
     )?;
     write_if_absent(
         &output.join("README.md"),
-        &readme(&id, &version, &type_name),
+        &readme(&id, &version, &type_name, kind),
     )?;
-    write_if_absent(&output.join(&ios_source), &ios_stub(&type_name))?;
-    write_if_absent(
-        &output.join(&android_source),
-        &android_stub(&package, &type_name),
-    )?;
-    write_if_absent(
-        &output.join("interfaces.nxid"),
-        &format!(
-            "// Public typed interface declarations for {type_name}.\n// Use `type Name` for value models and `type Error: Error` for typed failures.\n// Add methods here, then implement the matching native methods in both source trees.\n// Add compile-time options in `config`; users set them in generated `nexa.config.nx`.\n\nconfig {{\n    // compiledOption: String\n}}\n\ninterface {type_name} {{\n    // async fn method(input: String) -> String\n}}\n"
-        ),
-    )?;
+    if kind == "pure" {
+        write_if_absent(
+            &output.join("plugin.nx"),
+            &format!(
+                "// Pure Nexa plugins are composed into the app at compile time.\ncomponent {type_name}Label(text: String) {{\n    body {{\n        Text(text)\n    }}\n}}\n"
+            ),
+        )?;
+        fs::create_dir_all(output.join("assets"))
+            .map_err(|error| format!("{}: {error}", output.display()))?;
+    } else {
+        write_if_absent(&output.join(&ios_source), &ios_stub(&type_name))?;
+        write_if_absent(
+            &output.join(&android_source),
+            &android_stub(&package, &type_name),
+        )?;
+        write_if_absent(
+            &output.join("interfaces.nxid"),
+            &format!(
+                "// Public typed interface declarations for {type_name}.\n// Use `type Name` for value models and `type Error: Error` for typed failures.\n// Add methods here, then implement the matching native methods in both source trees.\n// Add compile-time options in `config`; users set them in generated `nexa.config.nx`.\n\nconfig {{\n    // compiledOption: String\n}}\n\ninterface {type_name} {{\n    // async fn method(input: String) -> String\n}}\n"
+            ),
+        )?;
+    }
     println!("created plugin scaffold {}", output.display());
     Ok(())
 }
@@ -224,7 +249,7 @@ fn usage() -> String {
 
 fn usage_for(command: &str) -> String {
     match command {
-        "init" => "usage: nexa plugin init <plugin.id> [--out <directory>] [--name <TypeName>] [--version <version>]".to_owned(),
+        "init" => "usage: nexa plugin init <plugin.id> [--kind <pure|native>] [--out <directory>] [--name <TypeName>] [--version <version>]".to_owned(),
         "check" => "usage: nexa plugin check <plugin-directory|interfaces.nxid>".to_owned(),
         "generate" => "usage: nexa plugin generate <plugin-directory|interfaces.nxid> --target <swift|kotlin> [--package <kotlin.package>] [--out <file>]".to_owned(),
         _ => "usage: nexa plugin <init|check|generate> ...".to_owned(),
@@ -304,21 +329,35 @@ fn json_escape(value: &str) -> String {
 fn manifest(
     id: &str,
     version: &str,
+    kind: &str,
     ios_source: &str,
     android_source: &str,
     idl_source: &str,
 ) -> String {
+    if kind == "pure" {
+        return format!(
+            "{{\n  \"format\": 1,\n  \"id\": \"{}\",\n  \"version\": \"{}\",\n  \"kind\": \"pure\",\n  \"source\": \"plugin.nx\",\n  \"assets\": \"assets\"\n}}\n",
+            json_escape(id),
+            json_escape(version),
+        );
+    }
     format!(
-        "{{\n  \"format\": 1,\n  \"id\": \"{}\",\n  \"version\": \"{}\",\n  \"idl\": \"{}\",\n  \"interfaces\": [],\n  \"implementations\": {{\n    \"ios\": {{ \"source\": \"{}\" }},\n    \"android\": {{ \"source\": \"{}\" }}\n  }}\n}}\n",
+        "{{\n  \"format\": 1,\n  \"id\": \"{}\",\n  \"version\": \"{}\",\n  \"kind\": \"{}\",\n  \"idl\": \"{}\",\n  \"interfaces\": [],\n  \"implementations\": {{\n    \"ios\": {{ \"source\": \"{}\" }},\n    \"android\": {{ \"source\": \"{}\" }}\n  }}\n}}\n",
         json_escape(id),
         json_escape(version),
+        json_escape(kind),
         json_escape(idl_source),
         json_escape(ios_source),
         json_escape(android_source),
     )
 }
 
-fn readme(id: &str, version: &str, type_name: &str) -> String {
+fn readme(id: &str, version: &str, type_name: &str, kind: &str) -> String {
+    if kind == "pure" {
+        return format!(
+            "# {id}\n\nPure Nexa plugin, version {version}.\n\n`plugin.nx` is loaded into the app's compile-time source graph. Add reusable components, logic, and imports there; place referenced platform assets in `assets/`. Reachability pruning removes unused plugin components from native output.\n"
+        );
+    }
     format!(
         "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `nexa.plugin.json` declares the package identity, IDL path, and platform source entry points.\n- `interfaces.nxid` contains typed public interface declarations and optional compile-time config options.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nValidate the IDL with `nexa plugin check .`. Generate direct native binding skeletons with `nexa plugin generate . --target swift` or `--target kotlin`. A local `.nx` app can declare `plugin \"path\" as Namespace`; project generation then includes these platform source trees. Package installation, dependency resolution, and generated implementation methods are not included yet.\n"
     )
@@ -326,7 +365,7 @@ fn readme(id: &str, version: &str, type_name: &str) -> String {
 
 fn ios_stub(type_name: &str) -> String {
     format!(
-        "import Foundation\n\npublic enum {type_name}PluginError: Error {{\n    case unavailable\n}}\n\npublic final class {type_name}Plugin {{\n    public static let shared = {type_name}Plugin()\n    public init() {{}}\n}}\n"
+        "import Foundation\n\npublic enum {type_name}PluginError: Error {{\n    case unavailable\n}}\n\npublic final class {type_name}Plugin: @unchecked Sendable {{\n    public static let shared = {type_name}Plugin()\n    public init() {{}}\n}}\n"
     )
 }
 

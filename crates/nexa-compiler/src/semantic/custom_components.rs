@@ -148,6 +148,7 @@ fn lower_component(
     enum_symbols: &HashMap<String, (Type, bool)>,
     target: Target,
 ) -> Result<Component, CompileError> {
+    let source_file = declaration.source_file.clone();
     let signature = &signatures[&declaration.name];
     let mut symbols = HashMap::with_capacity(signature.parameters.len() + declaration.states.len());
     symbols.extend(
@@ -248,6 +249,7 @@ fn lower_component(
         .collect();
     Ok(Component {
         name: declaration.name,
+        source_file,
         parameters,
         states,
         body,

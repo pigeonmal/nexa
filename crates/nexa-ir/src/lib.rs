@@ -1,9 +1,11 @@
+pub mod capabilities;
 pub mod walk;
 
 #[derive(Clone, Debug)]
 pub struct Module {
     pub app_name: String,
     pub plugins: Vec<Plugin>,
+    pub plugin_assets: Vec<PluginAsset>,
     pub enums: Vec<EnumDecl>,
     pub structs: Vec<StructDecl>,
     pub functions: Vec<Function>,
@@ -25,6 +27,11 @@ pub struct Module {
 pub struct Plugin {
     pub namespace: String,
     pub idl_path: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct PluginAsset {
+    pub root: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -83,6 +90,7 @@ pub struct FunctionLocal {
 #[derive(Clone, Debug)]
 pub struct Component {
     pub name: String,
+    pub source_file: Option<String>,
     pub parameters: Vec<ComponentParameter>,
     pub states: Vec<State>,
     pub body: Vec<Node>,

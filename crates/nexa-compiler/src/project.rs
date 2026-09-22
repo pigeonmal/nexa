@@ -69,6 +69,7 @@ pub fn compile_file_with_warnings_for_targets(
             let mut app = app.clone();
             app.components = loaded.components.clone();
             app.structs = loaded.structs.clone();
+            app.functions.extend(loaded.functions.clone());
             let (module, mut warnings) = semantic::lower_with_warnings(app, target)
                 .map_err(|error| error.with_file(entry_path.display().to_string()))?;
             for warning in &mut warnings {
@@ -94,6 +95,7 @@ struct LoadedProject {
     app: Option<App>,
     components: Vec<ComponentDecl>,
     structs: Vec<StructDecl>,
+    functions: Vec<nexa_syntax::ast::FunctionDecl>,
 }
 
 fn load_file(
@@ -145,6 +147,32 @@ fn load_file(
                 .parent()
                 .unwrap_or_else(|| Path::new("."))
                 .join(&plugin.path);
+            let pure_source = if declared_path.is_dir() {
+                let source = declared_path.join("plugin.nx");
+                source.is_file().then_some(source)
+            } else {
+                None
+            };
+            if let Some(source) = pure_source {
+                // Pure Nexa plugins are ordinary source modules. Loading them
+                // through the existing project graph keeps component/function
+                // reachability and diagnostics identical to local imports.
+                load_file(
+                    &source,
+                    false,
+                    Some((&source.display().to_string(), plugin.span)),
+                    active,
+                    loaded_paths,
+                    loaded,
+                )?;
+                plugin.pure = true;
+                plugin.path = source.display().to_string();
+                let assets = source.parent().map(|parent| parent.join("assets"));
+                plugin.assets_path = assets
+                    .filter(|path| path.is_dir())
+                    .map(|path| path.display().to_string());
+                continue;
+            }
             let idl_path = if declared_path.is_dir() {
                 declared_path.join("interfaces.nxid")
             } else {
@@ -186,6 +214,7 @@ fn load_file(
             structure.source_file = Some(source_file.clone());
             structure
         }));
+    loaded.functions.extend(program.functions);
 
     if let Some(app) = program.app {
         if !is_entry {

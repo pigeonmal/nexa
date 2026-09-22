@@ -17,6 +17,8 @@ pub(super) fn copy_android_plugin_sources(
     config: &ProjectConfig,
 ) -> Result<(), String> {
     let destination = root.join("android/app/src/main/java");
+    let marker = root.join("android/app/.nexa-plugin-sources");
+    let mut generated = Vec::new();
     let has_plugin_config = config.plugins().any(|plugin| {
         !plugin.options.is_empty()
             && module
@@ -44,9 +46,185 @@ pub(super) fn copy_android_plugin_sources(
                 contents
             };
             write_if_changed(&destination.join(relative), &contents)?;
+            generated.push(relative.to_string_lossy().into_owned());
         }
     }
+    generated.sort();
+    if let Ok(previous) = fs::read_to_string(&marker) {
+        for relative in previous
+            .lines()
+            .filter(|path| !generated.iter().any(|current| current == path))
+        {
+            let stale = destination.join(relative);
+            if stale.is_file() {
+                fs::remove_file(&stale).map_err(|error| format!("{}: {error}", stale.display()))?;
+            }
+        }
+    }
+    if generated.is_empty() {
+        if marker.is_file() {
+            fs::remove_file(&marker).map_err(|error| format!("{}: {error}", marker.display()))?;
+        }
+    } else {
+        fs::write(&marker, generated.join("\n") + "\n")
+            .map_err(|error| format!("{}: {error}", marker.display()))?;
+    }
     Ok(())
+}
+
+/// Copies plugin-owned assets into native resource roots and returns whether
+/// the iOS asset catalog must be added to the Xcode project.
+pub(super) fn copy_plugin_assets(
+    root: &Path,
+    app_name: &str,
+    module: &Module,
+) -> Result<bool, String> {
+    let android_root = root.join("android/app/src/main/res/drawable-nodpi");
+    let ios_root = root
+        .join("ios")
+        .join(app_name)
+        .join("Assets.xcassets/NexaPlugins");
+    let android_marker = root.join("android/app/src/main/res/.nexa-plugin-assets");
+    let ios_marker = root.join("ios").join(app_name).join(".nexa-plugin-assets");
+    let mut has_assets = false;
+    let mut generated_android = Vec::new();
+    let mut generated_ios = Vec::new();
+    for (plugin_index, assets) in module.plugin_assets.iter().enumerate() {
+        let source_root = Path::new(&assets.root);
+        if !source_root.is_dir() {
+            continue;
+        }
+        let mut files = Vec::new();
+        collect_files(source_root, "", &mut files)?;
+        for source in files {
+            let relative = source.strip_prefix(source_root).map_err(|_| {
+                format!(
+                    "plugin asset is outside its asset root: {}",
+                    source.display()
+                )
+            })?;
+            let stem = sanitize_asset_name(&format!(
+                "nexa_plugin_{plugin_index}_{}",
+                relative.display()
+            ));
+            let extension = source
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or("bin")
+                .to_ascii_lowercase();
+            let file_name = format!("{stem}.{extension}");
+
+            fs::create_dir_all(&android_root)
+                .map_err(|error| format!("{}: {error}", android_root.display()))?;
+            let android_destination = android_root.join(&file_name);
+            fs::copy(&source, &android_destination)
+                .map_err(|error| format!("{}: {error}", source.display()))?;
+            generated_android.push(file_name.clone());
+
+            let image_set = ios_root.join(format!("{stem}.imageset"));
+            fs::create_dir_all(&image_set)
+                .map_err(|error| format!("{}: {error}", image_set.display()))?;
+            let ios_file = image_set.join(&file_name);
+            fs::copy(&source, &ios_file)
+                .map_err(|error| format!("{}: {error}", source.display()))?;
+            fs::write(
+                image_set.join("Contents.json"),
+                format!(
+                    "{{\n  \"images\": [{{\"idiom\": \"universal\", \"filename\": \"{file_name}\"}}],\n  \"info\": {{\"author\": \"nexa\", \"version\": 1}}\n}}\n"
+                ),
+            )
+            .map_err(|error| format!("{}: {error}", image_set.display()))?;
+            generated_ios.push(format!("{stem}.imageset"));
+            has_assets = true;
+        }
+    }
+    if let Ok(previous) = fs::read_to_string(&android_marker) {
+        for name in previous
+            .lines()
+            .filter(|name| !generated_android.iter().any(|current| current == name))
+        {
+            let stale = android_root.join(name);
+            if stale.is_file() {
+                fs::remove_file(&stale).map_err(|error| format!("{}: {error}", stale.display()))?;
+            }
+        }
+    }
+    if !generated_android.is_empty() {
+        fs::write(&android_marker, generated_android.join("\n") + "\n")
+            .map_err(|error| format!("android plugin asset manifest: {error}"))?;
+    } else if android_marker.is_file() {
+        fs::remove_file(&android_marker)
+            .map_err(|error| format!("{}: {error}", android_marker.display()))?;
+    }
+    if let Ok(previous) = fs::read_to_string(&ios_marker) {
+        for name in previous
+            .lines()
+            .filter(|name| !generated_ios.iter().any(|current| current == name))
+        {
+            let stale = ios_root.join(name);
+            if stale.is_dir() {
+                fs::remove_dir_all(&stale)
+                    .map_err(|error| format!("{}: {error}", stale.display()))?;
+            }
+        }
+    }
+    if !generated_ios.is_empty() {
+        generated_ios.sort();
+        fs::write(&ios_marker, generated_ios.join("\n") + "\n")
+            .map_err(|error| format!("{}: {error}", ios_marker.display()))?;
+    } else if ios_marker.is_file() {
+        fs::remove_file(&ios_marker)
+            .map_err(|error| format!("{}: {error}", ios_marker.display()))?;
+    }
+    Ok(has_assets)
+}
+
+pub(super) fn copy_ios_plugin_sources(
+    root: &Path,
+    app_name: &str,
+    module: &Module,
+) -> Result<Vec<String>, String> {
+    let destination = root.join("ios").join(app_name).join("NexaPlugins");
+    let marker = root.join("ios").join(app_name).join(".nexa-plugin-sources");
+    let mut names = Vec::new();
+    for (plugin_index, plugin) in module.plugins.iter().enumerate() {
+        for source in native_plugin_sources(plugin, "ios/Sources", "swift")? {
+            let name = source
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("Plugin.swift");
+            let output_name = format!(
+                "NexaPlugin{plugin_index}_{}",
+                sanitize_asset_name(name.trim_end_matches(".swift"))
+            );
+            let output_name = format!("{output_name}.swift");
+            let contents = fs::read_to_string(&source)
+                .map_err(|error| format!("{}: {error}", source.display()))?;
+            write_if_changed(&destination.join(&output_name), &contents)?;
+            names.push(output_name);
+        }
+    }
+    names.sort();
+    if let Ok(previous) = fs::read_to_string(&marker) {
+        for name in previous
+            .lines()
+            .filter(|name| !names.iter().any(|current| current == name))
+        {
+            let stale = destination.join(name);
+            if stale.is_file() {
+                fs::remove_file(&stale).map_err(|error| format!("{}: {error}", stale.display()))?;
+            }
+        }
+    }
+    if names.is_empty() {
+        if marker.is_file() {
+            fs::remove_file(&marker).map_err(|error| format!("{}: {error}", marker.display()))?;
+        }
+    } else {
+        fs::write(&marker, names.join("\n") + "\n")
+            .map_err(|error| format!("{}: {error}", marker.display()))?;
+    }
+    Ok(names)
 }
 
 pub(super) fn render_swift_plugin_config(module: &Module, config: &ProjectConfig) -> String {
@@ -256,9 +434,27 @@ fn collect_files(
         let path = entry.path();
         if path.is_dir() {
             collect_files(&path, extension, files)?;
-        } else if path.extension().and_then(|value| value.to_str()) == Some(extension) {
+        } else if extension.is_empty()
+            || path.extension().and_then(|value| value.to_str()) == Some(extension)
+        {
             files.push(path);
         }
     }
     Ok(())
+}
+
+fn sanitize_asset_name(value: &str) -> String {
+    let mut result = String::with_capacity(value.len());
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() {
+            result.push(character.to_ascii_lowercase());
+        } else {
+            result.push('_');
+        }
+    }
+    if result.is_empty() {
+        "asset".to_owned()
+    } else {
+        result
+    }
 }

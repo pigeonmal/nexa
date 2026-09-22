@@ -41,6 +41,9 @@ pub(super) fn generate(module: &Module) -> String {
     if features.uses_network_api {
         out.push_str("import CryptoKit\n");
     }
+    if features.uses_remote_image {
+        out.push_str("import ImageIO\n");
+    }
     if features.uses_network_transport() || features.uses_path_api || features.uses_file_api {
         out.push_str("import Foundation\n\n");
     } else if features.uses_link {

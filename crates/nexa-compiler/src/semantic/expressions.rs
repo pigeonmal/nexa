@@ -21,6 +21,9 @@ pub(super) fn collect_plugin_signatures(
 ) -> Result<FunctionSignatures, CompileError> {
     let mut signatures = HashMap::new();
     for plugin in plugins {
+        if plugin.pure {
+            continue;
+        }
         if is_core_native_namespace(&plugin.namespace) {
             return Err(CompileError::new(
                 plugin.span,

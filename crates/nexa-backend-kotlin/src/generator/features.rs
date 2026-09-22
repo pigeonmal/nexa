@@ -134,6 +134,7 @@ pub(super) struct Features {
 
 impl Features {
     pub(super) fn analyze(module: &Module) -> Self {
+        let capabilities = nexa_ir::capabilities::analyze(module);
         let mut features = Self {
             uses_status_bar: module.status_bar.is_some()
                 || module
@@ -355,12 +356,11 @@ impl Features {
         features.app_uses_haptic = app_uses_haptic;
         features.app_uses_keyboard_interactive = app_uses_keyboard_interactive;
         features.uses_size_class = uses_size_class;
-        let (uses_network_api, uses_path_api, uses_file_api, uses_file_async) =
-            native_api_usage(module);
-        features.uses_network_api = uses_network_api;
-        features.uses_path_api = uses_path_api;
-        features.uses_file_api = uses_file_api;
-        features.uses_file_async = uses_file_async;
+        features.uses_remote_image = capabilities.uses_remote_image;
+        features.uses_network_api = capabilities.uses_network_api;
+        features.uses_path_api = capabilities.uses_path_api;
+        features.uses_file_api = capabilities.uses_file_api;
+        features.uses_file_async = capabilities.uses_file_async;
         features.uses_navigation_uri = module
             .screens
             .iter()
@@ -801,66 +801,6 @@ fn node_uses_keyboard_interactive(node: &Node) -> bool {
             ..
         }
     )
-}
-
-fn native_api_usage(module: &Module) -> (bool, bool, bool, bool) {
-    let mut uses_network = false;
-    let mut uses_path = false;
-    let mut uses_file = false;
-    let mut uses_file_async = false;
-    let mut record = |expr: &Expr| {
-        let Expr::NativeCall {
-            namespace, name, ..
-        } = expr
-        else {
-            return;
-        };
-        match namespace.as_str() {
-            "Network" => uses_network = true,
-            "Path" => uses_path = true,
-            "File" => {
-                uses_file = true;
-                uses_file_async |= name != "exists";
-            }
-            _ => {}
-        }
-    };
-    for state in &module.states {
-        walk_expression(&state.initial, &mut record);
-    }
-    for screen in &module.screens {
-        for state in &screen.states {
-            walk_expression(&state.initial, &mut record);
-        }
-        walk_ir(&screen.body, &mut |_| {}, &mut record);
-        for actions in screen.on_appear.iter().chain(screen.on_disappear.iter()) {
-            walk_actions(actions, &mut record);
-        }
-    }
-    for function in &module.functions {
-        for local in &function.locals {
-            walk_expression(&local.initial, &mut record);
-        }
-        walk_expression(&function.body, &mut record);
-    }
-    walk_ir(&module.body, &mut |_| {}, &mut record);
-    for actions in module
-        .on_appear
-        .iter()
-        .chain(module.on_disappear.iter())
-        .chain(module.on_active.iter())
-        .chain(module.on_inactive.iter())
-        .chain(module.on_background.iter())
-    {
-        walk_actions(actions, &mut record);
-    }
-    for component in &module.components {
-        for state in &component.states {
-            walk_expression(&state.initial, &mut record);
-        }
-        walk_ir(&component.body, &mut |_| {}, &mut record);
-    }
-    (uses_network, uses_path, uses_file, uses_file_async)
 }
 
 fn uses_permission_request_call(expr: &Expr) -> bool {

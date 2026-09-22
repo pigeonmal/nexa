@@ -218,6 +218,8 @@ fn generate_ios(
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let screen = nexa_codegen::names::screen_name(app_name);
     let source = ios_generated_source(module, config)?;
+    let has_assets = plugins::copy_plugin_assets(root, app_name, module)?;
+    let plugin_sources = plugins::copy_ios_plugin_sources(root, app_name, module)?;
     write_if_changed(&directory.join("NexaGenerated.swift"), &source)?;
     write_if_changed(
         &directory.join(format!("{app_name}App.swift")),
@@ -233,7 +235,7 @@ fn generate_ios(
         &root
             .join("ios")
             .join(format!("{app_name}.xcodeproj/project.pbxproj")),
-        &templates::ios_project_file(app_name),
+        &templates::ios_project_file(app_name, has_assets, &plugin_sources),
     )?;
     write_if_changed(
         &root.join("ios").join(format!(
@@ -257,6 +259,7 @@ fn generate_android(
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
     let (generated, project_features) = KotlinBackend.generate_with_project_features(module);
     plugins::copy_android_plugin_sources(root, module, &package, config)?;
+    plugins::copy_plugin_assets(root, app_name, module)?;
     let screen = nexa_codegen::names::screen_name(app_name);
     let cronet_import = if project_features.uses_network {
         "import com.google.android.gms.net.CronetProviderInstaller\n"
@@ -270,7 +273,7 @@ fn generate_android(
     };
     let content_setup = if project_features.uses_network {
         format!(
-            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{\n            setContent {{ MaterialTheme {{ {screen}() }} }}\n        }}\n"
+            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (result.isSuccessful) {{\n                setContent {{ MaterialTheme {{ {screen}() }} }}\n            }} else {{\n                setContent {{ MaterialTheme {{ androidx.compose.material3.Text(\"Network provider unavailable\") }} }}\n            }}\n        }}\n"
         )
     } else {
         format!("        setContent {{ MaterialTheme {{ {screen}() }} }}\n")
@@ -332,20 +335,6 @@ fn ios_generated_source(module: &Module, config: &ProjectConfig) -> Result<Strin
     let plugin_config = plugins::render_swift_plugin_config(module, config);
     if !plugin_config.is_empty() {
         declarations.push(plugin_config);
-    }
-    for plugin in &module.plugins {
-        for path in plugins::native_plugin_sources(plugin, "ios/Sources", "swift")? {
-            let contents = fs::read_to_string(&path)
-                .map_err(|error| format!("{}: {error}", path.display()))?;
-            for line in contents.lines() {
-                if line.trim_start().starts_with("import ") {
-                    imports.push(line.to_owned());
-                } else {
-                    declarations.push(line.to_owned());
-                }
-            }
-            declarations.push(format!("// Nexa plugin: {}", plugin.namespace));
-        }
     }
     imports.sort();
     imports.dedup();

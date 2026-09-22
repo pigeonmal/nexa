@@ -185,7 +185,7 @@ fn deduplicate_warnings(warnings: Vec<CompileWarning>) -> Vec<CompileWarning> {
 fn print_help() {
     println!(
         "Nexa — ahead-of-time compiler for native iOS and Android UI\n\n\
-Usage:\n  nexa check <source.nx> [--deny-warnings]\n  nexa build <source.nx> --target <swift|kotlin> [--out <path>] [--deny-warnings]\n  nexa generate <source.nx> [--target <ios|android|all>] [--out <directory>] [--name <AppName>] [--deny-warnings]\n  nexa plugin init <plugin.id> [--out <directory>] [--name <TypeName>] [--version <version>]\n  nexa plugin check <plugin-directory|interfaces.nxid>\n  nexa plugin generate <plugin-directory|interfaces.nxid> --target <swift|kotlin> [--package <kotlin.package>] [--out <file>]\n\n\
-Targets emit native SwiftUI or Jetpack Compose source. `generate` creates a self-contained native project bundle. `plugin init` creates an isolated optional-plugin scaffold; `plugin check` validates its typed IDL and `plugin generate` emits direct native binding skeletons."
+Usage:\n  nexa check <source.nx> [--deny-warnings]\n  nexa build <source.nx> --target <swift|kotlin> [--out <path>] [--deny-warnings]\n  nexa generate <source.nx> [--target <ios|android|all>] [--out <directory>] [--name <AppName>] [--deny-warnings]\n  nexa plugin init <plugin.id> [--kind <pure|native>] [--out <directory>] [--name <TypeName>] [--version <version>]\n  nexa plugin check <plugin-directory|interfaces.nxid>\n  nexa plugin generate <plugin-directory|interfaces.nxid> --target <swift|kotlin> [--package <kotlin.package>] [--out <file>]\n\n\
+Targets emit native SwiftUI or Jetpack Compose source. `generate` creates a self-contained native project bundle. `plugin init --kind pure` creates a source-only Nexa package; the default native kind creates an IDL-backed optional-plugin scaffold; `plugin check` validates its typed IDL and `plugin generate` emits direct native binding skeletons."
     );
 }

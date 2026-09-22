@@ -23,6 +23,8 @@ pub struct PluginDecl {
     pub namespace: String,
     pub span: Span,
     pub idl: Option<nexa_plugin_idl::PluginIdl>,
+    pub pure: bool,
+    pub assets_path: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -59,6 +61,7 @@ pub struct Program {
     pub plugins: Vec<PluginDecl>,
     pub components: Vec<ComponentDecl>,
     pub structs: Vec<StructDecl>,
+    pub functions: Vec<FunctionDecl>,
     pub app: Option<App>,
 }
 

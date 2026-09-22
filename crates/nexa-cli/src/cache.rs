@@ -13,7 +13,7 @@ use std::{
 
 use nexa_syntax::ast::Program;
 
-const CACHE_VERSION: &str = "build-v56";
+const CACHE_VERSION: &str = "build-v57";
 
 pub(super) struct CachedBuild {
     pub(super) warnings: Vec<String>,
@@ -178,6 +178,19 @@ fn fingerprint_plugins(
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join(&plugin.path);
+        if declared.is_dir() && declared.join("plugin.nx").is_file() {
+            let source = declared.join("plugin.nx");
+            fingerprint_file(&source, false, include_plugin_sources, visited, hasher)?;
+            if include_plugin_sources {
+                fingerprint_directory(
+                    &declared.join("assets"),
+                    include_plugin_sources,
+                    visited,
+                    hasher,
+                )?;
+            }
+            continue;
+        }
         let idl = if declared.is_dir() {
             declared.join("interfaces.nxid")
         } else {

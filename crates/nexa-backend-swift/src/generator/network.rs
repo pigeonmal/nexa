@@ -308,6 +308,19 @@ private enum NexaRemoteImageError: Error {
     case invalidResponse
 }
 
+private func nexaDownsampleImage(_ data: Data, maxPixelSize: Int = 2048) -> UIImage? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+    ]
+    guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        return nil
+    }
+    return UIImage(cgImage: image)
+}
+
 private enum NexaImageScale {
     case fit
     case fill
@@ -342,7 +355,8 @@ private struct NexaRemoteImage: View {
                 let (data, response) = try await NexaURLSessionSupport.sharedSession.data(from: parsedURL)
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200..<300).contains(httpResponse.statusCode),
-                      let decoded = UIImage(data: data) else {
+                      data.count <= 64 * 1024 * 1024,
+                      let decoded = nexaDownsampleImage(data) else {
                     throw NexaRemoteImageError.invalidResponse
                 }
                 image = Image(uiImage: decoded)
