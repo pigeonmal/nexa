@@ -20,12 +20,19 @@ fn render_component(
 ) {
     let name = nexa_codegen::names::component_name(&component.name);
     let focus_bindings = collect_focus_bindings(&component.body);
+    let has_content_slot = component_has_content_slot(component);
     if needs_ios16 {
         out.push_str("\n@available(iOS 16.0, *)\n");
     } else {
         out.push('\n');
     }
-    out.push_str(&format!("private struct {name}: View {{\n"));
+    if has_content_slot {
+        out.push_str(&format!(
+            "private struct {name}<SlotContent: View>: View {{\n"
+        ));
+    } else {
+        out.push_str(&format!("private struct {name}: View {{\n"));
+    }
 
     for parameter in &component.parameters {
         out.push_str(&format!(
@@ -33,6 +40,9 @@ fn render_component(
             nexa_codegen::names::state_name(&parameter.name),
             parameter.ty.swift()
         ));
+    }
+    if has_content_slot {
+        out.push_str("    private let nexaContent: () -> SlotContent\n");
     }
     for state in &component.states {
         if state.mutable && !focus_bindings.contains(&state.name) {
@@ -63,33 +73,38 @@ fn render_component(
 
     if !component.parameters.is_empty()
         || !component.states.is_empty()
+        || has_content_slot
         || uses_adaptive_color
         || uses_regular_width
     {
         out.push('\n');
     }
     out.push_str("    init(");
-    out.push_str(
-        &component
-            .parameters
-            .iter()
-            .map(|parameter| {
-                format!(
-                    "_ {}: {}",
-                    nexa_codegen::names::state_name(&parameter.name),
-                    parameter.ty.swift()
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(", "),
-    );
-    if component.parameters.is_empty() {
+    let mut init_parameters = component
+        .parameters
+        .iter()
+        .map(|parameter| {
+            format!(
+                "_ {}: {}",
+                nexa_codegen::names::state_name(&parameter.name),
+                parameter.ty.swift()
+            )
+        })
+        .collect::<Vec<_>>();
+    if has_content_slot {
+        init_parameters.push("@ViewBuilder nexaContent: @escaping () -> SlotContent".to_owned());
+    }
+    out.push_str(&init_parameters.join(", "));
+    if init_parameters.is_empty() {
         out.push_str(") {}\n\n");
     } else {
         out.push_str(") {\n");
         for parameter in &component.parameters {
             let name = nexa_codegen::names::state_name(&parameter.name);
             out.push_str(&format!("        self.{name} = {name}\n"));
+        }
+        if has_content_slot {
+            out.push_str("        self.nexaContent = nexaContent\n");
         }
         out.push_str("    }\n\n");
     }
@@ -98,6 +113,16 @@ fn render_component(
     render_immutable_state(&component.states, 2, out);
     render_body(&component.body, module, 2, out);
     out.push_str("\n    }\n}\n");
+}
+
+fn component_has_content_slot(component: &Component) -> bool {
+    let mut found = false;
+    walk_ir(
+        &component.body,
+        &mut |node| found |= matches!(node, Node::Content),
+        &mut |_| {},
+    );
+    found
 }
 
 fn collect_focus_bindings(nodes: &[Node]) -> BTreeSet<String> {

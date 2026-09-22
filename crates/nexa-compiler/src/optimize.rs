@@ -902,12 +902,17 @@ fn optimize_node(node: Node) -> Option<Node> {
                 .collect(),
             else_body: optimize_nodes(else_body),
         }),
-        Node::ComponentCall { name, arguments } => Some(Node::ComponentCall {
+        Node::ComponentCall {
+            name,
+            arguments,
+            children,
+        } => Some(Node::ComponentCall {
             name,
             arguments: arguments
                 .into_iter()
                 .map(|(name, value)| (name, fold_expression(value)))
                 .collect(),
+            children: children.map(optimize_nodes),
         }),
         Node::TextInput {
             state,
@@ -930,6 +935,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             focused,
             actions: optimize_actions(actions),
         }),
+        Node::Content => Some(Node::Content),
         node @ (Node::Switch { .. }
         | Node::Image { .. }
         | Node::StatusBar { .. }

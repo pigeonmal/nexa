@@ -237,7 +237,15 @@ pub(super) fn render_node(
             indent(out, depth);
             out.push('}');
         }
-        Node::ComponentCall { name, arguments } => {
+        Node::Content => {
+            indent(out, depth);
+            out.push_str("nexaContent()")
+        }
+        Node::ComponentCall {
+            name,
+            arguments,
+            children,
+        } => {
             indent(out, depth);
             let mut rendered_arguments = arguments
                 .iter()
@@ -251,6 +259,13 @@ pub(super) fn render_node(
                 nexa_codegen::names::component_name(name),
                 rendered_arguments.join(", ")
             ));
+            if let Some(children) = children {
+                out.push_str(" {\n");
+                render_children(children, module, features, depth + 1, out);
+                out.push('\n');
+                indent(out, depth);
+                out.push('}');
+            }
         }
     }
 }

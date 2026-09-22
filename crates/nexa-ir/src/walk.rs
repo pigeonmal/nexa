@@ -100,13 +100,21 @@ pub fn walk_ir(
                 }
                 walk_actions(actions, visit_expression);
             }
-            Node::ComponentCall { arguments, .. } => {
+            Node::ComponentCall {
+                arguments,
+                children,
+                ..
+            } => {
                 for (_, argument) in arguments {
                     walk_expression(argument, visit_expression);
                 }
+                if let Some(children) = children {
+                    walk_ir(children, visit_node, visit_expression);
+                }
             }
             Node::TextInput { actions, .. } => walk_actions(actions, visit_expression),
-            Node::Switch { .. }
+            Node::Content
+            | Node::Switch { .. }
             | Node::StatusBar { .. }
             | Node::Direction { .. }
             | Node::NavigationStack { .. } => {}
@@ -251,6 +259,7 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::Image { .. }
         | Node::NavigationStack { .. }
         | Node::ComponentCall { .. }
+        | Node::Content
         | Node::OnAppear { .. }
         | Node::OnDisappear { .. } => false,
     })

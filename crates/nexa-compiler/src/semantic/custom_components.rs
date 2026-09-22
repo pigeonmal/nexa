@@ -17,6 +17,7 @@ use crate::Target;
 #[derive(Clone)]
 pub(super) struct ComponentSignature {
     pub(super) parameters: Vec<(String, Type)>,
+    pub(super) has_content_slot: bool,
 }
 
 pub(super) type ComponentSignatures = HashMap<String, ComponentSignature>;
@@ -126,7 +127,10 @@ fn collect_signatures(
                     resolve_struct_type(&parse_type(&parameter.ty)?, structs),
                 ));
             }
-            Ok(ComponentSignature { parameters })
+            Ok(ComponentSignature {
+                parameters,
+                has_content_slot: declaration.body.iter().any(contains_content_slot),
+            })
         })()
         .map_err(|error| in_file(error, declaration.source_file.as_deref()))?;
         signatures.insert(declaration.name.clone(), result);
@@ -321,7 +325,14 @@ fn visit_component(
 
 fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
     match node {
-        ast::Node::ComponentCall { name, .. } => calls.push(name.clone()),
+        ast::Node::ComponentCall { name, children, .. } => {
+            calls.push(name.clone());
+            if let Some(children) = children {
+                for child in children {
+                    collect_component_calls(child, calls);
+                }
+            }
+        }
         ast::Node::Layout { children, .. }
         | ast::Node::Platform { children, .. }
         | ast::Node::Pressable { children, .. }
@@ -371,6 +382,7 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
         | ast::Node::Switch { .. }
         | ast::Node::Image { .. }
         | ast::Node::NavigationStack { .. }
+        | ast::Node::Content { .. }
         | ast::Node::Direction { .. }
         | ast::Node::OnAppear { .. }
         | ast::Node::OnDisappear { .. } => {}
@@ -430,13 +442,18 @@ fn contains_navigation_link(node: &ast::Node, target: Target) -> bool {
                 .any(|child| contains_navigation_link(child, target))
         }
         ast::Node::StatusBar { .. } => false,
+        ast::Node::ComponentCall { children, .. } => children.as_ref().is_some_and(|children| {
+            children
+                .iter()
+                .any(|child| contains_navigation_link(child, target))
+        }),
         ast::Node::Text { .. }
         | ast::Node::Button { .. }
         | ast::Node::TextInput { .. }
         | ast::Node::Switch { .. }
         | ast::Node::Image { .. }
         | ast::Node::NavigationStack { .. }
-        | ast::Node::ComponentCall { .. }
+        | ast::Node::Content { .. }
         | ast::Node::Direction { .. }
         | ast::Node::OnAppear { .. }
         | ast::Node::OnDisappear { .. } => false,
@@ -452,9 +469,15 @@ fn platform_matches(platform: ast::PlatformTarget, target: Target) -> bool {
 
 fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
     match node {
-        Node::ComponentCall { name, .. } => {
+        Node::ComponentCall { name, children, .. } => {
             calls.insert(name.clone());
+            if let Some(children) = children {
+                for child in children {
+                    collect_ir_component_calls(child, calls);
+                }
+            }
         }
+        Node::Content => {}
         Node::Layout { children, .. }
         | Node::Pressable { children, .. }
         | Node::NavigationLink { children, .. }
@@ -517,6 +540,56 @@ fn in_file(error: CompileError, file: Option<&str>) -> CompileError {
     }
 }
 
+fn contains_content_slot(node: &ast::Node) -> bool {
+    match node {
+        ast::Node::Content { .. } => true,
+        ast::Node::ComponentCall { children, .. } => children
+            .as_ref()
+            .is_some_and(|children| children.iter().any(contains_content_slot)),
+        ast::Node::Layout { children, .. }
+        | ast::Node::Platform { children, .. }
+        | ast::Node::Pressable { children, .. }
+        | ast::Node::NavigationLink { children, .. }
+        | ast::Node::Link { children, .. }
+        | ast::Node::Accessibility { children, .. }
+        | ast::Node::KeyboardAware { children, .. }
+        | ast::Node::BottomSheet { children, .. }
+        | ast::Node::RefreshControl { children, .. }
+        | ast::Node::FastList { children, .. } => children.iter().any(contains_content_slot),
+        ast::Node::AppBottomBar { tabs, .. } => tabs
+            .iter()
+            .flat_map(|tab| &tab.children)
+            .any(contains_content_slot),
+        ast::Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_content_slot)
+                || else_body
+                    .as_ref()
+                    .is_some_and(|body| body.iter().any(contains_content_slot))
+        }
+        ast::Node::When {
+            cases, else_body, ..
+        } => cases
+            .iter()
+            .flat_map(|case| &case.body)
+            .chain(else_body)
+            .any(contains_content_slot),
+        ast::Node::Text { .. }
+        | ast::Node::Button { .. }
+        | ast::Node::StatusBar { .. }
+        | ast::Node::TextInput { .. }
+        | ast::Node::Switch { .. }
+        | ast::Node::Image { .. }
+        | ast::Node::NavigationStack { .. }
+        | ast::Node::Direction { .. }
+        | ast::Node::OnAppear { .. }
+        | ast::Node::OnDisappear { .. } => false,
+    }
+}
+
 fn is_builtin_component(name: &str) -> bool {
     matches!(
         name,
@@ -532,5 +605,6 @@ fn is_builtin_component(name: &str) -> bool {
             | "NavigationLink"
             | "KeyboardAware"
             | "FastList"
+            | "Content"
     )
 }

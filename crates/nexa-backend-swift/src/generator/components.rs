@@ -228,7 +228,15 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             indent(out, depth);
             out.push('}');
         }
-        Node::ComponentCall { name, arguments } => {
+        Node::Content => {
+            indent(out, depth);
+            out.push_str("nexaContent()")
+        }
+        Node::ComponentCall {
+            name,
+            arguments,
+            children,
+        } => {
             indent(out, depth);
             out.push_str(&format!(
                 "{}({})",
@@ -239,6 +247,13 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
+            if let Some(children) = children {
+                out.push_str(" {\n");
+                render_children(children, module, depth + 1, out);
+                out.push('\n');
+                indent(out, depth);
+                out.push('}');
+            }
         }
     }
 }

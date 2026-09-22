@@ -1,3 +1,4 @@
+use nexa_ir::walk::walk_ir;
 use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle};
 
 use super::{
@@ -42,6 +43,12 @@ fn render_component(component: &Component, module: &Module, features: &Features,
     if needs_system_theme {
         out.push_str("nexaIsDarkTheme: Boolean");
     }
+    if component_has_content_slot(component) {
+        if needs_system_theme || !component.parameters.is_empty() {
+            out.push_str(", ");
+        }
+        out.push_str("nexaContent: @Composable () -> Unit");
+    }
     out.push_str(") {\n");
 
     if features.component_uses_link(&component.name) {
@@ -67,6 +74,16 @@ fn render_component(component: &Component, module: &Module, features: &Features,
     }
     render_body(&component.body, module, features, 1, out);
     out.push_str("\n}\n");
+}
+
+fn component_has_content_slot(component: &Component) -> bool {
+    let mut found = false;
+    walk_ir(
+        &component.body,
+        &mut |node| found |= matches!(node, Node::Content),
+        &mut |_| {},
+    );
+    found
 }
 
 fn render_component_states(states: &[nexa_ir::State], depth: usize, out: &mut String) {

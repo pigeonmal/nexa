@@ -389,9 +389,11 @@ pub enum Node {
         cases: Vec<WhenCase>,
         else_body: Vec<Node>,
     },
+    Content,
     ComponentCall {
         name: String,
         arguments: Vec<(String, Expr)>,
+        children: Option<Vec<Node>>,
     },
 }
 

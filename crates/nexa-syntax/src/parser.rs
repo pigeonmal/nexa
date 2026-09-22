@@ -1055,9 +1055,28 @@ impl Parser {
                     span,
                 })
             }
-            _ if self.check(&Kind::LParen) => Ok(Node::ComponentCall {
+            "Content" => {
+                self.expect(Kind::LParen, "expected `(` after Content")?;
+                self.expect(Kind::RParen, "Content does not accept arguments")?;
+                Ok(Node::Content { span })
+            }
+            _ if self.check(&Kind::LParen) => {
+                let arguments = self.named_args_any()?;
+                let children = self
+                    .check(&Kind::LBrace)
+                    .then(|| self.block_nodes())
+                    .transpose()?;
+                Ok(Node::ComponentCall {
+                    name,
+                    arguments,
+                    children,
+                    span,
+                })
+            }
+            _ if self.check(&Kind::LBrace) => Ok(Node::ComponentCall {
                 name,
-                arguments: self.named_args_any()?,
+                arguments: BTreeMap::new(),
+                children: Some(self.block_nodes()?),
                 span,
             }),
             _ => Err(CompileError::new(

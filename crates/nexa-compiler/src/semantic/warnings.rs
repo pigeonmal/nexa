@@ -474,11 +474,21 @@ fn walk_node(
                 walk_node(child, names, used, target, file, warnings);
             }
         }
-        ast::Node::ComponentCall { arguments, .. } => {
+        ast::Node::ComponentCall {
+            arguments,
+            children,
+            ..
+        } => {
             for value in arguments.values() {
                 walk_expression(value, names, used);
             }
+            if let Some(children) = children {
+                for child in children {
+                    walk_node(child, names, used, target, file, warnings);
+                }
+            }
         }
+        ast::Node::Content { .. } => {}
     }
 }
 

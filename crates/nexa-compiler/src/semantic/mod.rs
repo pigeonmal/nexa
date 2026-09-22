@@ -8,7 +8,7 @@ use nexa_ir::{
 use nexa_syntax::ast;
 
 use self::{
-    components::lower_nodes,
+    components::{contains_content, lower_nodes},
     custom_components::{lower_components, retain_reachable},
     expressions::{
         FunctionSignature, FunctionSignatures, StructTypes, collect_function_signatures,
@@ -225,6 +225,12 @@ pub fn lower_with_warnings(
             target,
         )?;
         let (status_bar, screen_body) = extract_status_bar(screen_body, screen.span, "screen")?;
+        if screen_body.iter().any(contains_content) {
+            return Err(CompileError::new(
+                screen.span,
+                "Content() is only available inside a custom component declaration",
+            ));
+        }
         if screen_body.iter().any(contains_direction) {
             return Err(CompileError::new(
                 app.span,
@@ -256,6 +262,12 @@ pub fn lower_with_warnings(
         target,
     )?;
     let (status_bar, body) = extract_status_bar(body, app.span, "app")?;
+    if body.iter().any(contains_content) {
+        return Err(CompileError::new(
+            app.span,
+            "Content() is only available inside a custom component declaration",
+        ));
+    }
     let (direction, body) = extract_direction(body, app.span)?;
     let (on_appear, on_appear_async, body) = extract_on_appear(body, app.span, "app")?;
     let (on_disappear, body) = extract_on_disappear(body, app.span, "app")?;
@@ -863,6 +875,7 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
         | Node::Image { .. }
         | Node::NavigationStack { .. }
         | Node::ComponentCall { .. }
+        | Node::Content
         | Node::Direction { .. }
         | Node::OnAppear { .. }
         | Node::OnDisappear { .. } => false,
@@ -938,6 +951,7 @@ pub(super) fn contains_direction(node: &Node) -> bool {
         | Node::Image { .. }
         | Node::NavigationStack { .. }
         | Node::ComponentCall { .. }
+        | Node::Content
         | Node::OnAppear { .. }
         | Node::OnDisappear { .. } => false,
     }
@@ -1019,6 +1033,7 @@ pub(super) fn contains_on_appear(node: &Node) -> bool {
         | Node::Image { .. }
         | Node::NavigationStack { .. }
         | Node::ComponentCall { .. }
+        | Node::Content
         | Node::OnDisappear { .. } => false,
     }
 }
@@ -1094,6 +1109,7 @@ pub(super) fn contains_on_disappear(node: &Node) -> bool {
         | Node::Switch { .. }
         | Node::Image { .. }
         | Node::NavigationStack { .. }
-        | Node::ComponentCall { .. } => false,
+        | Node::ComponentCall { .. }
+        | Node::Content => false,
     }
 }

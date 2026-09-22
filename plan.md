@@ -91,7 +91,7 @@ The first native animation slice is implemented as a static layout option: `anim
 
 App authors should be able to create reusable UI components in Nexa source files, pass typed inputs, compose built-in and custom components, and declare private per-instance state. Component files should be reusable through relative imports and resolve at compile time. Generated output should use native view/composable declarations without a dynamic registry or cross-platform component runtime.
 
-The first implementation supports typed parameters, private state, nested custom components, relative `.nx` imports, import-cycle diagnostics, and reachability-based output pruning. Callback properties, content slots, navigation links from components, explicit visibility/module namespaces, and shared state bindings remain future work.
+The first implementation supports typed parameters, private state, nested custom components, required `Content()` slots with trailing content blocks, relative `.nx` imports, import-cycle diagnostics, and reachability-based output pruning. Callback properties, navigation links from components, explicit visibility/module namespaces, and shared state bindings remain future work.
 
 The first `StatusBar` slice is implemented as one top-level app or named-screen declaration with static `style` (`Default`, `Light`, or `Dark`) and `hidden` options. It lowers to SwiftUI status-bar modifiers and AndroidX insets-controller APIs; background configuration and animated transitions remain future work.
 

@@ -339,9 +339,13 @@ pub enum Node {
         else_body: Vec<Node>,
         span: Span,
     },
+    Content {
+        span: Span,
+    },
     ComponentCall {
         name: String,
         arguments: BTreeMap<String, Expr>,
+        children: Option<Vec<Node>>,
         span: Span,
     },
 }

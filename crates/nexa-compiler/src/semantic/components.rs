@@ -88,6 +88,7 @@ pub(super) fn lower_node(
         ast::Node::Platform { .. } => {
             unreachable!("platform blocks are expanded by lower_nodes")
         }
+        ast::Node::Content { .. } => Ok(Node::Content),
         ast::Node::StatusBar { style, hidden, .. } => Ok(Node::StatusBar {
             config: lower_status_bar(style, hidden)?,
         }),
@@ -798,11 +799,24 @@ pub(super) fn lower_node(
         ast::Node::ComponentCall {
             name,
             mut arguments,
+            children,
             span,
         } => {
             let signature = components
                 .get(&name)
                 .ok_or_else(|| CompileError::new(span, format!("unknown component `{name}`")))?;
+            if children.is_some() && !signature.has_content_slot {
+                return Err(CompileError::new(
+                    span,
+                    format!("component `{name}` does not declare a Content() slot"),
+                ));
+            }
+            if children.is_none() && signature.has_content_slot {
+                return Err(CompileError::new(
+                    span,
+                    format!("component `{name}` requires a content block"),
+                ));
+            }
             for (argument_name, value) in &arguments {
                 if !signature
                     .parameters
@@ -828,11 +842,75 @@ pub(super) fn lower_node(
                     lower_expr(&argument, Some(ty), symbols, functions, false)?,
                 ));
             }
+            let lowered_children = children
+                .map(|children| {
+                    let lowered = lower_nodes(
+                        children, symbols, screen_ids, themes, components, functions, false, target,
+                    )?;
+                    if lowered.iter().any(contains_content) {
+                        return Err(CompileError::new(
+                            span,
+                            "Content() is only available inside a custom component declaration",
+                        ));
+                    }
+                    Ok(lowered)
+                })
+                .transpose()?;
             Ok(Node::ComponentCall {
                 name,
                 arguments: lowered_arguments,
+                children: lowered_children,
             })
         }
+    }
+}
+
+pub(super) fn contains_content(node: &Node) -> bool {
+    match node {
+        Node::Content => true,
+        Node::Layout { children, .. }
+        | Node::NavigationLink { children, .. }
+        | Node::Link { children, .. }
+        | Node::Accessibility { children, .. }
+        | Node::KeyboardAware { children }
+        | Node::BottomSheet { children, .. }
+        | Node::RefreshControl { children, .. }
+        | Node::Pressable { children, .. }
+        | Node::FastList { children, .. } => children.iter().any(contains_content),
+        Node::ComponentCall { children, .. } => children
+            .as_ref()
+            .is_some_and(|children| children.iter().any(contains_content)),
+        Node::AppBottomBar { tabs, .. } => tabs
+            .iter()
+            .any(|tab| tab.children.iter().any(contains_content)),
+        Node::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.iter().any(contains_content)
+                || else_body
+                    .as_deref()
+                    .is_some_and(|body| body.iter().any(contains_content))
+        }
+        Node::When {
+            cases, else_body, ..
+        } => {
+            cases
+                .iter()
+                .any(|case| case.body.iter().any(contains_content))
+                || else_body.iter().any(contains_content)
+        }
+        Node::Text { .. }
+        | Node::Button { .. }
+        | Node::StatusBar { .. }
+        | Node::Direction { .. }
+        | Node::OnAppear { .. }
+        | Node::OnDisappear { .. }
+        | Node::TextInput { .. }
+        | Node::Switch { .. }
+        | Node::Image { .. }
+        | Node::NavigationStack { .. } => false,
     }
 }
 
