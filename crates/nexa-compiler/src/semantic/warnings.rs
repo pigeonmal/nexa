@@ -699,7 +699,9 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
         | ast::Expr::Null(_)
         | ast::Expr::ThemeToken(_, _)
         | ast::Expr::IsRegularWidth(_)
-        | ast::Expr::IsCompactWidth(_) => false,
+        | ast::Expr::IsCompactWidth(_)
+        | ast::Expr::IsRegularHeight(_)
+        | ast::Expr::IsCompactHeight(_) => false,
     }
 }
 
@@ -813,7 +815,9 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
         | ast::Expr::Null(_)
         | ast::Expr::ThemeToken(_, _)
         | ast::Expr::IsRegularWidth(_)
-        | ast::Expr::IsCompactWidth(_) => {}
+        | ast::Expr::IsCompactWidth(_)
+        | ast::Expr::IsRegularHeight(_)
+        | ast::Expr::IsCompactHeight(_) => {}
     }
 }
 

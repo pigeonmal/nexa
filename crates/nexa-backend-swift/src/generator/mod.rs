@@ -101,6 +101,7 @@ pub(super) fn generate(module: &Module) -> String {
         out.push_str(
             "    @Environment(\\.horizontalSizeClass) private var nexaHorizontalSizeClass\n",
         );
+        out.push_str("    @Environment(\\.verticalSizeClass) private var nexaVerticalSizeClass\n");
     }
     if features.app_uses_adaptive_color || features.app_uses_regular_width {
         out.push('\n');

@@ -712,7 +712,7 @@ Support system theme detection.
 
 ## Dynamic and responsive styling
 
-The current compiler implements typed `Bool` width predicates `Layout.isRegularWidth` and `Layout.isCompactWidth`: Swift checks the native horizontal size class for `.regular` or `.compact`, while Compose checks whether the current configuration width is at least `600dp` or below `600dp`. They drive ordinary `.nx` conditional branches without adding a wrapper layout. These are platform-native width hints; the broader device, orientation, safe-area, and breakpoint API below remains roadmap work.
+The current compiler implements typed `Bool` size predicates `Layout.isRegularWidth`, `Layout.isCompactWidth`, `Layout.isRegularHeight`, and `Layout.isCompactHeight`: Swift checks native horizontal or vertical size classes for `.regular` or `.compact`, while Compose checks whether the current configuration width or height is at least `600dp` or below `600dp`. They drive ordinary `.nx` conditional branches without adding a wrapper layout or shared measurement pass. These are platform-native size hints; the broader device, orientation, safe-area, and breakpoint API below remains roadmap work. See [responsive-layout.nx](examples/responsive-layout.nx) and [responsive-size.nx](examples/responsive-size.nx).
 
 Support responsive styles based on:
 

@@ -1,0 +1,15 @@
+app ResponsiveSizeDemo {
+    body {
+        if Layout.isRegularHeight {
+            Column(spacing: 16) {
+                Text("Tall layout")
+                Text("More vertical space is available")
+            }
+        } else {
+            Row(spacing: 8) {
+                Text("Compact")
+                Text("Height")
+            }
+        }
+    }
+}

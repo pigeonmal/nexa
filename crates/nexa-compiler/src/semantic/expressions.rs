@@ -235,7 +235,9 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         | ast::Expr::Null(_)
         | ast::Expr::ThemeToken(_, _)
         | ast::Expr::IsRegularWidth(_)
-        | ast::Expr::IsCompactWidth(_) => false,
+        | ast::Expr::IsCompactWidth(_)
+        | ast::Expr::IsRegularHeight(_)
+        | ast::Expr::IsCompactHeight(_) => false,
     }
 }
 
@@ -317,6 +319,14 @@ pub(super) fn lower_expr(
         ast::Expr::IsCompactWidth(_) => {
             require_expected(expected, &Type::Bool, expr.span())?;
             Ok(Expr::IsCompactWidth)
+        }
+        ast::Expr::IsRegularHeight(_) => {
+            require_expected(expected, &Type::Bool, expr.span())?;
+            Ok(Expr::IsRegularHeight)
+        }
+        ast::Expr::IsCompactHeight(_) => {
+            require_expected(expected, &Type::Bool, expr.span())?;
+            Ok(Expr::IsCompactHeight)
         }
         ast::Expr::Array(items, span) => {
             let element_type = match expected {
@@ -1530,6 +1540,8 @@ pub(super) fn infer_expr_type(
         ast::Expr::Bool(_, _)
         | ast::Expr::IsRegularWidth(_)
         | ast::Expr::IsCompactWidth(_)
+        | ast::Expr::IsRegularHeight(_)
+        | ast::Expr::IsCompactHeight(_)
         | ast::Expr::Not(_, _)
         | ast::Expr::Binary(_, _, _, _) => Some(Type::Bool),
         ast::Expr::Number(raw, _) => Some(Type::Numeric(if raw.contains('.') {

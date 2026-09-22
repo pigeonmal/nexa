@@ -1571,10 +1571,12 @@ impl Parser {
                         "Theme" => Ok(Expr::ThemeToken(name, span)),
                         "Layout" if name == "isRegularWidth" => Ok(Expr::IsRegularWidth(span)),
                         "Layout" if name == "isCompactWidth" => Ok(Expr::IsCompactWidth(span)),
+                        "Layout" if name == "isRegularHeight" => Ok(Expr::IsRegularHeight(span)),
+                        "Layout" if name == "isCompactHeight" => Ok(Expr::IsCompactHeight(span)),
                         "Layout" => Err(CompileError::new(
                             name_span,
                             format!(
-                                "unknown layout property `{name}`; expected `isRegularWidth` or `isCompactWidth`"
+                                "unknown layout property `{name}`; expected `isRegularWidth`, `isCompactWidth`, `isRegularHeight`, or `isCompactHeight`"
                             ),
                         )),
                         _ => unreachable!("namespace checked above"),

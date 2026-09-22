@@ -430,6 +430,8 @@ pub enum Expr {
     ThemeToken(String, Span),
     IsRegularWidth(Span),
     IsCompactWidth(Span),
+    IsRegularHeight(Span),
+    IsCompactHeight(Span),
     Add(Box<Expr>, Box<Expr>, Span),
     Not(Box<Expr>, Span),
     Binary(Box<Expr>, BinaryOp, Box<Expr>, Span),
@@ -511,6 +513,8 @@ impl Expr {
             | Self::ThemeToken(_, s)
             | Self::IsRegularWidth(s)
             | Self::IsCompactWidth(s)
+            | Self::IsRegularHeight(s)
+            | Self::IsCompactHeight(s)
             | Self::Add(_, _, s)
             | Self::Not(_, s)
             | Self::Binary(_, _, _, s)

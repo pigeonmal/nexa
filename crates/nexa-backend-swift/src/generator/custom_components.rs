@@ -63,6 +63,7 @@ fn render_component(component: &Component, module: &Module, features: &Features,
         out.push_str(
             "    @Environment(\\.horizontalSizeClass) private var nexaHorizontalSizeClass\n",
         );
+        out.push_str("    @Environment(\\.verticalSizeClass) private var nexaVerticalSizeClass\n");
     }
 
     if !component.parameters.is_empty()

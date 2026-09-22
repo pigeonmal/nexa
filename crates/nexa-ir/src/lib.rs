@@ -269,6 +269,8 @@ pub enum Expr {
     Await(Box<Expr>),
     IsRegularWidth,
     IsCompactWidth,
+    IsRegularHeight,
+    IsCompactHeight,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

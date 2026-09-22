@@ -31,6 +31,8 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         Expr::Bool(value) => value.to_string(),
         Expr::IsRegularWidth => "(LocalConfiguration.current.screenWidthDp >= 600)".to_owned(),
         Expr::IsCompactWidth => "(LocalConfiguration.current.screenWidthDp < 600)".to_owned(),
+        Expr::IsRegularHeight => "(LocalConfiguration.current.screenHeightDp >= 600)".to_owned(),
+        Expr::IsCompactHeight => "(LocalConfiguration.current.screenHeightDp < 600)".to_owned(),
         Expr::Number { raw, ty } => kotlin_number(raw, *ty),
         Expr::State(name, _) if locals.iter().any(|local| local == name) => name.clone(),
         Expr::State(name, _) => state_name(name),

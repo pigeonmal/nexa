@@ -242,6 +242,8 @@ String interpolation supports `$name` and `\(expression)`. Embedded expressions 
 
 `Column` and `Row` also support a static native `animation` spec (`Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`) for content-size changes; see [animations.nx](examples/animations.nx).
 
+Responsive conditions support native width and height classes: `Layout.isRegularWidth`, `Layout.isCompactWidth`, `Layout.isRegularHeight`, and `Layout.isCompactHeight`. Swift uses horizontal or vertical size classes; Compose uses configuration width or height at the `600dp` threshold. See [responsive-layout.nx](examples/responsive-layout.nx) and [responsive-size.nx](examples/responsive-size.nx).
+
 `AppBottomBar(selected: ...)` provides static tabs with native `TabView` and Material 3 `NavigationBar` output. Optional icon names map to SF Symbols on iOS and drawable resources on Android, and optional static badges use native tab badge controls; see [app-bottom-bar.nx](examples/app-bottom-bar.nx).
 
 `BottomSheet(isPresented: state, partial: true|false)` maps to native SwiftUI and Material 3 sheets. `partial: true` enables native medium/large detents or a partially expanded Android sheet; custom snap points and transitions remain future work. See [bottom-sheet.nx](examples/bottom-sheet.nx).

@@ -221,7 +221,9 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
         | Expr::EnumValue { .. }
         | Expr::Null(_)
         | Expr::IsRegularWidth
-        | Expr::IsCompactWidth => {}
+        | Expr::IsCompactWidth
+        | Expr::IsRegularHeight
+        | Expr::IsCompactHeight => {}
     }
 }
 
