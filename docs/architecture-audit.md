@@ -88,6 +88,12 @@ implemented after the findings were reviewed.
   their own emitted code; the backend import module only collects, deduplicates,
   orders, and renders those contributions. Adding or replacing one native
   component therefore stays local to its feature module.
+- Added native class constructor and instance-method lowering. A `native class`
+  constructor now creates a typed object expression, and calls such as
+  `player.prepare()` lower to direct receiver calls instead of the service
+  singleton path. This covers value-returning instance methods; properties,
+  deterministic disposal, void action statements, and instance events remain
+  follow-up work.
 
 ## Independent Swift/Kotlin review
 
@@ -101,11 +107,11 @@ ABI or measured binary-size reduction without release builds.
 
 ## Remaining architectural work
 
-1. Generate native implementation conformance checks, factories, independent
-   stateful object instances, disposal, instance-scoped events, and native
-   visual component lowering from `native.nxid`.
-2. Add SPM/Maven dependency declarations and honor manifest source globs and
-   platform minimums during project generation.
+1. Generate native implementation conformance checks and factories, then add
+   disposal, void action statements, instance-scoped events, and native visual
+   component lowering from `native.nxid`.
+2. Add SPM/Maven dependency declarations and honor manifest platform minimums
+   during project generation. Manifest source globs are now honored.
 3. Extend `nexa audit` with Android R8/resource-shrink results and Swift
    release binary/resource sizes when native release toolchains are available.
 4. Define certificate pinning as one representation on both platforms (the

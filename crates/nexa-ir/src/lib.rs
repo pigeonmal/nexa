@@ -253,6 +253,7 @@ pub enum Expr {
         body: Box<Expr>,
     },
     NativeCall {
+        receiver: Option<Box<Expr>>,
         namespace: String,
         name: String,
         arguments: Vec<(String, Expr)>,

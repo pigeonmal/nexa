@@ -238,7 +238,14 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             walk_expression(closure, visit);
         }
         Expr::Closure { body, .. } => walk_expression(body, visit),
-        Expr::NativeCall { arguments, .. } => {
+        Expr::NativeCall {
+            receiver,
+            arguments,
+            ..
+        } => {
+            if let Some(receiver) = receiver {
+                walk_expression(receiver, visit);
+            }
             for (_, argument) in arguments {
                 walk_expression(argument, visit);
             }

@@ -160,7 +160,14 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
                 }
             }
         }
-        Expr::NativeCall { arguments, .. } => {
+        Expr::NativeCall {
+            receiver,
+            arguments,
+            ..
+        } => {
+            if let Some(receiver) = receiver {
+                collect_expression_state_names(receiver, names);
+            }
             for (_, argument) in arguments {
                 collect_expression_state_names(argument, names);
             }

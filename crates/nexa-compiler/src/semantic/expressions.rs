@@ -11,6 +11,8 @@ pub(super) struct FunctionSignature {
     pub(super) return_type: Type,
     pub(super) is_async: bool,
     pub(super) is_throwing: bool,
+    pub(super) receiver: Option<Type>,
+    pub(super) is_constructor: bool,
 }
 
 pub(super) type FunctionSignatures = HashMap<String, FunctionSignature>;
@@ -48,8 +50,61 @@ pub(super) fn collect_plugin_signatures(
                 ),
             )
         })?;
+        let native_class = matches!(interface.kind, nexa_plugin_idl::InterfaceKind::NativeClass);
+        if native_class {
+            if interface.constructors.len() > 1 {
+                return Err(CompileError::new(
+                    plugin.span,
+                    format!(
+                        "native class `{}` declares multiple constructors; Nexa requires one constructor",
+                        interface.name
+                    ),
+                ));
+            }
+            let constructor = interface.constructors.first();
+            let parameters = constructor
+                .map(|constructor| {
+                    constructor
+                        .parameters
+                        .iter()
+                        .map(|parameter| {
+                            plugin_type(&plugin.namespace, &parameter.ty, false)
+                                .map(|ty| (parameter.name.clone(), ty))
+                                .map_err(|message| CompileError::new(plugin.span, message))
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?
+                .unwrap_or_default();
+            let key = interface.name.clone();
+            if signatures.contains_key(&key) {
+                return Err(CompileError::new(
+                    plugin.span,
+                    format!("native class constructor `{key}` is declared more than once"),
+                ));
+            }
+            let class_type = Type::Plugin {
+                namespace: plugin.namespace.clone(),
+                name: interface.name.clone(),
+            };
+            signatures.insert(
+                key,
+                FunctionSignature {
+                    parameters,
+                    return_type: class_type.clone(),
+                    is_async: false,
+                    is_throwing: false,
+                    receiver: None,
+                    is_constructor: true,
+                },
+            );
+        }
         for method in &interface.methods {
-            let key = format!("{}.{}", plugin.namespace, method.name);
+            let key = if native_class {
+                format!("{}.{}", interface.name, method.name)
+            } else {
+                format!("{}.{}", plugin.namespace, method.name)
+            };
             if signatures.contains_key(&key) {
                 return Err(CompileError::new(
                     plugin.span,
@@ -74,6 +129,11 @@ pub(super) fn collect_plugin_signatures(
                     return_type,
                     is_async: method.is_async,
                     is_throwing: method.return_type.name == "Result" || method.throws.is_some(),
+                    receiver: native_class.then(|| Type::Plugin {
+                        namespace: plugin.namespace.clone(),
+                        name: interface.name.clone(),
+                    }),
+                    is_constructor: false,
                 },
             );
         }
@@ -181,6 +241,8 @@ pub(super) fn collect_function_signatures(
                 return_type: resolve_struct_type(&parse_type(&declaration.return_type)?, structs),
                 is_async: declaration.is_async,
                 is_throwing: false,
+                receiver: None,
+                is_constructor: false,
             },
         );
     }
@@ -580,16 +642,35 @@ pub(super) fn lower_expr(
             name,
             arguments,
             span,
-        } => lower_collection_transform(
-            base,
-            name,
-            arguments,
-            *span,
-            expected,
-            symbols,
-            functions,
-            allow_await,
-        ),
+        } => {
+            if matches!(
+                infer_expr_type(base, symbols, functions),
+                Some(Type::Plugin { .. })
+            ) {
+                lower_plugin_method_call(
+                    base,
+                    name,
+                    arguments,
+                    *span,
+                    expected,
+                    symbols,
+                    functions,
+                    allow_await,
+                    false,
+                )
+            } else {
+                lower_collection_transform(
+                    base,
+                    name,
+                    arguments,
+                    *span,
+                    expected,
+                    symbols,
+                    functions,
+                    allow_await,
+                )
+            }
+        }
         ast::Expr::Closure { span, .. } => Err(CompileError::new(
             *span,
             "closures are only valid as collection transformation callbacks",
@@ -829,6 +910,28 @@ pub(super) fn lower_expr(
                     allow_await,
                     true,
                 )?,
+                ast::Expr::MethodCall {
+                    base,
+                    name,
+                    arguments,
+                    span: call_span,
+                } if matches!(
+                    infer_expr_type(base, symbols, functions),
+                    Some(Type::Plugin { .. })
+                ) =>
+                {
+                    lower_plugin_method_call(
+                        base,
+                        name,
+                        arguments,
+                        *call_span,
+                        expected,
+                        symbols,
+                        functions,
+                        allow_await,
+                        true,
+                    )?
+                }
                 _ => {
                     return Err(CompileError::new(
                         *span,
@@ -1105,13 +1208,14 @@ fn lower_call(
         arguments: lowered,
         return_type: signature.return_type.clone(),
         is_async: signature.is_async,
-        is_constructor: matches!(
-            &signature.return_type,
-            Type::Struct {
-                name: struct_name,
-                ..
-            } if struct_name == name
-        ),
+        is_constructor: signature.is_constructor
+            || matches!(
+                &signature.return_type,
+                Type::Struct {
+                    name: struct_name,
+                    ..
+                } if struct_name == name
+            ),
     })
 }
 
@@ -1233,6 +1337,7 @@ fn lower_native_call(
         ));
     }
     Ok(Expr::NativeCall {
+        receiver: None,
         namespace: namespace.to_owned(),
         name: name.to_owned(),
         arguments: lowered,
@@ -1311,9 +1416,101 @@ fn lower_plugin_call(
         ));
     }
     Ok(Expr::NativeCall {
+        receiver: None,
         namespace: namespace.to_owned(),
         name: name.to_owned(),
         arguments: lowered,
+        return_type: signature.return_type.clone(),
+        is_async: signature.is_async,
+        is_throwing: signature.is_throwing,
+    })
+}
+
+fn lower_plugin_method_call(
+    base: &ast::Expr,
+    name: &str,
+    arguments: &[ast::Expr],
+    span: Span,
+    expected: Option<&Type>,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+    awaited: bool,
+) -> Result<Expr, CompileError> {
+    let Some(base_type) = infer_expr_type(base, symbols, functions) else {
+        return Err(CompileError::new(
+            span,
+            "native object method calls require a native class instance",
+        ));
+    };
+    let Type::Plugin {
+        namespace,
+        name: class,
+    } = &base_type
+    else {
+        return Err(CompileError::new(
+            span,
+            "native object method calls require a native class instance",
+        ));
+    };
+    let qualified_name = format!("{class}.{name}");
+    let Some(signature) = functions.get(&qualified_name) else {
+        return Err(CompileError::new(
+            span,
+            format!("unknown native class method `{class}.{name}`"),
+        ));
+    };
+    if signature.receiver.as_ref() != Some(&base_type) {
+        return Err(CompileError::new(
+            span,
+            format!("method `{name}` is not available on `{class}`"),
+        ));
+    }
+    if arguments.len() != signature.parameters.len() {
+        return Err(CompileError::new(
+            span,
+            format!(
+                "native class method `{class}.{name}` expects {} argument(s), found {}",
+                signature.parameters.len(),
+                arguments.len()
+            ),
+        ));
+    }
+    if signature.is_async && !awaited {
+        return Err(CompileError::new(
+            span,
+            format!("async native class method `{class}.{name}` must be awaited"),
+        ));
+    }
+    if awaited && !signature.is_async {
+        return Err(CompileError::new(
+            span,
+            format!("native class method `{class}.{name}` is not async and cannot be awaited"),
+        ));
+    }
+    if awaited && !allow_await {
+        return Err(CompileError::new(
+            span,
+            "`await` is only allowed in an async function or `OnAppear async` block",
+        ));
+    }
+    require_expected(expected, &signature.return_type, span)?;
+    let receiver = lower_expr(base, Some(&base_type), symbols, functions, allow_await)?;
+    let lowered = arguments
+        .iter()
+        .zip(&signature.parameters)
+        .map(|(argument, (_, ty))| lower_expr(argument, Some(ty), symbols, functions, allow_await))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Expr::NativeCall {
+        receiver: Some(Box::new(receiver)),
+        namespace: namespace.clone(),
+        name: name.to_owned(),
+        arguments: signature
+            .parameters
+            .iter()
+            .map(|(name, _)| name.clone())
+            .zip(lowered)
+            .collect(),
         return_type: signature.return_type.clone(),
         is_async: signature.is_async,
         is_throwing: signature.is_throwing,
@@ -1646,7 +1843,18 @@ pub(super) fn infer_expr_type(
             name,
             arguments,
             ..
-        } => infer_collection_transform_type(base, name, arguments, symbols, functions),
+        } => {
+            if let Some(Type::Plugin { name: class, .. }) =
+                infer_expr_type(base, symbols, functions)
+            {
+                functions
+                    .get(&format!("{class}.{name}"))
+                    .filter(|signature| signature.receiver.is_some())
+                    .map(|signature| signature.return_type.clone())
+            } else {
+                infer_collection_transform_type(base, name, arguments, symbols, functions)
+            }
+        }
         ast::Expr::Range { .. } => None,
         ast::Expr::Null(_) => None,
         ast::Expr::Coalesce(left, right, _) => {

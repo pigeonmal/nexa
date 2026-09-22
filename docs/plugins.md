@@ -135,9 +135,10 @@ Nexa class so component properties remain typed as `VideoPlayer`.
 `service` declares stateless APIs. `interface` remains available for a shared
 contract. `native class` represents an independently constructible stateful
 object, and `native component` represents a platform visual contract. Native
-object lifetime, events, platform implementations, and generated factories are
-being implemented in the next plugin phases; the current compiler still
-accepts direct interface method calls only.
+class constructors and instance method calls are lowered as direct object
+calls, so two constructor expressions produce two independent native objects.
+Property metadata, deterministic disposal, events, visual component lowering,
+and generated implementation factories are still future phases.
 
 ## Compile-time options
 
@@ -173,7 +174,7 @@ direct generated Swift/Kotlin constants; no runtime option map is emitted.
 Local package discovery, pure-source loading, typed native parsing, direct
 Swift/Kotlin contract generation, asset reachability, and compile-time options
 are implemented. Package installation/version resolution, native implementation
-conformance checks, stateful object lowering, typed error recovery in `.nx`,
-instance-scoped events, native visual component lowering, SPM/Maven dependency
-injection, and optional generated C++ adapters remain planned work. See
+conformance checks, property and disposal lowering, typed error recovery in
+`.nx`, instance-scoped events, native visual component lowering, SPM/Maven
+dependency injection, and optional generated C++ adapters remain planned work. See
 `plugin-plan.md` for the full migration and test matrix.

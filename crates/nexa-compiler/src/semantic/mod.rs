@@ -115,6 +115,8 @@ pub fn lower_with_warnings(
                 },
                 is_async: false,
                 is_throwing: false,
+                receiver: None,
+                is_constructor: true,
             },
         );
     }

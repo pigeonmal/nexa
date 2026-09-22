@@ -221,11 +221,12 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             format!("{{ {} in {} }}", parameters.join(", "), body)
         }
         Expr::NativeCall {
+            receiver,
             namespace,
             name,
             arguments,
             ..
-        } => native_call(namespace, name, arguments, locals),
+        } => native_call(receiver.as_deref(), namespace, name, arguments, locals),
         Expr::Await(value) => match value.as_ref() {
             Expr::NativeCall {
                 return_type,
@@ -270,11 +271,30 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
 }
 
 fn native_call(
+    receiver: Option<&Expr>,
     namespace: &str,
     name: &str,
     arguments: &[(String, Expr)],
     locals: &[String],
 ) -> String {
+    if let Some(receiver) = receiver {
+        return format!(
+            "{}.{}({})",
+            expression_with_locals(receiver, locals),
+            name,
+            arguments
+                .iter()
+                .map(|(argument_name, value)| {
+                    format!(
+                        "{}: {}",
+                        argument_name,
+                        expression_with_locals(value, locals)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     let argument = |name: &str| {
         arguments
             .iter()
