@@ -185,7 +185,7 @@ Structs lower to private Swift value structs and Kotlin data classes. Their cons
 
 String interpolation supports `$name` and `\(expression)`. Embedded expressions use the normal Nexa type checker and lower directly into Swift or Kotlin interpolation without a template runtime; see [interpolation.nx](examples/interpolation.nx).
 
-`StatusBar(style: Default|Light|Dark, hidden: true|false)` is a single top-level app configuration that lowers to native status-bar APIs; see [status-bar.nx](examples/status-bar.nx).
+`StatusBar(style: Default|Light|Dark, hidden: true|false)` is a static app-root or named-screen configuration that lowers to native status-bar APIs; see [status-bar.nx](examples/status-bar.nx) and [navigation.nx](examples/navigation.nx).
 
 `Pressable` supports a tap action block, an optional third long-press action block, and a Boolean `disabled` expression. Long press and disabled state map to native SwiftUI and Compose gestures without a shared runtime; see [pressable-long-press.nx](examples/pressable-long-press.nx).
 

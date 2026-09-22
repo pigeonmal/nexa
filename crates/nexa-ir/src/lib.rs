@@ -97,6 +97,7 @@ pub struct Screen {
     pub id: ScreenId,
     pub name: String,
     pub body: Vec<Node>,
+    pub status_bar: Option<StatusBarConfig>,
     pub on_appear: Option<Vec<Action>>,
     pub on_appear_async: bool,
     pub on_disappear: Option<Vec<Action>>,

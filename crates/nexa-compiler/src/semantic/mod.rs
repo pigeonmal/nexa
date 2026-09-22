@@ -225,12 +225,7 @@ pub fn lower_with_warnings(
             false,
             target,
         )?;
-        if screen_body.iter().any(contains_status_bar) {
-            return Err(CompileError::new(
-                app.span,
-                "StatusBar is only allowed once at the app body's top level",
-            ));
-        }
+        let (status_bar, screen_body) = extract_status_bar(screen_body, screen.span, "screen")?;
         if screen_body.iter().any(contains_direction) {
             return Err(CompileError::new(
                 app.span,
@@ -244,6 +239,7 @@ pub fn lower_with_warnings(
             id: ScreenId(index),
             name: screen.name,
             body: screen_body,
+            status_bar,
             on_appear,
             on_appear_async,
             on_disappear,
@@ -260,7 +256,7 @@ pub fn lower_with_warnings(
         true,
         target,
     )?;
-    let (status_bar, body) = extract_status_bar(body, app.span)?;
+    let (status_bar, body) = extract_status_bar(body, app.span, "app")?;
     let (direction, body) = extract_direction(body, app.span)?;
     let (on_appear, on_appear_async, body) = extract_on_appear(body, app.span, "app")?;
     let (on_disappear, body) = extract_on_disappear(body, app.span, "app")?;
@@ -840,6 +836,7 @@ fn platform_matches(platform: ast::PlatformTarget, target: Target) -> bool {
 fn extract_status_bar(
     nodes: Vec<Node>,
     span: nexa_diagnostics::Span,
+    scope: &str,
 ) -> Result<(Option<StatusBarConfig>, Vec<Node>), CompileError> {
     let mut config = None;
     let mut body = Vec::with_capacity(nodes.len());
@@ -849,14 +846,14 @@ fn extract_status_bar(
                 if config.replace(value).is_some() {
                     return Err(CompileError::new(
                         span,
-                        "an app can declare only one top-level StatusBar",
+                        format!("a {scope} can declare only one top-level StatusBar"),
                     ));
                 }
             }
             node if contains_status_bar(&node) => {
                 return Err(CompileError::new(
                     span,
-                    "StatusBar is only allowed at the app body's top level",
+                    format!("StatusBar is only allowed at the {scope} body's top level"),
                 ));
             }
             node => body.push(node),

@@ -58,6 +58,15 @@ pub(super) fn render_navigation_stack(
         }
         super::render_on_appear_effect(screen.on_appear.as_deref(), depth + 2, out);
         super::render_on_disappear_effect(screen.on_disappear.as_deref(), depth + 2, out);
+        if screen.status_bar.or(module.status_bar).is_some() {
+            out.push('\n');
+        }
+        super::render_status_bar(
+            screen.status_bar.or(module.status_bar),
+            features.uses_status_bar,
+            depth + 2,
+            out,
+        );
         if screen.on_appear.is_none() && screen.on_disappear.is_none() {
             out.push('\n');
         }

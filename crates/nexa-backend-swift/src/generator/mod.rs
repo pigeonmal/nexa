@@ -240,7 +240,7 @@ pub(super) fn render_on_disappear_modifier(
     out.push('}');
 }
 
-fn render_status_bar_modifiers(
+pub(super) fn render_status_bar_modifiers(
     config: Option<nexa_ir::StatusBarConfig>,
     depth: usize,
     out: &mut String,

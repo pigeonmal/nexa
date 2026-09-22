@@ -91,7 +91,11 @@ pub(super) struct Features {
 impl Features {
     pub(super) fn analyze(module: &Module) -> Self {
         let mut features = Self {
-            uses_status_bar: module.status_bar.is_some(),
+            uses_status_bar: module.status_bar.is_some()
+                || module
+                    .screens
+                    .iter()
+                    .any(|screen| screen.status_bar.is_some()),
             uses_bottom_bar: false,
             uses_bottom_sheet: false,
             uses_refresh_control: false,

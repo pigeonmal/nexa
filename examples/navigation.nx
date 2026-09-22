@@ -16,6 +16,8 @@ app NavigationDemo {
     }
 
     screen Profile {
+        StatusBar(style: Light, hidden: false)
+
         Column(spacing: 12) {
             Text("Profile")
             Text(visits)

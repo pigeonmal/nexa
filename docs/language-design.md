@@ -6,7 +6,7 @@ Nexa borrows useful ideas from Kotlin and Swift, but keeps one source language a
 | --- | --- | --- |
 | Condition (`if / else`) | Integrate now | Lowers directly to native branches for UI and event actions. |
 | Platform-specific UI | Integrate now | `platform ios { ... }` and `platform android { ... }` are selected during target lowering; inactive widgets never reach the target IR. |
-| Status bar | Integrate first slice | One top-level `StatusBar` declaration lowers to native SwiftUI status-bar modifiers and Android system UI flags. Background colors and animated transitions remain deferred. |
+| Status bar | Integrate first slice | An app- or screen-level `StatusBar` declaration lowers to native SwiftUI status-bar modifiers and Android system UI flags. Background colors and animated transitions remain deferred. |
 | Bottom sheet | Integrate first slice | `BottomSheet(isPresented: ...)` lowers to SwiftUI `.sheet` and Compose Material 3 `ModalBottomSheet`; advanced snap points and custom transitions remain deferred. |
 | Refresh control | Integrate first slice | `RefreshControl` lowers to SwiftUI `.refreshable` and Compose Material 3 `PullToRefreshBox`; custom indicators and event streams remain deferred. |
 | Application bottom bar | Integrate first slice | `AppBottomBar(selected: ...)` lowers to SwiftUI `TabView(selection:)` and Compose Material 3 `Scaffold`/`NavigationBar`; static labels and unique `Int32` tab indexes are supported while icons, badges, and custom transitions remain deferred. |
