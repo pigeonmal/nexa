@@ -16,8 +16,8 @@ use self::{
     custom_components::{lower_components, retain_reachable},
     expressions::{
         FunctionSignature, FunctionSignatures, StructTypes, collect_function_signatures,
-        collect_plugin_signatures, lower_expr, parse_type, references_state,
-        resolve_declaration_type, resolve_struct_type, resolve_value_type,
+        collect_plugin_components, collect_plugin_signatures, lower_expr, parse_type,
+        references_state, resolve_declaration_type, resolve_struct_type, resolve_value_type,
     },
     themes::lower_theme,
 };
@@ -164,7 +164,7 @@ pub fn lower_with_warnings(
         ));
     }
 
-    let (components, component_signatures) = lower_components(
+    let (components, mut component_signatures) = lower_components(
         std::mem::take(&mut app.components),
         &screen_signatures,
         &themes,
@@ -173,6 +173,23 @@ pub fn lower_with_warnings(
         &enum_symbols,
         target,
     )?;
+    for native in collect_plugin_components(&app.plugins)? {
+        let qualified_name = format!("{}.{}", native.namespace, native.name);
+        if component_signatures.contains_key(&qualified_name) {
+            return Err(CompileError::new(
+                app.span,
+                format!("native component `{qualified_name}` conflicts with a custom component"),
+            ));
+        }
+        component_signatures.insert(
+            qualified_name,
+            custom_components::ComponentSignature {
+                parameters: native.parameters,
+                has_content_slot: false,
+                native: true,
+            },
+        );
+    }
 
     let functions = lower_functions(
         std::mem::take(&mut app.functions),

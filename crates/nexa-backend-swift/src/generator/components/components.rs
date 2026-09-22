@@ -306,6 +306,33 @@ pub(crate) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                 out.push('}');
             }
         }
+        Node::NativeComponentCall {
+            name,
+            arguments,
+            children,
+            ..
+        } => {
+            indent(out, depth);
+            out.push_str(&format!(
+                "{}({})",
+                name,
+                arguments
+                    .iter()
+                    .map(|(argument_name, argument)| format!(
+                        "{argument_name}: {}",
+                        crate::generator::engine::expressions::expression(argument)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            if let Some(children) = children {
+                out.push_str(" {\n");
+                render_children(children, module, depth + 1, out);
+                out.push('\n');
+                indent(out, depth);
+                out.push('}');
+            }
+        }
     }
 }
 

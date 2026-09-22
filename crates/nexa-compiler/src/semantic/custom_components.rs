@@ -18,6 +18,7 @@ use crate::Target;
 pub(super) struct ComponentSignature {
     pub(super) parameters: Vec<(String, Type)>,
     pub(super) has_content_slot: bool,
+    pub(super) native: bool,
 }
 
 pub(super) type ComponentSignatures = HashMap<String, ComponentSignature>;
@@ -130,6 +131,7 @@ fn collect_signatures(
             Ok(ComponentSignature {
                 parameters,
                 has_content_slot: declaration.body.iter().any(contains_content_slot),
+                native: false,
             })
         })()
         .map_err(|error| in_file(error, declaration.source_file.as_deref()))?;
@@ -335,6 +337,13 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
                 }
             }
         }
+        ast::Node::NativeComponentCall { children, .. } => {
+            if let Some(children) = children {
+                for child in children {
+                    collect_component_calls(child, calls);
+                }
+            }
+        }
         ast::Node::Layout { children, .. }
         | ast::Node::Platform { children, .. }
         | ast::Node::Pressable { children, .. }
@@ -418,6 +427,13 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
     match node {
         Node::ComponentCall { name, children, .. } => {
             calls.insert(name.clone());
+            if let Some(children) = children {
+                for child in children {
+                    collect_ir_component_calls(child, calls);
+                }
+            }
+        }
+        Node::NativeComponentCall { children, .. } => {
             if let Some(children) = children {
                 for child in children {
                     collect_ir_component_calls(child, calls);
@@ -514,6 +530,9 @@ fn contains_content_slot(node: &ast::Node) -> bool {
     match node {
         ast::Node::Content { .. } => true,
         ast::Node::ComponentCall { children, .. } => children
+            .as_ref()
+            .is_some_and(|children| children.iter().any(contains_content_slot)),
+        ast::Node::NativeComponentCall { children, .. } => children
             .as_ref()
             .is_some_and(|children| children.iter().any(contains_content_slot)),
         ast::Node::Layout { children, .. }

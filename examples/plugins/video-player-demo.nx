@@ -1,0 +1,13 @@
+plugin "video-player" as VideoPlayer
+
+app VideoPlayerDemo {
+    let player1 = VideoPlayer()
+    let player2 = VideoPlayer()
+
+    body {
+        Column {
+            VideoPlayer.VideoView(player: player1, controls: true)
+            VideoPlayer.VideoView(player: player2, controls: false)
+        }
+    }
+}

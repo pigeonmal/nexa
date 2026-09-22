@@ -766,6 +766,37 @@ impl Parser {
             return self.when_node();
         }
         let (name, span) = self.ident()?;
+        // Plugin visual components use an explicit namespace so their export
+        // is deterministic even when two packages expose the same type name.
+        // Keep built-in and ordinary custom component parsing unchanged.
+        if self.check(&Kind::Dot) {
+            let saved = self.cursor;
+            self.advance();
+            if let Ok((component_name, component_span)) = self.ident() {
+                if self.check(&Kind::LParen) || self.check(&Kind::LBrace) {
+                    let arguments = if self.check(&Kind::LParen) {
+                        self.named_args_any()?
+                    } else {
+                        BTreeMap::new()
+                    };
+                    let children = self
+                        .check(&Kind::LBrace)
+                        .then(|| self.block_nodes())
+                        .transpose()?;
+                    return Ok(Node::NativeComponentCall {
+                        namespace: name,
+                        name: component_name,
+                        arguments,
+                        children,
+                        span: Span {
+                            end: component_span.end,
+                            ..span
+                        },
+                    });
+                }
+            }
+            self.cursor = saved;
+        }
         match name.as_str() {
             "platform" => {
                 let (target, target_span) = self.ident()?;

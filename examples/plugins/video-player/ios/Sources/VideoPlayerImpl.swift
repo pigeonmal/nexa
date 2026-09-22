@@ -1,4 +1,5 @@
 import AVFoundation
+import SwiftUI
 
 public final class VideoPlayerImpl: VideoPlayerSpec {
     public private(set) var state: PlayerState = .idle
@@ -42,5 +43,20 @@ public final class VideoPlayerImpl: VideoPlayerSpec {
         player?.pause()
         player = nil
         state = .idle
+    }
+}
+
+/// Native visual implementation used by the generated `VideoView` wrapper.
+/// A production plugin can replace this body with AVPlayerViewController
+/// interoperability while keeping the generated Nexa-facing contract stable.
+public struct VideoViewImpl: View {
+    public let player: VideoPlayer
+    public let controls: Bool
+    public let onTapped: (() -> Void)?
+
+    public var body: some View {
+        Color.black
+            .contentShape(Rectangle())
+            .onTapGesture { onTapped?() }
     }
 }

@@ -392,6 +392,15 @@ pub enum Node {
         children: Option<Vec<Node>>,
         span: Span,
     },
+    /// A statically qualified plugin visual component, for example
+    /// `Video.VideoView(player: player)`.
+    NativeComponentCall {
+        namespace: String,
+        name: String,
+        arguments: BTreeMap<String, Expr>,
+        children: Option<Vec<Node>>,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Debug)]

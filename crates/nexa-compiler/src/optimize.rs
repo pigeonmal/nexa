@@ -546,17 +546,30 @@ fn prune_unused_plugins(module: &mut Module) {
         return;
     }
     let mut used = HashSet::new();
-    let mut collect = |expression: &Expr| {
-        if let Expr::NativeCall { namespace, .. } = expression {
+    let mut used_by_component = HashSet::new();
+    let mut collect_node = |node: &nexa_ir::Node| {
+        if let nexa_ir::Node::NativeComponentCall { namespace, .. } = node {
             if declared.contains(namespace.as_str()) {
-                used.insert(namespace.clone());
+                used_by_component.insert(namespace.clone());
             }
         }
+    };
+    let mut collect = |expression: &Expr| match expression {
+        Expr::NativeCall { namespace, .. } if declared.contains(namespace.as_str()) => {
+            used.insert(namespace.clone());
+        }
+        Expr::Call {
+            return_type: nexa_ir::Type::Plugin { namespace, .. },
+            ..
+        } if declared.contains(namespace.as_str()) => {
+            used.insert(namespace.clone());
+        }
+        _ => {}
     };
     for state in &module.states {
         nexa_ir::walk::walk_expression(&state.initial, &mut collect);
     }
-    nexa_ir::walk::walk_ir(&module.body, &mut |_| {}, &mut collect);
+    nexa_ir::walk::walk_ir(&module.body, &mut collect_node, &mut collect);
     if let Some(actions) = &module.on_appear {
         collect_action_plugin_references(actions, &mut collect);
     }
@@ -575,7 +588,7 @@ fn prune_unused_plugins(module: &mut Module) {
         for state in &screen.states {
             nexa_ir::walk::walk_expression(&state.initial, &mut collect);
         }
-        nexa_ir::walk::walk_ir(&screen.body, &mut |_| {}, &mut collect);
+        nexa_ir::walk::walk_ir(&screen.body, &mut collect_node, &mut collect);
         if let Some(actions) = &screen.on_appear {
             collect_action_plugin_references(actions, &mut collect);
         }
@@ -584,7 +597,7 @@ fn prune_unused_plugins(module: &mut Module) {
         }
     }
     for component in &module.components {
-        nexa_ir::walk::walk_ir(&component.body, &mut |_| {}, &mut collect);
+        nexa_ir::walk::walk_ir(&component.body, &mut collect_node, &mut collect);
         for state in &component.states {
             nexa_ir::walk::walk_expression(&state.initial, &mut collect);
         }
@@ -595,6 +608,7 @@ fn prune_unused_plugins(module: &mut Module) {
         }
         nexa_ir::walk::walk_expression(&function.body, &mut collect);
     }
+    used.extend(used_by_component);
     module
         .plugins
         .retain(|plugin| used.contains(plugin.namespace.as_str()));
@@ -1064,6 +1078,20 @@ fn optimize_node(node: Node) -> Option<Node> {
             arguments,
             children,
         } => Some(Node::ComponentCall {
+            name,
+            arguments: arguments
+                .into_iter()
+                .map(|(name, value)| (name, fold_expression(value)))
+                .collect(),
+            children: children.map(optimize_nodes),
+        }),
+        Node::NativeComponentCall {
+            namespace,
+            name,
+            arguments,
+            children,
+        } => Some(Node::NativeComponentCall {
+            namespace,
             name,
             arguments: arguments
                 .into_iter()

@@ -647,7 +647,8 @@ impl Features {
             Node::Content
             | Node::NavigationStack { .. }
             | Node::When { .. }
-            | Node::ComponentCall { .. } => {}
+            | Node::ComponentCall { .. }
+            | Node::NativeComponentCall { .. } => {}
         }
     }
 

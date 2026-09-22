@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{BinaryOp, CollectionTransform, Expr, InterpolatedPart, NumericType, Type};
-use nexa_plugin_idl::{PluginIdl, TypeRef};
+use nexa_plugin_idl::TypeRef;
 use nexa_syntax::ast;
 
 #[derive(Clone)]
@@ -17,6 +17,62 @@ pub(super) struct FunctionSignature {
 
 pub(super) type FunctionSignatures = HashMap<String, FunctionSignature>;
 pub(super) type StructTypes = HashMap<String, Type>;
+
+#[derive(Clone)]
+pub(super) struct PluginComponentSignature {
+    pub(super) namespace: String,
+    pub(super) name: String,
+    pub(super) parameters: Vec<(String, Type)>,
+}
+
+pub(super) fn collect_plugin_components(
+    plugins: &[ast::PluginDecl],
+) -> Result<Vec<PluginComponentSignature>, CompileError> {
+    let mut components = Vec::new();
+    for plugin in plugins {
+        if plugin.pure {
+            continue;
+        }
+        let Some(idl) = plugin.idl.as_ref() else {
+            return Err(CompileError::new(
+                plugin.span,
+                format!("plugin `{}` has not been resolved", plugin.namespace),
+            ));
+        };
+        for interface in &idl.interfaces {
+            if !matches!(
+                interface.kind,
+                nexa_plugin_idl::InterfaceKind::NativeComponent
+            ) {
+                continue;
+            }
+            if !interface.constructors.is_empty() || !interface.methods.is_empty() {
+                return Err(CompileError::new(
+                    plugin.span,
+                    format!(
+                        "native component `{}.{}` may declare properties and events only",
+                        plugin.namespace, interface.name
+                    ),
+                ));
+            }
+            let parameters = interface
+                .properties
+                .iter()
+                .map(|property| {
+                    plugin_type(&plugin.namespace, &property.ty, false)
+                        .map(|ty| (property.name.clone(), ty))
+                        .map_err(|message| CompileError::new(plugin.span, message))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            components.push(PluginComponentSignature {
+                namespace: plugin.namespace.clone(),
+                name: interface.name.clone(),
+                parameters,
+            });
+        }
+    }
+    Ok(components)
+}
 
 pub(super) fn collect_plugin_signatures(
     plugins: &[ast::PluginDecl],
@@ -41,124 +97,120 @@ pub(super) fn collect_plugin_signatures(
                 format!("plugin `{}` has not been resolved", plugin.namespace),
             ));
         };
-        let interface = idl_interface(idl, &plugin.namespace).ok_or_else(|| {
-            CompileError::new(
+        if idl.interfaces.is_empty() {
+            return Err(CompileError::new(
                 plugin.span,
                 format!(
-                    "plugin `{}` does not declare an interface with that name",
+                    "plugin `{}` does not declare a native interface",
                     plugin.namespace
                 ),
-            )
-        })?;
-        let native_class = matches!(interface.kind, nexa_plugin_idl::InterfaceKind::NativeClass);
-        if native_class {
-            if interface.constructors.len() > 1 {
+            ));
+        }
+        for interface in &idl.interfaces {
+            let native_class =
+                matches!(interface.kind, nexa_plugin_idl::InterfaceKind::NativeClass);
+            let native_component = matches!(
+                interface.kind,
+                nexa_plugin_idl::InterfaceKind::NativeComponent
+            );
+            if native_component {
+                continue;
+            }
+            if !native_class && interface.name != plugin.namespace {
                 return Err(CompileError::new(
                     plugin.span,
                     format!(
-                        "native class `{}` declares multiple constructors; Nexa requires one constructor",
-                        interface.name
+                        "plugin interface `{}` is not exported as `{}`; use the plugin alias as the service name",
+                        interface.name, plugin.namespace
                     ),
                 ));
             }
-            let constructor = interface.constructors.first();
-            let parameters = constructor
-                .map(|constructor| {
-                    constructor
-                        .parameters
-                        .iter()
-                        .map(|parameter| {
-                            plugin_type(&plugin.namespace, &parameter.ty, false)
-                                .map(|ty| (parameter.name.clone(), ty))
-                                .map_err(|message| CompileError::new(plugin.span, message))
-                        })
-                        .collect::<Result<Vec<_>, _>>()
-                })
-                .transpose()?
-                .unwrap_or_default();
-            let key = interface.name.clone();
-            if signatures.contains_key(&key) {
-                return Err(CompileError::new(
-                    plugin.span,
-                    format!("native class constructor `{key}` is declared more than once"),
-                ));
-            }
-            let class_type = Type::Plugin {
-                namespace: plugin.namespace.clone(),
-                name: interface.name.clone(),
-            };
-            signatures.insert(
-                key,
-                FunctionSignature {
+            if native_class {
+                if interface.constructors.len() > 1 {
+                    return Err(CompileError::new(
+                        plugin.span,
+                        format!(
+                            "native class `{}` declares multiple constructors; Nexa requires one constructor",
+                            interface.name
+                        ),
+                    ));
+                }
+                let constructor = interface.constructors.first();
+                let parameters = constructor
+                    .map(|constructor| {
+                        constructor
+                            .parameters
+                            .iter()
+                            .map(|parameter| {
+                                plugin_type(&plugin.namespace, &parameter.ty, false)
+                                    .map(|ty| (parameter.name.clone(), ty))
+                                    .map_err(|message| CompileError::new(plugin.span, message))
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .transpose()?
+                    .unwrap_or_default();
+                let class_type = Type::Plugin {
+                    namespace: plugin.namespace.clone(),
+                    name: interface.name.clone(),
+                };
+                let qualified_key = format!("{}.{}", plugin.namespace, interface.name);
+                let signature = FunctionSignature {
                     parameters,
                     return_type: class_type.clone(),
                     is_async: false,
                     is_throwing: false,
                     receiver: None,
                     is_constructor: true,
-                },
-            );
-        }
-        for method in &interface.methods {
-            let key = if native_class {
-                format!("{}.{}", interface.name, method.name)
-            } else {
-                format!("{}.{}", plugin.namespace, method.name)
-            };
-            if signatures.contains_key(&key) {
-                return Err(CompileError::new(
-                    plugin.span,
-                    format!("plugin method `{key}` is declared more than once"),
-                ));
-            }
-            let return_type = plugin_type(&plugin.namespace, &method.return_type, true)
-                .map_err(|message| CompileError::new(plugin.span, message))?;
-            let parameters = method
-                .parameters
-                .iter()
-                .map(|parameter| {
-                    plugin_type(&plugin.namespace, &parameter.ty, false)
-                        .map(|ty| (parameter.name.clone(), ty))
-                        .map_err(|message| CompileError::new(plugin.span, message))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            signatures.insert(
-                key,
-                FunctionSignature {
-                    parameters,
-                    return_type,
-                    is_async: method.is_async,
-                    is_throwing: method.return_type.name == "Result" || method.throws.is_some(),
-                    receiver: native_class.then(|| Type::Plugin {
-                        namespace: plugin.namespace.clone(),
-                        name: interface.name.clone(),
-                    }),
-                    is_constructor: false,
-                },
-            );
-        }
-        if native_class {
-            for property in &interface.properties {
-                let key = format!("{}.#property.{}", interface.name, property.name);
-                if signatures.contains_key(&key) {
+                };
+                if signatures
+                    .insert(qualified_key.clone(), signature.clone())
+                    .is_some()
+                {
                     return Err(CompileError::new(
                         plugin.span,
                         format!(
-                            "native class property `{}` is declared more than once",
-                            property.name
+                            "native class constructor `{qualified_key}` is declared more than once"
                         ),
                     ));
                 }
-                let return_type = plugin_type(&plugin.namespace, &property.ty, false)
+                // Preserve the concise `VideoPlayer()` spelling when the
+                // plugin alias and class name are identical.
+                if interface.name == plugin.namespace {
+                    signatures.insert(interface.name.clone(), signature);
+                }
+            }
+            for method in &interface.methods {
+                let key = if native_class {
+                    format!("{}.{}", interface.name, method.name)
+                } else {
+                    format!("{}.{}", plugin.namespace, method.name)
+                };
+                if signatures.contains_key(&key) {
+                    return Err(CompileError::new(
+                        plugin.span,
+                        format!("plugin method `{key}` is declared more than once"),
+                    ));
+                }
+                let return_type = plugin_type(&plugin.namespace, &method.return_type, true)
                     .map_err(|message| CompileError::new(plugin.span, message))?;
+                let parameters = method
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        plugin_type(&plugin.namespace, &parameter.ty, false)
+                            .map(|ty| (parameter.name.clone(), ty))
+                            .map_err(|message| CompileError::new(plugin.span, message))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
                 signatures.insert(
                     key,
                     FunctionSignature {
-                        parameters: Vec::new(),
+                        parameters,
                         return_type,
-                        is_async: false,
-                        is_throwing: false,
-                        receiver: Some(Type::Plugin {
+                        is_async: method.is_async,
+                        is_throwing: method.return_type.name == "Result" || method.throws.is_some(),
+                        receiver: native_class.then(|| Type::Plugin {
                             namespace: plugin.namespace.clone(),
                             name: interface.name.clone(),
                         }),
@@ -166,19 +218,39 @@ pub(super) fn collect_plugin_signatures(
                     },
                 );
             }
+            if native_class {
+                for property in &interface.properties {
+                    let key = format!("{}.#property.{}", interface.name, property.name);
+                    if signatures.contains_key(&key) {
+                        return Err(CompileError::new(
+                            plugin.span,
+                            format!(
+                                "native class property `{}` is declared more than once",
+                                property.name
+                            ),
+                        ));
+                    }
+                    let return_type = plugin_type(&plugin.namespace, &property.ty, false)
+                        .map_err(|message| CompileError::new(plugin.span, message))?;
+                    signatures.insert(
+                        key,
+                        FunctionSignature {
+                            parameters: Vec::new(),
+                            return_type,
+                            is_async: false,
+                            is_throwing: false,
+                            receiver: Some(Type::Plugin {
+                                namespace: plugin.namespace.clone(),
+                                name: interface.name.clone(),
+                            }),
+                            is_constructor: false,
+                        },
+                    );
+                }
+            }
         }
     }
     Ok(signatures)
-}
-
-fn idl_interface<'a>(
-    idl: &'a PluginIdl,
-    namespace: &str,
-) -> Option<&'a nexa_plugin_idl::Interface> {
-    idl.interfaces
-        .iter()
-        .find(|interface| interface.name == namespace)
-        .or_else(|| (idl.interfaces.len() == 1).then(|| &idl.interfaces[0]))
 }
 
 fn plugin_type(namespace: &str, ty: &TypeRef, return_position: bool) -> Result<Type, String> {
@@ -1464,6 +1536,24 @@ fn lower_plugin_call(
                 allow_await,
             )?,
         ));
+    }
+    if signature.is_constructor {
+        let Type::Plugin {
+            name: class_name, ..
+        } = &signature.return_type
+        else {
+            return Err(CompileError::new(
+                span,
+                format!("plugin constructor `{qualified_name}` has an invalid return type"),
+            ));
+        };
+        return Ok(Expr::Call {
+            name: class_name.clone(),
+            arguments: lowered.into_iter().map(|(_, argument)| argument).collect(),
+            return_type: signature.return_type.clone(),
+            is_async: false,
+            is_constructor: true,
+        });
     }
     Ok(Expr::NativeCall {
         receiver: None,

@@ -1349,6 +1349,67 @@ pub(super) fn lower_node(
                 children: lowered_children,
             })
         }
+        ast::Node::NativeComponentCall {
+            namespace,
+            name,
+            mut arguments,
+            children,
+            span,
+        } => {
+            let qualified_name = format!("{namespace}.{name}");
+            let signature = components.get(&qualified_name).ok_or_else(|| {
+                CompileError::new(span, format!("unknown native component `{qualified_name}`"))
+            })?;
+            if !signature.native {
+                return Err(CompileError::new(
+                    span,
+                    format!("`{qualified_name}` is not a native component"),
+                ));
+            }
+            if children.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    format!(
+                        "native component `{qualified_name}` does not accept a child block yet"
+                    ),
+                ));
+            }
+            for argument_name in arguments.keys() {
+                if !signature
+                    .parameters
+                    .iter()
+                    .any(|(parameter_name, _)| parameter_name == argument_name)
+                {
+                    return Err(CompileError::new(
+                        span,
+                        format!(
+                            "native component `{qualified_name}` has no property `{argument_name}`"
+                        ),
+                    ));
+                }
+            }
+            let mut lowered_arguments = Vec::with_capacity(signature.parameters.len());
+            for (parameter, ty) in &signature.parameters {
+                let argument = arguments.remove(parameter).ok_or_else(|| {
+                    CompileError::new(
+                        span,
+                        format!(
+                            "native component `{qualified_name}` requires property `{parameter}`"
+                        ),
+                    )
+                })?;
+                lowered_arguments.push((
+                    parameter.clone(),
+                    lower_expr(&argument, Some(ty), symbols, functions, false)?,
+                ));
+            }
+            Ok(Node::NativeComponentCall {
+                namespace,
+                name,
+                arguments: lowered_arguments,
+                children: None,
+            })
+        }
     }
 }
 

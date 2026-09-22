@@ -148,6 +148,18 @@ pub fn walk_ir(
                     walk_ir(children, visit_node, visit_expression);
                 }
             }
+            Node::NativeComponentCall {
+                arguments,
+                children,
+                ..
+            } => {
+                for (_, argument) in arguments {
+                    walk_expression(argument, visit_expression);
+                }
+                if let Some(children) = children {
+                    walk_ir(children, visit_node, visit_expression);
+                }
+            }
             Node::TextInput { actions, .. } => walk_actions(actions, visit_expression),
             Node::Content
             | Node::Switch { .. }
@@ -328,6 +340,7 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::NavigationStack { .. }
         | Node::NavigationBack { .. }
         | Node::ComponentCall { .. }
+        | Node::NativeComponentCall { .. }
         | Node::Content
         | Node::OnAppear { .. }
         | Node::OnDisappear { .. }

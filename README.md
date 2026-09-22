@@ -199,7 +199,8 @@ the compiler checks its IDL and lowers calls directly to the generated Swift or
 Kotlin implementation source. Package installation and version resolution are
 still future work. The [`examples/plugins/video-player`](examples/plugins/video-player)
 package shows a manifest-driven native class, direct Swift/Kotlin implementations,
-and independent object calls.
+independent object calls, and a qualified native visual component in
+[`video-player-demo.nx`](examples/plugins/video-player-demo.nx).
 
 ## Language slice
 

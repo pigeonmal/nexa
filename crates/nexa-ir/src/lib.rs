@@ -460,6 +460,12 @@ pub enum Node {
         arguments: Vec<(String, Expr)>,
         children: Option<Vec<Node>>,
     },
+    NativeComponentCall {
+        namespace: String,
+        name: String,
+        arguments: Vec<(String, Expr)>,
+        children: Option<Vec<Node>>,
+    },
 }
 
 #[derive(Clone, Debug)]

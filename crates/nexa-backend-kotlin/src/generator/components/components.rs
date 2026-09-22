@@ -384,6 +384,31 @@ pub(crate) fn render_node(
                 out.push('}');
             }
         }
+        Node::NativeComponentCall {
+            name,
+            arguments,
+            children,
+            ..
+        } => {
+            indent(out, depth);
+            let rendered_arguments = arguments
+                .iter()
+                .map(|(argument_name, argument)| {
+                    format!(
+                        "{argument_name} = {}",
+                        crate::generator::engine::expressions::expression(argument)
+                    )
+                })
+                .collect::<Vec<_>>();
+            out.push_str(&format!("{}({})", name, rendered_arguments.join(", ")));
+            if let Some(children) = children {
+                out.push_str(" {\n");
+                render_children(children, module, features, depth + 1, out);
+                out.push('\n');
+                indent(out, depth);
+                out.push('}');
+            }
+        }
     }
 }
 

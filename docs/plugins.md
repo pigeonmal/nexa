@@ -135,6 +135,25 @@ that implementation so construction stays a direct native call. `nexa generate`
 copies those generated contracts into the host project automatically: Swift
 bindings are added as independent Xcode source inputs, while Kotlin bindings
 are emitted in the implementation package and imported by generated app code.
+Native component contracts also generate a direct SwiftUI wrapper or Compose
+function that calls `{Name}Impl` in the plugin source. Use the qualified Nexa
+syntax so the export is unambiguous:
+
+```nexa
+app VideoDemo {
+    let player = VideoPlayer()
+
+    body {
+        VideoPlayer.VideoView(player: player, controls: true)
+    }
+}
+```
+
+The first native component slice accepts IDL `prop` values and forwards them
+directly to the platform implementation. IDL events are retained in the
+generated native wrapper contract, but Nexa event callback expressions and
+`.onEvent` subscription modifiers are reserved for the next slice. Passing a
+child block is a compile time error rather than a silently ignored closure.
 
 `service` declares stateless APIs. `interface` remains available for a shared
 contract. `native class` represents an independently constructible stateful
@@ -144,8 +163,10 @@ calls, so two constructor expressions produce two independent native objects.
 Read-only native properties are lowered as direct member access. Methods accept
 named arguments, and `Void` methods can be invoked in event actions, including
 `await` for asynchronous methods. Mutable property writes, deterministic
-disposal, events, visual component lowering, and generated implementation
-factories are still future phases.
+disposal, instance event subscriptions, and generated implementation factories
+are still future phases. Constructor parameter defaults in the IDL are also
+reserved; use an explicit zero-argument constructor in the current slice when
+the Nexa call should be `VideoPlayer()`.
 
 ## Compile-time options
 
@@ -179,9 +200,10 @@ direct generated Swift/Kotlin constants; no runtime option map is emitted.
 ## Current boundary and next phases
 
 Local package discovery, pure-source loading, typed native parsing, direct
-Swift/Kotlin contract generation, asset reachability, and compile-time options
-are implemented. Package installation/version resolution, native implementation
-conformance checks, mutable property writes and disposal, typed error recovery in
-`.nx`, instance-scoped events, native visual component lowering, SPM/Maven
-dependency injection, and optional generated C++ adapters remain planned work. See
-`plugin-plan.md` for the full migration and test matrix.
+Swift/Kotlin contract generation, asset reachability, compile-time options, and
+the first qualified native visual component slice are implemented. Package
+installation/version resolution, native implementation conformance checks,
+mutable property writes and disposal, typed error recovery in `.nx`,
+instance-scoped event subscriptions, SPM/Maven dependency injection, and
+optional generated C++ adapters remain planned work. See `plugin-plan.md` for
+the full migration and test matrix.

@@ -1,6 +1,6 @@
 # Nexa language: first slice
 
-The compiler currently supports stateful native screens, typed value structs, typed arrays and collection values, virtualized lists, conditional UI and event control flow, compile-time platform blocks, a typed native navigation stack, stateful user-defined components, native status bars, sheets, pull-to-refresh, labeled application bottom bars with static icons and badges, typed external links, accessibility semantics, static RTL/LTR direction, typed app-local async lifecycle work, local typed plugin calls, and a feature-gated native network/file library. The entry `.nx` file declares one `app`; imported files can declare reusable components, pure typed functions, and top-level structs without an app.
+The compiler currently supports stateful native screens, typed value structs, typed arrays and collection values, virtualized lists, conditional UI and event control flow, compile-time platform blocks, a typed native navigation stack, stateful user-defined components, native status bars, sheets, pull-to-refresh, labeled application bottom bars with static icons and badges, typed external links, accessibility semantics, static RTL/LTR direction, typed app-local async lifecycle work, local typed plugin calls, qualified native plugin visual components, and a feature-gated native network/file library. The entry `.nx` file declares one `app`; imported files can declare reusable components, pure typed functions, and top-level structs without an app.
 
 ```nexa
 app Counter {
@@ -188,8 +188,9 @@ app CameraExample {
 ```
 
 The path is resolved from the entry file and names a plugin directory (which
-contains `plugin.config.nx` and, for native packages, `native.nxid`). The
-namespace must match an IDL interface name or the plugin's sole interface. Method names, named
+contains `plugin.config.nx` and, for native packages, `native.nxid`). Native
+service calls use the declared plugin alias as their namespace; native class
+constructors and methods are resolved from the class export. Method names, named
 arguments, parameter types, return types, and async usage are checked at compile
 time. The `.nx` call surface uses the existing scalar, optional, collection,
 pair, and triple values; named IDL models remain native binding types for the
@@ -199,8 +200,12 @@ call is emitted directly as `CameraPlugin.shared` on Swift or
 `CameraPlugin.instance` on Kotlin. `nexa generate` includes the plugin's local
 platform source tree in the generated project. Plugin-only modules do not emit
 the core Network/Path/File helper library or Android Cronet dependencies.
-Package installation, dynamic plugin lookup, and typed error recovery in `.nx`
-are not part of this slice.
+Native visual components use an explicit qualified call such as
+`Camera.Preview(session: session)`. The compiler validates every `prop` against
+the `native component` declaration and generated Swift/Kotlin code calls the
+component implementation directly. Child content blocks and event subscription
+modifiers are not part of this slice. Package installation, dynamic plugin
+lookup, and typed error recovery in `.nx` are also future work.
 
 ## Conditions and operators
 

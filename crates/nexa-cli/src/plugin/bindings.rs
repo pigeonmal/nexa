@@ -5,12 +5,25 @@ use nexa_plugin_idl::{
 };
 
 pub(crate) fn swift(idl: &PluginIdl) -> String {
-    let mut out = String::from("import Foundation\n\n");
+    let has_components = idl
+        .interfaces
+        .iter()
+        .any(|interface| interface.kind == InterfaceKind::NativeComponent);
+    let mut out = String::from("import Foundation\n");
+    if has_components {
+        out.push_str("import SwiftUI\n");
+    }
+    out.push('\n');
     for ty in &idl.types {
         out.push_str(&swift_named_type(ty));
         out.push('\n');
     }
     for interface in &idl.interfaces {
+        if interface.kind == InterfaceKind::NativeComponent {
+            out.push_str(&swift_native_component(interface));
+            out.push_str("\n\n");
+            continue;
+        }
         let contract_name = swift_contract_name(interface);
         let inheritance = if matches!(
             interface.kind,
@@ -55,12 +68,24 @@ pub(crate) fn swift(idl: &PluginIdl) -> String {
 }
 
 pub(crate) fn kotlin(idl: &PluginIdl, package: &str) -> String {
+    let has_components = idl
+        .interfaces
+        .iter()
+        .any(|interface| interface.kind == InterfaceKind::NativeComponent);
     let mut out = format!("package {package}\n\n");
+    if has_components {
+        out.push_str("import androidx.compose.runtime.Composable\n\n");
+    }
     for ty in &idl.types {
         out.push_str(&kotlin_named_type(ty));
         out.push('\n');
     }
     for interface in &idl.interfaces {
+        if interface.kind == InterfaceKind::NativeComponent {
+            out.push_str(&kotlin_native_component(interface));
+            out.push_str("\n\n");
+            continue;
+        }
         out.push_str(&format!(
             "public interface {} {{\n",
             kotlin_contract_name(interface)
@@ -92,6 +117,121 @@ pub(crate) fn kotlin(idl: &PluginIdl, package: &str) -> String {
         }
     }
     out
+}
+
+fn swift_native_component(interface: &Interface) -> String {
+    let mut out = format!("public struct {}: View {{\n", interface.name);
+    for property in &interface.properties {
+        out.push_str(&format!(
+            "    public let {}: {}\n",
+            property.name,
+            swift_type(&property.ty)
+        ));
+    }
+    for event in &interface.events {
+        out.push_str(&format!(
+            "    public let on{}: {}?\n",
+            type_name(&event.name),
+            event_callback_type(event, true)
+        ));
+    }
+    out.push_str("\n    public init(");
+    let mut parameters = interface
+        .properties
+        .iter()
+        .map(|property| format!("{}: {}", property.name, swift_type(&property.ty)))
+        .collect::<Vec<_>>();
+    parameters.extend(interface.events.iter().map(|event| {
+        format!(
+            "on{}: {}? = nil",
+            type_name(&event.name),
+            event_callback_type(event, true)
+        )
+    }));
+    out.push_str(&parameters.join(", "));
+    out.push_str(") {\n");
+    for property in &interface.properties {
+        out.push_str(&format!("        self.{0} = {0}\n", property.name));
+    }
+    for event in &interface.events {
+        let name = format!("on{}", type_name(&event.name));
+        out.push_str(&format!("        self.{name} = {name}\n"));
+    }
+    out.push_str("    }\n\n    public var body: some View {\n        ");
+    out.push_str(&format!("{}Impl(", interface.name));
+    let mut arguments = interface
+        .properties
+        .iter()
+        .map(|property| format!("{}: {}", property.name, property.name))
+        .collect::<Vec<_>>();
+    arguments.extend(interface.events.iter().map(|event| {
+        let name = format!("on{}", type_name(&event.name));
+        format!("{name}: {name}")
+    }));
+    out.push_str(&arguments.join(", "));
+    out.push_str(")\n    }\n}");
+    out
+}
+
+fn kotlin_native_component(interface: &Interface) -> String {
+    let mut parameters = interface
+        .properties
+        .iter()
+        .map(|property| format!("{}: {}", property.name, kotlin_type(&property.ty)))
+        .collect::<Vec<_>>();
+    parameters.extend(interface.events.iter().map(|event| {
+        format!(
+            "on{}: {}? = null",
+            type_name(&event.name),
+            event_callback_type(event, false)
+        )
+    }));
+    let mut arguments = interface
+        .properties
+        .iter()
+        .map(|property| format!("{} = {}", property.name, property.name))
+        .collect::<Vec<_>>();
+    arguments.extend(interface.events.iter().map(|event| {
+        let name = format!("on{}", type_name(&event.name));
+        format!("{name} = {name}")
+    }));
+    format!(
+        "@Composable\npublic fun {}({}) {{\n    {}Impl({})\n}}",
+        interface.name,
+        parameters.join(", "),
+        interface.name,
+        arguments.join(", ")
+    )
+}
+
+fn event_callback_type(event: &Event, swift: bool) -> String {
+    let parameters = if swift {
+        event
+            .parameters
+            .iter()
+            .map(|parameter| swift_type(&parameter.ty))
+            .collect::<Vec<_>>()
+            .join(", ")
+    } else {
+        event
+            .parameters
+            .iter()
+            .map(|parameter| kotlin_type(&parameter.ty))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let callback = if swift {
+        if parameters.is_empty() {
+            "() -> Void".to_owned()
+        } else {
+            format!("({parameters}) -> Void")
+        }
+    } else if parameters.is_empty() {
+        "() -> Unit".to_owned()
+    } else {
+        format!("({parameters}) -> Unit")
+    };
+    format!("({callback})")
 }
 
 fn swift_named_type(ty: &NamedType) -> String {

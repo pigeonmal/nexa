@@ -735,11 +735,18 @@ native component VideoView {
 Nexa code should then be able to use:
 
 ```text
-VideoView(
+Video.VideoView(
     player: player1,
     controls: true
 )
 ```
+
+The alpha compiler qualifies native visual components with the plugin alias
+(`Namespace.Component(...)`) so two plugins can export the same component name
+without an implicit collision. The first implementation accepts required IDL
+properties and emits a direct SwiftUI/Compose wrapper; default property values,
+child content blocks, and Nexa event subscription modifiers remain follow-up
+syntax once their ownership and lifecycle rules are defined.
 
 The generated iOS output should integrate directly with SwiftUI.
 
@@ -2291,4 +2298,3 @@ No unnecessary runtime layer.
 The plugin system should feel like a **native extension system for an AOT compiler**, not like a JavaScript/native bridge framework.
 
 That is the architectural target.
-

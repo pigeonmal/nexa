@@ -105,6 +105,13 @@ implemented after the findings were reviewed.
   by the generated app source. A Kotlin native plugin must currently use one
   implementation package across its declared source files so this placement is
   deterministic.
+- Added qualified native visual component calls such as
+  `Video.VideoView(player: player, controls: true)`. Semantic lowering checks
+  the IDL properties and emits a direct `Node::NativeComponentCall`; generated
+  SwiftUI/Compose bindings call the plugin's `{Name}Impl` directly. Child
+  content and component event subscription syntax remain intentionally outside
+  this first slice. The cache schema is now `build-v61` for this semantic and
+  generated-source change.
 
 ## Independent Swift/Kotlin review
 
