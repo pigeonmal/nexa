@@ -1,4 +1,4 @@
-pub(super) fn render(out: &mut String, uses_sticky_header: bool) {
+pub(super) fn render(out: &mut String, uses_sticky_header: bool, uses_scroll_events: bool) {
     let mut runtime = String::from(
         r#"
 private let nexaFastListCellReuseIdentifier = "NexaFastListCell"
@@ -61,7 +61,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
     let isRefreshing: Bool
     let onRefresh: (() -> Void)?
     let onEndReached: (() -> Void)?
+    // <nexa:scroll-events-field:begin>
     let onScroll: (() -> Void)?
+    // <nexa:scroll-events-field:end>
     // <nexa:sticky-header-field:begin>
     let headerContent: (() -> AnyView)?
     // <nexa:sticky-header-field:end>
@@ -76,7 +78,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         isRefreshing: Bool = false,
         onRefresh: (() -> Void)? = nil,
         onEndReached: (() -> Void)? = nil,
+        // <nexa:scroll-events-init-parameter:begin>
         onScroll: (() -> Void)? = nil,
+        // <nexa:scroll-events-init-parameter:end>
         // <nexa:sticky-header-init-parameter:begin>
         headerContent: (() -> AnyView)? = nil,
         // <nexa:sticky-header-init-parameter:end>
@@ -90,7 +94,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         self.isRefreshing = isRefreshing
         self.onRefresh = onRefresh
         self.onEndReached = onEndReached
+        // <nexa:scroll-events-init-assignment:begin>
         self.onScroll = onScroll
+        // <nexa:scroll-events-init-assignment:end>
         // <nexa:sticky-header-init-assignment:begin>
         self.headerContent = headerContent
         // <nexa:sticky-header-init-assignment:end>
@@ -105,7 +111,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             scrollPosition: scrollPosition,
             onScrollPositionChanged: onScrollPositionChanged,
             onEndReached: onEndReached,
+            // <nexa:scroll-events-coordinator-argument:begin>
             onScroll: onScroll,
+            // <nexa:scroll-events-coordinator-argument:end>
             // <nexa:sticky-header-coordinator-argument:begin>
             headerContent: headerContent,
             // <nexa:sticky-header-coordinator-argument:end>
@@ -154,7 +162,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         coordinator.scrollPosition = scrollPosition
         coordinator.onScrollPositionChanged = onScrollPositionChanged
         coordinator.onEndReached = onEndReached
+        // <nexa:scroll-events-update-assignment:begin>
         coordinator.onScroll = onScroll
+        // <nexa:scroll-events-update-assignment:end>
         // <nexa:sticky-header-update-assignment:begin>
         coordinator.headerContent = headerContent
         // <nexa:sticky-header-update-assignment:end>
@@ -200,7 +210,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         var onScrollPositionChanged: ((Int) -> Void)?
         var refreshController: NexaFastListRefreshController?
         var onEndReached: (() -> Void)?
+        // <nexa:scroll-events-coordinator-field:begin>
         var onScroll: (() -> Void)?
+        // <nexa:scroll-events-coordinator-field:end>
         // <nexa:sticky-header-coordinator-field:begin>
         var headerContent: (() -> AnyView)?
         // <nexa:sticky-header-coordinator-field:end>
@@ -215,7 +227,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             scrollPosition: Int32?,
             onScrollPositionChanged: ((Int) -> Void)?,
             onEndReached: (() -> Void)?,
+            // <nexa:scroll-events-coordinator-init-parameter:begin>
             onScroll: (() -> Void)?,
+            // <nexa:scroll-events-coordinator-init-parameter:end>
             // <nexa:sticky-header-coordinator-init-parameter:begin>
             headerContent: (() -> AnyView)?,
             // <nexa:sticky-header-coordinator-init-parameter:end>
@@ -228,7 +242,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             self.onScrollPositionChanged = onScrollPositionChanged
             self.refreshController = nil
             self.onEndReached = onEndReached
+            // <nexa:scroll-events-coordinator-init-assignment:begin>
             self.onScroll = onScroll
+            // <nexa:scroll-events-coordinator-init-assignment:end>
             // <nexa:sticky-header-coordinator-init-assignment:begin>
             self.headerContent = headerContent
             // <nexa:sticky-header-coordinator-init-assignment:end>
@@ -279,12 +295,22 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         // <nexa:sticky-header-delegate-methods:end>
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            if let position = (scrollView as? UITableView)?.indexPathsForVisibleRows?.map(\.row).min(),
+            // <nexa:scroll-events-condition-active:begin>
+            if (onScrollPositionChanged != nil || onScroll != nil),
+               let position = (scrollView as? UITableView)?.indexPathsForVisibleRows?.map(\.row).min(),
                lastReportedScrollPosition != position
+            // <nexa:scroll-events-condition-active:end>
+            // <nexa:scroll-events-condition-inactive:begin>
+            if onScrollPositionChanged != nil,
+               let position = (scrollView as? UITableView)?.indexPathsForVisibleRows?.map(\.row).min(),
+               lastReportedScrollPosition != position
+            // <nexa:scroll-events-condition-inactive:end>
             {
                 lastReportedScrollPosition = position
                 onScrollPositionChanged?(position)
+                // <nexa:scroll-events-callback:begin>
                 onScroll?()
+                // <nexa:scroll-events-callback:end>
             }
             guard let onEndReached, rowCount > 0 else { return }
             let reachedEnd = (scrollView as? UITableView)?.indexPathsForVisibleRows?.contains {
@@ -319,7 +345,9 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
     let isRefreshing: Bool
     let onRefresh: (() -> Void)?
     let onEndReached: (() -> Void)?
+    // <nexa:scroll-events-field:begin>
     let onScroll: (() -> Void)?
+    // <nexa:scroll-events-field:end>
     let rowContent: (Int) -> RowContent
 
     init(
@@ -331,7 +359,9 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         isRefreshing: Bool = false,
         onRefresh: (() -> Void)? = nil,
         onEndReached: (() -> Void)? = nil,
+        // <nexa:scroll-events-init-parameter:begin>
         onScroll: (() -> Void)? = nil,
+        // <nexa:scroll-events-init-parameter:end>
         @ViewBuilder rowContent: @escaping (Int) -> RowContent
     ) {
         self.rowCount = max(0, rowCount)
@@ -342,7 +372,9 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         self.isRefreshing = isRefreshing
         self.onRefresh = onRefresh
         self.onEndReached = onEndReached
+        // <nexa:scroll-events-init-assignment:begin>
         self.onScroll = onScroll
+        // <nexa:scroll-events-init-assignment:end>
         self.rowContent = rowContent
     }
 
@@ -354,7 +386,9 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
             scrollPosition: scrollPosition,
             onScrollPositionChanged: onScrollPositionChanged,
             onEndReached: onEndReached,
+            // <nexa:scroll-events-coordinator-argument:begin>
             onScroll: onScroll,
+            // <nexa:scroll-events-coordinator-argument:end>
             rowContent: rowContent
         )
     }
@@ -399,7 +433,9 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         coordinator.scrollPosition = scrollPosition
         coordinator.onScrollPositionChanged = onScrollPositionChanged
         coordinator.onEndReached = onEndReached
+        // <nexa:scroll-events-update-assignment:begin>
         coordinator.onScroll = onScroll
+        // <nexa:scroll-events-update-assignment:end>
         coordinator.rowContent = rowContent
         nexaUpdateRefreshControl(
             collectionView,
@@ -432,7 +468,9 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         var onScrollPositionChanged: ((Int) -> Void)?
         var refreshController: NexaFastListRefreshController?
         var onEndReached: (() -> Void)?
+        // <nexa:scroll-events-coordinator-field:begin>
         var onScroll: (() -> Void)?
+        // <nexa:scroll-events-coordinator-field:end>
         var lastEndReachedRowCount: Int?
         var lastReportedScrollPosition: Int?
         var rowContent: (Int) -> RowContent
@@ -444,7 +482,9 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
             scrollPosition: Int32?,
             onScrollPositionChanged: ((Int) -> Void)?,
             onEndReached: (() -> Void)?,
+            // <nexa:scroll-events-coordinator-init-parameter:begin>
             onScroll: (() -> Void)?,
+            // <nexa:scroll-events-coordinator-init-parameter:end>
             rowContent: @escaping (Int) -> RowContent
         ) {
             self.rowCount = rowCount
@@ -454,7 +494,9 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
             self.onScrollPositionChanged = onScrollPositionChanged
             self.refreshController = nil
             self.onEndReached = onEndReached
+            // <nexa:scroll-events-coordinator-init-assignment:begin>
             self.onScroll = onScroll
+            // <nexa:scroll-events-coordinator-init-assignment:end>
             self.lastEndReachedRowCount = nil
             self.lastReportedScrollPosition = nil
             self.rowContent = rowContent
@@ -488,12 +530,22 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            if let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.map(\.item).min(),
+            // <nexa:scroll-events-condition-active:begin>
+            if (onScrollPositionChanged != nil || onScroll != nil),
+               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.map(\.item).min(),
                lastReportedScrollPosition != position
+            // <nexa:scroll-events-condition-active:end>
+            // <nexa:scroll-events-condition-inactive:begin>
+            if onScrollPositionChanged != nil,
+               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.map(\.item).min(),
+               lastReportedScrollPosition != position
+            // <nexa:scroll-events-condition-inactive:end>
             {
                 lastReportedScrollPosition = position
                 onScrollPositionChanged?(position)
+                // <nexa:scroll-events-callback:begin>
                 onScroll?()
+                // <nexa:scroll-events-callback:end>
             }
             guard let onEndReached, rowCount > 0 else { return }
             let reachedEnd = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.contains {
@@ -533,7 +585,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
     let isRefreshing: Bool
     let onRefresh: (() -> Void)?
     let onEndReached: (() -> Void)?
+    // <nexa:scroll-events-field:begin>
     let onScroll: (() -> Void)?
+    // <nexa:scroll-events-field:end>
     let rowContent: (Int) -> RowContent
 
     init(
@@ -546,7 +600,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         isRefreshing: Bool = false,
         onRefresh: (() -> Void)? = nil,
         onEndReached: (() -> Void)? = nil,
+        // <nexa:scroll-events-init-parameter:begin>
         onScroll: (() -> Void)? = nil,
+        // <nexa:scroll-events-init-parameter:end>
         @ViewBuilder rowContent: @escaping (Int) -> RowContent
     ) {
         self.rowCount = max(0, rowCount)
@@ -558,7 +614,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         self.isRefreshing = isRefreshing
         self.onRefresh = onRefresh
         self.onEndReached = onEndReached
+        // <nexa:scroll-events-init-assignment:begin>
         self.onScroll = onScroll
+        // <nexa:scroll-events-init-assignment:end>
         self.rowContent = rowContent
     }
 
@@ -570,7 +628,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             scrollPosition: scrollPosition,
             onScrollPositionChanged: onScrollPositionChanged,
             onEndReached: onEndReached,
+            // <nexa:scroll-events-coordinator-argument:begin>
             onScroll: onScroll,
+            // <nexa:scroll-events-coordinator-argument:end>
             rowContent: rowContent
         )
     }
@@ -625,7 +685,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         coordinator.scrollPosition = scrollPosition
         coordinator.onScrollPositionChanged = onScrollPositionChanged
         coordinator.onEndReached = onEndReached
+        // <nexa:scroll-events-update-assignment:begin>
         coordinator.onScroll = onScroll
+        // <nexa:scroll-events-update-assignment:end>
         coordinator.rowContent = rowContent
         nexaUpdateRefreshControl(
             collectionView,
@@ -658,7 +720,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         var onScrollPositionChanged: ((Int) -> Void)?
         var refreshController: NexaFastListRefreshController?
         var onEndReached: (() -> Void)?
+        // <nexa:scroll-events-coordinator-field:begin>
         var onScroll: (() -> Void)?
+        // <nexa:scroll-events-coordinator-field:end>
         var lastEndReachedRowCount: Int?
         var lastReportedScrollPosition: Int?
         var rowContent: (Int) -> RowContent
@@ -670,7 +734,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             scrollPosition: Int32?,
             onScrollPositionChanged: ((Int) -> Void)?,
             onEndReached: (() -> Void)?,
+            // <nexa:scroll-events-coordinator-init-parameter:begin>
             onScroll: (() -> Void)?,
+            // <nexa:scroll-events-coordinator-init-parameter:end>
             rowContent: @escaping (Int) -> RowContent
         ) {
             self.rowCount = rowCount
@@ -680,7 +746,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             self.onScrollPositionChanged = onScrollPositionChanged
             self.refreshController = nil
             self.onEndReached = onEndReached
+            // <nexa:scroll-events-coordinator-init-assignment:begin>
             self.onScroll = onScroll
+            // <nexa:scroll-events-coordinator-init-assignment:end>
             self.lastEndReachedRowCount = nil
             self.lastReportedScrollPosition = nil
             self.rowContent = rowContent
@@ -714,12 +782,22 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            if let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.map(\.item).min(),
+            // <nexa:scroll-events-condition-active:begin>
+            if (onScrollPositionChanged != nil || onScroll != nil),
+               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.map(\.item).min(),
                lastReportedScrollPosition != position
+            // <nexa:scroll-events-condition-active:end>
+            // <nexa:scroll-events-condition-inactive:begin>
+            if onScrollPositionChanged != nil,
+               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.map(\.item).min(),
+               lastReportedScrollPosition != position
+            // <nexa:scroll-events-condition-inactive:end>
             {
                 lastReportedScrollPosition = position
                 onScrollPositionChanged?(position)
+                // <nexa:scroll-events-callback:begin>
                 onScroll?()
+                // <nexa:scroll-events-callback:end>
             }
             guard let onEndReached, rowCount > 0 else { return }
             let reachedEnd = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.contains {
@@ -762,8 +840,26 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             "coordinator-init-assignment",
             "delegate-methods",
         ] {
-            runtime = remove_marked_section(&mut runtime, section);
+            runtime = remove_marked_section(&mut runtime, "sticky-header", section);
         }
+    }
+    if !uses_scroll_events {
+        for section in [
+            "field",
+            "init-parameter",
+            "init-assignment",
+            "coordinator-argument",
+            "update-assignment",
+            "coordinator-field",
+            "coordinator-init-parameter",
+            "coordinator-init-assignment",
+            "callback",
+            "condition-active",
+        ] {
+            runtime = remove_marked_section(&mut runtime, "scroll-events", section);
+        }
+    } else {
+        runtime = remove_marked_section(&mut runtime, "scroll-events", "condition-inactive");
     }
     for section in [
         "identifier",
@@ -779,34 +875,52 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         "coordinator-init-assignment",
         "delegate-methods",
     ] {
-        runtime = strip_markers(&mut runtime, section);
+        runtime = strip_markers(&mut runtime, "sticky-header", section);
+    }
+    for section in [
+        "field",
+        "init-parameter",
+        "init-assignment",
+        "coordinator-argument",
+        "update-assignment",
+        "coordinator-field",
+        "coordinator-init-parameter",
+        "coordinator-init-assignment",
+        "callback",
+        "condition-active",
+        "condition-inactive",
+    ] {
+        runtime = strip_markers(&mut runtime, "scroll-events", section);
     }
     out.push_str(&runtime);
 }
 
-fn remove_marked_section(source: &mut String, section: &str) -> String {
-    let start = format!("// <nexa:sticky-header-{section}:begin>");
-    let end = format!("// <nexa:sticky-header-{section}:end>");
-    let Some(start_position) = source.find(&start) else {
-        return std::mem::take(source);
-    };
-    let start_line = source[..start_position]
-        .rfind('\n')
-        .map_or(0, |position| position + 1);
-    let end_position = start_position + start.len();
-    let Some(end_relative_position) = source[end_position..].find(&end) else {
-        return std::mem::take(source);
-    };
-    let end_position = end_position + end_relative_position + end.len();
-    let suffix_start = source[end_position..]
-        .find('\n')
-        .map_or(source.len(), |position| end_position + position + 1);
-    format!("{}{}", &source[..start_line], &source[suffix_start..])
+fn remove_marked_section(source: &mut String, prefix: &str, section: &str) -> String {
+    let start = format!("// <nexa:{prefix}-{section}:begin>");
+    let end = format!("// <nexa:{prefix}-{section}:end>");
+    let mut source = std::mem::take(source);
+    loop {
+        let Some(start_position) = source.find(&start) else {
+            return source;
+        };
+        let start_line = source[..start_position]
+            .rfind('\n')
+            .map_or(0, |position| position + 1);
+        let end_position = start_position + start.len();
+        let Some(end_relative_position) = source[end_position..].find(&end) else {
+            return source;
+        };
+        let end_position = end_position + end_relative_position + end.len();
+        let suffix_start = source[end_position..]
+            .find('\n')
+            .map_or(source.len(), |position| end_position + position + 1);
+        source = format!("{}{}", &source[..start_line], &source[suffix_start..]);
+    }
 }
 
-fn strip_markers(source: &mut String, section: &str) -> String {
-    let start = format!("// <nexa:sticky-header-{section}:begin>");
-    let end = format!("// <nexa:sticky-header-{section}:end>");
+fn strip_markers(source: &mut String, prefix: &str, section: &str) -> String {
+    let start = format!("// <nexa:{prefix}-{section}:begin>");
+    let end = format!("// <nexa:{prefix}-{section}:end>");
     let mut source = remove_marker_line(source, &start);
     remove_marker_line(&mut source, &end)
 }

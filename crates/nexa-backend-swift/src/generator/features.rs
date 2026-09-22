@@ -7,6 +7,7 @@ use nexa_ir::{ColorValue, Expr, Module, Node};
 pub(super) struct Features {
     pub(super) uses_fast_list: bool,
     pub(super) uses_sticky_header: bool,
+    pub(super) uses_scroll_events: bool,
     pub(super) uses_link: bool,
     pub(super) uses_remote_image: bool,
     pub(super) uses_native_library: bool,
@@ -185,6 +186,13 @@ impl Features {
             node,
             Node::FastList {
                 sticky_header: Some(_),
+                ..
+            }
+        );
+        self.uses_scroll_events |= matches!(
+            node,
+            Node::FastList {
+                on_scroll: Some(_),
                 ..
             }
         );
