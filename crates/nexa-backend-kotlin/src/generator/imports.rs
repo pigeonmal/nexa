@@ -528,7 +528,7 @@ pub(super) fn render(
         "androidx.compose.material3.TextButton",
     );
     add(
-        features.uses_navigation_link || features.uses_navigation_back,
+        features.uses_navigation_link,
         "androidx.navigation.NavHostController",
     );
     add(has_navigation, "androidx.navigation.compose.NavHost");
