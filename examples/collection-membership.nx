@@ -15,6 +15,12 @@ app CollectionMembership {
             if "pro" in prices {
                 Text("Pro price is available")
             }
+            Button("Sum set values") {
+                selected = 0
+                for value in numbers {
+                    selected = selected + value
+                }
+            }
         }
     }
 }

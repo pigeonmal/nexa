@@ -1041,15 +1041,21 @@ fn lower_actions_with_depth(
                         int32,
                     )
                 } else {
-                    let Some(Type::Array(element_type)) =
-                        infer_expr_type(&iterable, symbols, functions)
-                    else {
+                    let Some(iterable_type) = infer_expr_type(&iterable, symbols, functions) else {
                         return Err(CompileError::new(
                             span,
-                            "for loops require an Array<T> or an Int32 range",
+                            "for loops require an Array<T>, Set<T>, or an Int32 range",
                         ));
                     };
-                    let iterable_type = Type::Array(element_type.clone());
+                    let element_type = match &iterable_type {
+                        Type::Array(element) | Type::Set(element) => element.as_ref().clone(),
+                        _ => {
+                            return Err(CompileError::new(
+                                span,
+                                "for loops require an Array<T>, Set<T>, or an Int32 range",
+                            ));
+                        }
+                    };
                     let iterable = lower_expr(
                         &iterable,
                         Some(&iterable_type),
@@ -1057,7 +1063,7 @@ fn lower_actions_with_depth(
                         functions,
                         allow_await,
                     )?;
-                    (iterable, (*element_type).clone())
+                    (iterable, element_type)
                 };
                 let mut loop_symbols = symbols.clone();
                 loop_symbols.insert(name.clone(), (element_type, false));
