@@ -338,6 +338,7 @@ pub(super) fn lower_node(
             disabled,
             children,
             actions,
+            long_press_actions,
             ..
         } => {
             let disabled = optional_bool(disabled, false, "disabled")?;
@@ -345,10 +346,12 @@ pub(super) fn lower_node(
                 children, symbols, screen_ids, themes, components, false, target,
             )?;
             let actions = lower_actions(actions, symbols)?;
+            let long_press_actions = lower_actions(long_press_actions, symbols)?;
             Ok(Node::Pressable {
                 disabled,
                 children: lowered_children,
                 actions,
+                long_press_actions,
             })
         }
         ast::Node::NavigationStack { root, span } => {

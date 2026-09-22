@@ -67,6 +67,7 @@ pub(super) fn render_pressable(
     disabled: bool,
     children: &[Node],
     actions: &[Action],
+    long_press_actions: &[Action],
     module: &Module,
     depth: usize,
     out: &mut String,
@@ -90,6 +91,13 @@ pub(super) fn render_pressable(
         out.push_str(".disabled(true)");
     }
     out.push_str(".buttonStyle(.plain)");
+    if !disabled && !long_press_actions.is_empty() {
+        out.push_str(".onLongPressGesture {");
+        out.push('\n');
+        render_actions(long_press_actions, depth + 1, out);
+        indent(out, depth);
+        out.push('}');
+    }
 }
 
 pub(super) fn render_actions(actions: &[Action], depth: usize, out: &mut String) {

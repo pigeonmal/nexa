@@ -33,6 +33,7 @@ cargo run -p nexa-cli -- check examples/direction.nx
 cargo run -p nexa-cli -- check examples/lifecycle.nx
 cargo run -p nexa-cli -- check examples/text-style.nx
 cargo run -p nexa-cli -- check examples/button-loading.nx
+cargo run -p nexa-cli -- check examples/pressable-long-press.nx
 cargo run -p nexa-cli -- check examples/counter.nx --deny-warnings
 cargo run -p nexa-cli -- check examples/platform-widgets.nx
 cargo run -p nexa-cli -- check examples/network-image.nx
@@ -70,6 +71,8 @@ cargo run -p nexa-cli -- build examples/text-style.nx --target swift --out /tmp/
 cargo run -p nexa-cli -- build examples/text-style.nx --target kotlin --out /tmp/TextStyle.kt
 cargo run -p nexa-cli -- build examples/button-loading.nx --target swift --out /tmp/ButtonLoading.swift
 cargo run -p nexa-cli -- build examples/button-loading.nx --target kotlin --out /tmp/ButtonLoading.kt
+cargo run -p nexa-cli -- build examples/pressable-long-press.nx --target swift --out /tmp/PressableLongPress.swift
+cargo run -p nexa-cli -- build examples/pressable-long-press.nx --target kotlin --out /tmp/PressableLongPress.kt
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target swift --out /tmp/PlatformWidgets.swift
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target kotlin --out /tmp/PlatformWidgets.kt
 cargo run -p nexa-cli -- build examples/network-image.nx --target swift --out /tmp/NetworkImage.swift
@@ -124,6 +127,8 @@ The authoring surface keeps mutability explicit: `state` stays mutable and `let`
 String interpolation supports `$name` and `\(name)` for declared state and constant names. The compiler lowers each segment into direct Swift or Kotlin interpolation without a template runtime; see [interpolation.nx](examples/interpolation.nx).
 
 `StatusBar(style: Default|Light|Dark, hidden: true|false)` is a single top-level app configuration that lowers to native status-bar APIs; see [status-bar.nx](examples/status-bar.nx).
+
+`Pressable` supports a tap action block and an optional third long-press action block. Long press maps to native SwiftUI and Compose gestures without a shared gesture runtime; see [pressable-long-press.nx](examples/pressable-long-press.nx).
 
 `AppBottomBar(selected: ...)` provides static labeled tabs with native `TabView` and Material 3 `NavigationBar` output; see [app-bottom-bar.nx](examples/app-bottom-bar.nx).
 

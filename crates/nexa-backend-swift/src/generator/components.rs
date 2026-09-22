@@ -114,7 +114,16 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             disabled,
             children,
             actions,
-        } => controls::render_pressable(*disabled, children, actions, module, depth, out),
+            long_press_actions,
+        } => controls::render_pressable(
+            *disabled,
+            children,
+            actions,
+            long_press_actions,
+            module,
+            depth,
+            out,
+        ),
         Node::NavigationStack { root } => {
             navigation::render_navigation_stack(module, *root, depth, out);
         }

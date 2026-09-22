@@ -175,6 +175,7 @@ pub enum Node {
         disabled: Option<Expr>,
         children: Vec<Node>,
         actions: Vec<Stmt>,
+        long_press_actions: Vec<Stmt>,
         span: Span,
     },
     NavigationStack {

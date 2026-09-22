@@ -33,6 +33,8 @@ pub(super) struct Features {
     pub(super) uses_capitalization: bool,
     pub(super) uses_switch: bool,
     pub(super) uses_pressable: bool,
+    pub(super) uses_clickable: bool,
+    pub(super) uses_long_press: bool,
     pub(super) uses_column: bool,
     pub(super) uses_row: bool,
     pub(super) uses_box: bool,
@@ -243,8 +245,14 @@ impl Features {
                 );
                 self.uses_placeholder |= placeholder.is_some();
             }
-            Node::Pressable { children, .. } => {
+            Node::Pressable {
+                children,
+                long_press_actions,
+                ..
+            } => {
                 self.uses_pressable = true;
+                self.uses_clickable |= long_press_actions.is_empty();
+                self.uses_long_press |= !long_press_actions.is_empty();
                 self.uses_box = true;
                 self.uses_modifier = true;
                 self.record_child_layout(children);

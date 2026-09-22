@@ -89,8 +89,16 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
     nexa_ir::walk::walk_ir(
         nodes,
         &mut |node| match node {
-            Node::Button { actions, .. } | Node::Pressable { actions, .. } => {
+            Node::Button { actions, .. } => {
                 collect_action_bindings(actions, &mut bindings);
+            }
+            Node::Pressable {
+                actions,
+                long_press_actions,
+                ..
+            } => {
+                collect_action_bindings(actions, &mut bindings);
+                collect_action_bindings(long_press_actions, &mut bindings);
             }
             Node::RefreshControl { state, actions, .. } => {
                 collect_action_bindings(actions, &mut bindings);
@@ -206,10 +214,12 @@ fn optimize_node(node: Node) -> Option<Node> {
             disabled,
             children,
             actions,
+            long_press_actions,
         } => Some(Node::Pressable {
             disabled,
             children: optimize_nodes(children),
             actions: optimize_actions(actions),
+            long_press_actions: optimize_actions(long_press_actions),
         }),
         Node::FastList {
             source,

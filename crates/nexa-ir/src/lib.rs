@@ -192,6 +192,7 @@ pub enum Node {
         disabled: bool,
         children: Vec<Node>,
         actions: Vec<Action>,
+        long_press_actions: Vec<Action>,
     },
     NavigationStack {
         root: ScreenId,

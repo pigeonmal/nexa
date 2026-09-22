@@ -166,6 +166,7 @@ fn walk_node(
             disabled,
             children,
             actions,
+            long_press_actions,
             ..
         } => {
             if let Some(disabled) = disabled {
@@ -175,6 +176,7 @@ fn walk_node(
                 walk_node(child, names, used, target, file, warnings);
             }
             walk_actions(actions, names, used, target, file, warnings);
+            walk_actions(long_press_actions, names, used, target, file, warnings);
         }
         ast::Node::NavigationStack { .. } => {}
         ast::Node::NavigationLink { children, .. } | ast::Node::KeyboardAware { children, .. } => {

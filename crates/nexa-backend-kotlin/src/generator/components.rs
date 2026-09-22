@@ -110,7 +110,17 @@ pub(super) fn render_node(
             disabled,
             children,
             actions,
-        } => controls::render_pressable(*disabled, children, actions, module, features, depth, out),
+            long_press_actions,
+        } => controls::render_pressable(
+            *disabled,
+            children,
+            actions,
+            long_press_actions,
+            module,
+            features,
+            depth,
+            out,
+        ),
         Node::NavigationStack { root } => {
             navigation::render_navigation_stack(module, *root, features, depth, out);
         }

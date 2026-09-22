@@ -48,6 +48,7 @@ Work on the Nexa framework itself: a Rust ahead-of-time compiler that turns `.nx
 - Keep `Direction(value: LTR|RTL)` as a single static app-level configuration. Lower it to SwiftUI's `layoutDirection` environment and Compose's `LocalLayoutDirection`; preserve native leading/trailing and start/end mirroring and defer dynamic locale changes until lifecycle semantics are defined.
 - Keep `OnAppear { ... }` and `OnDisappear { ... }` as one top-level callback of each app body or named screen, with direct assignment/`if` actions. Lower them to SwiftUI lifecycle modifiers and Compose `LaunchedEffect(Unit)`/`DisposableEffect(Unit)`; do not add a shared lifecycle registry or runtime event bus. Reject nested/repeated declarations until broader app lifecycle semantics are defined.
 - Keep `Button` loading state as an optional typed Boolean. Lower it to a native `ProgressView`/`CircularProgressIndicator` branch and disable the native control while loading; omit all loading code when the option is absent.
+- Keep `Pressable` action blocks in the shared IR. The optional third block is long-press behavior: lower it to SwiftUI `.onLongPressGesture` and use Compose `combinedClickable` only when it is present; preserve the smaller `clickable` path for tap-only pressables. Keep pressed state, hover, focus, haptics, and custom accessibility actions out until their cross-platform semantics are defined.
 - Preserve FastList as the public component name. Do not reintroduce the former UltraFastList name.
 
 ## Change workflow

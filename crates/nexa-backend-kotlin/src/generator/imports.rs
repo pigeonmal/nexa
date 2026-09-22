@@ -62,8 +62,12 @@ pub(super) fn render(
         "androidx.compose.foundation.background",
     );
     add(
-        features.uses_pressable || features.uses_link,
+        features.uses_clickable || features.uses_link,
         "androidx.compose.foundation.clickable",
+    );
+    add(
+        features.uses_long_press,
+        "androidx.compose.foundation.combinedClickable",
     );
     add(
         features.uses_keyboard_aware,

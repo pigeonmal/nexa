@@ -359,6 +359,8 @@ Support:
 
 Map directly to native gesture/event systems.
 
+The first interaction slice is implemented: `Pressable` accepts an optional third action block for long press. Swift emits `.onLongPressGesture`; Compose emits `combinedClickable` only for the long-press form, while the existing two-block form stays on `clickable`. Pressed state, hover, focus, haptics, and custom accessibility actions remain future slices. See [pressable-long-press.nx](examples/pressable-long-press.nx).
+
 ## Text
 
 Text must use native text rendering.

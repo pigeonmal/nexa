@@ -521,10 +521,16 @@ impl Parser {
                 let disabled = args.into_iter().next().map(|(_, value)| value);
                 let children = self.block_nodes()?;
                 let actions = self.block_stmts()?;
+                let long_press_actions = if self.check(&Kind::LBrace) {
+                    self.block_stmts()?
+                } else {
+                    Vec::new()
+                };
                 Ok(Node::Pressable {
                     disabled,
                     children,
                     actions,
+                    long_press_actions,
                     span,
                 })
             }

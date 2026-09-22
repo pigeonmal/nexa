@@ -76,29 +76,46 @@ pub(super) fn render_pressable(
     disabled: bool,
     children: &[Node],
     actions: &[Action],
+    long_press_actions: &[Action],
     module: &Module,
     features: &Features,
     depth: usize,
     out: &mut String,
 ) {
     indent(out, depth);
+    let modifier = if long_press_actions.is_empty() {
+        "clickable"
+    } else {
+        "combinedClickable"
+    };
+    let has_long_press = !long_press_actions.is_empty();
     out.push_str(&format!(
-        "Box(\n{}    modifier = Modifier.clickable(\n{}        enabled = {},\n{}        role = Role.Button,\n{}        onClick = {{",
+        "Box(\n{}    modifier = Modifier.{}(\n{}        enabled = {},\n{}        role = Role.Button,\n{}        onClick = {{",
         "    ".repeat(depth),
+        modifier,
         "    ".repeat(depth),
         !disabled,
         "    ".repeat(depth),
         "    ".repeat(depth)
     ));
     if actions.is_empty() {
-        out.push_str(" }),\n");
+        out.push_str(if has_long_press { " },\n" } else { " }),\n" });
     } else {
         out.push('\n');
         render_actions(actions, depth + 3, out);
         indent(out, depth + 2);
-        out.push_str("}),\n");
+        out.push_str(if has_long_press { "},\n" } else { "}),\n" });
     }
-    indent(out, depth + 1);
+    if has_long_press {
+        indent(out, depth + 2);
+        out.push_str("onLongClick = {\n");
+        render_actions(long_press_actions, depth + 3, out);
+        indent(out, depth + 2);
+        out.push_str("},\n");
+        indent(out, depth + 1);
+        out.push_str("),\n");
+    }
+    indent(out, depth);
     out.push_str(") {\n");
     render_children(children, module, features, depth + 1, out);
     out.push('\n');
