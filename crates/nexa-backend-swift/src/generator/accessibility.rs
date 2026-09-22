@@ -1,12 +1,13 @@
-use nexa_ir::{AccessibilityRole, Module, Node};
+use nexa_ir::{AccessibilityRole, Expr, Module, Node};
 
 use super::{
     components::render_children,
+    expressions::expression,
     utils::{indent, swift_string},
 };
 
 pub(super) fn render_accessibility(
-    label: &str,
+    label: &Expr,
     role: AccessibilityRole,
     children: &[Node],
     module: &Module,
@@ -14,9 +15,8 @@ pub(super) fn render_accessibility(
     out: &mut String,
 ) {
     render_children(children, module, depth, out);
-    let child_has_same_image_label = matches!(
-        children,
-        [Node::Image { description, .. }] if description == label
+    let child_has_same_image_label = matches!((label, children),
+        (Expr::String(label), [Node::Image { description, .. }]) if description == label
     );
     if children.len() > 1 {
         out.push('\n');
@@ -26,7 +26,11 @@ pub(super) fn render_accessibility(
     if !child_has_same_image_label {
         out.push('\n');
         indent(out, depth + 1);
-        out.push_str(&format!(".accessibilityLabel({})", swift_string(label)));
+        let label = match label {
+            Expr::String(value) => swift_string(value),
+            value => format!("Text({})", expression(value)),
+        };
+        out.push_str(&format!(".accessibilityLabel({label})"));
     }
     if let Some(trait_name) = trait_name(role) {
         out.push('\n');

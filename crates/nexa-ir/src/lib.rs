@@ -335,7 +335,7 @@ pub enum Node {
         children: Vec<Node>,
     },
     Accessibility {
-        label: String,
+        label: Expr,
         role: AccessibilityRole,
         children: Vec<Node>,
     },

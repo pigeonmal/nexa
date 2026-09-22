@@ -11,7 +11,6 @@ pub fn walk_ir(
         match node {
             Node::Layout { children, .. }
             | Node::NavigationLink { children, .. }
-            | Node::Accessibility { children, .. }
             | Node::KeyboardAware { children }
             | Node::BottomSheet { children, .. } => walk_ir(children, visit_node, visit_expression),
             Node::Pressable {
@@ -28,6 +27,12 @@ pub fn walk_ir(
             }
             Node::Link { url, children } => {
                 walk_expression(url, visit_expression);
+                walk_ir(children, visit_node, visit_expression);
+            }
+            Node::Accessibility {
+                label, children, ..
+            } => {
+                walk_expression(label, visit_expression);
                 walk_ir(children, visit_node, visit_expression);
             }
             Node::RefreshControl {

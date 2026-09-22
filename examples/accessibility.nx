@@ -1,7 +1,9 @@
 app AccessibilityExample {
+    state greetingLabel = "Welcome heading"
+
     body {
         Column(spacing: 12, padding: 20) {
-            Accessibility(label: "Welcome heading", role: Header) {
+            Accessibility(label: greetingLabel, role: Header) {
                 Text("Welcome to Nexa")
             }
             Accessibility(label: "Open settings", role: Button) {

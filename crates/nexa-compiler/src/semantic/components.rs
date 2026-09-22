@@ -447,12 +447,14 @@ pub(super) fn lower_node(
             children,
             span,
         } => {
-            let label = require_string_literal(&label, "Accessibility label")?;
-            if label.is_empty() {
-                return Err(CompileError::new(
-                    span,
-                    "Accessibility label cannot be empty",
-                ));
+            let lowered_label = lower_expr(&label, Some(&Type::String), symbols, functions, false)?;
+            if let ast::Expr::String(value, _) = &label {
+                if value.is_empty() {
+                    return Err(CompileError::new(
+                        span,
+                        "Accessibility label cannot be empty",
+                    ));
+                }
             }
             let role = match role {
                 None => AccessibilityRole::None,
@@ -486,7 +488,7 @@ pub(super) fn lower_node(
                 ));
             }
             Ok(Node::Accessibility {
-                label,
+                label: lowered_label,
                 role,
                 children,
             })

@@ -933,14 +933,14 @@ Accessibility(label: "Open settings", role: Button) {
 }
 ```
 
-Swift lowers labels and roles to native accessibility modifiers. Android lowers them to Compose semantics, using `contentDescription`, `Role` where the platform exposes a matching role, and `heading()` for `Header`. The wrapper emits no shared accessibility runtime.
+The label accepts any typed `String` expression. Literal labels must be non-empty; state, interpolation, and function results lower directly to native dynamic values. Swift lowers labels and roles to native accessibility modifiers. Android lowers them to Compose semantics, using `contentDescription`, `Role` where the platform exposes a matching role, and `heading()` for `Header`. The wrapper emits no shared accessibility runtime.
 
 Remaining work:
 
 - hints,
 - programmatic focus,
 - custom accessibility actions,
-- dynamic accessibility values,
+- richer dynamic accessibility values,
 - reduced-motion and high-contrast environment bindings.
 
 The framework must preserve the accessibility advantages of native controls.

@@ -330,7 +330,10 @@ fn walk_node(
                 walk_node(child, names, used, target, file, warnings);
             }
         }
-        ast::Node::Accessibility { children, .. } => {
+        ast::Node::Accessibility {
+            label, children, ..
+        } => {
+            walk_expression(label, names, used);
             for child in children {
                 walk_node(child, names, used, target, file, warnings);
             }

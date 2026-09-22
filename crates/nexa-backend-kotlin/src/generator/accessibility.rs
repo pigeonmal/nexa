@@ -1,13 +1,11 @@
-use nexa_ir::{AccessibilityRole, Module, Node};
+use nexa_ir::{AccessibilityRole, Expr, Module, Node};
 
 use super::{
-    components::render_children,
-    features::Features,
-    utils::{indent, kotlin_string},
+    components::render_children, expressions::expression, features::Features, utils::indent,
 };
 
 pub(super) fn render_accessibility(
-    label: &str,
+    label: &Expr,
     role: AccessibilityRole,
     children: &[Node],
     module: &Module,
@@ -19,13 +17,12 @@ pub(super) fn render_accessibility(
     out.push_str("Box(\n");
     indent(out, depth + 1);
     out.push_str("modifier = Modifier.semantics(mergeDescendants = true) {\n");
-    let child_has_same_image_label = matches!(
-        children,
-        [Node::Image { description, .. }] if description == label
+    let child_has_same_image_label = matches!((label, children),
+        (Expr::String(label), [Node::Image { description, .. }]) if description == label
     );
     if !child_has_same_image_label {
         indent(out, depth + 2);
-        out.push_str(&format!("contentDescription = {}\n", kotlin_string(label)));
+        out.push_str(&format!("contentDescription = {}\n", expression(label)));
     }
     if matches!(role, AccessibilityRole::Header) {
         indent(out, depth + 2);
