@@ -491,6 +491,10 @@ pub struct ViewStyle {
     pub padding: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
+    pub min_width: Option<f32>,
+    pub max_width: Option<f32>,
+    pub min_height: Option<f32>,
+    pub max_height: Option<f32>,
     pub background: Option<ColorValue>,
     pub corner_radius: Option<f32>,
     pub border_color: Option<ColorValue>,
@@ -505,6 +509,10 @@ impl ViewStyle {
         self.padding.is_some()
             || self.width.is_some()
             || self.height.is_some()
+            || self.min_width.is_some()
+            || self.max_width.is_some()
+            || self.min_height.is_some()
+            || self.max_height.is_some()
             || self.background.is_some()
             || self.corner_radius.is_some()
             || self.border_color.is_some()

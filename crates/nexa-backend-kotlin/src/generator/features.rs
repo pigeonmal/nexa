@@ -79,6 +79,8 @@ pub(super) struct Features {
     pub(super) uses_padding: bool,
     pub(super) uses_width: bool,
     pub(super) uses_height: bool,
+    pub(super) uses_width_in: bool,
+    pub(super) uses_height_in: bool,
     pub(super) uses_corner_radius: bool,
     pub(super) uses_opacity: bool,
     pub(super) uses_animation: bool,
@@ -517,6 +519,8 @@ impl Features {
         self.uses_padding |= style.padding.is_some();
         self.uses_width |= style.width.is_some();
         self.uses_height |= style.height.is_some();
+        self.uses_width_in |= style.min_width.is_some() || style.max_width.is_some();
+        self.uses_height_in |= style.min_height.is_some() || style.max_height.is_some();
         self.uses_background |= style.background.is_some();
         self.uses_border |= style.border_color.is_some();
         self.uses_corner_radius |= style.corner_radius.is_some();
@@ -543,6 +547,10 @@ impl Features {
         self.uses_dp |= style.padding.is_some()
             || style.width.is_some()
             || style.height.is_some()
+            || style.min_width.is_some()
+            || style.max_width.is_some()
+            || style.min_height.is_some()
+            || style.max_height.is_some()
             || style.corner_radius.is_some()
             || style.border_width.is_some();
     }

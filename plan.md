@@ -638,6 +638,8 @@ Avoid layout passes that duplicate work already performed by the native platform
 
 The first border styling slice is implemented: `Column` and `Row` accept paired static `borderColor` and `borderWidth` options. Swift emits a native rounded-rectangle stroke overlay and Compose emits `Modifier.border`; incomplete pairs are compile-time errors. See [borders.nx](examples/borders.nx).
 
+`Column` and `Row` also accept non-negative static `minWidth`, `maxWidth`, `minHeight`, and `maxHeight` values. The compiler rejects an inverted minimum/maximum pair, then lowers the bounds directly to SwiftUI `frame` parameters or Compose `widthIn`/`heightIn`; no runtime style dictionary or shared layout pass is generated. See [layout-bounds.nx](examples/layout-bounds.nx).
+
 ## Styling system
 
 Create a strongly typed styling system.

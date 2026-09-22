@@ -171,6 +171,14 @@ pub(super) fn render(
         "androidx.compose.foundation.layout.height",
     );
     add(
+        features.uses_width_in,
+        "androidx.compose.foundation.layout.widthIn",
+    );
+    add(
+        features.uses_height_in,
+        "androidx.compose.foundation.layout.heightIn",
+    );
+    add(
         features.uses_keyboard_aware,
         "androidx.compose.foundation.layout.imePadding",
     );

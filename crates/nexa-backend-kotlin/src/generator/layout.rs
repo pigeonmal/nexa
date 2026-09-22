@@ -127,6 +127,34 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut String) {
             number(height)
         ));
     }
+    let mut width_bounds = Vec::with_capacity(2);
+    if let Some(min_width) = style.min_width {
+        width_bounds.push(format!("min = {}.dp", number(min_width)));
+    }
+    if let Some(max_width) = style.max_width {
+        width_bounds.push(format!("max = {}.dp", number(max_width)));
+    }
+    if !width_bounds.is_empty() {
+        out.push_str(&format!(
+            "\n{}.widthIn({})",
+            spaces(depth),
+            width_bounds.join(", ")
+        ));
+    }
+    let mut height_bounds = Vec::with_capacity(2);
+    if let Some(min_height) = style.min_height {
+        height_bounds.push(format!("min = {}.dp", number(min_height)));
+    }
+    if let Some(max_height) = style.max_height {
+        height_bounds.push(format!("max = {}.dp", number(max_height)));
+    }
+    if !height_bounds.is_empty() {
+        out.push_str(&format!(
+            "\n{}.heightIn({})",
+            spaces(depth),
+            height_bounds.join(", ")
+        ));
+    }
     if let Some(animation) = style.animation {
         let spec = match animation {
             AnimationSpec::Spring => "spring()",

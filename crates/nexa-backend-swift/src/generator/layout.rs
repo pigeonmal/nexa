@@ -69,6 +69,22 @@ fn append_style(out: &mut String, depth: usize, style: &ViewStyle) {
     } else if let Some(height) = style.height {
         append_modifier(out, depth, &format!("frame(height: {})", number(height)));
     }
+    let mut bounds = Vec::with_capacity(4);
+    if let Some(min_width) = style.min_width {
+        bounds.push(format!("minWidth: {}", number(min_width)));
+    }
+    if let Some(max_width) = style.max_width {
+        bounds.push(format!("maxWidth: {}", number(max_width)));
+    }
+    if let Some(min_height) = style.min_height {
+        bounds.push(format!("minHeight: {}", number(min_height)));
+    }
+    if let Some(max_height) = style.max_height {
+        bounds.push(format!("maxHeight: {}", number(max_height)));
+    }
+    if !bounds.is_empty() {
+        append_modifier(out, depth, &format!("frame({})", bounds.join(", ")));
+    }
     if let Some(padding) = style.padding {
         append_modifier(out, depth, &format!("padding({})", number(padding)));
     }

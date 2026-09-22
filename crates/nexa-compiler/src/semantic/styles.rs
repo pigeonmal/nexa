@@ -8,6 +8,10 @@ pub(super) fn lower_style(
     style: ast::LayoutStyle,
     themes: &ThemeSymbols,
 ) -> Result<ViewStyle, CompileError> {
+    let min_width_span = style.min_width.as_ref().map(ast::Expr::span);
+    let max_width_span = style.max_width.as_ref().map(ast::Expr::span);
+    let min_height_span = style.min_height.as_ref().map(ast::Expr::span);
+    let max_height_span = style.max_height.as_ref().map(ast::Expr::span);
     let padding = optional_dimension(
         style.padding,
         "padding",
@@ -16,6 +20,24 @@ pub(super) fn lower_style(
     )?;
     let width = optional_dimension(style.width, "width", None, themes)?;
     let height = optional_dimension(style.height, "height", None, themes)?;
+    let min_width = optional_dimension(style.min_width, "minWidth", None, themes)?;
+    let max_width = optional_dimension(style.max_width, "maxWidth", None, themes)?;
+    let min_height = optional_dimension(style.min_height, "minHeight", None, themes)?;
+    let max_height = optional_dimension(style.max_height, "maxHeight", None, themes)?;
+    validate_bounds(
+        min_width,
+        max_width,
+        min_width_span.or(max_width_span).unwrap_or_default(),
+        "minWidth",
+        "maxWidth",
+    )?;
+    validate_bounds(
+        min_height,
+        max_height,
+        min_height_span.or(max_height_span).unwrap_or_default(),
+        "minHeight",
+        "maxHeight",
+    )?;
     let corner_radius = optional_dimension(
         style.corner_radius,
         "cornerRadius",
@@ -59,6 +81,10 @@ pub(super) fn lower_style(
         padding,
         width,
         height,
+        min_width,
+        max_width,
+        min_height,
+        max_height,
         background,
         corner_radius,
         border_color,
@@ -66,6 +92,24 @@ pub(super) fn lower_style(
         opacity,
         animation,
     })
+}
+
+fn validate_bounds(
+    minimum: Option<f32>,
+    maximum: Option<f32>,
+    span: Span,
+    minimum_name: &str,
+    maximum_name: &str,
+) -> Result<(), CompileError> {
+    if let (Some(minimum), Some(maximum)) = (minimum, maximum) {
+        if minimum > maximum {
+            return Err(CompileError::new(
+                span,
+                format!("`{minimum_name}` cannot be greater than `{maximum_name}`"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn parse_animation(expr: ast::Expr) -> Result<AnimationSpec, CompileError> {

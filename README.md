@@ -238,7 +238,7 @@ String interpolation supports `$name` and `\(expression)`. Embedded expressions 
 
 `KeyboardAware(dismiss: Interactive|Never) { ... }` adds native IME insets and scrolling. Interactive dismissal maps to SwiftUI `scrollDismissesKeyboard` and Compose `imeNestedScroll`; `Never` keeps the keyboard visible while scrolling.
 
-`Column` and `Row` support paired static `borderColor` and `borderWidth` values, compiled to native SwiftUI and Compose border primitives; see [borders.nx](examples/borders.nx).
+`Column` and `Row` support paired static `borderColor` and `borderWidth` values plus non-negative `minWidth`, `maxWidth`, `minHeight`, and `maxHeight` bounds. The compiler rejects inverted bounds and emits native SwiftUI frame parameters or Compose `widthIn`/`heightIn`; see [borders.nx](examples/borders.nx) and [layout-bounds.nx](examples/layout-bounds.nx).
 
 `Column` and `Row` also support a static native `animation` spec (`Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`) for content-size changes; see [animations.nx](examples/animations.nx).
 
