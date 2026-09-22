@@ -931,7 +931,7 @@ queries the corresponding authorization framework and Android checks the
 declared manifest permission plus `AppOpsManager` without adding a permission
 registry. Android currently exposes `granted`, `denied`, and
 `notDetermined`; `restricted` remains available for platforms that expose it.
-Typed `await Permissions.request(permission: Camera)` flows now use the native authorization APIs and return the resulting status; denial recovery and app-specific rationale UI remain future work.
+Typed `await Permissions.request(permission: Camera)` flows now use the native authorization APIs and return the resulting status; denial recovery and app-specific rationale UI remain future work. The Swift backend emits only the permission cases, requester helpers, and Apple framework imports referenced by lowered permission literals. A dynamic permission value conservatively retains every case until the compiler can prove its finite set.
 
 Support common permissions such as:
 

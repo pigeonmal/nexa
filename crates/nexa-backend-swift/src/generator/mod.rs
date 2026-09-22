@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use nexa_ir::{LayoutKind, Module, Node, State, ViewStyle, walk::walk_ir};
+use nexa_ir::{LayoutKind, Module, Node, Permission, State, ViewStyle, walk::walk_ir};
 
 mod accessibility;
 mod bottom_bar;
@@ -47,7 +47,30 @@ pub(super) fn generate(module: &Module) -> String {
         out.push_str("import Foundation\n\n");
     }
     if features.uses_permissions {
-        out.push_str("import AVFoundation\nimport Contacts\nimport CoreBluetooth\nimport CoreLocation\nimport EventKit\nimport Photos\nimport UserNotifications\n\n");
+        if features.uses_permission(Permission::Camera)
+            || features.uses_permission(Permission::Microphone)
+        {
+            out.push_str("import AVFoundation\n");
+        }
+        if features.uses_permission(Permission::Contacts) {
+            out.push_str("import Contacts\n");
+        }
+        if features.uses_permission(Permission::Bluetooth) {
+            out.push_str("import CoreBluetooth\n");
+        }
+        if features.uses_permission(Permission::Location) {
+            out.push_str("import CoreLocation\n");
+        }
+        if features.uses_permission(Permission::Calendar) {
+            out.push_str("import EventKit\n");
+        }
+        if features.uses_permission(Permission::Photos) {
+            out.push_str("import Photos\n");
+        }
+        if features.uses_permission(Permission::Notifications) {
+            out.push_str("import UserNotifications\n");
+        }
+        out.push('\n');
     }
     if uses_fast_list {
         out.push_str("\n@available(iOS 16.0, *)\n");
@@ -207,7 +230,12 @@ pub(super) fn generate(module: &Module) -> String {
         );
     }
     if features.uses_permissions {
-        permissions::render(&mut out, features.uses_permission_request);
+        permissions::render(
+            &mut out,
+            features.uses_permission_request,
+            &features.used_permissions,
+            features.dynamic_permission,
+        );
     }
     functions::render(module, &mut out);
     out

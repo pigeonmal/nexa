@@ -349,6 +349,10 @@ application context. Android exposes `granted`, `denied`, and
 `notDetermined`; `restricted` is reserved for platforms that expose that state.
 Typed `await Permissions.request(permission: Camera)` flows use the native authorization APIs and return the resulting status; only request calls emit the Android callback bridge and request helper. Status-only calls omit that machinery. Denial recovery and app-specific rationale UI remain future work. See
 [permissions-status.nx](../examples/permissions-status.nx).
+The Swift backend also tree-shakes permission cases and framework imports: an app
+that uses only `Camera` does not emit Photos, Contacts, Location, Calendar,
+Bluetooth, or notification permission code. Dynamic permission values retain
+the complete platform set conservatively.
 
 ### Plugin options in the project config
 
