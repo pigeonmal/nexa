@@ -182,6 +182,7 @@ pub(super) fn render_node(
             item,
             key,
             children,
+            on_end_reached,
         } => {
             lists::render_virtualized_list(
                 source,
@@ -191,6 +192,7 @@ pub(super) fn render_node(
                 item.as_deref(),
                 key.as_ref(),
                 children,
+                on_end_reached.as_deref(),
                 module,
                 features,
                 depth,

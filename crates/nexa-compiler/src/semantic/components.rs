@@ -649,6 +649,7 @@ pub(super) fn lower_node(
             item,
             key,
             children,
+            on_end_reached,
             span,
         } => {
             let axis = match axis {
@@ -799,6 +800,9 @@ pub(super) fn lower_node(
                     "FastList requires at least one row component",
                 ));
             }
+            let on_end_reached = on_end_reached
+                .map(|actions| lower_actions(actions, symbols, functions, false))
+                .transpose()?;
             Ok(Node::FastList {
                 source,
                 axis,
@@ -807,6 +811,7 @@ pub(super) fn lower_node(
                 item,
                 key,
                 children: lowered_children,
+                on_end_reached,
             })
         }
         ast::Node::If {

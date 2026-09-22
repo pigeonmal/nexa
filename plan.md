@@ -473,7 +473,7 @@ Create a first-party extremely high-performance virtualized list.
 
 This is a major priority.
 
-The first fixed-size optimization is implemented: `FastList(itemExtent: positiveNumber)` maps to native fixed row or cell dimensions for vertical, horizontal, and grid paths. Omitting `itemExtent` preserves dynamic native sizing; no shared measurement pass is introduced. See [list-item-extent.nx](examples/list-item-extent.nx).
+The first fixed-size optimization is implemented: `FastList(itemExtent: positiveNumber)` maps to native fixed row or cell dimensions for vertical, horizontal, and grid paths. Omitting `itemExtent` preserves dynamic native sizing; no shared measurement pass is introduced. The first pagination slice is also implemented with a trailing `onEndReached { ... }` action block. UIKit observes the last visible row through its native delegate, Compose observes `LazyListState` or `LazyGridState`, and each source count can trigger the callback only once until more rows are added. See [list-item-extent.nx](examples/list-item-extent.nx) and [list-pagination.nx](examples/list-pagination.nx).
 
 It must support:
 

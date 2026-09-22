@@ -333,6 +333,7 @@ pub enum Node {
         item: Option<Expr>,
         key: Option<Expr>,
         children: Vec<Node>,
+        on_end_reached: Option<Vec<Stmt>>,
         span: Span,
     },
     If {

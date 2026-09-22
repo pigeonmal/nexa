@@ -402,6 +402,7 @@ pub enum Node {
         item: Option<String>,
         key: Option<Expr>,
         children: Vec<Node>,
+        on_end_reached: Option<Vec<Action>>,
     },
     If {
         condition: Expr,

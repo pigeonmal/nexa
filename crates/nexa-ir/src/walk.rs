@@ -53,11 +53,15 @@ pub fn walk_ir(
                 source,
                 key,
                 children,
+                on_end_reached,
                 ..
             } => {
                 walk_list_source(source, visit_expression);
                 if let Some(key) = key {
                     walk_expression(key, visit_expression);
+                }
+                if let Some(actions) = on_end_reached {
+                    walk_actions(actions, visit_expression);
                 }
                 walk_ir(children, visit_node, visit_expression);
             }

@@ -45,8 +45,12 @@ pub(super) struct Features {
     pub(super) uses_accessibility_role: bool,
     pub(super) uses_accessibility_heading: bool,
     pub(super) uses_list: bool,
+    pub(super) uses_linear_list: bool,
     pub(super) uses_horizontal_list: bool,
     pub(super) uses_grid_list: bool,
+    pub(super) uses_list_end_reached: bool,
+    pub(super) uses_linear_list_end_reached: bool,
+    pub(super) uses_grid_end_reached: bool,
     pub(super) uses_keyboard_aware: bool,
     pub(super) uses_keyboard_interactive: bool,
     pub(super) app_uses_keyboard_interactive: bool,
@@ -515,12 +519,21 @@ impl Features {
             Node::FastList {
                 axis,
                 item_extent,
+                on_end_reached,
                 children,
                 ..
             } => {
-                self.uses_list = true;
+                self.uses_list |= matches!(axis, nexa_ir::ListAxis::Vertical);
+                self.uses_linear_list |= !matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_horizontal_list |= matches!(axis, nexa_ir::ListAxis::Horizontal);
                 self.uses_grid_list |= matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                self.uses_list_end_reached |= on_end_reached.is_some();
+                self.uses_linear_list_end_reached |=
+                    on_end_reached.is_some() && !matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                self.uses_grid_end_reached |=
+                    on_end_reached.is_some() && matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                self.uses_mutable_state |= on_end_reached.is_some();
+                self.uses_mutable_int_state |= on_end_reached.is_some();
                 if item_extent.is_some() {
                     self.uses_box = true;
                     self.uses_modifier = true;

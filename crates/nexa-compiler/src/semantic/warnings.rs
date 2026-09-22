@@ -380,6 +380,7 @@ fn walk_node(
             item,
             key,
             children,
+            on_end_reached,
             span,
         } => {
             match source {
@@ -389,6 +390,9 @@ fn walk_node(
             }
             if let Some(item_extent) = item_extent {
                 walk_expression(item_extent, names, used);
+            }
+            if let Some(actions) = on_end_reached {
+                walk_actions(actions, names, used, target, file, warnings);
             }
             let mut row_names = names.clone();
             let index_name = index

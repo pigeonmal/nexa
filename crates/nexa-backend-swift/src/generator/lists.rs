@@ -1,7 +1,9 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Expr, ListAxis, ListSource, Module, Node};
+use nexa_ir::{Action, Expr, ListAxis, ListSource, Module, Node};
 
-use super::{components::render_children, expressions::expression, utils::indent};
+use super::{
+    components::render_children, controls::render_actions, expressions::expression, utils::indent,
+};
 
 pub(super) fn render_virtualized_list(
     source: &ListSource,
@@ -11,6 +13,7 @@ pub(super) fn render_virtualized_list(
     item: Option<&str>,
     key: Option<&Expr>,
     children: &[Node],
+    on_end_reached: Option<&[Action]>,
     module: &Module,
     depth: usize,
     out: &mut String,
@@ -26,15 +29,15 @@ pub(super) fn render_virtualized_list(
                     )
                 })
                 .unwrap_or_default();
-            out.push_str(&format!(
-                "{} {{ listPosition in\n",
-                list_constructor(
-                    axis,
-                    format!("max(0, Int({}))", expression(count)),
-                    &key,
-                    item_extent,
-                )
-            ));
+            open_list(
+                axis,
+                format!("max(0, Int({}))", expression(count)),
+                &key,
+                item_extent,
+                on_end_reached,
+                depth,
+                out,
+            );
             indent(out, depth + 1);
             out.push_str(&format!(
                 "let {}: Int32 = Int32(listPosition)\n",
@@ -55,10 +58,15 @@ pub(super) fn render_virtualized_list(
                     )
                 })
                 .unwrap_or_default();
-            out.push_str(&format!(
-                "{} {{ listPosition in\n",
-                list_constructor(axis, format!("{collection}.count"), &key, item_extent)
-            ));
+            open_list(
+                axis,
+                format!("{collection}.count"),
+                &key,
+                item_extent,
+                on_end_reached,
+                depth,
+                out,
+            );
             indent(out, depth + 1);
             out.push_str(&format!(
                 "let {}: Int32 = Int32(clamping: listPosition)\n",
@@ -100,6 +108,29 @@ fn list_constructor(
             )
         }
     }
+}
+
+fn open_list(
+    axis: ListAxis,
+    row_count: String,
+    key: &str,
+    item_extent: Option<f32>,
+    on_end_reached: Option<&[Action]>,
+    depth: usize,
+    out: &mut String,
+) {
+    if let Some(actions) = on_end_reached {
+        let mut constructor = list_constructor(axis, row_count, key, item_extent);
+        constructor.pop();
+        out.push_str(&constructor);
+        out.push_str(", onEndReached: {\n");
+        render_actions(actions, depth + 1, out);
+        indent(out, depth);
+        out.push_str("})");
+    } else {
+        out.push_str(&list_constructor(axis, row_count, key, item_extent));
+    }
+    out.push_str(" { listPosition in\n");
 }
 
 fn format_float(value: f32) -> String {

@@ -27,8 +27,12 @@ pub(super) fn render(
         "androidx.compose.runtime.CompositionLocalProvider",
     );
     add(
-        has_on_appear || features.uses_focus,
+        has_on_appear || features.uses_focus || features.uses_list_end_reached,
         "androidx.compose.runtime.LaunchedEffect",
+    );
+    add(
+        features.uses_list_end_reached,
+        "androidx.compose.runtime.snapshotFlow",
     );
     add(
         has_on_disappear,
@@ -146,6 +150,10 @@ pub(super) fn render(
         "androidx.compose.foundation.lazy.LazyColumn",
     );
     add(
+        features.uses_linear_list_end_reached,
+        "androidx.compose.foundation.lazy.rememberLazyListState",
+    );
+    add(
         features.uses_horizontal_list,
         "androidx.compose.foundation.lazy.LazyRow",
     );
@@ -157,7 +165,22 @@ pub(super) fn render(
         features.uses_grid_list,
         "androidx.compose.foundation.lazy.grid.GridCells",
     );
-    add(features.uses_list, "androidx.compose.foundation.lazy.items");
+    add(
+        features.uses_grid_end_reached,
+        "androidx.compose.foundation.lazy.grid.rememberLazyGridState",
+    );
+    add(
+        features.uses_linear_list,
+        "androidx.compose.foundation.lazy.items",
+    );
+    add(
+        features.uses_grid_list,
+        "androidx.compose.foundation.lazy.grid.items",
+    );
+    add(
+        features.uses_list_end_reached,
+        "kotlinx.coroutines.flow.collect",
+    );
 
     add(features.uses_box, "androidx.compose.foundation.layout.Box");
     add(features.uses_alignment, "androidx.compose.ui.Alignment");
@@ -244,15 +267,17 @@ pub(super) fn render(
     );
 
     add(
-        features.uses_mutable_state,
+        features.uses_mutable_state || features.uses_list_end_reached,
         "androidx.compose.runtime.getValue",
     );
     add(
-        features.uses_mutable_state,
+        features.uses_mutable_state || features.uses_list_end_reached,
         "androidx.compose.runtime.setValue",
     );
     add(
-        features.uses_mutable_state || features.uses_mutable_collection,
+        features.uses_mutable_state
+            || features.uses_mutable_collection
+            || features.uses_list_end_reached,
         "androidx.compose.runtime.remember",
     );
     add(

@@ -1,8 +1,9 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Expr, ListAxis, ListSource, Module, Node};
+use nexa_ir::{Action, Expr, ListAxis, ListSource, Module, Node};
 
 use super::{
-    components::render_children, expressions::expression, features::Features, utils::indent,
+    components::render_children, controls::render_actions, expressions::expression,
+    features::Features, utils::indent,
 };
 
 pub(super) fn render_virtualized_list(
@@ -13,11 +14,13 @@ pub(super) fn render_virtualized_list(
     item: Option<&str>,
     key: Option<&Expr>,
     children: &[Node],
+    on_end_reached: Option<&[Action]>,
     module: &Module,
     features: &Features,
     depth: usize,
     out: &mut String,
 ) {
+    let list_id = out.len();
     if let ListAxis::Grid { columns } = axis {
         return render_grid_list(
             columns,
@@ -27,27 +30,52 @@ pub(super) fn render_virtualized_list(
             item,
             key,
             children,
+            on_end_reached,
             module,
             features,
+            depth,
+            list_id,
+            out,
+        );
+    }
+    let list_state = on_end_reached.map(|_| format!("nexaListState{list_id}"));
+    let list_count = on_end_reached.map(|_| format!("nexaListCount{list_id}"));
+    if let (Some(list_state), Some(list_count), Some(actions)) =
+        (&list_state, &list_count, on_end_reached)
+    {
+        render_end_reached_setup(
+            axis,
+            source,
+            list_state,
+            list_count,
+            &format!("nexaEndReached{list_id}"),
+            actions,
             depth,
             out,
         );
     }
+    let state_parameter = list_state
+        .as_deref()
+        .map_or_else(String::new, |state| format!("(state = {state})"));
     indent(out, depth);
-    out.push_str(match axis {
-        ListAxis::Vertical => "LazyColumn {\n",
-        ListAxis::Horizontal => "LazyRow {\n",
-        ListAxis::Grid { .. } => unreachable!("grid list handled above"),
-    });
+    out.push_str(
+        match axis {
+            ListAxis::Vertical => format!("LazyColumn{state_parameter} {{\n"),
+            ListAxis::Horizontal => format!("LazyRow{state_parameter} {{\n"),
+            ListAxis::Grid { .. } => unreachable!("grid list handled above"),
+        }
+        .as_str(),
+    );
     indent(out, depth + 1);
     match source {
         ListSource::Count(count) => {
+            let count = list_count
+                .as_deref()
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("({}).coerceAtLeast(0)", expression(count)));
             out.push_str("items(\n");
             indent(out, depth + 2);
-            out.push_str(&format!(
-                "count = ({}).coerceAtLeast(0),\n",
-                expression(count)
-            ));
+            out.push_str(&format!("count = {count},\n"));
             indent(out, depth + 2);
             let key = key
                 .map(|key| render_key(key, index, item, None, "itemPosition"))
@@ -62,9 +90,13 @@ pub(super) fn render_virtualized_list(
         } => {
             let item = item.unwrap_or("item");
             let collection = expression(collection);
+            let count = list_count
+                .as_deref()
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("{collection}.size"));
             out.push_str("items(\n");
             indent(out, depth + 2);
-            out.push_str(&format!("count = {collection}.size,\n"));
+            out.push_str(&format!("count = {count},\n"));
             indent(out, depth + 2);
             let key = key
                 .map(|key| render_key(key, index, Some(item), Some(&collection), "itemPosition"))
@@ -105,24 +137,46 @@ fn render_grid_list(
     item: Option<&str>,
     key: Option<&Expr>,
     children: &[Node],
+    on_end_reached: Option<&[Action]>,
     module: &Module,
     features: &Features,
     depth: usize,
+    list_id: usize,
     out: &mut String,
 ) {
+    let list_state = on_end_reached.map(|_| format!("nexaGridState{list_id}"));
+    let list_count = on_end_reached.map(|_| format!("nexaGridCount{list_id}"));
+    if let (Some(list_state), Some(list_count), Some(actions)) =
+        (&list_state, &list_count, on_end_reached)
+    {
+        render_end_reached_setup(
+            ListAxis::Grid { columns },
+            source,
+            list_state,
+            list_count,
+            &format!("nexaEndReached{list_id}"),
+            actions,
+            depth,
+            out,
+        );
+    }
+    let state_parameter = list_state
+        .as_deref()
+        .map_or_else(String::new, |state| format!("state = {state}, "));
     indent(out, depth);
     out.push_str(&format!(
-        "LazyVerticalGrid(columns = GridCells.Fixed({columns})) {{\n"
+        "LazyVerticalGrid({state_parameter}columns = GridCells.Fixed({columns})) {{\n"
     ));
     indent(out, depth + 1);
     match source {
         ListSource::Count(count) => {
+            let count = list_count
+                .as_deref()
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("({}).coerceAtLeast(0)", expression(count)));
             out.push_str("items(\n");
             indent(out, depth + 2);
-            out.push_str(&format!(
-                "count = ({}).coerceAtLeast(0),\n",
-                expression(count)
-            ));
+            out.push_str(&format!("count = {count},\n"));
             indent(out, depth + 2);
             let key = key
                 .map(|key| render_key(key, index, item, None, "itemPosition"))
@@ -137,9 +191,13 @@ fn render_grid_list(
         } => {
             let item = item.unwrap_or("item");
             let collection = expression(collection);
+            let count = list_count
+                .as_deref()
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("{collection}.size"));
             out.push_str("items(\n");
             indent(out, depth + 2);
-            out.push_str(&format!("count = {collection}.size,\n"));
+            out.push_str(&format!("count = {count},\n"));
             indent(out, depth + 2);
             let key = key
                 .map(|key| render_key(key, index, Some(item), Some(&collection), "itemPosition"))
@@ -170,6 +228,57 @@ fn render_grid_list(
     out.push_str("}\n");
     indent(out, depth);
     out.push('}');
+}
+
+fn render_end_reached_setup(
+    axis: ListAxis,
+    source: &ListSource,
+    list_state: &str,
+    list_count: &str,
+    marker: &str,
+    actions: &[Action],
+    depth: usize,
+    out: &mut String,
+) {
+    let state_initializer = match axis {
+        ListAxis::Grid { .. } => "rememberLazyGridState()",
+        ListAxis::Vertical | ListAxis::Horizontal => "rememberLazyListState()",
+    };
+    let count_expression = source_count_expression(source);
+    indent(out, depth);
+    out.push_str(&format!("val {list_count} = {count_expression}\n"));
+    indent(out, depth);
+    out.push_str(&format!("val {list_state} = {state_initializer}\n"));
+    indent(out, depth);
+    out.push_str(&format!(
+        "var {marker} by remember {{ mutableIntStateOf(-1) }}\n"
+    ));
+    indent(out, depth);
+    out.push_str(&format!("LaunchedEffect({list_state}, {list_count}) {{\n"));
+    indent(out, depth + 1);
+    out.push_str(&format!(
+        "snapshotFlow {{ {list_state}.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }}.collect {{ lastVisible ->\n"
+    ));
+    indent(out, depth + 2);
+    out.push_str(&format!(
+        "if ({list_count} > 0 && lastVisible >= {list_count} - 1 && {marker} != {list_count}) {{\n"
+    ));
+    indent(out, depth + 3);
+    out.push_str(&format!("{marker} = {list_count}\n"));
+    render_actions(actions, depth + 3, out);
+    indent(out, depth + 2);
+    out.push_str("}\n");
+    indent(out, depth + 1);
+    out.push_str("}\n");
+    indent(out, depth);
+    out.push_str("}\n");
+}
+
+fn source_count_expression(source: &ListSource) -> String {
+    match source {
+        ListSource::Count(count) => format!("({}).coerceAtLeast(0)", expression(count)),
+        ListSource::Items { collection, .. } => format!("{}.size", expression(collection)),
+    }
 }
 
 fn render_row_content(

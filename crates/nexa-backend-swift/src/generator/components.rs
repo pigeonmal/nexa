@@ -179,6 +179,7 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             item,
             key,
             children,
+            on_end_reached,
         } => {
             lists::render_virtualized_list(
                 source,
@@ -188,6 +189,7 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                 item.as_deref(),
                 key.as_ref(),
                 children,
+                on_end_reached.as_deref(),
                 module,
                 depth,
                 out,

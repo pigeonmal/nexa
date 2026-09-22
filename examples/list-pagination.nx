@@ -1,0 +1,11 @@
+app ListPaginationDemo {
+    state rows: Array<String> = ["First", "Second"]
+
+    body {
+        FastList(items: rows, item: row, itemExtent: 56, key: row) {
+            Text(row)
+        } onEndReached {
+            rows.append("More")
+        }
+    }
+}

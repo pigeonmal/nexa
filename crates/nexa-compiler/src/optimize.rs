@@ -877,6 +877,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             item,
             key,
             children,
+            on_end_reached,
         } => Some(Node::FastList {
             source: optimize_list_source(source),
             axis,
@@ -885,6 +886,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             item,
             key: key.map(fold_expression),
             children: optimize_nodes(children),
+            on_end_reached: on_end_reached.map(optimize_actions),
         }),
         Node::If {
             condition,

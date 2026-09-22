@@ -1085,6 +1085,12 @@ impl Parser {
                 let item = args.remove("item");
                 let key = args.remove("key");
                 let children = self.block_nodes()?;
+                let on_end_reached = if self.word_is("onEndReached") {
+                    self.advance();
+                    Some(self.block_stmts()?)
+                } else {
+                    None
+                };
                 Ok(Node::FastList {
                     source,
                     axis,
@@ -1093,6 +1099,7 @@ impl Parser {
                     item,
                     key,
                     children,
+                    on_end_reached,
                     span,
                 })
             }
