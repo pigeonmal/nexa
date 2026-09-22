@@ -1372,14 +1372,23 @@ impl Parser {
         {
             let operator = self.tokens[self.cursor - 1].kind.clone();
             let end = self.expr()?;
+            let step = if self.word_is("step") {
+                self.advance();
+                Some(Box::new(self.expr()?))
+            } else {
+                None
+            };
             let range_span = Span {
-                end: end.span().end,
+                end: step
+                    .as_deref()
+                    .map_or_else(|| end.span().end, |step| step.span().end),
                 ..start.span()
             };
             Expr::Range {
                 start: Box::new(start),
                 end: Box::new(end),
                 inclusive: !matches!(operator, Kind::DotDotLess),
+                step,
                 span: range_span,
             }
         } else {

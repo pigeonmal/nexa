@@ -39,12 +39,19 @@ pub(super) fn expression(expr: &Expr) -> String {
             start,
             end,
             inclusive,
-        } => format!(
-            "{}{}{}",
-            expression(start),
-            if *inclusive { ".." } else { " until " },
-            expression(end)
-        ),
+            step,
+        } => {
+            let range = format!(
+                "{}{}{}",
+                expression(start),
+                if *inclusive { ".." } else { " until " },
+                expression(end)
+            );
+            match step {
+                Some(step) => format!("({range} step {})", expression(step)),
+                None => range,
+            }
+        }
         Expr::Member {
             base,
             name,

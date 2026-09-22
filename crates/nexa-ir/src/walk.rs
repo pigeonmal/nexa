@@ -147,9 +147,14 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             walk_expression(collection, visit);
             walk_expression(index, visit);
         }
-        Expr::Range { start, end, .. } => {
+        Expr::Range {
+            start, end, step, ..
+        } => {
             walk_expression(start, visit);
             walk_expression(end, visit);
+            if let Some(step) = step {
+                walk_expression(step, visit);
+            }
         }
         Expr::Member { base, .. } => walk_expression(base, visit),
         Expr::Coalesce(left, right) => {

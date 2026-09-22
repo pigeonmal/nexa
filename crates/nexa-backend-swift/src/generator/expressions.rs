@@ -54,12 +54,22 @@ pub(super) fn expression(expr: &Expr) -> String {
             start,
             end,
             inclusive,
-        } => format!(
-            "{}{}{}",
-            range_bound(start),
-            if *inclusive { "..." } else { "..<" },
-            range_bound(end)
-        ),
+            step,
+        } => match step {
+            Some(step) => format!(
+                "stride(from: {}, {}: {}, by: {})",
+                range_bound(start),
+                if *inclusive { "through" } else { "to" },
+                range_bound(end),
+                range_bound(step)
+            ),
+            None => format!(
+                "{}{}{}",
+                range_bound(start),
+                if *inclusive { "..." } else { "..<" },
+                range_bound(end)
+            ),
+        },
         Expr::Member {
             base,
             name,

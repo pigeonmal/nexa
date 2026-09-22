@@ -70,7 +70,13 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
             references_state(collection) || references_state(index)
         }
         ast::Expr::Member { base, .. } => references_state(base),
-        ast::Expr::Range { start, end, .. } => references_state(start) || references_state(end),
+        ast::Expr::Range {
+            start, end, step, ..
+        } => {
+            references_state(start)
+                || references_state(end)
+                || step.as_deref().is_some_and(references_state)
+        }
         ast::Expr::Coalesce(left, right, _) => references_state(left) || references_state(right),
         ast::Expr::Await(value, _) => references_state(value),
         ast::Expr::Interpolation(parts, _) => parts

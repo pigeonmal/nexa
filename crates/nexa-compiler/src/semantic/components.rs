@@ -1026,17 +1026,24 @@ fn lower_actions_with_depth(
                     start,
                     end,
                     inclusive,
+                    step,
                     ..
                 } = &iterable
                 {
                     let int32 = Type::Numeric(NumericType::Int32);
                     let start = lower_expr(start, Some(&int32), symbols, functions, allow_await)?;
                     let end = lower_expr(end, Some(&int32), symbols, functions, allow_await)?;
+                    let step = step
+                        .as_deref()
+                        .map(|step| lower_range_step(step, symbols, functions, allow_await))
+                        .transpose()?
+                        .map(Box::new);
                     (
                         Expr::Range {
                             start: Box::new(start),
                             end: Box::new(end),
                             inclusive: *inclusive,
+                            step,
                         },
                         int32,
                     )
@@ -1178,6 +1185,36 @@ fn lower_actions_with_depth(
         }
     }
     Ok(lowered)
+}
+
+fn lower_range_step(
+    step: &ast::Expr,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+) -> Result<Expr, CompileError> {
+    let ast::Expr::Number(raw, span) = step else {
+        return Err(CompileError::new(
+            step.span(),
+            "range step must be a positive Int32 literal",
+        ));
+    };
+    let value = raw
+        .parse::<i32>()
+        .map_err(|_| CompileError::new(*span, "range step must be a positive Int32 literal"))?;
+    if value <= 0 {
+        return Err(CompileError::new(
+            *span,
+            "range step must be a positive Int32 literal",
+        ));
+    }
+    lower_expr(
+        step,
+        Some(&Type::Numeric(NumericType::Int32)),
+        symbols,
+        functions,
+        allow_await,
+    )
 }
 
 fn require_mutable_binding(

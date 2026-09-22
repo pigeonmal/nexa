@@ -348,6 +348,7 @@ pub enum Expr {
         start: Box<Expr>,
         end: Box<Expr>,
         inclusive: bool,
+        step: Option<Box<Expr>>,
         span: Span,
     },
     Null(Span),

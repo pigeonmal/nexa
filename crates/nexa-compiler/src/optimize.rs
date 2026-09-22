@@ -85,9 +85,14 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
             collect_expression_state_names(collection, names);
             collect_expression_state_names(index, names);
         }
-        Expr::Range { start, end, .. } => {
+        Expr::Range {
+            start, end, step, ..
+        } => {
             collect_expression_state_names(start, names);
             collect_expression_state_names(end, names);
+            if let Some(step) = step {
+                collect_expression_state_names(step, names);
+            }
         }
         Expr::Member { base, .. } => collect_expression_state_names(base, names),
         Expr::Coalesce(left, right) => {
@@ -152,7 +157,13 @@ fn is_pure_expression(expression: &Expr) -> bool {
         Expr::Index {
             collection, index, ..
         } => is_pure_expression(collection) && is_pure_expression(index),
-        Expr::Range { start, end, .. } => is_pure_expression(start) && is_pure_expression(end),
+        Expr::Range {
+            start, end, step, ..
+        } => {
+            is_pure_expression(start)
+                && is_pure_expression(end)
+                && step.as_deref().is_none_or(is_pure_expression)
+        }
         Expr::Member { base, .. } => is_pure_expression(base),
         Expr::Coalesce(left, right) => is_pure_expression(left) && is_pure_expression(right),
         Expr::Array(items) | Expr::Set(items) => items.iter().all(is_pure_expression),
@@ -823,10 +834,12 @@ fn fold_expression(expression: Expr) -> Expr {
             start,
             end,
             inclusive,
+            step,
         } => Expr::Range {
             start: Box::new(fold_expression(*start)),
             end: Box::new(fold_expression(*end)),
             inclusive,
+            step: step.map(|step| Box::new(fold_expression(*step))),
         },
         Expr::Member {
             base,

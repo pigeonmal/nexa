@@ -174,6 +174,7 @@ pub enum Expr {
         start: Box<Expr>,
         end: Box<Expr>,
         inclusive: bool,
+        step: Option<Box<Expr>>,
     },
     Null(Type),
     Coalesce(Box<Expr>, Box<Expr>),

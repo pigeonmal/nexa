@@ -568,8 +568,14 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
             expression_references_name(collection, name) || expression_references_name(index, name)
         }
         ast::Expr::Member { base, .. } => expression_references_name(base, name),
-        ast::Expr::Range { start, end, .. } => {
-            expression_references_name(start, name) || expression_references_name(end, name)
+        ast::Expr::Range {
+            start, end, step, ..
+        } => {
+            expression_references_name(start, name)
+                || expression_references_name(end, name)
+                || step
+                    .as_deref()
+                    .is_some_and(|step| expression_references_name(step, name))
         }
         ast::Expr::Coalesce(left, right, _) => {
             expression_references_name(left, name) || expression_references_name(right, name)
@@ -643,9 +649,14 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
             walk_expression(collection, names, used);
             walk_expression(index, names, used);
         }
-        ast::Expr::Range { start, end, .. } => {
+        ast::Expr::Range {
+            start, end, step, ..
+        } => {
             walk_expression(start, names, used);
             walk_expression(end, names, used);
+            if let Some(step) = step {
+                walk_expression(step, names, used);
+            }
         }
         ast::Expr::Member { base, .. } => walk_expression(base, names, used),
         ast::Expr::Coalesce(left, right, _) => {
