@@ -149,6 +149,14 @@ pub(super) fn render(
         features.uses_horizontal_list,
         "androidx.compose.foundation.lazy.LazyRow",
     );
+    add(
+        features.uses_grid_list,
+        "androidx.compose.foundation.lazy.grid.LazyVerticalGrid",
+    );
+    add(
+        features.uses_grid_list,
+        "androidx.compose.foundation.lazy.grid.GridCells",
+    );
     add(features.uses_list, "androidx.compose.foundation.lazy.items");
 
     add(features.uses_box, "androidx.compose.foundation.layout.Box");

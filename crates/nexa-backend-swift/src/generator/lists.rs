@@ -15,10 +15,6 @@ pub(super) fn render_virtualized_list(
     out: &mut String,
 ) {
     indent(out, depth);
-    let list_view = match axis {
-        ListAxis::Vertical => "NexaFastList",
-        ListAxis::Horizontal => "NexaFastHorizontalList",
-    };
     match source {
         ListSource::Count(count) => {
             let key = key
@@ -30,9 +26,8 @@ pub(super) fn render_virtualized_list(
                 })
                 .unwrap_or_default();
             out.push_str(&format!(
-                "{list_view}(rowCount: max(0, Int({})){}) {{ listPosition in\n",
-                expression(count),
-                key
+                "{} {{ listPosition in\n",
+                list_constructor(axis, format!("max(0, Int({}))", expression(count)), &key)
             ));
             indent(out, depth + 1);
             out.push_str(&format!(
@@ -55,7 +50,8 @@ pub(super) fn render_virtualized_list(
                 })
                 .unwrap_or_default();
             out.push_str(&format!(
-                "{list_view}(rowCount: {collection}.count{key}) {{ listPosition in\n"
+                "{} {{ listPosition in\n",
+                list_constructor(axis, format!("{collection}.count"), &key)
             ));
             indent(out, depth + 1);
             out.push_str(&format!(
@@ -74,6 +70,16 @@ pub(super) fn render_virtualized_list(
     out.push('\n');
     indent(out, depth);
     out.push('}');
+}
+
+fn list_constructor(axis: ListAxis, row_count: String, key: &str) -> String {
+    match axis {
+        ListAxis::Vertical => format!("NexaFastList(rowCount: {row_count}{key})"),
+        ListAxis::Horizontal => format!("NexaFastHorizontalList(rowCount: {row_count}{key})"),
+        ListAxis::Grid { columns } => {
+            format!("NexaFastGridList(rowCount: {row_count}, columns: {columns}{key})")
+        }
+    }
 }
 
 fn render_key(

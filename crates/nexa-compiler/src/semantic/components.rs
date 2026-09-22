@@ -658,14 +658,39 @@ pub(super) fn lower_node(
                     _ => {
                         return Err(CompileError::new(
                             axis_span,
-                            "FastList `axis` must be `Vertical` or `Horizontal`",
+                            "FastList `axis` must be `Vertical`, `Horizontal`, or `Grid(columns)`",
                         ));
                     }
                 },
+                Some(ast::Expr::Call(name, arguments, axis_span)) if name == "Grid" => {
+                    match arguments.as_slice() {
+                        [ast::Expr::Number(raw, columns_span)] => {
+                            let Ok(columns) = raw.parse::<u32>() else {
+                                return Err(CompileError::new(
+                                    *columns_span,
+                                    "FastList grid columns must be a positive integer literal",
+                                ));
+                            };
+                            if columns == 0 {
+                                return Err(CompileError::new(
+                                    *columns_span,
+                                    "FastList grid columns must be greater than zero",
+                                ));
+                            }
+                            ListAxis::Grid { columns }
+                        }
+                        _ => {
+                            return Err(CompileError::new(
+                                axis_span,
+                                "FastList `Grid` requires one positive integer column count",
+                            ));
+                        }
+                    }
+                }
                 Some(expression) => {
                     return Err(CompileError::new(
                         expression.span(),
-                        "FastList `axis` must be `Vertical` or `Horizontal`",
+                        "FastList `axis` must be `Vertical`, `Horizontal`, or `Grid(columns)`",
                     ));
                 }
             };

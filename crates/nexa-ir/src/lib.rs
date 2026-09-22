@@ -457,6 +457,7 @@ pub enum ListSource {
 pub enum ListAxis {
     Vertical,
     Horizontal,
+    Grid { columns: u32 },
 }
 
 #[derive(Clone, Copy, Debug)]

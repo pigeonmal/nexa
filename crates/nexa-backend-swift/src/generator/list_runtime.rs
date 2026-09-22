@@ -191,6 +191,123 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         }
     }
 }
+
+private let nexaFastGridListCellReuseIdentifier = "NexaFastGridListCell"
+
+@available(iOS 16.0, *)
+private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
+    let rowCount: Int
+    let columns: Int
+    let rowKey: ((Int) -> AnyHashable)?
+    let rowContent: (Int) -> RowContent
+
+    init(
+        rowCount: Int,
+        columns: Int,
+        rowKey: ((Int) -> AnyHashable)? = nil,
+        @ViewBuilder rowContent: @escaping (Int) -> RowContent
+    ) {
+        self.rowCount = max(0, rowCount)
+        self.columns = max(1, columns)
+        self.rowKey = rowKey
+        self.rowContent = rowContent
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(rowCount: rowCount, rowKey: rowKey, rowContent: rowContent)
+    }
+
+    func makeUIView(context: Context) -> UICollectionView {
+        let itemSize = NSCollectionLayoutSize(
+            widthDimension: .fractionalWidth(1.0 / CGFloat(columns)),
+            heightDimension: .estimated(44)
+        )
+        let item = NSCollectionLayoutItem(layoutSize: itemSize)
+        let groupSize = NSCollectionLayoutSize(
+            widthDimension: .fractionalWidth(1.0),
+            heightDimension: .estimated(44)
+        )
+        let group = NSCollectionLayoutGroup.horizontal(
+            layoutSize: groupSize,
+            subitem: item,
+            count: columns
+        )
+        let layout = UICollectionViewCompositionalLayout(
+            section: NSCollectionLayoutSection(group: group)
+        )
+        let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.dataSource = context.coordinator
+        collectionView.register(
+            UICollectionViewCell.self,
+            forCellWithReuseIdentifier: nexaFastGridListCellReuseIdentifier
+        )
+        collectionView.alwaysBounceVertical = true
+        collectionView.showsVerticalScrollIndicator = true
+        collectionView.backgroundColor = .clear
+        collectionView.reloadData()
+        return collectionView
+    }
+
+    func updateUIView(_ collectionView: UICollectionView, context: Context) {
+        let coordinator = context.coordinator
+        let previousRowCount = coordinator.rowCount
+        coordinator.rowCount = rowCount
+        coordinator.rowKey = rowKey
+        coordinator.rowContent = rowContent
+
+        guard previousRowCount != rowCount else {
+            let visibleItems = collectionView.indexPathsForVisibleItems
+            if !visibleItems.isEmpty {
+                collectionView.reloadItems(at: visibleItems)
+            }
+            return
+        }
+        collectionView.reloadData()
+    }
+
+    final class Coordinator: NSObject, UICollectionViewDataSource {
+        var rowCount: Int
+        var rowKey: ((Int) -> AnyHashable)?
+        var rowContent: (Int) -> RowContent
+
+        init(
+            rowCount: Int,
+            rowKey: ((Int) -> AnyHashable)?,
+            rowContent: @escaping (Int) -> RowContent
+        ) {
+            self.rowCount = rowCount
+            self.rowKey = rowKey
+            self.rowContent = rowContent
+            super.init()
+        }
+
+        func collectionView(
+            _ collectionView: UICollectionView,
+            numberOfItemsInSection section: Int
+        ) -> Int {
+            rowCount
+        }
+
+        func collectionView(
+            _ collectionView: UICollectionView,
+            cellForItemAt indexPath: IndexPath
+        ) -> UICollectionViewCell {
+            let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: nexaFastGridListCellReuseIdentifier,
+                for: indexPath
+            )
+            cell.contentConfiguration = UIHostingConfiguration {
+                if let rowKey {
+                    rowContent(indexPath.item).id(rowKey(indexPath.item))
+                } else {
+                    rowContent(indexPath.item)
+                }
+            }
+            .margins(.all, 0)
+            return cell
+        }
+    }
+}
 "#,
     );
 }

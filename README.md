@@ -242,7 +242,7 @@ String interpolation supports `$name` and `\(expression)`. Embedded expressions 
 
 `Stack` is the native overlay container, mapping to SwiftUI `ZStack` and Compose `Box`; it supports the same typed alignment and layout styles without a shared runtime layout pass. See [stack.nx](examples/stack.nx).
 
-`FastList` accepts `axis: Vertical|Horizontal`. Vertical lists use iOS `UITableView` or Compose `LazyColumn`; horizontal lists use iOS `UICollectionView` or Compose `LazyRow`, keeping native virtualization and direct scalar keys. See [horizontal-list.nx](examples/horizontal-list.nx).
+`FastList` accepts `axis: Vertical|Horizontal|Grid(columns)`. Vertical lists use iOS `UITableView` or Compose `LazyColumn`; horizontal lists use iOS `UICollectionView` or Compose `LazyRow`; grids use a native compositional `UICollectionView` or `LazyVerticalGrid`. Column counts are positive integer literals, and all paths keep native virtualization and direct scalar keys. See [horizontal-list.nx](examples/horizontal-list.nx) and [grid-list.nx](examples/grid-list.nx).
 
 `Column` and `Row` also support a static native `animation` spec (`Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`) for content-size changes; see [animations.nx](examples/animations.nx).
 
