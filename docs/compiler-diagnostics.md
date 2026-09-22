@@ -56,6 +56,7 @@ The compiler runs a platform-independent IR pass after semantic lowering and bef
 
 - folds pure boolean, scalar-comparison, numeric-addition, and literal-membership expressions,
 - removes statically unreachable UI and event branches,
+- removes one-child layout containers when they have no spacing, alignment, or style effect,
 - removes unused app and component state declarations,
 - removes unused value-struct declarations while retaining transitively used struct dependencies,
 - removes unused pure function-local constants while preserving locals whose initializers contain async work,

@@ -921,12 +921,22 @@ fn optimize_node(node: Node) -> Option<Node> {
             spacing,
             style,
             children,
-        } => Some(Node::Layout {
-            kind,
-            spacing,
-            style,
-            children: optimize_nodes(children),
-        }),
+        } => {
+            let children = optimize_nodes(children);
+            if children.len() == 1
+                && spacing == 0.0
+                && style.alignment.is_none()
+                && !style.has_modifiers()
+            {
+                return children.into_iter().next();
+            }
+            Some(Node::Layout {
+                kind,
+                spacing,
+                style,
+                children,
+            })
+        }
         Node::Text { value, style } => Some(Node::Text {
             value: fold_expression(value),
             style,
