@@ -52,6 +52,7 @@ cargo run -p nexa-cli -- check examples/borders.nx
 cargo run -p nexa-cli -- check examples/counter.nx --deny-warnings
 cargo run -p nexa-cli -- check examples/platform-widgets.nx
 cargo run -p nexa-cli -- check examples/network-image.nx
+cargo run -p nexa-cli -- plugin init com.example.camera --out CameraPlugin --name Camera
 cargo run -p nexa-cli -- build examples/themed-app.nx --target swift --out /tmp/ThemedApp.swift
 cargo run -p nexa-cli -- build examples/themed-app.nx --target kotlin --out /tmp/ThemedApp.kt
 cargo run -p nexa-cli -- build examples/custom-components.nx --target swift --out /tmp/CustomComponents.swift
@@ -139,6 +140,10 @@ The repository includes three project-scoped Codex skills under `.agents/skills/
 - `nexa-app` for helping app authors build with the supported `.nx` language without writing Swift or Kotlin.
 
 These skills distinguish the current prototype from the longer-term goals in `plan.md` and guide changes toward modular, native code generation.
+
+Use [`docs/plugins.md`](docs/plugins.md) for the current plugin scaffold and
+its limits. The scaffold keeps optional iOS and Android implementations outside
+the core compiler while the typed plugin IDL is being designed.
 
 ## Language slice
 

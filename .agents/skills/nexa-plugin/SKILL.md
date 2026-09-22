@@ -16,6 +16,7 @@ Help extend Nexa with optional features that users can install without placing e
 - Prefer statically typed interfaces and generated direct calls. Avoid JSON/RPC, string-based dispatch, reflection, dynamic dictionaries, and per-frame boundary crossings.
 - Do not put plugin-specific behavior in the parser, common UI nodes, or both backends unless it is truly part of the shared language contract.
 - Do not implement SQLite, MMKV, maps, or another example integration merely because it appears in the roadmap. First establish the plugin-system capability or implement only the integration the user requested.
+- The current supported workflow is `nexa plugin init <plugin.id> --out <directory> --name <TypeName>`, which creates `nexa.plugin.json` and isolated iOS/Android source stubs. Treat the empty `interfaces` array as scaffold metadata only; typed IDL parsing, binding generation, dependency resolution, and installation are still future work.
 - Expose platform differences intentionally when APIs cannot share the same behavior; do not hide incompatible semantics behind a misleading common abstraction.
 
 ## Implementation workflow

@@ -950,6 +950,14 @@ The framework must preserve the accessibility advantages of native controls.
 
 Create a strongly typed plugin system using a common IDL.
 
+The first project-structure slice is available as `nexa plugin init`. It
+creates a deterministic `nexa.plugin.json` manifest with package identity,
+version, and isolated iOS/Android implementation paths, plus platform source
+stubs. The manifest intentionally starts with an empty `interfaces` array so
+the scaffold does not imply that typed bindings or dependency installation
+already work. IDL parsing, typed `.nx` calls, binding generation, dependency
+resolution, and installation remain future work.
+
 The plugin system should take inspiration from systems such as:
 
 - Nitro
