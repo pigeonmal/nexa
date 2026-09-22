@@ -21,7 +21,10 @@ pub(super) fn render(
         has_direction,
         "androidx.compose.runtime.CompositionLocalProvider",
     );
-    add(has_on_appear, "androidx.compose.runtime.LaunchedEffect");
+    add(
+        has_on_appear || features.uses_focus,
+        "androidx.compose.runtime.LaunchedEffect",
+    );
     add(
         has_on_disappear,
         "androidx.compose.runtime.DisposableEffect",
@@ -177,6 +180,18 @@ pub(super) fn render(
     add(
         features.uses_text_input,
         "androidx.compose.material3.TextField",
+    );
+    add(
+        features.uses_focus,
+        "androidx.compose.ui.focus.FocusRequester",
+    );
+    add(
+        features.uses_focus,
+        "androidx.compose.ui.focus.focusRequester",
+    );
+    add(
+        features.uses_focus,
+        "androidx.compose.ui.focus.onFocusChanged",
     );
     add(
         features.uses_font_weight,

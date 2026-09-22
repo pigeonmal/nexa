@@ -89,6 +89,7 @@ pub(super) fn render_node(
             multiline,
             autocorrect,
             capitalization,
+            focused,
             actions,
         } => input::render_text_input(
             state,
@@ -98,6 +99,7 @@ pub(super) fn render_node(
             *multiline,
             *autocorrect,
             *capitalization,
+            focused.as_deref(),
             actions,
             depth,
             out,

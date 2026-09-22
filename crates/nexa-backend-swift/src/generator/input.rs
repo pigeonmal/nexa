@@ -15,6 +15,7 @@ pub(super) fn render_text_input(
     multiline: bool,
     autocorrect: Option<bool>,
     capitalization: Option<Capitalization>,
+    focused: Option<&str>,
     actions: &[Action],
     depth: usize,
     out: &mut String,
@@ -52,6 +53,13 @@ pub(super) fn render_text_input(
             "\n{}.autocorrectionDisabled({})",
             "    ".repeat(depth + 1),
             !autocorrect
+        ));
+    }
+    if let Some(focused) = focused {
+        out.push_str(&format!(
+            "\n{}.focused(${})",
+            "    ".repeat(depth + 1),
+            state_name(focused)
         ));
     }
     if !actions.is_empty() {

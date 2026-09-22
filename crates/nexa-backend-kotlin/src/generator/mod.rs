@@ -25,6 +25,10 @@ mod utils;
 
 pub(super) fn generate(module: &Module) -> String {
     let features = features::Features::analyze(module);
+    let mut focus_bindings = features::collect_focus_bindings(&module.body);
+    for screen in &module.screens {
+        focus_bindings.extend(features::collect_focus_bindings(&screen.body));
+    }
     let mut out = String::new();
     imports::render(
         &features,
@@ -65,6 +69,21 @@ pub(super) fn generate(module: &Module) -> String {
                 "    val {name}: {} = {}\n",
                 state.ty.kotlin(),
                 expressions::expression(&state.initial)
+            ));
+        }
+    }
+    if !focus_bindings.is_empty() {
+        for binding in &focus_bindings {
+            out.push_str(&format!(
+                "    val {} = remember {{ FocusRequester() }}\n",
+                input::focus_requester_name(binding)
+            ));
+        }
+        for binding in &focus_bindings {
+            let state_name = nexa_codegen::names::state_name(binding);
+            let requester_name = crate::generator::input::focus_requester_name(binding);
+            out.push_str(&format!(
+                "    LaunchedEffect({state_name}) {{\n        if ({state_name}) {requester_name}.requestFocus() else {requester_name}.freeFocus()\n    }}\n"
             ));
         }
     }

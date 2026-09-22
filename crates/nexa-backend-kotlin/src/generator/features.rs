@@ -1,7 +1,25 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use nexa_ir::walk::{contains_scrollable, walk_expression, walk_ir};
 use nexa_ir::{ColorValue, Component, Expr, LayoutKind, Module, Node, State, ViewStyle};
+
+pub(super) fn collect_focus_bindings(nodes: &[Node]) -> BTreeSet<String> {
+    let mut bindings = BTreeSet::new();
+    walk_ir(
+        nodes,
+        &mut |node| {
+            if let Node::TextInput {
+                focused: Some(name),
+                ..
+            } = node
+            {
+                bindings.insert(name.clone());
+            }
+        },
+        &mut |_| {},
+    );
+    bindings
+}
 
 #[derive(Default)]
 pub(super) struct Features {
@@ -30,6 +48,7 @@ pub(super) struct Features {
     pub(super) uses_text: bool,
     pub(super) uses_text_input: bool,
     pub(super) uses_text_input_submit: bool,
+    pub(super) uses_focus: bool,
     pub(super) uses_secure_text_input: bool,
     pub(super) uses_capitalization: bool,
     pub(super) uses_switch: bool,
@@ -231,12 +250,15 @@ impl Features {
             Node::TextInput {
                 secure,
                 capitalization,
+                focused,
                 actions,
                 ..
             } => {
                 self.uses_text_input = true;
                 self.uses_text = true;
                 self.uses_text_input_submit |= !actions.is_empty();
+                self.uses_focus |= focused.is_some();
+                self.uses_modifier |= focused.is_some();
                 self.uses_secure_text_input |= *secure;
                 self.uses_capitalization |= capitalization.is_some();
             }

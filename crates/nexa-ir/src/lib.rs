@@ -212,6 +212,7 @@ pub enum Node {
         multiline: bool,
         autocorrect: Option<bool>,
         capitalization: Option<Capitalization>,
+        focused: Option<String>,
         actions: Vec<Action>,
     },
     Switch {

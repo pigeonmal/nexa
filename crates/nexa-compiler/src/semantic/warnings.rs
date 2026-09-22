@@ -274,8 +274,16 @@ fn walk_node(
             }
             walk_actions(actions, names, used, target, file, warnings);
         }
-        ast::Node::TextInput { value, actions, .. } => {
+        ast::Node::TextInput {
+            value,
+            focused,
+            actions,
+            ..
+        } => {
             walk_expression(value, names, used);
+            if let Some(focused) = focused {
+                walk_expression(focused, names, used);
+            }
             walk_actions(actions, names, used, target, file, warnings);
         }
         ast::Node::Switch { value, .. } => walk_expression(value, names, used),

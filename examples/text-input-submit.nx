@@ -1,11 +1,15 @@
 app TextInputSubmit {
     state query: String = ""
     state submitted: Bool = false
+    state queryFocused: Bool = false
 
     body {
         Column(spacing: 12, padding: 20) {
-            TextInput(value: query, placeholder: "Search", keyboard: Text) {
+            TextInput(value: query, placeholder: "Search", keyboard: Text, focused: queryFocused) {
                 submitted = true
+            }
+            Button("Focus search") {
+                queryFocused = true
             }
             if submitted {
                 Text("Submitted: \(query)")

@@ -1,4 +1,6 @@
-use nexa_ir::{LayoutKind, Module, State, ViewStyle};
+use std::collections::BTreeSet;
+
+use nexa_ir::{LayoutKind, Module, Node, State, ViewStyle, walk::walk_ir};
 
 mod accessibility;
 mod bottom_bar;
@@ -24,6 +26,10 @@ mod utils;
 
 pub(super) fn generate(module: &Module) -> String {
     let features = features::Features::analyze(module);
+    let mut focus_bindings = collect_focus_bindings(&module.body);
+    for screen in &module.screens {
+        focus_bindings.extend(collect_focus_bindings(&screen.body));
+    }
     let uses_fast_list = features.uses_fast_list;
     let mut out = if uses_fast_list || features.uses_remote_image {
         String::from("import SwiftUI\nimport UIKit\n")
@@ -43,7 +49,7 @@ pub(super) fn generate(module: &Module) -> String {
         nexa_codegen::names::screen_name(&module.app_name)
     ));
     for state in &module.states {
-        if !state.mutable {
+        if !state.mutable || focus_bindings.contains(&state.name) {
             continue;
         }
         let name = nexa_codegen::names::state_name(&state.name);
@@ -51,6 +57,18 @@ pub(super) fn generate(module: &Module) -> String {
             "    @State private var {name}: {} = {}\n",
             state.ty.swift(),
             expressions::expression(&state.initial)
+        ));
+    }
+    for binding in &focus_bindings {
+        let initial = module
+            .states
+            .iter()
+            .find(|state| state.name == *binding)
+            .map(|state| expressions::expression(&state.initial))
+            .unwrap_or_else(|| "false".to_owned());
+        out.push_str(&format!(
+            "    @FocusState private var {}: Bool = {initial}\n",
+            nexa_codegen::names::state_name(binding),
         ));
     }
     if !module.screens.is_empty() {
@@ -119,6 +137,24 @@ pub(super) fn generate(module: &Module) -> String {
     }
     functions::render(module, &mut out);
     out
+}
+
+fn collect_focus_bindings(nodes: &[Node]) -> BTreeSet<String> {
+    let mut bindings = BTreeSet::new();
+    walk_ir(
+        nodes,
+        &mut |node| {
+            if let Node::TextInput {
+                focused: Some(name),
+                ..
+            } = node
+            {
+                bindings.insert(name.clone());
+            }
+        },
+        &mut |_| {},
+    );
+    bindings
 }
 
 fn render_direction_modifier(

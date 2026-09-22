@@ -14,6 +14,7 @@ pub(super) fn render_text_input(
     multiline: bool,
     autocorrect: Option<bool>,
     capitalization: Option<Capitalization>,
+    focused: Option<&str>,
     actions: &[Action],
     depth: usize,
     out: &mut String,
@@ -32,6 +33,20 @@ pub(super) fn render_text_input(
         "placeholder = {{ Text({}) }},\n",
         kotlin_string(placeholder)
     ));
+    if let Some(focused) = focused {
+        indent(out, depth + 1);
+        out.push_str("modifier = Modifier\n");
+        indent(out, depth + 2);
+        out.push_str(&format!(
+            ".focusRequester({})\n",
+            focus_requester_name(focused)
+        ));
+        indent(out, depth + 2);
+        out.push_str(&format!(
+            ".onFocusChanged {{ {} = it.isFocused }},\n",
+            state_name(focused)
+        ));
+    }
     indent(out, depth + 1);
     out.push_str(&format!("singleLine = {},\n", !multiline));
     indent(out, depth + 1);
@@ -75,6 +90,10 @@ pub(super) fn render_text_input(
     out.push('\n');
     indent(out, depth);
     out.push(')');
+}
+
+pub(super) fn focus_requester_name(name: &str) -> String {
+    format!("{}Requester", state_name(name))
 }
 
 pub(super) fn kotlin_keyboard(keyboard: KeyboardType) -> &'static str {

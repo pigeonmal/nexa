@@ -1,4 +1,6 @@
-use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle};
+use std::collections::BTreeSet;
+
+use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle, walk::walk_ir};
 
 use super::{components::render_node, features::Features, layout, render_immutable_state};
 
@@ -17,6 +19,7 @@ fn render_component(
     out: &mut String,
 ) {
     let name = nexa_codegen::names::component_name(&component.name);
+    let focus_bindings = collect_focus_bindings(&component.body);
     if needs_ios16 {
         out.push_str("\n@available(iOS 16.0, *)\n");
     } else {
@@ -32,7 +35,7 @@ fn render_component(
         ));
     }
     for state in &component.states {
-        if state.mutable {
+        if state.mutable && !focus_bindings.contains(&state.name) {
             out.push_str(&format!(
                 "    @State private var {}: {} = {}\n",
                 nexa_codegen::names::state_name(&state.name),
@@ -40,6 +43,18 @@ fn render_component(
                 super::expressions::expression(&state.initial)
             ));
         }
+    }
+    for binding in &focus_bindings {
+        let initial = component
+            .states
+            .iter()
+            .find(|state| state.name == *binding)
+            .map(|state| super::expressions::expression(&state.initial))
+            .unwrap_or_else(|| "false".to_owned());
+        out.push_str(&format!(
+            "    @FocusState private var {}: Bool = {initial}\n",
+            nexa_codegen::names::state_name(binding),
+        ));
     }
     let uses_adaptive_color = features.component_uses_adaptive_color(&component.name);
     let uses_regular_width = features.component_uses_regular_width(&component.name);
@@ -89,6 +104,24 @@ fn render_component(
     render_immutable_state(&component.states, 2, out);
     render_body(&component.body, module, 2, out);
     out.push_str("\n    }\n}\n");
+}
+
+fn collect_focus_bindings(nodes: &[Node]) -> BTreeSet<String> {
+    let mut bindings = BTreeSet::new();
+    walk_ir(
+        nodes,
+        &mut |node| {
+            if let Node::TextInput {
+                focused: Some(name),
+                ..
+            } = node
+            {
+                bindings.insert(name.clone());
+            }
+        },
+        &mut |_| {},
+    );
+    bindings
 }
 
 fn render_body(body: &[Node], module: &Module, depth: usize, out: &mut String) {

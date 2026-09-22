@@ -1,6 +1,11 @@
 use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle};
 
-use super::{components::render_node, features::Features, layout, state, utils::indent};
+use super::{
+    components::render_node,
+    features::{self, Features},
+    layout, state,
+    utils::indent,
+};
 
 pub(super) fn render(module: &Module, features: &Features, out: &mut String) {
     for component in &module.components {
@@ -40,6 +45,23 @@ fn render_component(component: &Component, module: &Module, features: &Features,
         out.push_str("    val nexaLinkContext = LocalContext.current\n");
     }
     render_component_states(&component.states, 1, out);
+    let focus_bindings = features::collect_focus_bindings(&component.body);
+    for binding in &focus_bindings {
+        out.push_str(&format!(
+            "    val {} = remember {{ FocusRequester() }}\n",
+            super::input::focus_requester_name(binding)
+        ));
+    }
+    for binding in &focus_bindings {
+        let state_name = nexa_codegen::names::state_name(binding);
+        let requester_name = super::input::focus_requester_name(binding);
+        out.push_str(&format!(
+            "    LaunchedEffect({state_name}) {{\n        if ({state_name}) {requester_name}.requestFocus() else {requester_name}.freeFocus()\n    }}\n"
+        ));
+    }
+    if !focus_bindings.is_empty() {
+        out.push('\n');
+    }
     render_body(&component.body, module, features, 1, out);
     out.push_str("\n}\n");
 }

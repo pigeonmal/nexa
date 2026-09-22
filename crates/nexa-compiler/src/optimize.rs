@@ -320,9 +320,17 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
                 collect_action_bindings(actions, &mut bindings);
                 bindings.push(state.clone());
             }
-            Node::TextInput { state, actions, .. } => {
+            Node::TextInput {
+                state,
+                focused,
+                actions,
+                ..
+            } => {
                 collect_action_bindings(actions, &mut bindings);
                 bindings.push(state.clone());
+                if let Some(focused) = focused {
+                    bindings.push(focused.clone());
+                }
             }
             Node::Switch { state, .. }
             | Node::BottomSheet { state, .. }
@@ -488,6 +496,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             multiline,
             autocorrect,
             capitalization,
+            focused,
             actions,
         } => Some(Node::TextInput {
             state,
@@ -497,6 +506,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             multiline,
             autocorrect,
             capitalization,
+            focused,
             actions: optimize_actions(actions),
         }),
         node @ (Node::Switch { .. }

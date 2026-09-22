@@ -206,6 +206,7 @@ pub(super) fn lower_node(
             multiline,
             autocorrect,
             capitalization,
+            focused,
             actions,
             span,
         } => {
@@ -273,6 +274,11 @@ pub(super) fn lower_node(
                     "TextInput submit actions require a single-line field",
                 ));
             }
+            let focused = focused
+                .map(|value| {
+                    require_mutable_binding(&value, &Type::Bool, symbols, span, "TextInput focus")
+                })
+                .transpose()?;
             Ok(Node::TextInput {
                 state,
                 placeholder,
@@ -281,6 +287,7 @@ pub(super) fn lower_node(
                 multiline,
                 autocorrect,
                 capitalization,
+                focused,
                 actions: lower_actions(actions, symbols, functions, false)?,
             })
         }

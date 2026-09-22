@@ -532,6 +532,7 @@ impl Parser {
                     "multiline",
                     "autocorrect",
                     "capitalization",
+                    "focused",
                 ])?;
                 let value = self.required_arg(&mut args, "value", "TextInput requires `value`")?;
                 let placeholder = self.required_arg(
@@ -552,6 +553,7 @@ impl Parser {
                     multiline: args.remove("multiline"),
                     autocorrect: args.remove("autocorrect"),
                     capitalization: args.remove("capitalization"),
+                    focused: args.remove("focused"),
                     actions,
                     span,
                 })
