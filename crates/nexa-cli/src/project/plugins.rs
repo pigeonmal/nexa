@@ -414,51 +414,169 @@ pub(super) fn native_plugin_sources(
         &plugin.android_sources
     };
     let fallback = plugin_root.join(relative_root);
-    let mut roots = if patterns.is_empty() {
+    let patterns = if patterns.is_empty() {
         vec![fallback]
     } else {
         patterns.iter().map(PathBuf::from).collect::<Vec<_>>()
     };
-    roots.sort();
-    roots.dedup();
-
     let mut files = Vec::new();
-    for pattern in roots {
-        let (root, explicit_file) = if pattern.is_file() {
-            (
-                pattern
-                    .parent()
-                    .map(Path::to_path_buf)
-                    .unwrap_or_else(|| plugin_root.to_path_buf()),
-                Some(pattern),
-            )
-        } else {
-            let pattern_string = pattern.to_string_lossy();
-            let root = pattern_string
-                .strip_suffix("/**")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| pattern.clone());
-            (root, None)
-        };
-
-        if let Some(file) = explicit_file {
-            if file
-                .extension()
-                .and_then(|value| value.to_str())
-                .is_some_and(|value| value == extension)
-            {
-                files.push((file, root));
-            }
-        } else if root.is_dir() {
-            let mut matching = Vec::new();
-            collect_files(&root, extension, &mut matching)?;
-            files.extend(matching.into_iter().map(|file| (file, root.clone())));
-        }
+    for pattern in patterns {
+        files.extend(expand_source_pattern(&pattern, extension, plugin_root)?);
     }
 
     files.sort_by(|left, right| left.0.cmp(&right.0));
     files.dedup_by(|left, right| left.0 == right.0);
     Ok(files)
+}
+
+fn expand_source_pattern(
+    pattern: &Path,
+    extension: &str,
+    fallback_root: &Path,
+) -> Result<Vec<(PathBuf, PathBuf)>, String> {
+    if pattern.is_file() {
+        let matches = pattern
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value == extension);
+        return Ok(matches
+            .then(|| {
+                (
+                    pattern.to_path_buf(),
+                    pattern.parent().unwrap_or(fallback_root).to_path_buf(),
+                )
+            })
+            .into_iter()
+            .collect());
+    }
+    if pattern.is_dir() {
+        let mut files = Vec::new();
+        collect_files(pattern, extension, &mut files)?;
+        return Ok(files
+            .into_iter()
+            .map(|file| (file, pattern.to_path_buf()))
+            .collect());
+    }
+
+    let components = pattern
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    let Some(wildcard_index) = components
+        .iter()
+        .position(|component| component.contains('*') || component.contains('?'))
+    else {
+        return Ok(Vec::new());
+    };
+    let mut root = PathBuf::new();
+    for component in &components[..wildcard_index] {
+        root.push(component);
+    }
+    if !root.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    collect_matching_pattern(
+        &root,
+        &components[wildcard_index..],
+        extension,
+        &root,
+        &mut files,
+    )?;
+    Ok(files)
+}
+
+fn collect_matching_pattern(
+    current: &Path,
+    components: &[String],
+    extension: &str,
+    source_root: &Path,
+    files: &mut Vec<(PathBuf, PathBuf)>,
+) -> Result<(), String> {
+    let Some(component) = components.first() else {
+        if current.is_file()
+            && current
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value == extension)
+        {
+            files.push((current.to_path_buf(), source_root.to_path_buf()));
+        }
+        return Ok(());
+    };
+    if component == "**" {
+        collect_matching_pattern(current, &components[1..], extension, source_root, files)?;
+        if current.is_dir() {
+            for entry in
+                fs::read_dir(current).map_err(|error| format!("{}: {error}", current.display()))?
+            {
+                let entry = entry.map_err(|error| format!("{}: {error}", current.display()))?;
+                if entry.path().is_dir() {
+                    collect_matching_pattern(
+                        &entry.path(),
+                        components,
+                        extension,
+                        source_root,
+                        files,
+                    )?;
+                }
+            }
+        }
+        return Ok(());
+    }
+    if current.is_dir() && (component.contains('*') || component.contains('?')) {
+        for entry in
+            fs::read_dir(current).map_err(|error| format!("{}: {error}", current.display()))?
+        {
+            let entry = entry.map_err(|error| format!("{}: {error}", current.display()))?;
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if wildcard_matches(component, &name) {
+                collect_matching_pattern(
+                    &entry.path(),
+                    &components[1..],
+                    extension,
+                    source_root,
+                    files,
+                )?;
+            }
+        }
+        return Ok(());
+    }
+    collect_matching_pattern(
+        &current.join(component),
+        &components[1..],
+        extension,
+        source_root,
+        files,
+    )
+}
+
+fn wildcard_matches(pattern: &str, value: &str) -> bool {
+    let pattern = pattern.as_bytes();
+    let value = value.as_bytes();
+    let mut table = vec![vec![false; value.len() + 1]; pattern.len() + 1];
+    table[0][0] = true;
+    for index in 1..=pattern.len() {
+        if pattern[index - 1] == b'*' {
+            table[index][0] = table[index - 1][0];
+        }
+    }
+    for pattern_index in 1..=pattern.len() {
+        for value_index in 1..=value.len() {
+            table[pattern_index][value_index] = match pattern[pattern_index - 1] {
+                b'*' => {
+                    table[pattern_index - 1][value_index] || table[pattern_index][value_index - 1]
+                }
+                b'?' => table[pattern_index - 1][value_index - 1],
+                character => {
+                    character == value[value_index - 1] && table[pattern_index - 1][value_index - 1]
+                }
+            };
+        }
+    }
+    table[pattern.len()][value.len()]
 }
 
 fn collect_files(

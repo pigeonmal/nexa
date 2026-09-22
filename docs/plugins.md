@@ -33,9 +33,11 @@ plugin {
 
 The manifest is the package source of truth. Paths are relative to the package
 root and cannot escape it. A package must declare at least Nexa source, a native
-contract, or assets. Swift Package Manager/Maven dependency declarations and
-custom source glob copying are planned next; the current project generator
-uses the conventional platform source roots shown above.
+contract, or assets. Swift Package Manager/Maven dependency declarations are
+planned next. The `ios.sources` and `android.sources` arrays are resolved
+during project generation and accept files, directories, or `*`/`?`/`**` path
+patterns. When omitted, the generator falls back to the conventional platform
+source roots.
 
 Create a package with:
 

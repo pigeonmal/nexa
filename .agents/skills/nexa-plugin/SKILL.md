@@ -31,4 +31,4 @@ Help extend Nexa with optional features that users can install without placing e
 3. Keep plugin API/schema, platform implementation, and compiler integration in separate maintainable modules.
 4. Make generated native bindings typed and direct, with ownership and error behavior made explicit.
 5. Document installation, platform setup, supported targets, and current limitations. Do not claim installability until the package/install path exists.
-6. Validate the plugin independently and validate a minimal Nexa app that uses it; inspect output for both platforms that the plugin claims to support. Keep implementation sources under `ios/Sources` and `android/src/main/kotlin` so project generation can include them deterministically.
+6. Validate the plugin independently and validate a minimal Nexa app that uses it; inspect output for both platforms that the plugin claims to support. Declare implementation files with `ios.sources` and `android.sources` in `plugin.config.nx`; entries may be files, directories, or `*`/`?`/`**` patterns. When omitted, the scaffold fallback is `ios/Sources` and `android/src/main/kotlin`.
