@@ -419,6 +419,7 @@ pub enum Expr {
     },
     ThemeToken(String, Span),
     IsRegularWidth(Span),
+    IsCompactWidth(Span),
     Add(Box<Expr>, Box<Expr>, Span),
     Not(Box<Expr>, Span),
     Binary(Box<Expr>, BinaryOp, Box<Expr>, Span),
@@ -499,6 +500,7 @@ impl Expr {
             | Self::EnumCase { span: s, .. }
             | Self::ThemeToken(_, s)
             | Self::IsRegularWidth(s)
+            | Self::IsCompactWidth(s)
             | Self::Add(_, _, s)
             | Self::Not(_, s)
             | Self::Binary(_, _, _, s)

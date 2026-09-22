@@ -164,7 +164,8 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
         | Expr::Number { .. }
         | Expr::EnumValue { .. }
         | Expr::Null(_)
-        | Expr::IsRegularWidth => {}
+        | Expr::IsRegularWidth
+        | Expr::IsCompactWidth => {}
     }
 }
 
@@ -225,7 +226,8 @@ fn is_pure_expression(expression: &Expr) -> bool {
         | Expr::EnumValue { .. }
         | Expr::State(_, _)
         | Expr::Null(_)
-        | Expr::IsRegularWidth => true,
+        | Expr::IsRegularWidth
+        | Expr::IsCompactWidth => true,
     }
 }
 
@@ -623,7 +625,8 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         | Expr::Range { .. }
         | Expr::Coalesce(_, _)
         | Expr::Await(_)
-        | Expr::IsRegularWidth => {}
+        | Expr::IsRegularWidth
+        | Expr::IsCompactWidth => {}
     }
 }
 

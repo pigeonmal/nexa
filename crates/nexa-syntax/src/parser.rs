@@ -1546,9 +1546,12 @@ impl Parser {
                     return match value.as_str() {
                         "Theme" => Ok(Expr::ThemeToken(name, span)),
                         "Layout" if name == "isRegularWidth" => Ok(Expr::IsRegularWidth(span)),
+                        "Layout" if name == "isCompactWidth" => Ok(Expr::IsCompactWidth(span)),
                         "Layout" => Err(CompileError::new(
                             name_span,
-                            format!("unknown layout property `{name}`; expected `isRegularWidth`"),
+                            format!(
+                                "unknown layout property `{name}`; expected `isRegularWidth` or `isCompactWidth`"
+                            ),
                         )),
                         _ => unreachable!("namespace checked above"),
                     };

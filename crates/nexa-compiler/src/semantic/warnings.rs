@@ -698,7 +698,8 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
         | ast::Expr::EnumCase { .. }
         | ast::Expr::Null(_)
         | ast::Expr::ThemeToken(_, _)
-        | ast::Expr::IsRegularWidth(_) => false,
+        | ast::Expr::IsRegularWidth(_)
+        | ast::Expr::IsCompactWidth(_) => false,
     }
 }
 
@@ -811,7 +812,8 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
         | ast::Expr::EnumCase { .. }
         | ast::Expr::Null(_)
         | ast::Expr::ThemeToken(_, _)
-        | ast::Expr::IsRegularWidth(_) => {}
+        | ast::Expr::IsRegularWidth(_)
+        | ast::Expr::IsCompactWidth(_) => {}
     }
 }
 

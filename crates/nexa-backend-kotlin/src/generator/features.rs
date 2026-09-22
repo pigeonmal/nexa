@@ -129,7 +129,7 @@ impl Features {
         ) {
             features.record_state(state);
             walk_expression(&state.initial, &mut |expr| {
-                uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                uses_regular_width |= matches!(expr, Expr::IsRegularWidth | Expr::IsCompactWidth);
                 uses_native_library |= uses_core_native_library(expr);
                 uses_permissions |= uses_permissions_call(expr);
             });
@@ -159,7 +159,7 @@ impl Features {
                 app_uses_link |= matches!(node, Node::Link { .. });
             },
             &mut |expr| {
-                uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                uses_regular_width |= matches!(expr, Expr::IsRegularWidth | Expr::IsCompactWidth);
                 uses_native_library |= uses_core_native_library(expr);
                 uses_permissions |= uses_permissions_call(expr);
             },
@@ -172,7 +172,8 @@ impl Features {
                     app_uses_link |= matches!(node, Node::Link { .. });
                 },
                 &mut |expr| {
-                    uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                    uses_regular_width |=
+                        matches!(expr, Expr::IsRegularWidth | Expr::IsCompactWidth);
                     uses_native_library |= uses_core_native_library(expr);
                     uses_permissions |= uses_permissions_call(expr);
                 },
@@ -219,7 +220,8 @@ impl Features {
                     }
                 },
                 &mut |expr| {
-                    uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                    uses_regular_width |=
+                        matches!(expr, Expr::IsRegularWidth | Expr::IsCompactWidth);
                     uses_native_library |= uses_core_native_library(expr);
                     uses_permissions |= uses_permissions_call(expr);
                 },

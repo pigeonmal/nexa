@@ -234,7 +234,8 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         | ast::Expr::Bool(_, _)
         | ast::Expr::Null(_)
         | ast::Expr::ThemeToken(_, _)
-        | ast::Expr::IsRegularWidth(_) => false,
+        | ast::Expr::IsRegularWidth(_)
+        | ast::Expr::IsCompactWidth(_) => false,
     }
 }
 
@@ -312,6 +313,10 @@ pub(super) fn lower_expr(
         ast::Expr::IsRegularWidth(_) => {
             require_expected(expected, &Type::Bool, expr.span())?;
             Ok(Expr::IsRegularWidth)
+        }
+        ast::Expr::IsCompactWidth(_) => {
+            require_expected(expected, &Type::Bool, expr.span())?;
+            Ok(Expr::IsCompactWidth)
         }
         ast::Expr::Array(items, span) => {
             let element_type = match expected {
@@ -1524,6 +1529,7 @@ pub(super) fn infer_expr_type(
         ast::Expr::String(_, _) | ast::Expr::Interpolation(_, _) => Some(Type::String),
         ast::Expr::Bool(_, _)
         | ast::Expr::IsRegularWidth(_)
+        | ast::Expr::IsCompactWidth(_)
         | ast::Expr::Not(_, _)
         | ast::Expr::Binary(_, _, _, _) => Some(Type::Bool),
         ast::Expr::Number(raw, _) => Some(Type::Numeric(if raw.contains('.') {

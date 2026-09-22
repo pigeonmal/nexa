@@ -30,6 +30,7 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         }
         Expr::Bool(value) => value.to_string(),
         Expr::IsRegularWidth => "(nexaHorizontalSizeClass == .regular)".to_owned(),
+        Expr::IsCompactWidth => "(nexaHorizontalSizeClass == .compact)".to_owned(),
         Expr::Number { raw, ty } => match ty {
             NumericType::Float32 => format!("Float({raw})"),
             NumericType::Float64 => format!("Double({raw})"),

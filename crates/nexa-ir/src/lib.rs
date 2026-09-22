@@ -254,6 +254,7 @@ pub enum Expr {
     Coalesce(Box<Expr>, Box<Expr>),
     Await(Box<Expr>),
     IsRegularWidth,
+    IsCompactWidth,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
