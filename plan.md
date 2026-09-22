@@ -1175,7 +1175,10 @@ preserving target-specific semantic analysis. `nexa build`, `nexa check`, and
 entry/import/plugin-IDL graph and target; project generation also fingerprints
 plugin platform source trees and `nexa.config.nx`. Exact matches restore
 generated native source, diagnostics, or complete host projects. Dependency/plugin
-package resolution and native release signing remain future work.
+package resolution and native release signing remain future work. Generated
+Android release variants enable R8 code shrinking, resource shrinking, and the
+optimized default Android ruleset; the project-specific keep file stays empty
+because generated bindings use direct calls rather than reflection.
 
 Incremental compilation should be a major priority.
 

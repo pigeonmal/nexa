@@ -313,6 +313,10 @@ fn generate_android(
             generated.contains("NavHost"),
         ),
     )?;
+    write_if_changed(
+        &root.join("android/app/proguard-rules.pro"),
+        android_proguard_rules(),
+    )?;
     Ok(())
 }
 
@@ -716,6 +720,7 @@ fn project_cache_is_current(
             output.join("android/build.gradle.kts"),
             output.join("android/settings.gradle.kts"),
             output.join("android/gradle.properties"),
+            output.join("android/app/proguard-rules.pro"),
             output.join("android/app/src/main/AndroidManifest.xml"),
         ] {
             if !path.is_file() {
@@ -734,7 +739,7 @@ fn root_readme(app_name: &str, targets: &[&str]) -> String {
         readme.push_str(&format!("## iOS\n\n`xcodebuild -project ios/{app_name}.xcodeproj -scheme {app_name} -sdk iphonesimulator build`\n\nOpen `ios/{app_name}.xcodeproj` in Xcode to run on a device or simulator.\n\n"));
     }
     if targets.contains(&"android") {
-        readme.push_str("## Android\n\n`gradle -p android :app:assembleDebug`\n\nThe generated Gradle project uses Jetpack Compose and Coil 3 with the platform network stack when needed.\n\n");
+        readme.push_str("## Android\n\n`gradle -p android :app:assembleDebug`\n\nThe generated Gradle project uses Jetpack Compose and Coil 3 with the platform network stack when needed. Release builds enable R8 shrinking, resource shrinking, and the optimized Android ruleset.\n\n");
     }
     readme.push_str("Requirements: Rust/Nexa for regeneration, Xcode 16+ for iOS, and Android SDK/Gradle for Android.\n");
     readme
@@ -882,6 +887,10 @@ fn android_app_gradle(
         );
     }
     format!(
-        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{package}\"; minSdk = 26; targetSdk = 37; versionCode = 1; versionName = \"1.0\" }}\n    buildFeatures {{ compose = true }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencies {{\n{dependencies}}}\n"
+        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{package}\"; minSdk = 26; targetSdk = 37; versionCode = 1; versionName = \"1.0\" }}\n    buildFeatures {{ compose = true }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencies {{\n{dependencies}}}\n"
     )
+}
+
+fn android_proguard_rules() -> &'static str {
+    "# Nexa generated bindings use direct calls and do not require broad keep rules.\n"
 }
