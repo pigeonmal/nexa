@@ -845,8 +845,17 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::RefreshControl { children, .. }
-        | Node::Pressable { children, .. }
-        | Node::FastList { children, .. } => children.iter().any(contains_status_bar),
+        | Node::Pressable { children, .. } => children.iter().any(contains_status_bar),
+        Node::FastList {
+            children,
+            sticky_header,
+            ..
+        } => {
+            children.iter().any(contains_status_bar)
+                || sticky_header
+                    .as_deref()
+                    .is_some_and(|header| header.iter().any(contains_status_bar))
+        }
         Node::AppBottomBar { tabs, .. } => tabs
             .iter()
             .any(|tab| tab.children.iter().any(contains_status_bar)),
@@ -920,8 +929,17 @@ pub(super) fn contains_direction(node: &Node) -> bool {
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::RefreshControl { children, .. }
-        | Node::Pressable { children, .. }
-        | Node::FastList { children, .. } => children.iter().any(contains_direction),
+        | Node::Pressable { children, .. } => children.iter().any(contains_direction),
+        Node::FastList {
+            children,
+            sticky_header,
+            ..
+        } => {
+            children.iter().any(contains_direction)
+                || sticky_header
+                    .as_deref()
+                    .is_some_and(|header| header.iter().any(contains_direction))
+        }
         Node::AppBottomBar { tabs, .. } => tabs
             .iter()
             .any(|tab| tab.children.iter().any(contains_direction)),
@@ -1001,8 +1019,17 @@ pub(super) fn contains_on_appear(node: &Node) -> bool {
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::RefreshControl { children, .. }
-        | Node::Pressable { children, .. }
-        | Node::FastList { children, .. } => children.iter().any(contains_on_appear),
+        | Node::Pressable { children, .. } => children.iter().any(contains_on_appear),
+        Node::FastList {
+            children,
+            sticky_header,
+            ..
+        } => {
+            children.iter().any(contains_on_appear)
+                || sticky_header
+                    .as_deref()
+                    .is_some_and(|header| header.iter().any(contains_on_appear))
+        }
         Node::AppBottomBar { tabs, .. } => tabs
             .iter()
             .any(|tab| tab.children.iter().any(contains_on_appear)),
@@ -1077,8 +1104,17 @@ pub(super) fn contains_on_disappear(node: &Node) -> bool {
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::RefreshControl { children, .. }
-        | Node::Pressable { children, .. }
-        | Node::FastList { children, .. } => children.iter().any(contains_on_disappear),
+        | Node::Pressable { children, .. } => children.iter().any(contains_on_disappear),
+        Node::FastList {
+            children,
+            sticky_header,
+            ..
+        } => {
+            children.iter().any(contains_on_disappear)
+                || sticky_header
+                    .as_deref()
+                    .is_some_and(|header| header.iter().any(contains_on_disappear))
+        }
         Node::AppBottomBar { tabs, .. } => tabs
             .iter()
             .any(|tab| tab.children.iter().any(contains_on_disappear)),

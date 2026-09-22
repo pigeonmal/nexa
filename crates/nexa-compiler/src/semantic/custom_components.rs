@@ -331,10 +331,23 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
         | ast::Node::Accessibility { children, .. }
         | ast::Node::KeyboardAware { children, .. }
         | ast::Node::BottomSheet { children, .. }
-        | ast::Node::RefreshControl { children, .. }
-        | ast::Node::FastList { children, .. } => {
+        | ast::Node::RefreshControl { children, .. } => {
             for child in children {
                 collect_component_calls(child, calls);
+            }
+        }
+        ast::Node::FastList {
+            children,
+            sticky_header,
+            ..
+        } => {
+            for child in children {
+                collect_component_calls(child, calls);
+            }
+            if let Some(sticky_header) = sticky_header {
+                for child in sticky_header {
+                    collect_component_calls(child, calls);
+                }
             }
         }
         ast::Node::AppBottomBar { tabs, .. } => {
@@ -397,10 +410,23 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::Accessibility { children, .. }
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
-        | Node::RefreshControl { children, .. }
-        | Node::FastList { children, .. } => {
+        | Node::RefreshControl { children, .. } => {
             for child in children {
                 collect_ir_component_calls(child, calls);
+            }
+        }
+        Node::FastList {
+            children,
+            sticky_header,
+            ..
+        } => {
+            for child in children {
+                collect_ir_component_calls(child, calls);
+            }
+            if let Some(sticky_header) = sticky_header {
+                for child in sticky_header {
+                    collect_ir_component_calls(child, calls);
+                }
             }
         }
         Node::AppBottomBar { tabs, .. } => {
@@ -466,8 +492,17 @@ fn contains_content_slot(node: &ast::Node) -> bool {
         | ast::Node::Accessibility { children, .. }
         | ast::Node::KeyboardAware { children, .. }
         | ast::Node::BottomSheet { children, .. }
-        | ast::Node::RefreshControl { children, .. }
-        | ast::Node::FastList { children, .. } => children.iter().any(contains_content_slot),
+        | ast::Node::RefreshControl { children, .. } => children.iter().any(contains_content_slot),
+        ast::Node::FastList {
+            children,
+            sticky_header,
+            ..
+        } => {
+            children.iter().any(contains_content_slot)
+                || sticky_header
+                    .as_deref()
+                    .is_some_and(|header| header.iter().any(contains_content_slot))
+        }
         ast::Node::AppBottomBar { tabs, .. } => tabs
             .iter()
             .flat_map(|tab| &tab.children)

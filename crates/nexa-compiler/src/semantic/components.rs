@@ -1013,8 +1013,17 @@ pub(super) fn contains_content(node: &Node) -> bool {
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::RefreshControl { children, .. }
-        | Node::Pressable { children, .. }
-        | Node::FastList { children, .. } => children.iter().any(contains_content),
+        | Node::Pressable { children, .. } => children.iter().any(contains_content),
+        Node::FastList {
+            children,
+            sticky_header,
+            ..
+        } => {
+            children.iter().any(contains_content)
+                || sticky_header
+                    .as_deref()
+                    .is_some_and(|header| header.iter().any(contains_content))
+        }
         Node::ComponentCall { children, .. } => children
             .as_ref()
             .is_some_and(|children| children.iter().any(contains_content)),
