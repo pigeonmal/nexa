@@ -8,6 +8,7 @@ use std::{
     collections::HashSet,
     fs,
     path::{Path, PathBuf},
+    process,
 };
 
 use nexa_syntax::ast::Program;
@@ -46,7 +47,9 @@ pub(super) fn restore(
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
     }
-    fs::copy(&artifact, output).map_err(|error| format!("{}: {error}", output.display()))?;
+    let temporary = output.with_extension(format!("nexa-cache-{}", process::id()));
+    fs::copy(&artifact, &temporary).map_err(|error| format!("{}: {error}", temporary.display()))?;
+    fs::rename(&temporary, output).map_err(|error| format!("{}: {error}", output.display()))?;
     Ok(Some(CachedBuild { warnings }))
 }
 
@@ -58,11 +61,11 @@ pub(super) fn store(
 ) -> Result<(), String> {
     let directory = cache_directory(entry);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
-    fs::write(directory.join(format!("{key}.source")), source)
+    write_atomic(&directory.join(format!("{key}.source")), source.as_bytes())
         .map_err(|error| format!("cache source: {error}"))?;
-    fs::write(
-        directory.join(format!("{key}.warnings")),
-        warnings.join("\n"),
+    write_atomic(
+        &directory.join(format!("{key}.warnings")),
+        warnings.join("\n").as_bytes(),
     )
     .map_err(|error| format!("cache warnings: {error}"))?;
     Ok(())
@@ -71,12 +74,18 @@ pub(super) fn store(
 pub(super) fn store_warnings(entry: &Path, key: &str, warnings: &[String]) -> Result<(), String> {
     let directory = cache_directory(entry);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
-    fs::write(
-        directory.join(format!("{key}.warnings")),
-        warnings.join("\n"),
+    write_atomic(
+        &directory.join(format!("{key}.warnings")),
+        warnings.join("\n").as_bytes(),
     )
     .map_err(|error| format!("cache warnings: {error}"))?;
     Ok(())
+}
+
+fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let temporary = path.with_extension(format!("nexa-cache-{}", process::id()));
+    fs::write(&temporary, contents)?;
+    fs::rename(temporary, path)
 }
 
 fn cache_directory(entry: &Path) -> PathBuf {
