@@ -177,6 +177,19 @@ fn generate_android(root: &Path, app_name: &str, module: &Module) -> Result<(), 
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
     let generated = KotlinBackend.generate(module);
     let screen = nexa_codegen::names::screen_name(app_name);
+    let remote = generated.contains("NexaNetwork")
+        || generated.contains("coil3.network")
+        || generated.contains("org.chromium.net");
+    let cronet_import = if remote {
+        "import com.google.android.gms.net.CronetProviderInstaller\n"
+    } else {
+        ""
+    };
+    let cronet_init = if remote {
+        "        CronetProviderInstaller.installProvider(this)\n"
+    } else {
+        ""
+    };
     write_if_changed(
         &source_dir.join("NexaGenerated.kt"),
         &format!("package {package}\n\n{generated}"),
@@ -184,12 +197,9 @@ fn generate_android(root: &Path, app_name: &str, module: &Module) -> Result<(), 
     write_if_changed(
         &source_dir.join("MainActivity.kt"),
         &format!(
-            "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n        super.onCreate(savedInstanceState)\n        setContent {{ MaterialTheme {{ {screen}() }} }}\n    }}\n}}\n"
+            "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{cronet_import}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n        super.onCreate(savedInstanceState)\n{cronet_init}        setContent {{ MaterialTheme {{ {screen}() }} }}\n    }}\n}}\n"
         ),
     )?;
-    let remote = generated.contains("NexaNetwork")
-        || generated.contains("coil3.network")
-        || generated.contains("org.chromium.net");
     write_if_changed(
         &root.join("android/app/src/main/AndroidManifest.xml"),
         &android_manifest(app_name, &package, remote, &module.permissions),
