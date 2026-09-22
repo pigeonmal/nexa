@@ -995,6 +995,7 @@ fn optimize_node(node: Node) -> Option<Node> {
                     index: tab.index,
                     label: tab.label,
                     icon: tab.icon,
+                    badge: tab.badge,
                     children: optimize_nodes(tab.children),
                 })
                 .collect(),

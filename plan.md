@@ -533,7 +533,7 @@ AppBottomBar(selected: selected) {
     Tab(index: 0, label: "Home", icon: "house") {
         Text("Home")
     }
-    Tab(index: 1, label: "Settings", icon: "gear") {
+    Tab(index: 1, label: "Settings", icon: "gear", badge: "2") {
         Text("Settings")
     }
 }
@@ -547,11 +547,11 @@ The current syntax supports:
 - selected state,
 - labels,
 - optional static icon names (SF Symbols on iOS and drawable resources on Android),
+- optional static badge strings rendered by the native tab controls,
 - native safe area handling through the target tab/navigation primitive.
 
 Remaining work:
 
-- badges,
 - native transition customization,
 - platform-specific customization.
 

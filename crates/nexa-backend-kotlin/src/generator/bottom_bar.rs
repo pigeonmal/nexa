@@ -30,7 +30,22 @@ pub(super) fn render_app_bottom_bar(
             state_name(state),
             tab.index
         ));
-        if let Some(icon) = &tab.icon {
+        if let Some(badge) = &tab.badge {
+            out.push_str(&format!(
+                " BadgedBox(badge = {{ Badge {{ Text({}) }} }}) {{ ",
+                kotlin_string(badge)
+            ));
+            if let Some(icon) = &tab.icon {
+                out.push_str(&format!(
+                    "Icon(painter = nexaDrawablePainter({}), contentDescription = {})",
+                    kotlin_string(icon),
+                    kotlin_string(&tab.label)
+                ));
+            } else {
+                out.push_str("Box(modifier = Modifier.size(24.dp))");
+            }
+            out.push_str(" } ");
+        } else if let Some(icon) = &tab.icon {
             out.push_str(&format!(
                 " Icon(painter = nexaDrawablePainter({}), contentDescription = {}) ",
                 kotlin_string(icon),

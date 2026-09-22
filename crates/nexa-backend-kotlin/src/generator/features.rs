@@ -31,6 +31,8 @@ pub(super) struct Features {
     pub(super) uses_image: bool,
     pub(super) uses_asset: bool,
     pub(super) uses_tab_icon: bool,
+    pub(super) uses_tab_badge: bool,
+    pub(super) uses_tab_badge_placeholder: bool,
     pub(super) uses_remote_image: bool,
     pub(super) uses_native_library: bool,
     pub(super) uses_permissions: bool,
@@ -416,6 +418,8 @@ impl Features {
                 self.uses_padding = true;
                 for tab in tabs {
                     self.uses_tab_icon |= tab.icon.is_some();
+                    self.uses_tab_badge |= tab.badge.is_some();
+                    self.uses_tab_badge_placeholder |= tab.badge.is_some() && tab.icon.is_none();
                     self.record_child_layout(&tab.children);
                 }
             }

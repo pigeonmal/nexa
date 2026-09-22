@@ -585,6 +585,11 @@ pub(super) fn lower_node(
                     .as_ref()
                     .map(|icon| require_string_literal(icon, "Tab icon"))
                     .transpose()?;
+                let badge = tab
+                    .badge
+                    .as_ref()
+                    .map(|badge| require_string_literal(badge, "Tab badge"))
+                    .transpose()?;
                 let children = lower_nodes(
                     tab.children,
                     symbols,
@@ -599,6 +604,7 @@ pub(super) fn lower_node(
                     index,
                     label,
                     icon,
+                    badge,
                     children,
                 });
             }

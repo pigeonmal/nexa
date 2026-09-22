@@ -368,6 +368,7 @@ pub struct TabDecl {
     pub index: Expr,
     pub label: Expr,
     pub icon: Option<Expr>,
+    pub badge: Option<Expr>,
     pub children: Vec<Node>,
     pub span: Span,
 }

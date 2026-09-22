@@ -69,6 +69,14 @@ pub(super) fn render(
         "androidx.compose.foundation.background",
     );
     add(
+        features.uses_tab_badge_placeholder,
+        "androidx.compose.foundation.layout.Box",
+    );
+    add(
+        features.uses_tab_badge_placeholder,
+        "androidx.compose.foundation.layout.size",
+    );
+    add(
         features.uses_animation,
         "androidx.compose.animation.animateContentSize",
     );
@@ -251,6 +259,11 @@ pub(super) fn render(
     add(features.uses_modifier, "androidx.compose.ui.Modifier");
     add(features.uses_asset, "androidx.compose.foundation.Image");
     add(features.uses_tab_icon, "androidx.compose.material3.Icon");
+    add(features.uses_tab_badge, "androidx.compose.material3.Badge");
+    add(
+        features.uses_tab_badge,
+        "androidx.compose.material3.BadgedBox",
+    );
     add(
         features.uses_regular_width,
         "androidx.compose.ui.platform.LocalConfiguration",
@@ -308,6 +321,10 @@ pub(super) fn render(
         "androidx.compose.ui.text.input.PasswordVisualTransformation",
     );
     add(features.uses_dp, "androidx.compose.ui.unit.dp");
+    add(
+        features.uses_tab_badge_placeholder,
+        "androidx.compose.ui.unit.dp",
+    );
     add(features.uses_text_sp, "androidx.compose.ui.unit.sp");
     add(
         features.uses_asset || features.uses_tab_icon || features.uses_placeholder,

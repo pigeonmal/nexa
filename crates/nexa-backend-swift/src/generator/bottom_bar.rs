@@ -37,6 +37,13 @@ pub(super) fn render_app_bottom_bar(
             "    ".repeat(depth + 1),
             tab.index
         ));
+        if let Some(badge) = &tab.badge {
+            out.push_str(&format!(
+                "\n{}.badge({})",
+                "    ".repeat(depth + 1),
+                swift_string(badge)
+            ));
+        }
         if position + 1 < tabs.len() {
             out.push('\n');
         }
