@@ -183,6 +183,7 @@ pub(super) fn render_node(
             key,
             children,
             on_end_reached,
+            scroll_position,
             refresh,
         } => {
             lists::render_virtualized_list(
@@ -194,6 +195,7 @@ pub(super) fn render_node(
                 key.as_ref(),
                 children,
                 on_end_reached.as_deref(),
+                scroll_position.as_deref(),
                 refresh.as_ref(),
                 module,
                 features,

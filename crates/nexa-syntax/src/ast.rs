@@ -332,6 +332,7 @@ pub enum Node {
         index: Option<Expr>,
         item: Option<Expr>,
         key: Option<Expr>,
+        scroll_position: Option<Expr>,
         children: Vec<Node>,
         on_end_reached: Option<Vec<Stmt>>,
         span: Span,

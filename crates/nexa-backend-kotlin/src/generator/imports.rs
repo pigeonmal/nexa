@@ -27,11 +27,14 @@ pub(super) fn render(
         "androidx.compose.runtime.CompositionLocalProvider",
     );
     add(
-        has_on_appear || features.uses_focus || features.uses_list_end_reached,
+        has_on_appear
+            || features.uses_focus
+            || features.uses_list_end_reached
+            || features.uses_list_scroll_position,
         "androidx.compose.runtime.LaunchedEffect",
     );
     add(
-        features.uses_list_end_reached,
+        features.uses_list_end_reached || features.uses_list_scroll_position,
         "androidx.compose.runtime.snapshotFlow",
     );
     add(
@@ -150,7 +153,7 @@ pub(super) fn render(
         "androidx.compose.foundation.lazy.LazyColumn",
     );
     add(
-        features.uses_linear_list_end_reached,
+        features.uses_linear_list_end_reached || features.uses_linear_list_scroll_position,
         "androidx.compose.foundation.lazy.rememberLazyListState",
     );
     add(
@@ -166,7 +169,7 @@ pub(super) fn render(
         "androidx.compose.foundation.lazy.grid.GridCells",
     );
     add(
-        features.uses_grid_end_reached,
+        features.uses_grid_end_reached || features.uses_grid_scroll_position,
         "androidx.compose.foundation.lazy.grid.rememberLazyGridState",
     );
     add(
@@ -178,7 +181,7 @@ pub(super) fn render(
         "androidx.compose.foundation.lazy.grid.items",
     );
     add(
-        features.uses_list_end_reached,
+        features.uses_list_end_reached || features.uses_list_scroll_position,
         "kotlinx.coroutines.flow.collect",
     );
 

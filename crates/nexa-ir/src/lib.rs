@@ -401,6 +401,7 @@ pub enum Node {
         index: String,
         item: Option<String>,
         key: Option<Expr>,
+        scroll_position: Option<String>,
         children: Vec<Node>,
         on_end_reached: Option<Vec<Action>>,
         refresh: Option<FastListRefresh>,

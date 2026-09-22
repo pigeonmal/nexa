@@ -53,6 +53,8 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
     let rowCount: Int
     let rowHeight: CGFloat?
     let rowKey: ((Int) -> AnyHashable)?
+    let scrollPosition: Int32?
+    let onScrollPositionChanged: ((Int) -> Void)?
     let isRefreshing: Bool
     let onRefresh: (() -> Void)?
     let onEndReached: (() -> Void)?
@@ -62,6 +64,8 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         rowCount: Int,
         rowHeight: CGFloat? = nil,
         rowKey: ((Int) -> AnyHashable)? = nil,
+        scrollPosition: Int32? = nil,
+        onScrollPositionChanged: ((Int) -> Void)? = nil,
         isRefreshing: Bool = false,
         onRefresh: (() -> Void)? = nil,
         onEndReached: (() -> Void)? = nil,
@@ -70,6 +74,8 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         self.rowCount = max(0, rowCount)
         self.rowHeight = rowHeight
         self.rowKey = rowKey
+        self.scrollPosition = scrollPosition
+        self.onScrollPositionChanged = onScrollPositionChanged
         self.isRefreshing = isRefreshing
         self.onRefresh = onRefresh
         self.onEndReached = onEndReached
@@ -81,6 +87,8 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             rowCount: rowCount,
             rowHeight: rowHeight,
             rowKey: rowKey,
+            scrollPosition: scrollPosition,
+            onScrollPositionChanged: onScrollPositionChanged,
             onEndReached: onEndReached,
             rowContent: rowContent
         )
@@ -107,15 +115,19 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         tableView.allowsSelection = false
         tableView.backgroundColor = .clear
         tableView.reloadData()
+        context.coordinator.applyScrollPosition(to: tableView)
         return tableView
     }
 
     func updateUIView(_ tableView: UITableView, context: Context) {
         let coordinator = context.coordinator
         let previousRowCount = coordinator.rowCount
+        let previousScrollPosition = coordinator.scrollPosition
         coordinator.rowCount = rowCount
         coordinator.rowHeight = rowHeight
         coordinator.rowKey = rowKey
+        coordinator.scrollPosition = scrollPosition
+        coordinator.onScrollPositionChanged = onScrollPositionChanged
         coordinator.onEndReached = onEndReached
         coordinator.rowContent = rowContent
         nexaUpdateRefreshControl(
@@ -126,6 +138,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         )
         if previousRowCount != rowCount {
             coordinator.lastEndReachedRowCount = nil
+            coordinator.applyScrollPosition(to: tableView)
+        } else if previousScrollPosition != scrollPosition {
+            coordinator.applyScrollPosition(to: tableView)
         }
 
         guard previousRowCount != rowCount else {
@@ -144,24 +159,32 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         var rowCount: Int
         var rowHeight: CGFloat?
         var rowKey: ((Int) -> AnyHashable)?
+        var scrollPosition: Int32?
+        var onScrollPositionChanged: ((Int) -> Void)?
         var refreshController: NexaFastListRefreshController?
         var onEndReached: (() -> Void)?
         var lastEndReachedRowCount: Int?
+        var lastReportedScrollPosition: Int?
         var rowContent: (Int) -> RowContent
 
         init(
             rowCount: Int,
             rowHeight: CGFloat?,
             rowKey: ((Int) -> AnyHashable)?,
+            scrollPosition: Int32?,
+            onScrollPositionChanged: ((Int) -> Void)?,
             onEndReached: (() -> Void)?,
             rowContent: @escaping (Int) -> RowContent
         ) {
             self.rowCount = rowCount
             self.rowHeight = rowHeight
             self.rowKey = rowKey
+            self.scrollPosition = scrollPosition
+            self.onScrollPositionChanged = onScrollPositionChanged
             self.refreshController = nil
             self.onEndReached = onEndReached
             self.lastEndReachedRowCount = nil
+            self.lastReportedScrollPosition = nil
             self.rowContent = rowContent
             super.init()
         }
@@ -185,6 +208,13 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            if let onScrollPositionChanged,
+               let position = (scrollView as? UITableView)?.indexPathsForVisibleRows?.map(\.row).min(),
+               lastReportedScrollPosition != position
+            {
+                lastReportedScrollPosition = position
+                onScrollPositionChanged(position)
+            }
             guard let onEndReached, rowCount > 0 else { return }
             let reachedEnd = (scrollView as? UITableView)?.indexPathsForVisibleRows?.contains {
                 $0.row >= rowCount - 1
@@ -192,6 +222,16 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             guard reachedEnd, lastEndReachedRowCount != rowCount else { return }
             lastEndReachedRowCount = rowCount
             onEndReached()
+        }
+
+        func applyScrollPosition(to tableView: UITableView) {
+            guard let scrollPosition, rowCount > 0 else { return }
+            let target = min(max(Int(scrollPosition), 0), rowCount - 1)
+            guard (tableView.indexPathsForVisibleRows?.map(\.row).min() ?? -1) != target else {
+                return
+            }
+            lastReportedScrollPosition = target
+            tableView.scrollToRow(at: IndexPath(row: target, section: 0), at: .top, animated: false)
         }
     }
 }
@@ -203,6 +243,8 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
     let rowCount: Int
     let itemExtent: CGFloat?
     let rowKey: ((Int) -> AnyHashable)?
+    let scrollPosition: Int32?
+    let onScrollPositionChanged: ((Int) -> Void)?
     let isRefreshing: Bool
     let onRefresh: (() -> Void)?
     let onEndReached: (() -> Void)?
@@ -212,6 +254,8 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         rowCount: Int,
         itemExtent: CGFloat? = nil,
         rowKey: ((Int) -> AnyHashable)? = nil,
+        scrollPosition: Int32? = nil,
+        onScrollPositionChanged: ((Int) -> Void)? = nil,
         isRefreshing: Bool = false,
         onRefresh: (() -> Void)? = nil,
         onEndReached: (() -> Void)? = nil,
@@ -220,6 +264,8 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         self.rowCount = max(0, rowCount)
         self.itemExtent = itemExtent
         self.rowKey = rowKey
+        self.scrollPosition = scrollPosition
+        self.onScrollPositionChanged = onScrollPositionChanged
         self.isRefreshing = isRefreshing
         self.onRefresh = onRefresh
         self.onEndReached = onEndReached
@@ -231,6 +277,8 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
             rowCount: rowCount,
             itemExtent: itemExtent,
             rowKey: rowKey,
+            scrollPosition: scrollPosition,
+            onScrollPositionChanged: onScrollPositionChanged,
             onEndReached: onEndReached,
             rowContent: rowContent
         )
@@ -262,15 +310,19 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         collectionView.showsHorizontalScrollIndicator = true
         collectionView.backgroundColor = .clear
         collectionView.reloadData()
+        context.coordinator.applyScrollPosition(to: collectionView)
         return collectionView
     }
 
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
         let coordinator = context.coordinator
         let previousRowCount = coordinator.rowCount
+        let previousScrollPosition = coordinator.scrollPosition
         coordinator.rowCount = rowCount
         coordinator.itemExtent = itemExtent
         coordinator.rowKey = rowKey
+        coordinator.scrollPosition = scrollPosition
+        coordinator.onScrollPositionChanged = onScrollPositionChanged
         coordinator.onEndReached = onEndReached
         coordinator.rowContent = rowContent
         nexaUpdateRefreshControl(
@@ -281,6 +333,9 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         )
         if previousRowCount != rowCount {
             coordinator.lastEndReachedRowCount = nil
+            coordinator.applyScrollPosition(to: collectionView)
+        } else if previousScrollPosition != scrollPosition {
+            coordinator.applyScrollPosition(to: collectionView)
         }
 
         guard previousRowCount != rowCount else {
@@ -297,24 +352,32 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         var rowCount: Int
         var itemExtent: CGFloat?
         var rowKey: ((Int) -> AnyHashable)?
+        var scrollPosition: Int32?
+        var onScrollPositionChanged: ((Int) -> Void)?
         var refreshController: NexaFastListRefreshController?
         var onEndReached: (() -> Void)?
         var lastEndReachedRowCount: Int?
+        var lastReportedScrollPosition: Int?
         var rowContent: (Int) -> RowContent
 
         init(
             rowCount: Int,
             itemExtent: CGFloat?,
             rowKey: ((Int) -> AnyHashable)?,
+            scrollPosition: Int32?,
+            onScrollPositionChanged: ((Int) -> Void)?,
             onEndReached: (() -> Void)?,
             rowContent: @escaping (Int) -> RowContent
         ) {
             self.rowCount = rowCount
             self.itemExtent = itemExtent
             self.rowKey = rowKey
+            self.scrollPosition = scrollPosition
+            self.onScrollPositionChanged = onScrollPositionChanged
             self.refreshController = nil
             self.onEndReached = onEndReached
             self.lastEndReachedRowCount = nil
+            self.lastReportedScrollPosition = nil
             self.rowContent = rowContent
             super.init()
         }
@@ -346,6 +409,13 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            if let onScrollPositionChanged,
+               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.map(\.item).min(),
+               lastReportedScrollPosition != position
+            {
+                lastReportedScrollPosition = position
+                onScrollPositionChanged(position)
+            }
             guard let onEndReached, rowCount > 0 else { return }
             let reachedEnd = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.contains {
                 $0.item >= rowCount - 1
@@ -353,6 +423,20 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
             guard reachedEnd, lastEndReachedRowCount != rowCount else { return }
             lastEndReachedRowCount = rowCount
             onEndReached()
+        }
+
+        func applyScrollPosition(to collectionView: UICollectionView) {
+            guard let scrollPosition, rowCount > 0 else { return }
+            let target = min(max(Int(scrollPosition), 0), rowCount - 1)
+            guard (collectionView.indexPathsForVisibleItems.map(\.item).min() ?? -1) != target else {
+                return
+            }
+            lastReportedScrollPosition = target
+            collectionView.scrollToItem(
+                at: IndexPath(item: target, section: 0),
+                at: .left,
+                animated: false
+            )
         }
     }
 }
@@ -365,6 +449,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
     let columns: Int
     let itemHeight: CGFloat?
     let rowKey: ((Int) -> AnyHashable)?
+    let scrollPosition: Int32?
+    let onScrollPositionChanged: ((Int) -> Void)?
     let isRefreshing: Bool
     let onRefresh: (() -> Void)?
     let onEndReached: (() -> Void)?
@@ -375,6 +461,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         columns: Int,
         itemHeight: CGFloat? = nil,
         rowKey: ((Int) -> AnyHashable)? = nil,
+        scrollPosition: Int32? = nil,
+        onScrollPositionChanged: ((Int) -> Void)? = nil,
         isRefreshing: Bool = false,
         onRefresh: (() -> Void)? = nil,
         onEndReached: (() -> Void)? = nil,
@@ -384,6 +472,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         self.columns = max(1, columns)
         self.itemHeight = itemHeight
         self.rowKey = rowKey
+        self.scrollPosition = scrollPosition
+        self.onScrollPositionChanged = onScrollPositionChanged
         self.isRefreshing = isRefreshing
         self.onRefresh = onRefresh
         self.onEndReached = onEndReached
@@ -395,6 +485,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             rowCount: rowCount,
             itemHeight: itemHeight,
             rowKey: rowKey,
+            scrollPosition: scrollPosition,
+            onScrollPositionChanged: onScrollPositionChanged,
             onEndReached: onEndReached,
             rowContent: rowContent
         )
@@ -436,15 +528,19 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         collectionView.showsVerticalScrollIndicator = true
         collectionView.backgroundColor = .clear
         collectionView.reloadData()
+        context.coordinator.applyScrollPosition(to: collectionView)
         return collectionView
     }
 
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
         let coordinator = context.coordinator
         let previousRowCount = coordinator.rowCount
+        let previousScrollPosition = coordinator.scrollPosition
         coordinator.rowCount = rowCount
         coordinator.itemHeight = itemHeight
         coordinator.rowKey = rowKey
+        coordinator.scrollPosition = scrollPosition
+        coordinator.onScrollPositionChanged = onScrollPositionChanged
         coordinator.onEndReached = onEndReached
         coordinator.rowContent = rowContent
         nexaUpdateRefreshControl(
@@ -455,6 +551,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         )
         if previousRowCount != rowCount {
             coordinator.lastEndReachedRowCount = nil
+            coordinator.applyScrollPosition(to: collectionView)
+        } else if previousScrollPosition != scrollPosition {
+            coordinator.applyScrollPosition(to: collectionView)
         }
 
         guard previousRowCount != rowCount else {
@@ -471,24 +570,32 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         var rowCount: Int
         var itemHeight: CGFloat?
         var rowKey: ((Int) -> AnyHashable)?
+        var scrollPosition: Int32?
+        var onScrollPositionChanged: ((Int) -> Void)?
         var refreshController: NexaFastListRefreshController?
         var onEndReached: (() -> Void)?
         var lastEndReachedRowCount: Int?
+        var lastReportedScrollPosition: Int?
         var rowContent: (Int) -> RowContent
 
         init(
             rowCount: Int,
             itemHeight: CGFloat?,
             rowKey: ((Int) -> AnyHashable)?,
+            scrollPosition: Int32?,
+            onScrollPositionChanged: ((Int) -> Void)?,
             onEndReached: (() -> Void)?,
             rowContent: @escaping (Int) -> RowContent
         ) {
             self.rowCount = rowCount
             self.itemHeight = itemHeight
             self.rowKey = rowKey
+            self.scrollPosition = scrollPosition
+            self.onScrollPositionChanged = onScrollPositionChanged
             self.refreshController = nil
             self.onEndReached = onEndReached
             self.lastEndReachedRowCount = nil
+            self.lastReportedScrollPosition = nil
             self.rowContent = rowContent
             super.init()
         }
@@ -520,6 +627,13 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            if let onScrollPositionChanged,
+               let position = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.map(\.item).min(),
+               lastReportedScrollPosition != position
+            {
+                lastReportedScrollPosition = position
+                onScrollPositionChanged(position)
+            }
             guard let onEndReached, rowCount > 0 else { return }
             let reachedEnd = (scrollView as? UICollectionView)?.indexPathsForVisibleItems.contains {
                 $0.item >= rowCount - 1
@@ -527,6 +641,20 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             guard reachedEnd, lastEndReachedRowCount != rowCount else { return }
             lastEndReachedRowCount = rowCount
             onEndReached()
+        }
+
+        func applyScrollPosition(to collectionView: UICollectionView) {
+            guard let scrollPosition, rowCount > 0 else { return }
+            let target = min(max(Int(scrollPosition), 0), rowCount - 1)
+            guard (collectionView.indexPathsForVisibleItems.map(\.item).min() ?? -1) != target else {
+                return
+            }
+            lastReportedScrollPosition = target
+            collectionView.scrollToItem(
+                at: IndexPath(item: target, section: 0),
+                at: .top,
+                animated: false
+            )
         }
     }
 }

@@ -1,0 +1,13 @@
+app FastListScrollDemo {
+    state scrollPosition: Int32 = 0
+    state rows: Array<String> = ["First", "Second", "Third", "Fourth"]
+
+    body {
+        FastList(items: rows, index: index, item: row, scrollPosition: scrollPosition, itemExtent: 56, key: row) {
+            Text("\(index): \(row)")
+        }
+        Button("Jump to third") {
+            scrollPosition = 2
+        }
+    }
+}

@@ -51,6 +51,9 @@ pub(super) struct Features {
     pub(super) uses_list_end_reached: bool,
     pub(super) uses_linear_list_end_reached: bool,
     pub(super) uses_grid_end_reached: bool,
+    pub(super) uses_list_scroll_position: bool,
+    pub(super) uses_linear_list_scroll_position: bool,
+    pub(super) uses_grid_scroll_position: bool,
     pub(super) uses_keyboard_aware: bool,
     pub(super) uses_keyboard_interactive: bool,
     pub(super) app_uses_keyboard_interactive: bool,
@@ -521,10 +524,16 @@ impl Features {
                 item_extent,
                 on_end_reached,
                 refresh,
+                scroll_position,
                 children,
                 ..
             } => {
                 self.uses_refresh_control |= refresh.is_some();
+                self.uses_list_scroll_position |= scroll_position.is_some();
+                self.uses_linear_list_scroll_position |=
+                    scroll_position.is_some() && !matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                self.uses_grid_scroll_position |=
+                    scroll_position.is_some() && matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_list |= matches!(axis, nexa_ir::ListAxis::Vertical);
                 self.uses_linear_list |= !matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_horizontal_list |= matches!(axis, nexa_ir::ListAxis::Horizontal);

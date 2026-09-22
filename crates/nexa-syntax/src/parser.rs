@@ -1063,6 +1063,7 @@ impl Parser {
                     "index",
                     "item",
                     "key",
+                    "scrollPosition",
                 ])?;
                 let count = args.remove("count");
                 let items = args.remove("items");
@@ -1084,6 +1085,7 @@ impl Parser {
                 let index = args.remove("index");
                 let item = args.remove("item");
                 let key = args.remove("key");
+                let scroll_position = args.remove("scrollPosition");
                 let children = self.block_nodes()?;
                 let on_end_reached = if self.word_is("onEndReached") {
                     self.advance();
@@ -1098,6 +1100,7 @@ impl Parser {
                     index,
                     item,
                     key,
+                    scroll_position,
                     children,
                     on_end_reached,
                     span,

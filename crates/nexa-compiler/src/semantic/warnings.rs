@@ -379,6 +379,7 @@ fn walk_node(
             index,
             item,
             key,
+            scroll_position,
             children,
             on_end_reached,
             span,
@@ -390,6 +391,9 @@ fn walk_node(
             }
             if let Some(item_extent) = item_extent {
                 walk_expression(item_extent, names, used);
+            }
+            if let Some(scroll_position) = scroll_position {
+                walk_expression(scroll_position, names, used);
             }
             if let Some(actions) = on_end_reached {
                 walk_actions(actions, names, used, target, file, warnings);

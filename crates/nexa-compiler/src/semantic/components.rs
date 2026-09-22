@@ -657,6 +657,7 @@ pub(super) fn lower_node(
             index,
             item,
             key,
+            scroll_position,
             children,
             on_end_reached,
             span,
@@ -714,6 +715,17 @@ pub(super) fn lower_node(
             }
             let row_index_type = Type::Numeric(NumericType::Int32);
             let index = binding_name(index, "index", "FastList index")?;
+            let scroll_position = scroll_position
+                .map(|position| {
+                    require_mutable_binding(
+                        &position,
+                        &row_index_type,
+                        symbols,
+                        position.span(),
+                        "FastList scrollPosition",
+                    )
+                })
+                .transpose()?;
             let (source, item, item_type) = match source {
                 ast::ListSource::Count(count) => {
                     if item.is_some() {
@@ -819,6 +831,7 @@ pub(super) fn lower_node(
                 index,
                 item,
                 key,
+                scroll_position,
                 children: lowered_children,
                 on_end_reached,
                 refresh: None,

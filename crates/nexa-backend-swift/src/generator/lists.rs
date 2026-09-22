@@ -14,6 +14,7 @@ pub(super) fn render_virtualized_list(
     key: Option<&Expr>,
     children: &[Node],
     on_end_reached: Option<&[Action]>,
+    scroll_position: Option<&str>,
     refresh: Option<&FastListRefresh>,
     module: &Module,
     depth: usize,
@@ -36,6 +37,7 @@ pub(super) fn render_virtualized_list(
                 &key,
                 item_extent,
                 on_end_reached,
+                scroll_position,
                 refresh,
                 depth,
                 out,
@@ -66,6 +68,7 @@ pub(super) fn render_virtualized_list(
                 &key,
                 item_extent,
                 on_end_reached,
+                scroll_position,
                 refresh,
                 depth,
                 out,
@@ -119,14 +122,27 @@ fn open_list(
     key: &str,
     item_extent: Option<f32>,
     on_end_reached: Option<&[Action]>,
+    scroll_position: Option<&str>,
     refresh: Option<&FastListRefresh>,
     depth: usize,
     out: &mut String,
 ) {
-    if on_end_reached.is_some() || refresh.is_some() {
+    if on_end_reached.is_some() || scroll_position.is_some() || refresh.is_some() {
         let mut constructor = list_constructor(axis, row_count, key, item_extent);
         constructor.pop();
         out.push_str(&constructor);
+        if let Some(scroll_position) = scroll_position {
+            out.push_str(", scrollPosition: ");
+            out.push_str(&state_name(scroll_position));
+            out.push_str(", onScrollPositionChanged: { position in\n");
+            indent(out, depth + 1);
+            out.push_str(&format!(
+                "{} = Int32(position)\n",
+                state_name(scroll_position)
+            ));
+            indent(out, depth);
+            out.push('}');
+        }
         if let Some(refresh) = refresh {
             out.push_str(", isRefreshing: ");
             out.push_str(&state_name(&refresh.state));
