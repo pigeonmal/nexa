@@ -3,7 +3,10 @@ use std::{collections::HashSet, env, fs, path::PathBuf, process};
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
-use nexa_compiler::{CompileWarning, Target, compile_file_with_warnings_for_target};
+use nexa_compiler::{
+    CompileWarning, Target, compile_file_with_warnings_for_target,
+    compile_file_with_warnings_for_targets,
+};
 
 mod plugin;
 mod project;
@@ -48,12 +51,13 @@ fn check(args: &[String]) -> Result<(), String> {
         }
     }
     let path = path.ok_or("usage: nexa check <source.nx> [--deny-warnings]")?;
-    let mut warnings = Vec::new();
-    for target in [Target::Swift, Target::Kotlin] {
-        let compilation = compile_file_with_warnings_for_target(&path, target)
+    let compilations =
+        compile_file_with_warnings_for_targets(&path, &[Target::Swift, Target::Kotlin])
             .map_err(|error| error.to_string())?;
-        warnings.extend(compilation.warnings);
-    }
+    let warnings = compilations
+        .into_iter()
+        .flat_map(|compilation| compilation.warnings)
+        .collect();
     let warnings = deduplicate_warnings(warnings);
     report_warnings(&warnings, deny_warnings)?;
     println!("checked {}", path.display());

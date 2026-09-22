@@ -1110,9 +1110,12 @@ Create a project/build system that handles:
 The first project-generation slice is available as `nexa generate`. It writes
 deterministic iOS Xcode and Android Gradle/Compose host projects, generated
 native sources, feature-gated dependency declarations, and a
-`nexa.project.json` manifest from one `.nx` entry file. Incremental compilation,
-dependency/plugin resolution, native release signing, and cache-aware rebuilds
-remain future work.
+`nexa.project.json` manifest from one `.nx` entry file. Multi-target generation
+loads and parses the shared source/import graph once before lowering each
+platform independently, avoiding duplicate frontend I/O and parsing work while
+preserving target-specific semantic analysis. Disk-backed incremental
+compilation, dependency/plugin resolution, native release signing, and
+cache-aware rebuilds remain future work.
 
 Incremental compilation should be a major priority.
 

@@ -30,13 +30,20 @@ pub fn compile_file_with_warnings_for_target(
     path: impl AsRef<Path>,
     target: Target,
 ) -> Result<crate::Compilation, CompileError> {
-    compile_file_with_target(path, target)
+    compile_file_with_warnings_for_targets(path, &[target])
+        .map(|mut compilations| compilations.remove(0))
 }
 
-fn compile_file_with_target(
+/// Loads a source project once and lowers it for each requested native target.
+///
+/// `generate --target all` uses this path so imported files are canonicalized,
+/// read, lexed, and parsed once instead of once per backend. Semantic lowering
+/// still runs independently for each target because compile-time platform
+/// blocks and target-specific diagnostics must remain isolated.
+pub fn compile_file_with_warnings_for_targets(
     path: impl AsRef<Path>,
-    target: Target,
-) -> Result<crate::Compilation, CompileError> {
+    targets: &[Target],
+) -> Result<Vec<crate::Compilation>, CompileError> {
     let entry_path = path.as_ref();
     let mut loaded = LoadedProject::default();
     load_file(
@@ -48,23 +55,37 @@ fn compile_file_with_target(
         &mut loaded,
     )?;
 
-    let mut app = loaded.app.ok_or_else(|| {
+    let app = loaded.app.ok_or_else(|| {
         CompileError::new(
             file_level_span(),
             "entry file is missing an `app` declaration",
         )
         .with_file(entry_path.display().to_string())
     })?;
-    app.components = loaded.components;
-    app.structs = loaded.structs;
-    let (module, mut warnings) = semantic::lower_with_warnings(app, target)
-        .map_err(|error| error.with_file(entry_path.display().to_string()))?;
-    for warning in &mut warnings {
-        if warning.file.is_none() {
-            warning.file = Some(entry_path.display().to_string());
-        }
-    }
-    Ok(crate::Compilation { module, warnings })
+    targets
+        .iter()
+        .map(|&target| {
+            let mut app = app.clone();
+            app.components = loaded.components.clone();
+            app.structs = loaded.structs.clone();
+            let (module, mut warnings) = semantic::lower_with_warnings(app, target)
+                .map_err(|error| error.with_file(entry_path.display().to_string()))?;
+            for warning in &mut warnings {
+                if warning.file.is_none() {
+                    warning.file = Some(entry_path.display().to_string());
+                }
+            }
+            Ok(crate::Compilation { module, warnings })
+        })
+        .collect()
+}
+
+fn compile_file_with_target(
+    path: impl AsRef<Path>,
+    target: Target,
+) -> Result<crate::Compilation, CompileError> {
+    compile_file_with_warnings_for_targets(path, &[target])
+        .map(|mut compilations| compilations.remove(0))
 }
 
 #[derive(Default)]

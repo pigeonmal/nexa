@@ -13,7 +13,7 @@ use std::{
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
-use nexa_compiler::{Target, compile_file_with_warnings_for_target};
+use nexa_compiler::{Target, compile_file_with_warnings_for_targets};
 use nexa_ir::Module;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,14 +82,18 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         ProjectTarget::Android => &[Target::Kotlin],
         ProjectTarget::All => &[Target::Swift, Target::Kotlin],
     };
-    let mut compiled = Vec::with_capacity(targets.len());
+    let compilations = compile_file_with_warnings_for_targets(&input, targets)
+        .map_err(|error| error.to_string())?;
     let mut warnings = Vec::new();
-    for &compile_target in targets {
-        let compilation = compile_file_with_warnings_for_target(&input, compile_target)
-            .map_err(|error| error.to_string())?;
-        warnings.extend(compilation.warnings.clone());
-        compiled.push((compile_target, compilation.module));
-    }
+    let compiled = targets
+        .iter()
+        .copied()
+        .zip(compilations)
+        .map(|(target, compilation)| {
+            warnings.extend(compilation.warnings);
+            (target, compilation.module)
+        })
+        .collect::<Vec<_>>();
     let warnings = super::deduplicate_warnings(warnings);
     super::report_warnings(&warnings, deny_warnings)?;
 
