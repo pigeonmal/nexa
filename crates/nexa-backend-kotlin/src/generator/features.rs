@@ -115,17 +115,17 @@ impl Features {
             features.record_state(state);
             walk_expression(&state.initial, &mut |expr| {
                 uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
-                uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                uses_native_library |= uses_core_native_library(expr);
             });
         }
         for function in &module.functions {
             for local in &function.locals {
                 walk_expression(&local.initial, &mut |expr| {
-                    uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                    uses_native_library |= uses_core_native_library(expr);
                 });
             }
             walk_expression(&function.body, &mut |expr| {
-                uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                uses_native_library |= uses_core_native_library(expr);
             });
         }
 
@@ -141,7 +141,7 @@ impl Features {
             },
             &mut |expr| {
                 uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
-                uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                uses_native_library |= uses_core_native_library(expr);
             },
         );
         for screen in &module.screens {
@@ -153,7 +153,7 @@ impl Features {
                 },
                 &mut |expr| {
                     uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
-                    uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                    uses_native_library |= uses_core_native_library(expr);
                 },
             );
         }
@@ -459,4 +459,12 @@ fn component_requires_theme(
         required.insert(name.to_owned());
     }
     needs_theme
+}
+
+fn uses_core_native_library(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::NativeCall { namespace, .. }
+            if matches!(namespace.as_str(), "Network" | "Path" | "File")
+    )
 }

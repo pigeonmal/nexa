@@ -48,7 +48,9 @@ app functions. Calls use the namespace from the declaration, require `await`
 for asynchronous methods, and lower directly to the platform implementation:
 `CameraPlugin.shared.method(...)` on iOS and `CameraPlugin.instance.method(...)`
 on Android. There is no runtime registry, reflection, JSON/RPC layer, or boxed
-plugin call object.
+plugin call object. A plugin-only module also does not emit the core
+Network/Path/File helper library or Android Cronet dependencies; those helpers
+are feature-gated to calls in the corresponding core namespaces.
 
 `nexa generate` also copies plugin implementation sources from
 `ios/Sources/**/*.swift` and `android/src/main/kotlin/**/*.kt` into the generated

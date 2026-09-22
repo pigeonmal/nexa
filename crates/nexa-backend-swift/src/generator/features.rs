@@ -24,17 +24,17 @@ impl Features {
         for state in &module.states {
             walk_expression(&state.initial, &mut |expr| {
                 app_uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
-                uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                uses_native_library |= uses_core_native_library(expr);
             });
         }
         for function in &module.functions {
             for local in &function.locals {
                 walk_expression(&local.initial, &mut |expr| {
-                    uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                    uses_native_library |= uses_core_native_library(expr);
                 });
             }
             walk_expression(&function.body, &mut |expr| {
-                uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                uses_native_library |= uses_core_native_library(expr);
             });
         }
         walk_ir(
@@ -42,7 +42,7 @@ impl Features {
             &mut |node| features.record_app_node(node),
             &mut |expr| {
                 app_uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
-                uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                uses_native_library |= uses_core_native_library(expr);
             },
         );
         for screen in &module.screens {
@@ -51,7 +51,7 @@ impl Features {
                 &mut |node| features.record_app_node(node),
                 &mut |expr| {
                     app_uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
-                    uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                    uses_native_library |= uses_core_native_library(expr);
                 },
             );
         }
@@ -63,7 +63,7 @@ impl Features {
             for state in &component.states {
                 walk_expression(&state.initial, &mut |expr| {
                     uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
-                    uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                    uses_native_library |= uses_core_native_library(expr);
                 });
             }
             walk_ir(
@@ -82,7 +82,7 @@ impl Features {
                 },
                 &mut |expr| {
                     uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
-                    uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                    uses_native_library |= uses_core_native_library(expr);
                 },
             );
             if uses_adaptive_color {
@@ -137,4 +137,12 @@ fn node_uses_adaptive_color(node: &Node) -> bool {
             .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. })),
         _ => false,
     }
+}
+
+fn uses_core_native_library(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::NativeCall { namespace, .. }
+            if matches!(namespace.as_str(), "Network" | "Path" | "File")
+    )
 }

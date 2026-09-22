@@ -193,8 +193,10 @@ plugin implementation. `Result<Success, Failure>` is lowered as the native
 success value while the native implementation handles the failure. A plugin
 call is emitted directly as `CameraPlugin.shared` on Swift or
 `CameraPlugin.instance` on Kotlin. `nexa generate` includes the plugin's local
-platform source tree in the generated project. Package installation, dynamic
-plugin lookup, and typed error recovery in `.nx` are not part of this slice.
+platform source tree in the generated project. Plugin-only modules do not emit
+the core Network/Path/File helper library or Android Cronet dependencies.
+Package installation, dynamic plugin lookup, and typed error recovery in `.nx`
+are not part of this slice.
 
 ## Conditions and operators
 
