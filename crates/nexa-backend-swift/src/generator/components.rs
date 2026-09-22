@@ -64,8 +64,12 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                 ));
             }
         }
-        Node::Button { label, actions } => {
-            controls::render_button(label, actions, depth, out);
+        Node::Button {
+            label,
+            loading,
+            actions,
+        } => {
+            controls::render_button(label, loading.as_ref(), actions, depth, out);
         }
         Node::TextInput {
             state,

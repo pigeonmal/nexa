@@ -146,8 +146,16 @@ fn walk_node(
         ast::Node::OnDisappear { actions, .. } => {
             walk_actions(actions, names, used, target, file, warnings);
         }
-        ast::Node::Button { label, actions, .. } => {
+        ast::Node::Button {
+            label,
+            loading,
+            actions,
+            ..
+        } => {
             walk_expression(label, names, used);
+            if let Some(loading) = loading {
+                walk_expression(loading, names, used);
+            }
             walk_actions(actions, names, used, target, file, warnings);
         }
         ast::Node::TextInput { value, .. } | ast::Node::Switch { value, .. } => {

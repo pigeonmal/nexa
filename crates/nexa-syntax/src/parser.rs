@@ -435,7 +435,12 @@ impl Parser {
             "Button" => {
                 self.expect(Kind::LParen, "expected `(` after Button")?;
                 let label = self.expr()?;
-                self.expect(Kind::RParen, "expected `)` after Button label")?;
+                let options = if self.take(&Kind::Comma) {
+                    self.named_args_contents(&["loading"])?
+                } else {
+                    BTreeMap::new()
+                };
+                self.expect(Kind::RParen, "expected `)` after Button options")?;
                 let actions = if self.check(&Kind::LBrace) {
                     self.block_stmts()?
                 } else {
@@ -443,6 +448,7 @@ impl Parser {
                 };
                 Ok(Node::Button {
                     label,
+                    loading: options.get("loading").cloned(),
                     actions,
                     span,
                 })

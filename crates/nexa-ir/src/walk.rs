@@ -53,8 +53,15 @@ pub fn walk_ir(
                 }
             }
             Node::Text { value, .. } => walk_expression(value, visit_expression),
-            Node::Button { label, actions } => {
+            Node::Button {
+                label,
+                loading,
+                actions,
+            } => {
                 walk_expression(label, visit_expression);
+                if let Some(loading) = loading {
+                    walk_expression(loading, visit_expression);
+                }
                 walk_actions(actions, visit_expression);
             }
             Node::ComponentCall { arguments, .. } => {

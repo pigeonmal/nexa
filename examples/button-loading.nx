@@ -1,0 +1,12 @@
+app ButtonLoading {
+    state loading: Bool = false
+
+    body {
+        Column(spacing: 12) {
+            Text("Native loading button")
+            Button("Save", loading: loading) {
+                loading = true
+            }
+        }
+    }
+}

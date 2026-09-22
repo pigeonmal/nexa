@@ -424,6 +424,8 @@ Input latency should be equivalent or extremely close to native applications.
 
 Button must map directly to native button/interaction primitives.
 
+The first loading slice is implemented: `Button(..., loading: Bool)` emits a native `ProgressView` or `CircularProgressIndicator` and disables the button while loading. See [button-loading.nx](examples/button-loading.nx).
+
 Support:
 
 - disabled state,

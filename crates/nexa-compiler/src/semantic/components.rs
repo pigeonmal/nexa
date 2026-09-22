@@ -160,6 +160,7 @@ pub(super) fn lower_node(
         }
         ast::Node::Button {
             label,
+            loading,
             actions,
             span,
         } => {
@@ -170,9 +171,13 @@ pub(super) fn lower_node(
             ) {
                 return Err(CompileError::new(span, "Button label must be a String"));
             }
+            let loading = loading
+                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols))
+                .transpose()?;
             let lowered = lower_actions(actions, symbols)?;
             Ok(Node::Button {
                 label,
+                loading,
                 actions: lowered,
             })
         }

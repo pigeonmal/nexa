@@ -166,6 +166,7 @@ pub enum Node {
     },
     Button {
         label: Expr,
+        loading: Option<Expr>,
         actions: Vec<Action>,
     },
     TextInput {

@@ -25,6 +25,7 @@ pub(super) struct Features {
     pub(super) uses_font_weight: bool,
     pub(super) uses_text_sp: bool,
     pub(super) uses_button: bool,
+    pub(super) uses_button_loading: bool,
     pub(super) uses_text: bool,
     pub(super) uses_text_input: bool,
     pub(super) uses_secure_text_input: bool,
@@ -210,9 +211,10 @@ impl Features {
                     || style.line_height.is_some()
                     || style.letter_spacing.is_some();
             }
-            Node::Button { .. } => {
+            Node::Button { loading, .. } => {
                 self.uses_button = true;
                 self.uses_text = true;
+                self.uses_button_loading |= loading.is_some();
             }
             Node::TextInput {
                 secure,

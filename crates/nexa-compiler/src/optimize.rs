@@ -191,8 +191,15 @@ fn optimize_node(node: Node) -> Option<Node> {
             value: fold_expression(value),
             style,
         }),
-        Node::Button { label, actions } => Some(Node::Button {
+        Node::Button {
+            label,
+            loading,
+            actions,
+        } => Some(Node::Button {
             label: fold_expression(label),
+            loading: loading
+                .map(fold_expression)
+                .filter(|loading| !matches!(loading, Expr::Bool(false))),
             actions: optimize_actions(actions),
         }),
         Node::Pressable {

@@ -8,7 +8,44 @@ use super::{
     utils::{indent, kotlin_string},
 };
 
-pub(super) fn render_button(label: &Expr, actions: &[Action], depth: usize, out: &mut String) {
+pub(super) fn render_button(
+    label: &Expr,
+    loading: Option<&Expr>,
+    actions: &[Action],
+    depth: usize,
+    out: &mut String,
+) {
+    if let Some(loading) = loading {
+        indent(out, depth);
+        out.push_str("Button(onClick = {");
+        if actions.is_empty() {
+            out.push_str(" }, enabled = !");
+            out.push_str(&expression(loading));
+            out.push_str(") {");
+        } else {
+            out.push('\n');
+            render_actions(actions, depth + 1, out);
+            indent(out, depth);
+            out.push_str("}, enabled = !");
+            out.push_str(&expression(loading));
+            out.push_str(") {");
+        }
+        out.push('\n');
+        indent(out, depth + 1);
+        out.push_str(&format!("if ({}) {{\n", expression(loading)));
+        indent(out, depth + 2);
+        out.push_str("CircularProgressIndicator()\n");
+        indent(out, depth + 1);
+        out.push_str("} else {\n");
+        indent(out, depth + 2);
+        out.push_str(&format!("Text({})\n", expression(label)));
+        indent(out, depth + 1);
+        out.push('}');
+        out.push('\n');
+        indent(out, depth);
+        out.push('}');
+        return;
+    }
     indent(out, depth);
     out.push_str("Button(onClick = {");
     if actions.is_empty() {

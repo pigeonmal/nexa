@@ -9,10 +9,39 @@ use super::{
 
 pub(super) fn render_button(
     label: &nexa_ir::Expr,
+    loading: Option<&nexa_ir::Expr>,
     actions: &[Action],
     depth: usize,
     out: &mut String,
 ) {
+    if let Some(loading) = loading {
+        indent(out, depth);
+        out.push_str("Button(action: {");
+        if actions.is_empty() {
+            out.push_str(" }) {");
+        } else {
+            out.push('\n');
+            render_actions(actions, depth + 1, out);
+            indent(out, depth);
+            out.push_str("}) {");
+        }
+        out.push('\n');
+        indent(out, depth + 1);
+        out.push_str(&format!("if {} {{\n", expression(loading)));
+        indent(out, depth + 2);
+        out.push_str("ProgressView()\n");
+        indent(out, depth + 1);
+        out.push_str("} else {\n");
+        indent(out, depth + 2);
+        out.push_str(&format!("Text({})\n", expression(label)));
+        indent(out, depth + 1);
+        out.push('}');
+        out.push('\n');
+        indent(out, depth);
+        out.push('}');
+        out.push_str(&format!(".disabled({})", expression(loading)));
+        return;
+    }
     indent(out, depth);
     out.push_str(&format!("Button({}) {{", expression(label)));
     if actions.is_empty() {

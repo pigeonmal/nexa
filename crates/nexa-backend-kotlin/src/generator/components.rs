@@ -54,8 +54,12 @@ pub(super) fn render_node(
             }
             out.push(')');
         }
-        Node::Button { label, actions } => {
-            controls::render_button(label, actions, depth, out);
+        Node::Button {
+            label,
+            loading,
+            actions,
+        } => {
+            controls::render_button(label, loading.as_ref(), actions, depth, out);
         }
         Node::TextInput {
             state,

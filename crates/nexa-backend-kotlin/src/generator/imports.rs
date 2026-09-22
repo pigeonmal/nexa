@@ -128,6 +128,10 @@ pub(super) fn render(
         "androidx.compose.foundation.text.KeyboardOptions",
     );
     add(features.uses_button, "androidx.compose.material3.Button");
+    add(
+        features.uses_button_loading,
+        "androidx.compose.material3.CircularProgressIndicator",
+    );
     add(features.uses_switch, "androidx.compose.material3.Switch");
     add(features.uses_text, "androidx.compose.material3.Text");
     add(
