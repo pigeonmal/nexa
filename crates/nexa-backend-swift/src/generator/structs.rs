@@ -11,7 +11,7 @@ pub(super) fn render(module: &Module, out: &mut String) {
 
 fn render_struct(declaration: &StructDecl, out: &mut String) {
     let native_name = nexa_codegen::names::struct_name(&declaration.name);
-    out.push_str(&format!("private struct {native_name} {{\n"));
+    out.push_str(&format!("private struct {native_name}: Equatable {{\n"));
     for field in &declaration.fields {
         out.push_str("    ");
         out.push_str(&format!(

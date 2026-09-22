@@ -1246,15 +1246,10 @@ fn lower_binary(
             "ordering comparisons are supported for numeric values only",
         ));
     }
-    if !is_ordered
-        && !matches!(
-            common_type,
-            Type::Numeric(_) | Type::Bool | Type::String | Type::Enum(_) | Type::Optional(_)
-        )
-    {
+    if !is_ordered && !is_equatable_type(&common_type) {
         return Err(CompileError::new(
             span,
-            "equality is supported for numeric, Bool, String, and enum values",
+            "equality is supported for scalar, enum, optional, collection, pair, triple, and value-struct types",
         ));
     }
     let left = lower_expr(left, Some(&common_type), symbols, functions, allow_await)?;
@@ -1264,6 +1259,23 @@ fn lower_binary(
         left: Box::new(left),
         right: Box::new(right),
     })
+}
+
+fn is_equatable_type(ty: &Type) -> bool {
+    match ty {
+        Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_) => true,
+        Type::Optional(inner) => is_equatable_type(inner),
+        Type::Array(element) | Type::Set(element) => is_equatable_type(element),
+        Type::Map(key, value) => is_equatable_type(key) && is_equatable_type(value),
+        Type::Pair(first, second) => is_equatable_type(first) && is_equatable_type(second),
+        Type::Triple(first, second, third) => {
+            is_equatable_type(first) && is_equatable_type(second) && is_equatable_type(third)
+        }
+        Type::Struct { fields, .. } => {
+            !fields.is_empty() && fields.iter().all(|(_, field)| is_equatable_type(field))
+        }
+        Type::Plugin { .. } | Type::NetworkResponse => false,
+    }
 }
 
 pub(super) fn infer_expr_type(
