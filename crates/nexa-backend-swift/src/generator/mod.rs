@@ -1,30 +1,18 @@
 use std::collections::BTreeSet;
 
-use nexa_ir::{LayoutKind, Module, Node, Permission, State, ViewStyle, walk::walk_ir};
+use nexa_ir::{LayoutKind, Module, Node, State, ViewStyle, walk::walk_ir};
 
-mod accessibility;
-mod bottom_bar;
-mod colors;
+mod api;
 mod components;
-mod controls;
-mod custom_components;
-mod expressions;
-mod features;
-mod functions;
-mod images;
-mod input;
-mod keyboard;
-mod layout;
-mod links;
-mod list_runtime;
-mod lists;
-mod navigation;
-mod network;
-mod permissions;
-mod refresh;
-mod sheets;
-mod structs;
-mod utils;
+mod engine;
+
+pub(super) use api::{network, permissions};
+use components::components as component_renderer;
+pub(super) use components::{
+    accessibility, bottom_bar, controls, custom_components, images, input, keyboard, layout, links,
+    list_runtime, lists, navigation, refresh, sheets,
+};
+pub(super) use engine::{colors, expressions, features, functions, imports, structs, utils};
 
 pub(super) fn generate(module: &Module) -> String {
     let features = features::Features::analyze(module);
@@ -33,49 +21,8 @@ pub(super) fn generate(module: &Module) -> String {
         focus_bindings.extend(collect_focus_bindings(&screen.body));
     }
     let uses_fast_list = features.uses_fast_list;
-    let mut out = if uses_fast_list || features.uses_remote_image || features.uses_haptic {
-        String::from("import SwiftUI\nimport UIKit\n")
-    } else {
-        String::from("import SwiftUI\n\n")
-    };
-    if features.uses_network_api {
-        out.push_str("import CryptoKit\n");
-    }
-    if features.uses_remote_image {
-        out.push_str("import ImageIO\n");
-    }
-    if features.uses_network_transport() || features.uses_path_api || features.uses_file_api {
-        out.push_str("import Foundation\n\n");
-    } else if features.uses_link {
-        out.push_str("import Foundation\n\n");
-    }
-    if features.uses_permissions {
-        if features.uses_permission(Permission::Camera)
-            || features.uses_permission(Permission::Microphone)
-        {
-            out.push_str("import AVFoundation\n");
-        }
-        if features.uses_permission(Permission::Contacts) {
-            out.push_str("import Contacts\n");
-        }
-        if features.uses_permission(Permission::Bluetooth) {
-            out.push_str("import CoreBluetooth\n");
-        }
-        if features.uses_permission(Permission::Location) {
-            out.push_str("import CoreLocation\n");
-        }
-        if features.uses_permission(Permission::Calendar) {
-            out.push_str("import EventKit\n");
-        }
-        if features.uses_permission(Permission::Photos) {
-            out.push_str("import Photos\n");
-        }
-        if features.uses_permission(Permission::Notifications) {
-            out.push_str("import UserNotifications\n");
-        }
-        out.push('\n');
-    }
-    out.push_str("\n// nexa-unit:types\n");
+    let mut out = imports::render(&features);
+    out.push_str("// nexa-unit:types\n");
     if uses_fast_list {
         out.push_str("\n@available(iOS 16.0, *)\n");
     }
@@ -183,7 +130,7 @@ pub(super) fn generate(module: &Module) -> String {
         render_immutable_state(&module.states, 2, &mut out);
     }
     if module.body.len() == 1 {
-        components::render_node(&module.body[0], module, 2, &mut out);
+        component_renderer::render_node(&module.body[0], module, 2, &mut out);
     } else {
         layout::render_layout(
             LayoutKind::Column,

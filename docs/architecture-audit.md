@@ -78,6 +78,11 @@ implemented after the findings were reviewed.
 - Cached Cronet engines by canonical certificate-pin sets, unified terminal
   completion guards, and moved download sink writes off the Cronet callback
   executor.
+- Reorganized both native generators into `api/`, `components/`, and `engine/`
+  responsibility folders. Feature modules now declare the imports required by
+  their own emitted code; the backend import module only collects, deduplicates,
+  orders, and renders those contributions. Adding or replacing one native
+  component therefore stays local to its feature module.
 
 ## Independent Swift/Kotlin review
 

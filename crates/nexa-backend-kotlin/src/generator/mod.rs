@@ -1,31 +1,16 @@
 use nexa_ir::{LayoutKind, Module, ViewStyle};
 
-mod accessibility;
-mod assets;
-mod bottom_bar;
-mod colors;
+mod api;
 mod components;
-mod controls;
-mod custom_components;
-mod expressions;
-mod features;
-mod functions;
-mod images;
-mod imports;
-mod input;
-mod keyboard;
-mod layout;
-mod links;
-mod lists;
-mod navigation;
-mod network;
-mod permissions;
-mod refresh;
-mod runtime;
-mod sheets;
-mod state;
-mod structs;
-mod utils;
+mod engine;
+
+pub(super) use api::{network, permissions};
+use components::components as component_renderer;
+pub(super) use components::{
+    accessibility, assets, bottom_bar, controls, custom_components, images, input, keyboard,
+    layout, links, lists, navigation, refresh, sheets,
+};
+pub(super) use engine::{colors, expressions, features, functions, runtime, state, structs, utils};
 
 fn project_features_from_analysis(
     module: &Module,
@@ -70,25 +55,24 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
         focus_bindings.extend(features::collect_focus_bindings(&screen.body));
     }
     let mut out = String::new();
-    imports::render(
-        &features,
-        !module.screens.is_empty(),
-        module.direction.is_some(),
-        module.on_appear.is_some()
+    out.push_str(&engine::imports::render(engine::imports::ImportContext {
+        features: &features,
+        has_navigation: !module.screens.is_empty(),
+        has_direction: module.direction.is_some(),
+        has_on_appear: module.on_appear.is_some()
             || module
                 .screens
                 .iter()
                 .any(|screen| screen.on_appear.is_some()),
-        module.on_disappear.is_some()
+        has_on_disappear: module.on_disappear.is_some()
             || module
                 .screens
                 .iter()
                 .any(|screen| screen.on_disappear.is_some()),
-        module.on_active.is_some()
+        has_lifecycle_events: module.on_active.is_some()
             || module.on_inactive.is_some()
             || module.on_background.is_some(),
-        &mut out,
-    );
+    }));
     out.push_str("// nexa-unit:types\n");
     for declaration in &module.enums {
         out.push_str(&format!(
@@ -185,7 +169,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
         }
         for binding in &focus_bindings {
             let state_name = nexa_codegen::names::state_name(binding);
-            let requester_name = crate::generator::input::focus_requester_name(binding);
+            let requester_name = input::focus_requester_name(binding);
             out.push_str(&format!(
                 "    LaunchedEffect({state_name}) {{\n        if ({state_name}) {requester_name}.requestFocus() else {requester_name}.freeFocus()\n    }}\n"
             ));
@@ -210,7 +194,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
     render_on_disappear_effect(module.on_disappear.as_deref(), body_depth, &mut out);
     render_lifecycle_effect(module, body_depth, &mut out);
     if module.body.len() == 1 {
-        components::render_node(&module.body[0], module, &features, body_depth, &mut out);
+        component_renderer::render_node(&module.body[0], module, &features, body_depth, &mut out);
     } else {
         layout::render_layout(
             LayoutKind::Column,

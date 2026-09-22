@@ -143,6 +143,16 @@ Source
 → Optimization
 → Backend Code Generation
 
+Backend generators should be organized by responsibility so each native
+feature remains easy to add, replace, and compile independently. Every backend
+keeps `api/` for optional native API emitters, `components/` for one UI feature
+per file, and `engine/` for shared lowering primitives. A feature module owns
+the imports required by the source it emits; the backend `imports.rs` module is
+only an orchestrator that collects contributions, removes duplicates, applies a
+deterministic order, and renders the final import block. This keeps platform
+feature changes local without moving component dependencies into a monolithic
+imports list.
+
 The common IR must be platform-independent.
 
 The IR should make it possible to add other backends later without redesigning the language frontend.
