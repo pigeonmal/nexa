@@ -48,6 +48,7 @@ pub(crate) fn optimize(module: &mut Module) {
     prune_unused_functions(module);
     prune_unused_states(module);
     prune_unused_structs(module);
+    prune_unused_plugins(module);
 }
 
 fn prune_unused_function_locals(function: &mut nexa_ir::Function) {
@@ -420,6 +421,88 @@ fn prune_unused_structs(module: &mut Module) {
     module
         .structs
         .retain(|declaration| used.contains(declaration.name.as_str()));
+}
+
+fn prune_unused_plugins(module: &mut Module) {
+    let declared = module
+        .plugins
+        .iter()
+        .map(|plugin| plugin.namespace.as_str())
+        .collect::<HashSet<_>>();
+    if declared.is_empty() {
+        return;
+    }
+    let mut used = HashSet::new();
+    let mut collect = |expression: &Expr| {
+        if let Expr::NativeCall { namespace, .. } = expression {
+            if declared.contains(namespace.as_str()) {
+                used.insert(namespace.clone());
+            }
+        }
+    };
+    for state in &module.states {
+        nexa_ir::walk::walk_expression(&state.initial, &mut collect);
+    }
+    nexa_ir::walk::walk_ir(&module.body, &mut |_| {}, &mut collect);
+    if let Some(actions) = &module.on_appear {
+        collect_action_plugin_references(actions, &mut collect);
+    }
+    if let Some(actions) = &module.on_disappear {
+        collect_action_plugin_references(actions, &mut collect);
+    }
+    for screen in &module.screens {
+        nexa_ir::walk::walk_ir(&screen.body, &mut |_| {}, &mut collect);
+        if let Some(actions) = &screen.on_appear {
+            collect_action_plugin_references(actions, &mut collect);
+        }
+        if let Some(actions) = &screen.on_disappear {
+            collect_action_plugin_references(actions, &mut collect);
+        }
+    }
+    for component in &module.components {
+        nexa_ir::walk::walk_ir(&component.body, &mut |_| {}, &mut collect);
+        for state in &component.states {
+            nexa_ir::walk::walk_expression(&state.initial, &mut collect);
+        }
+    }
+    for function in &module.functions {
+        for local in &function.locals {
+            nexa_ir::walk::walk_expression(&local.initial, &mut collect);
+        }
+        nexa_ir::walk::walk_expression(&function.body, &mut collect);
+    }
+    module
+        .plugins
+        .retain(|plugin| used.contains(plugin.namespace.as_str()));
+}
+
+fn collect_action_plugin_references(actions: &[Action], collect: &mut impl FnMut(&Expr)) {
+    for action in actions {
+        match action {
+            Action::Assign { value, .. } => nexa_ir::walk::walk_expression(value, collect),
+            Action::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                nexa_ir::walk::walk_expression(condition, collect);
+                collect_action_plugin_references(then_branch, collect);
+                if let Some(else_branch) = else_branch {
+                    collect_action_plugin_references(else_branch, collect);
+                }
+            }
+            Action::For { iterable, body, .. }
+            | Action::ForMap { iterable, body, .. }
+            | Action::While {
+                condition: iterable,
+                body,
+            } => {
+                nexa_ir::walk::walk_expression(iterable, collect);
+                collect_action_plugin_references(body, collect);
+            }
+            Action::Break | Action::Continue => {}
+        }
+    }
 }
 
 fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {

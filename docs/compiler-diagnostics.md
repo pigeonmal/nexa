@@ -59,6 +59,7 @@ The compiler runs a platform-independent IR pass after semantic lowering and bef
 - removes unused value-struct declarations while retaining transitively used struct dependencies,
 - removes unused pure function-local constants while preserving locals whose initializers contain async work,
 - removes pure functions that are unreachable from app state, UI, actions, and reachable components,
+- removes declared plugins that have no surviving typed native call, so unused platform source trees are not copied into generated projects,
 - preserves dynamic state and environment conditions,
 - keeps Swift and Kotlin component mappings unchanged.
 
