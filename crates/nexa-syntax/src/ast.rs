@@ -140,6 +140,7 @@ pub enum Node {
         line_limit: Option<Expr>,
         line_height: Option<Expr>,
         letter_spacing: Option<Expr>,
+        selectable: Option<Expr>,
         span: Span,
     },
     Button {

@@ -63,6 +63,12 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                     number(letter_spacing)
                 ));
             }
+            if style.selectable {
+                out.push_str(&format!(
+                    "\n{}.textSelection(.enabled)",
+                    "    ".repeat(depth + 1)
+                ));
+            }
         }
         Node::Button {
             label,

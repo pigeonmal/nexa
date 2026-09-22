@@ -142,6 +142,10 @@ pub(super) fn render(
         features.uses_font_weight,
         "androidx.compose.ui.text.font.FontWeight",
     );
+    add(
+        features.uses_selectable_text,
+        "androidx.compose.foundation.text.selection.SelectionContainer",
+    );
 
     add(
         features.uses_mutable_state,

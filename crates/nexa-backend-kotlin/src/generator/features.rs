@@ -24,6 +24,7 @@ pub(super) struct Features {
     pub(super) uses_adaptive_color: bool,
     pub(super) uses_font_weight: bool,
     pub(super) uses_text_sp: bool,
+    pub(super) uses_selectable_text: bool,
     pub(super) uses_button: bool,
     pub(super) uses_button_loading: bool,
     pub(super) uses_text: bool,
@@ -210,6 +211,7 @@ impl Features {
                 self.uses_text_sp |= style.font_size.is_some()
                     || style.line_height.is_some()
                     || style.letter_spacing.is_some();
+                self.uses_selectable_text |= style.selectable;
             }
             Node::Button { loading, .. } => {
                 self.uses_button = true;

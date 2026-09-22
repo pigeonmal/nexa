@@ -355,6 +355,7 @@ pub struct TextStyle {
     pub line_limit: Option<i32>,
     pub line_height: Option<f32>,
     pub letter_spacing: Option<f32>,
+    pub selectable: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

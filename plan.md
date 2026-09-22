@@ -363,7 +363,7 @@ Map directly to native gesture/event systems.
 
 Text must use native text rendering.
 
-The first styling slice is implemented: `Text` accepts static `fontWeight` (`Normal`, `Medium`, `Semibold`, `Bold`), positive `lineLimit`, and non-negative `lineHeight`/`letterSpacing`, lowering directly to SwiftUI and Compose text parameters. See [text-style.nx](examples/text-style.nx).
+The first styling slice is implemented: `Text` accepts static `fontWeight` (`Normal`, `Medium`, `Semibold`, `Bold`), positive `lineLimit`, non-negative `lineHeight`/`letterSpacing`, and native `selectable` text, lowering directly to SwiftUI and Compose text APIs. See [text-style.nx](examples/text-style.nx).
 
 Support:
 

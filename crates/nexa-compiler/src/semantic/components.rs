@@ -132,6 +132,7 @@ pub(super) fn lower_node(
             line_limit,
             line_height,
             letter_spacing,
+            selectable,
             ..
         } => {
             let value = lower_expr(&value, None, symbols)?;
@@ -146,6 +147,7 @@ pub(super) fn lower_node(
             let line_limit = lower_line_limit(line_limit)?;
             let line_height = optional_dimension(line_height, "lineHeight", None, themes)?;
             let letter_spacing = optional_dimension(letter_spacing, "letterSpacing", None, themes)?;
+            let selectable = optional_bool(selectable, false, "selectable")?;
             Ok(Node::Text {
                 value,
                 style: TextStyle {
@@ -155,6 +157,7 @@ pub(super) fn lower_node(
                     line_limit,
                     line_height,
                     letter_spacing,
+                    selectable,
                 },
             })
         }

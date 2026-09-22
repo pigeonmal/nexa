@@ -6,6 +6,7 @@ app TextStyleDemo {
             Text("Important text", fontWeight: Bold)
             Text("This line is deliberately limited to one line of native text", lineLimit: 1)
             Text("Readable spacing", lineHeight: 24, letterSpacing: 0.5)
+            Text("Copy this text", selectable: true)
         }
     }
 }

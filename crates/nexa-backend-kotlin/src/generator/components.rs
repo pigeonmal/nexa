@@ -29,7 +29,14 @@ pub(super) fn render_node(
             *kind, *spacing, style, children, module, features, depth, out,
         ),
         Node::Text { value, style } => {
-            indent(out, depth);
+            let text_depth = if style.selectable {
+                indent(out, depth);
+                out.push_str("SelectionContainer {\n");
+                depth + 1
+            } else {
+                depth
+            };
+            indent(out, text_depth);
             out.push_str(&format!("Text({}", text_expression(value)));
             if let Some(color) = style.color {
                 out.push_str(&format!(", color = {}", colors::expression(color)));
@@ -53,6 +60,11 @@ pub(super) fn render_node(
                 out.push_str(&format!(", letterSpacing = {}.sp", number(letter_spacing)));
             }
             out.push(')');
+            if style.selectable {
+                out.push('\n');
+                indent(out, depth);
+                out.push('}');
+            }
         }
         Node::Button {
             label,

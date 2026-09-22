@@ -416,6 +416,7 @@ impl Parser {
                         "lineLimit",
                         "lineHeight",
                         "letterSpacing",
+                        "selectable",
                     ])?
                 } else {
                     BTreeMap::new()
@@ -429,6 +430,7 @@ impl Parser {
                     line_limit: args.remove("lineLimit"),
                     line_height: args.remove("lineHeight"),
                     letter_spacing: args.remove("letterSpacing"),
+                    selectable: args.remove("selectable"),
                     span,
                 })
             }
