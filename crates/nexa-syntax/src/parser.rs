@@ -430,6 +430,7 @@ impl Parser {
                         "borderColor",
                         "borderWidth",
                         "opacity",
+                        "animation",
                     ])?
                 } else {
                     BTreeMap::new()
@@ -445,6 +446,7 @@ impl Parser {
                     border_color: args.remove("borderColor"),
                     border_width: args.remove("borderWidth"),
                     opacity: args.remove("opacity"),
+                    animation: args.remove("animation"),
                 };
                 let children = self.block_nodes()?;
                 Ok(Node::Layout {

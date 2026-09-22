@@ -1,4 +1,4 @@
-use nexa_ir::{Alignment, LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Module, Node, ViewStyle};
 
 use super::{
     colors,
@@ -104,6 +104,16 @@ fn append_style(out: &mut String, depth: usize, style: &ViewStyle) {
     }
     if let Some(opacity) = style.opacity {
         append_modifier(out, depth, &format!("opacity({})", number(opacity)));
+    }
+    if let Some(animation) = style.animation {
+        let value = match animation {
+            AnimationSpec::Spring => ".spring()",
+            AnimationSpec::EaseIn => ".easeIn",
+            AnimationSpec::EaseOut => ".easeOut",
+            AnimationSpec::EaseInOut => ".easeInOut",
+            AnimationSpec::Linear => ".linear",
+        };
+        append_modifier(out, depth, &format!("animation({value})"));
     }
 }
 

@@ -1,5 +1,5 @@
 use nexa_diagnostics::{CompileError, Span};
-use nexa_ir::{Alignment, Color, ColorValue, ViewStyle};
+use nexa_ir::{Alignment, AnimationSpec, Color, ColorValue, ViewStyle};
 use nexa_syntax::ast;
 
 use super::themes::ThemeSymbols;
@@ -49,6 +49,7 @@ pub(super) fn lower_style(
         None => None,
     };
     let alignment = style.alignment.map(parse_alignment).transpose()?;
+    let animation = style.animation.map(parse_animation).transpose()?;
     let background = style
         .background
         .map(|color| parse_color(color, themes, "background"))
@@ -63,7 +64,28 @@ pub(super) fn lower_style(
         border_color,
         border_width,
         opacity,
+        animation,
     })
+}
+
+fn parse_animation(expr: ast::Expr) -> Result<AnimationSpec, CompileError> {
+    let ast::Expr::Name(name, span) = expr else {
+        return Err(CompileError::new(
+            expr.span(),
+            "animation must be `Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`",
+        ));
+    };
+    match name.as_str() {
+        "Spring" => Ok(AnimationSpec::Spring),
+        "EaseIn" => Ok(AnimationSpec::EaseIn),
+        "EaseOut" => Ok(AnimationSpec::EaseOut),
+        "EaseInOut" => Ok(AnimationSpec::EaseInOut),
+        "Linear" => Ok(AnimationSpec::Linear),
+        _ => Err(CompileError::new(
+            span,
+            "animation must be `Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`",
+        )),
+    }
 }
 
 fn parse_alignment(expr: ast::Expr) -> Result<Alignment, CompileError> {

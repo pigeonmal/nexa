@@ -1,0 +1,14 @@
+app Animations {
+    state expanded: Bool = false
+
+    body {
+        Column(animation: EaseInOut, padding: 16) {
+            Button("Toggle") {
+                expanded = !expanded
+            }
+            if expanded {
+                Text("Expanded content")
+            }
+        }
+    }
+}

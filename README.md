@@ -143,6 +143,8 @@ String interpolation supports `$name` and `\(name)` for declared state and const
 
 `Column` and `Row` support paired static `borderColor` and `borderWidth` values, compiled to native SwiftUI and Compose border primitives; see [borders.nx](examples/borders.nx).
 
+`Column` and `Row` also support a static native `animation` spec (`Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`) for content-size changes; see [animations.nx](examples/animations.nx).
+
 `AppBottomBar(selected: ...)` provides static labeled tabs with native `TabView` and Material 3 `NavigationBar` output; see [app-bottom-bar.nx](examples/app-bottom-bar.nx).
 
 `Direction(value: LTR|RTL)` applies a static native layout direction at the app root; see [direction.nx](examples/direction.nx).

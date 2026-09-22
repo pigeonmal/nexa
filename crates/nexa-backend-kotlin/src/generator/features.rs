@@ -50,6 +50,12 @@ pub(super) struct Features {
     pub(super) uses_height: bool,
     pub(super) uses_corner_radius: bool,
     pub(super) uses_opacity: bool,
+    pub(super) uses_animation: bool,
+    pub(super) uses_animation_spring: bool,
+    pub(super) uses_animation_ease_in: bool,
+    pub(super) uses_animation_ease_out: bool,
+    pub(super) uses_animation_ease_in_out: bool,
+    pub(super) uses_animation_linear: bool,
     pub(super) uses_color: bool,
     pub(super) uses_dp: bool,
     pub(super) uses_mutable_state: bool,
@@ -345,6 +351,16 @@ impl Features {
         self.uses_corner_radius |= style.corner_radius.is_some();
         self.uses_corner_radius |= style.border_color.is_some();
         self.uses_opacity |= style.opacity.is_some();
+        if let Some(animation) = style.animation {
+            self.uses_animation = true;
+            match animation {
+                nexa_ir::AnimationSpec::Spring => self.uses_animation_spring = true,
+                nexa_ir::AnimationSpec::EaseIn => self.uses_animation_ease_in = true,
+                nexa_ir::AnimationSpec::EaseOut => self.uses_animation_ease_out = true,
+                nexa_ir::AnimationSpec::EaseInOut => self.uses_animation_ease_in_out = true,
+                nexa_ir::AnimationSpec::Linear => self.uses_animation_linear = true,
+            }
+        }
         self.uses_modifier |= style.has_modifiers();
         self.uses_color |= style.background.is_some() || style.border_color.is_some();
         self.uses_adaptive_color |= style

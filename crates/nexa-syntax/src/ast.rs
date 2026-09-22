@@ -282,6 +282,7 @@ pub struct LayoutStyle {
     pub border_color: Option<Expr>,
     pub border_width: Option<Expr>,
     pub opacity: Option<Expr>,
+    pub animation: Option<Expr>,
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -1,4 +1,4 @@
-use nexa_ir::{Alignment, LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Module, Node, ViewStyle};
 
 use super::{
     colors,
@@ -125,6 +125,19 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut String) {
             "\n{}.height({}.dp)",
             spaces(depth),
             number(height)
+        ));
+    }
+    if let Some(animation) = style.animation {
+        let spec = match animation {
+            AnimationSpec::Spring => "spring()",
+            AnimationSpec::EaseIn => "tween(easing = FastOutLinearInEasing)",
+            AnimationSpec::EaseOut => "tween(easing = LinearOutSlowInEasing)",
+            AnimationSpec::EaseInOut => "tween(easing = FastOutSlowInEasing)",
+            AnimationSpec::Linear => "tween(easing = LinearEasing)",
+        };
+        out.push_str(&format!(
+            "\n{}.animateContentSize(animationSpec = {spec})",
+            spaces(depth)
         ));
     }
 }

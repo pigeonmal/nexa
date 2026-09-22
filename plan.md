@@ -81,6 +81,8 @@ For a fast authoring path, `let` and mutable `state` declarations may omit their
 
 The first pure function slice is implemented inside an app: `fn name(a: Type) -> ReturnType { return expression }`. Parameters and the return type are explicit, calls are checked for arity and exact types, and each function must contain exactly one return expression. The compiler lowers functions to direct private top-level Swift/Kotlin helpers and keeps function calls out of any shared runtime. Local variables, closures, async functions, generic functions, and dynamic dispatch remain future work.
 
+The first native animation slice is implemented as a static layout option: `animation: Spring|EaseIn|EaseOut|EaseInOut|Linear`. Swift uses the matching SwiftUI animation modifier; Compose uses `animateContentSize` with a native spring or tween easing. No shared frame loop or per-frame cross-language callback is introduced. Transforms, transitions, and gesture-driven animation remain future work.
+
 ## User-defined components and modules
 
 App authors should be able to create reusable UI components in Nexa source files, pass typed inputs, compose built-in and custom components, and declare private per-instance state. Component files should be reusable through relative imports and resolve at compile time. Generated output should use native view/composable declarations without a dynamic registry or cross-platform component runtime.

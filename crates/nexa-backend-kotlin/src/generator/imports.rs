@@ -61,6 +61,37 @@ pub(super) fn render(
         features.uses_background,
         "androidx.compose.foundation.background",
     );
+    add(
+        features.uses_animation,
+        "androidx.compose.animation.animateContentSize",
+    );
+    add(
+        features.uses_animation_ease_in,
+        "androidx.compose.animation.core.FastOutLinearInEasing",
+    );
+    add(
+        features.uses_animation_ease_in_out,
+        "androidx.compose.animation.core.FastOutSlowInEasing",
+    );
+    add(
+        features.uses_animation_linear,
+        "androidx.compose.animation.core.LinearEasing",
+    );
+    add(
+        features.uses_animation_ease_out,
+        "androidx.compose.animation.core.LinearOutSlowInEasing",
+    );
+    add(
+        features.uses_animation_spring,
+        "androidx.compose.animation.core.spring",
+    );
+    add(
+        features.uses_animation_ease_in
+            || features.uses_animation_ease_out
+            || features.uses_animation_ease_in_out
+            || features.uses_animation_linear,
+        "androidx.compose.animation.core.tween",
+    );
     add(features.uses_border, "androidx.compose.foundation.border");
     add(
         features.uses_clickable || features.uses_link,

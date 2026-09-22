@@ -336,6 +336,7 @@ pub struct ViewStyle {
     pub border_color: Option<ColorValue>,
     pub border_width: Option<f32>,
     pub opacity: Option<f32>,
+    pub animation: Option<AnimationSpec>,
 }
 
 impl ViewStyle {
@@ -349,7 +350,17 @@ impl ViewStyle {
             || self.border_color.is_some()
             || self.border_width.is_some()
             || self.opacity.is_some()
+            || self.animation.is_some()
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnimationSpec {
+    Spring,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+    Linear,
 }
 
 /// Cross-axis alignment for a native row or column layout.
