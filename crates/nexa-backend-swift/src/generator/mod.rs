@@ -66,10 +66,20 @@ pub(super) fn generate(module: &Module) -> String {
     if !module.screens.is_empty() {
         out.push_str("private enum NexaNavigationRoute: Hashable {\n");
         for screen in &module.screens {
-            out.push_str(&format!(
-                "    case {}\n",
-                nexa_codegen::names::navigation_case_name(screen.id)
-            ));
+            let case_name = nexa_codegen::names::navigation_case_name(screen.id);
+            if screen.parameters.is_empty() {
+                out.push_str(&format!("    case {case_name}\n"));
+            } else {
+                out.push_str(&format!(
+                    "    case {case_name}({})\n",
+                    screen
+                        .parameters
+                        .iter()
+                        .map(|parameter| parameter.ty.swift())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
         }
         out.push_str("}\n\n");
     }

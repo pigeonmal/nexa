@@ -5,7 +5,7 @@ use nexa_ir::{Component, ComponentParameter, Node, Screen, State, Type};
 use nexa_syntax::ast;
 
 use super::{
-    components::lower_nodes,
+    components::{ScreenSignatures, lower_nodes},
     expressions::{
         FunctionSignatures, StructTypes, lower_expr, parse_type, references_state,
         resolve_declaration_type, resolve_struct_type,
@@ -60,7 +60,7 @@ pub(super) fn retain_reachable(
 
 pub(super) fn lower_components(
     declarations: Vec<ast::ComponentDecl>,
-    screen_ids: &HashMap<String, nexa_ir::ScreenId>,
+    screen_ids: &ScreenSignatures,
     themes: &ThemeSymbols,
     functions: &FunctionSignatures,
     structs: &StructTypes,
@@ -141,7 +141,7 @@ fn collect_signatures(
 fn lower_component(
     declaration: ast::ComponentDecl,
     signatures: &ComponentSignatures,
-    screen_ids: &HashMap<String, nexa_ir::ScreenId>,
+    screen_ids: &ScreenSignatures,
     themes: &ThemeSymbols,
     functions: &FunctionSignatures,
     structs: &StructTypes,

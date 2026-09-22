@@ -145,13 +145,14 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             depth,
             out,
         ),
-        Node::NavigationStack { root } => {
-            navigation::render_navigation_stack(module, *root, depth, out);
+        Node::NavigationStack { root, arguments } => {
+            navigation::render_navigation_stack(module, *root, arguments, depth, out);
         }
         Node::NavigationLink {
             destination,
+            arguments,
             children,
-        } => navigation::render_link(*destination, children, module, depth, out),
+        } => navigation::render_link(*destination, arguments, children, module, depth, out),
         Node::NavigationBack { label } => navigation::render_back(label, depth, out),
         Node::Link { url, children } => links::render_link(url, children, module, depth, out),
         Node::Accessibility {

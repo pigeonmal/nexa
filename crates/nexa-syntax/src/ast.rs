@@ -170,6 +170,7 @@ pub enum ThemeTokenValue {
 #[derive(Clone, Debug)]
 pub struct ScreenDecl {
     pub name: String,
+    pub parameters: Vec<FunctionParameter>,
     pub states: Vec<StateDecl>,
     pub body: Vec<Node>,
     pub span: Span,
@@ -298,10 +299,12 @@ pub enum Node {
     },
     NavigationStack {
         root: Expr,
+        arguments: Vec<Expr>,
         span: Span,
     },
     NavigationLink {
         destination: Expr,
+        arguments: Vec<Expr>,
         children: Vec<Node>,
         span: Span,
     },

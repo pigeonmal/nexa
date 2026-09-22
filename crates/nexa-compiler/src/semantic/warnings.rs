@@ -363,8 +363,24 @@ fn walk_node(
             walk_actions(actions, names, used, target, file, warnings);
             walk_actions(long_press_actions, names, used, target, file, warnings);
         }
-        ast::Node::NavigationStack { .. } => {}
-        ast::Node::NavigationLink { children, .. } | ast::Node::KeyboardAware { children, .. } => {
+        ast::Node::NavigationStack { arguments, .. } => {
+            for argument in arguments {
+                walk_expression(argument, names, used);
+            }
+        }
+        ast::Node::NavigationLink {
+            arguments,
+            children,
+            ..
+        } => {
+            for argument in arguments {
+                walk_expression(argument, names, used);
+            }
+            for child in children {
+                walk_node(child, names, used, target, file, warnings);
+            }
+        }
+        ast::Node::KeyboardAware { children, .. } => {
             for child in children {
                 walk_node(child, names, used, target, file, warnings);
             }

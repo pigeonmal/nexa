@@ -98,6 +98,7 @@ pub struct ComponentParameter {
 pub struct Screen {
     pub id: ScreenId,
     pub name: String,
+    pub parameters: Vec<FunctionParameter>,
     pub states: Vec<State>,
     pub body: Vec<Node>,
     pub status_bar: Option<StatusBarConfig>,
@@ -375,9 +376,11 @@ pub enum Node {
     },
     NavigationStack {
         root: ScreenId,
+        arguments: Vec<Expr>,
     },
     NavigationLink {
         destination: ScreenId,
+        arguments: Vec<Expr>,
         children: Vec<Node>,
     },
     NavigationBack {

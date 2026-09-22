@@ -17,10 +17,18 @@ use super::{
 };
 use crate::Target;
 
+#[derive(Clone)]
+pub(super) struct ScreenSignature {
+    pub(super) id: ScreenId,
+    pub(super) parameters: Vec<nexa_ir::FunctionParameter>,
+}
+
+pub(super) type ScreenSignatures = HashMap<String, ScreenSignature>;
+
 pub(super) fn lower_nodes(
     nodes: Vec<ast::Node>,
     symbols: &HashMap<String, (Type, bool)>,
-    screen_ids: &HashMap<String, ScreenId>,
+    screen_ids: &ScreenSignatures,
     themes: &ThemeSymbols,
     components: &ComponentSignatures,
     functions: &FunctionSignatures,
@@ -80,7 +88,7 @@ fn platform_matches(platform: ast::PlatformTarget, target: Target) -> bool {
 pub(super) fn lower_node(
     node: ast::Node,
     symbols: &HashMap<String, (Type, bool)>,
-    screen_ids: &HashMap<String, ScreenId>,
+    screen_ids: &ScreenSignatures,
     themes: &ThemeSymbols,
     components: &ComponentSignatures,
     functions: &FunctionSignatures,
@@ -443,15 +451,29 @@ pub(super) fn lower_node(
                 long_press_actions,
             })
         }
-        ast::Node::NavigationStack { root, span } => {
+        ast::Node::NavigationStack {
+            root,
+            arguments,
+            span,
+        } => {
             if !allow_navigation_stack {
                 return Err(CompileError::new(
                     span,
                     "NavigationStack is only allowed as the app's top-level body",
                 ));
             }
-            let root = resolve_screen(&root, screen_ids, "NavigationStack root")?;
-            Ok(Node::NavigationStack { root })
+            let root = lower_screen_target(
+                &root,
+                arguments,
+                screen_ids,
+                symbols,
+                functions,
+                "NavigationStack root",
+            )?;
+            Ok(Node::NavigationStack {
+                root: root.0,
+                arguments: root.1,
+            })
         }
         ast::Node::NavigationBack { label, span } => {
             if !allow_navigation_back {
@@ -468,19 +490,25 @@ pub(super) fn lower_node(
         }
         ast::Node::NavigationLink {
             destination,
+            arguments,
             children,
             span,
         } => {
-            let destination =
-                resolve_screen(&destination, screen_ids, "NavigationLink destination").map_err(
-                    |error| {
-                        if screen_ids.is_empty() {
-                            CompileError::new(span, "NavigationLink requires declared app screens")
-                        } else {
-                            error
-                        }
-                    },
-                )?;
+            let destination = lower_screen_target(
+                &destination,
+                arguments,
+                screen_ids,
+                symbols,
+                functions,
+                "NavigationLink destination",
+            )
+            .map_err(|error| {
+                if screen_ids.is_empty() {
+                    CompileError::new(span, "NavigationLink requires declared app screens")
+                } else {
+                    error
+                }
+            })?;
             let lowered_children = lower_nodes(
                 children,
                 symbols,
@@ -493,7 +521,8 @@ pub(super) fn lower_node(
                 target,
             )?;
             Ok(Node::NavigationLink {
-                destination,
+                destination: destination.0,
+                arguments: destination.1,
                 children: lowered_children,
             })
         }
@@ -1584,7 +1613,7 @@ fn binding_name(
 
 fn resolve_screen(
     expr: &ast::Expr,
-    screen_ids: &HashMap<String, ScreenId>,
+    screen_ids: &ScreenSignatures,
     role: &str,
 ) -> Result<ScreenId, CompileError> {
     let ast::Expr::Name(name, span) = expr else {
@@ -1595,8 +1624,43 @@ fn resolve_screen(
     };
     screen_ids
         .get(name)
-        .copied()
+        .map(|signature| signature.id)
         .ok_or_else(|| CompileError::new(*span, format!("unknown screen `{name}` in {role}")))
+}
+
+fn lower_screen_target(
+    screen: &ast::Expr,
+    arguments: Vec<ast::Expr>,
+    screen_ids: &ScreenSignatures,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    role: &str,
+) -> Result<(ScreenId, Vec<Expr>), CompileError> {
+    let id = resolve_screen(screen, screen_ids, role)?;
+    let ast::Expr::Name(name, _) = screen else {
+        unreachable!("resolve_screen validated navigation target name")
+    };
+    let signature = screen_ids
+        .get(name)
+        .expect("screen signature exists after screen resolution");
+    if arguments.len() != signature.parameters.len() {
+        return Err(CompileError::new(
+            screen.span(),
+            format!(
+                "{role} `{name}` expects {} route argument(s), found {}",
+                signature.parameters.len(),
+                arguments.len()
+            ),
+        ));
+    }
+    let lowered = arguments
+        .iter()
+        .zip(&signature.parameters)
+        .map(|(argument, parameter)| {
+            lower_expr(argument, Some(&parameter.ty), symbols, functions, false)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((id, lowered))
 }
 
 fn lower_actions(

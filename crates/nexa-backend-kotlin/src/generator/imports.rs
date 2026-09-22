@@ -55,7 +55,10 @@ pub(super) fn render(
         "androidx.lifecycle.LifecycleEventObserver",
     );
     add(features.uses_link, "android.content.Intent");
-    add(features.uses_link, "android.net.Uri");
+    add(
+        features.uses_link || features.uses_navigation_uri,
+        "android.net.Uri",
+    );
     add(
         features.uses_status_bar,
         "androidx.compose.runtime.SideEffect",

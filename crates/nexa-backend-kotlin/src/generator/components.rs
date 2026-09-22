@@ -142,13 +142,22 @@ pub(super) fn render_node(
             depth,
             out,
         ),
-        Node::NavigationStack { root } => {
-            navigation::render_navigation_stack(module, *root, features, depth, out);
+        Node::NavigationStack { root, arguments } => {
+            navigation::render_navigation_stack(module, *root, arguments, features, depth, out);
         }
         Node::NavigationLink {
             destination,
+            arguments,
             children,
-        } => navigation::render_link(*destination, children, module, features, depth, out),
+        } => navigation::render_link(
+            *destination,
+            arguments,
+            children,
+            module,
+            features,
+            depth,
+            out,
+        ),
         Node::NavigationBack { label } => navigation::render_back(label, depth, out),
         Node::Link { url, children } => {
             links::render_link(url, children, module, features, depth, out)

@@ -511,6 +511,32 @@ impl Parser {
     fn screen_decl(&mut self) -> Result<ScreenDecl, CompileError> {
         self.expect_word("screen")?;
         let (name, span) = self.ident()?;
+        let mut parameters = Vec::new();
+        if self.take(&Kind::LParen) {
+            while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+                let (parameter_name, parameter_span) = self.ident()?;
+                if parameters
+                    .iter()
+                    .any(|parameter: &FunctionParameter| parameter.name == parameter_name)
+                {
+                    return Err(CompileError::new(
+                        parameter_span,
+                        format!("screen parameter `{parameter_name}` is declared more than once"),
+                    ));
+                }
+                self.expect(Kind::Colon, "expected `:` after screen parameter name")?;
+                let ty = self.type_syntax()?;
+                parameters.push(FunctionParameter {
+                    name: parameter_name,
+                    ty,
+                    span: parameter_span,
+                });
+                if !self.take(&Kind::Comma) {
+                    break;
+                }
+            }
+            self.expect(Kind::RParen, "expected `)` after screen parameters")?;
+        }
         self.expect(Kind::LBrace, "expected `{` after screen name")?;
         let mut states = Vec::new();
         let mut body = Vec::new();
@@ -532,6 +558,7 @@ impl Parser {
         self.expect(Kind::RBrace, "expected `}` to close screen")?;
         Ok(ScreenDecl {
             name,
+            parameters,
             states,
             body,
             span,
@@ -1036,7 +1063,12 @@ impl Parser {
                     "root",
                     "NavigationStack requires a declared screen as `root`",
                 )?;
-                Ok(Node::NavigationStack { root, span })
+                let (root, arguments) = split_navigation_target(root);
+                Ok(Node::NavigationStack {
+                    root,
+                    arguments,
+                    span,
+                })
             }
             "NavigationLink" => {
                 let mut args = self.named_args(&["destination"])?;
@@ -1045,9 +1077,11 @@ impl Parser {
                     "destination",
                     "NavigationLink requires a declared screen as `destination`",
                 )?;
+                let (destination, arguments) = split_navigation_target(destination);
                 let children = self.block_nodes()?;
                 Ok(Node::NavigationLink {
                     destination,
+                    arguments,
                     children,
                     span,
                 })
@@ -2396,6 +2430,13 @@ impl Parser {
     }
     fn error_here<T>(&self, message: impl Into<String>) -> Result<T, CompileError> {
         Err(CompileError::new(self.peek().span, message))
+    }
+}
+
+fn split_navigation_target(target: Expr) -> (Expr, Vec<Expr>) {
+    match target {
+        Expr::Call(name, arguments, span) => (Expr::Name(name, span), arguments),
+        target => (target, Vec::new()),
     }
 }
 

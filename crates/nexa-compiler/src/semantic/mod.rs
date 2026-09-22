@@ -8,7 +8,7 @@ use nexa_ir::{
 use nexa_syntax::ast;
 
 use self::{
-    components::{contains_content, lower_nodes},
+    components::{ScreenSignature, ScreenSignatures, contains_content, lower_nodes},
     custom_components::{lower_components, retain_reachable},
     expressions::{
         FunctionSignature, FunctionSignatures, StructTypes, collect_function_signatures,
@@ -150,6 +150,7 @@ pub fn lower_with_warnings(
             ));
         }
     }
+    let screen_signatures = collect_screen_signatures(&app.screens, &struct_types)?;
     if !app.screens.is_empty() && target != Target::All && !has_navigation_root(&app.body, target) {
         return Err(CompileError::new(
             app.span,
@@ -159,7 +160,7 @@ pub fn lower_with_warnings(
 
     let (components, component_signatures) = lower_components(
         std::mem::take(&mut app.components),
-        &screen_ids,
+        &screen_signatures,
         &themes,
         &function_signatures,
         &struct_types,
@@ -219,6 +220,24 @@ pub fn lower_with_warnings(
     let mut screens = Vec::with_capacity(app.screens.len());
     for (index, screen) in app.screens.into_iter().enumerate() {
         let mut screen_symbols = symbols.clone();
+        let screen_signature = screen_signatures
+            .get(&screen.name)
+            .expect("screen signature exists for every screen declaration");
+        for parameter in &screen_signature.parameters {
+            if screen_symbols.contains_key(&parameter.name)
+                || all_state_names.contains(&parameter.name)
+                || function_signatures.contains_key(&parameter.name)
+            {
+                return Err(CompileError::new(
+                    screen.span,
+                    format!(
+                        "screen parameter `{}` conflicts with an app binding or function",
+                        parameter.name
+                    ),
+                ));
+            }
+            screen_symbols.insert(parameter.name.clone(), (parameter.ty.clone(), false));
+        }
         let mut screen_states = Vec::with_capacity(screen.states.len());
         for declaration in screen.states {
             if screen_symbols.contains_key(&declaration.name)
@@ -271,7 +290,7 @@ pub fn lower_with_warnings(
         let screen_body = lower_nodes(
             screen.body,
             &screen_symbols,
-            &screen_ids,
+            &screen_signatures,
             &themes,
             &component_signatures,
             &function_signatures,
@@ -304,9 +323,14 @@ pub fn lower_with_warnings(
         let (on_appear, on_appear_async, screen_body) =
             extract_on_appear(screen_body, screen.span, "screen")?;
         let (on_disappear, screen_body) = extract_on_disappear(screen_body, screen.span, "screen")?;
+        let screen_name = screen.name;
         screens.push(Screen {
             id: ScreenId(index),
-            name: screen.name,
+            name: screen_name.clone(),
+            parameters: screen_signatures
+                .get(&screen_name)
+                .map(|signature| signature.parameters.clone())
+                .unwrap_or_default(),
             states: screen_states,
             body: screen_body,
             status_bar,
@@ -319,7 +343,7 @@ pub fn lower_with_warnings(
     let body = lower_nodes(
         app.body,
         &symbols,
-        &screen_ids,
+        &screen_signatures,
         &themes,
         &component_signatures,
         &function_signatures,
@@ -847,6 +871,44 @@ fn has_navigation_root(nodes: &[ast::Node], target: Target) -> bool {
     let mut active = Vec::new();
     collect_active_nodes(nodes, target, &mut active);
     matches!(active.as_slice(), [ast::Node::NavigationStack { .. }])
+}
+
+fn collect_screen_signatures(
+    screens: &[ast::ScreenDecl],
+    structs: &StructTypes,
+) -> Result<ScreenSignatures, CompileError> {
+    let mut signatures = ScreenSignatures::with_capacity(screens.len());
+    for (index, screen) in screens.iter().enumerate() {
+        let parameters = screen
+            .parameters
+            .iter()
+            .map(|parameter| {
+                let ty = resolve_struct_type(&parse_type(&parameter.ty)?, structs);
+                if !is_route_parameter_type(&ty) {
+                    return Err(CompileError::new(
+                        parameter.span,
+                        "screen route parameters must be String, Bool, or a numeric type",
+                    ));
+                }
+                Ok(nexa_ir::FunctionParameter {
+                    name: parameter.name.clone(),
+                    ty,
+                })
+            })
+            .collect::<Result<Vec<_>, CompileError>>()?;
+        signatures.insert(
+            screen.name.clone(),
+            ScreenSignature {
+                id: ScreenId(index),
+                parameters,
+            },
+        );
+    }
+    Ok(signatures)
+}
+
+fn is_route_parameter_type(ty: &Type) -> bool {
+    matches!(ty, Type::String | Type::Bool | Type::Numeric(_))
 }
 
 fn collect_active_nodes<'a>(

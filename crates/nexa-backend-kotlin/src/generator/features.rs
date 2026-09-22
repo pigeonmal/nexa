@@ -45,6 +45,7 @@ pub(super) struct Features {
     pub(super) uses_placeholder: bool,
     pub(super) uses_navigation_link: bool,
     pub(super) uses_navigation_back: bool,
+    pub(super) uses_navigation_uri: bool,
     pub(super) uses_link: bool,
     pub(super) app_uses_link: bool,
     pub(super) uses_accessibility: bool,
@@ -356,6 +357,11 @@ impl Features {
         features.uses_path_api = uses_path_api;
         features.uses_file_api = uses_file_api;
         features.uses_file_async = uses_file_async;
+        features.uses_navigation_uri = module
+            .screens
+            .iter()
+            .flat_map(|screen| &screen.parameters)
+            .any(|parameter| matches!(parameter.ty, nexa_ir::Type::String));
         features.uses_native_library =
             features.uses_network_api || features.uses_path_api || features.uses_file_api;
         features.uses_permissions = uses_permissions;

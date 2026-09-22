@@ -10,7 +10,6 @@ pub fn walk_ir(
         visit_node(node);
         match node {
             Node::Layout { children, .. }
-            | Node::NavigationLink { children, .. }
             | Node::KeyboardAware { children, .. }
             | Node::BottomSheet { children, .. } => walk_ir(children, visit_node, visit_expression),
             Node::Pressable {
@@ -27,6 +26,16 @@ pub fn walk_ir(
             }
             Node::Link { url, children } => {
                 walk_expression(url, visit_expression);
+                walk_ir(children, visit_node, visit_expression);
+            }
+            Node::NavigationLink {
+                arguments,
+                children,
+                ..
+            } => {
+                for argument in arguments {
+                    walk_expression(argument, visit_expression);
+                }
                 walk_ir(children, visit_node, visit_expression);
             }
             Node::Accessibility {
@@ -139,8 +148,12 @@ pub fn walk_ir(
             Node::Content
             | Node::Switch { .. }
             | Node::StatusBar { .. }
-            | Node::Direction { .. }
-            | Node::NavigationStack { .. } => {}
+            | Node::Direction { .. } => {}
+            Node::NavigationStack { arguments, .. } => {
+                for argument in arguments {
+                    walk_expression(argument, visit_expression);
+                }
+            }
             Node::NavigationBack { label } => walk_expression(label, visit_expression),
             Node::Image { source, .. } => {
                 if let crate::ImageSource::RemoteUrl(url) = source {

@@ -1,0 +1,24 @@
+app NavigationParamsDemo {
+    state defaultId: Int32 = 7
+
+    screen Home {
+        Column {
+            Text("Home")
+            NavigationLink(destination: Profile(defaultId, "Ada")) {
+                Text("Open profile")
+            }
+        }
+    }
+
+    screen Profile(userId: Int32, displayName: String) {
+        Column {
+            Text(userId)
+            Text(displayName)
+            NavigationBack()
+        }
+    }
+
+    body {
+        NavigationStack(root: Home)
+    }
+}

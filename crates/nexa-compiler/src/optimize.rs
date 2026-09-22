@@ -1064,11 +1064,14 @@ fn optimize_node(node: Node) -> Option<Node> {
             actions: optimize_actions(actions),
         }),
         Node::Content => Some(Node::Content),
+        Node::NavigationStack { root, arguments } => Some(Node::NavigationStack {
+            root,
+            arguments: arguments.into_iter().map(fold_expression).collect(),
+        }),
         node @ (Node::Switch { .. }
         | Node::Image { .. }
         | Node::StatusBar { .. }
         | Node::Direction { .. }
-        | Node::NavigationStack { .. }
         | Node::NavigationBack { .. }) => Some(node),
         Node::OnAppear {
             actions,
@@ -1091,9 +1094,11 @@ fn optimize_node(node: Node) -> Option<Node> {
         }),
         Node::NavigationLink {
             destination,
+            arguments,
             children,
         } => Some(Node::NavigationLink {
             destination,
+            arguments: arguments.into_iter().map(fold_expression).collect(),
             children: optimize_nodes(children),
         }),
         Node::Link { url, children } => Some(Node::Link {
