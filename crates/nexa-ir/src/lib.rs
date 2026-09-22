@@ -283,6 +283,11 @@ pub enum Node {
         then_body: Vec<Node>,
         else_body: Option<Vec<Node>>,
     },
+    When {
+        value: Expr,
+        cases: Vec<WhenCase>,
+        else_body: Vec<Node>,
+    },
     ComponentCall {
         name: String,
         arguments: Vec<(String, Expr)>,
@@ -294,6 +299,12 @@ pub struct BottomBarTab {
     pub index: i32,
     pub label: String,
     pub children: Vec<Node>,
+}
+
+#[derive(Clone, Debug)]
+pub struct WhenCase {
+    pub value: Expr,
+    pub body: Vec<Node>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

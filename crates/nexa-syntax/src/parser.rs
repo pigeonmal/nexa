@@ -379,6 +379,9 @@ impl Parser {
         if self.word_is("if") {
             return self.if_node();
         }
+        if self.word_is("when") {
+            return self.when_node();
+        }
         let (name, span) = self.ident()?;
         match name.as_str() {
             "platform" => {
@@ -1208,6 +1211,56 @@ impl Parser {
         Ok(Node::If {
             condition,
             then_body,
+            else_body,
+            span,
+        })
+    }
+
+    fn when_node(&mut self) -> Result<Node, CompileError> {
+        let span = self.advance().span;
+        let value = self.expr()?;
+        self.expect(Kind::LBrace, "expected `{` to open when cases")?;
+        let mut cases = Vec::new();
+        let mut else_body = None;
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            if self.word_is("else") {
+                let else_span = self.advance().span;
+                if else_body.is_some() {
+                    return Err(CompileError::new(
+                        else_span,
+                        "when can declare only one `else` case",
+                    ));
+                }
+                self.expect(Kind::Colon, "expected `:` after `else`")?;
+                else_body = Some(self.block_nodes()?);
+            } else {
+                let case_value = self.expr()?;
+                let case_span = case_value.span();
+                self.expect(Kind::Colon, "expected `:` after when case value")?;
+                cases.push(WhenCase {
+                    value: case_value,
+                    body: self.block_nodes()?,
+                    span: case_span,
+                });
+            }
+            self.optional_semicolon();
+        }
+        self.expect(Kind::RBrace, "expected `}` to close when cases")?;
+        let Some(else_body) = else_body else {
+            return Err(CompileError::new(
+                span,
+                "when requires an `else` case for exhaustive native lowering",
+            ));
+        };
+        if cases.is_empty() {
+            return Err(CompileError::new(
+                span,
+                "when requires at least one value case",
+            ));
+        }
+        Ok(Node::When {
+            value,
+            cases,
             else_body,
             span,
         })

@@ -200,6 +200,32 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             indent(out, depth);
             out.push('}');
         }
+        Node::When {
+            value,
+            cases,
+            else_body,
+        } => {
+            indent(out, depth);
+            out.push_str(&format!(
+                "switch {} {{\n",
+                super::expressions::expression(value)
+            ));
+            for case in cases {
+                indent(out, depth + 1);
+                out.push_str(&format!(
+                    "case {}:\n",
+                    super::expressions::expression(&case.value)
+                ));
+                render_children(&case.body, module, depth + 2, out);
+                out.push('\n');
+            }
+            indent(out, depth + 1);
+            out.push_str("default:\n");
+            render_children(else_body, module, depth + 2, out);
+            out.push('\n');
+            indent(out, depth);
+            out.push('}');
+        }
         Node::ComponentCall { name, arguments } => {
             indent(out, depth);
             out.push_str(&format!(

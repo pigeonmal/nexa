@@ -4,13 +4,13 @@ use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
     AccessibilityRole, Action, BottomBarTab, Capitalization, DirectionConfig, DirectionStyle, Expr,
     FontWeight, ImageScale, ImageSource, KeyboardType, LayoutKind, ListSource, Node, NumericType,
-    ScreenId, StatusBarConfig, StatusBarStyle, TextStyle, Type,
+    ScreenId, StatusBarConfig, StatusBarStyle, TextStyle, Type, WhenCase,
 };
 use nexa_syntax::ast;
 
 use super::{
     custom_components::ComponentSignatures,
-    expressions::{FunctionSignatures, lower_expr, type_name},
+    expressions::{FunctionSignatures, infer_expr_type, lower_expr, type_name},
     styles::{lower_style, optional_color, optional_dimension},
     themes::ThemeSymbols,
 };
@@ -702,6 +702,59 @@ pub(super) fn lower_node(
             Ok(Node::If {
                 condition,
                 then_body: lowered_then,
+                else_body: lowered_else,
+            })
+        }
+        ast::Node::When {
+            value,
+            cases,
+            else_body,
+            span,
+        } => {
+            let value_type = infer_expr_type(&value, symbols, functions)
+                .ok_or_else(|| CompileError::new(span, "when requires a typed scalar value"))?;
+            if !matches!(value_type, Type::String | Type::Bool | Type::Numeric(_)) {
+                return Err(CompileError::new(
+                    span,
+                    "when supports String, Bool, and numeric values only",
+                ));
+            }
+            let lowered_value = lower_expr(&value, Some(&value_type), symbols, functions, false)?;
+            let mut seen = std::collections::HashSet::with_capacity(cases.len());
+            let mut lowered_cases = Vec::with_capacity(cases.len());
+            for case in cases {
+                if !matches!(
+                    &case.value,
+                    ast::Expr::String(_, _) | ast::Expr::Number(_, _) | ast::Expr::Bool(_, _)
+                ) {
+                    return Err(CompileError::new(
+                        case.span,
+                        "when case values must be String, Bool, or numeric literals",
+                    ));
+                }
+                let lowered_case =
+                    lower_expr(&case.value, Some(&value_type), symbols, functions, false)?;
+                let key = format!("{lowered_case:?}");
+                if !seen.insert(key) {
+                    return Err(CompileError::new(
+                        case.span,
+                        "when case values must be unique",
+                    ));
+                }
+                let body = lower_nodes(
+                    case.body, symbols, screen_ids, themes, components, functions, false, target,
+                )?;
+                lowered_cases.push(WhenCase {
+                    value: lowered_case,
+                    body,
+                });
+            }
+            let lowered_else = lower_nodes(
+                else_body, symbols, screen_ids, themes, components, functions, false, target,
+            )?;
+            Ok(Node::When {
+                value: lowered_value,
+                cases: lowered_cases,
                 else_body: lowered_else,
             })
         }

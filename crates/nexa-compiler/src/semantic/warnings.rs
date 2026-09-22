@@ -390,6 +390,23 @@ fn walk_node(
                 }
             }
         }
+        ast::Node::When {
+            value,
+            cases,
+            else_body,
+            ..
+        } => {
+            walk_expression(value, names, used);
+            for case in cases {
+                walk_expression(&case.value, names, used);
+                for child in &case.body {
+                    walk_node(child, names, used, target, file, warnings);
+                }
+            }
+            for child in else_body {
+                walk_node(child, names, used, target, file, warnings);
+            }
+        }
         ast::Node::ComponentCall { arguments, .. } => {
             for value in arguments.values() {
                 walk_expression(value, names, used);

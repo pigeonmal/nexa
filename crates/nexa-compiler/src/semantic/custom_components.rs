@@ -336,6 +336,18 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
                 collect_component_calls(child, calls);
             }
         }
+        ast::Node::When {
+            cases, else_body, ..
+        } => {
+            for case in cases {
+                for child in &case.body {
+                    collect_component_calls(child, calls);
+                }
+            }
+            for child in else_body {
+                collect_component_calls(child, calls);
+            }
+        }
         ast::Node::Text { .. }
         | ast::Node::Button { .. }
         | ast::Node::StatusBar { .. }
@@ -390,6 +402,17 @@ fn contains_navigation_link(node: &ast::Node, target: Target) -> bool {
                         .any(|child| contains_navigation_link(child, target))
                 })
         }
+        ast::Node::When {
+            cases, else_body, ..
+        } => {
+            cases.iter().any(|case| {
+                case.body
+                    .iter()
+                    .any(|child| contains_navigation_link(child, target))
+            }) || else_body
+                .iter()
+                .any(|child| contains_navigation_link(child, target))
+        }
         ast::Node::StatusBar { .. } => false,
         ast::Node::Text { .. }
         | ast::Node::Button { .. }
@@ -442,6 +465,18 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
             ..
         } => {
             for child in then_body.iter().chain(else_body.iter().flatten()) {
+                collect_ir_component_calls(child, calls);
+            }
+        }
+        Node::When {
+            cases, else_body, ..
+        } => {
+            for case in cases {
+                for child in &case.body {
+                    collect_ir_component_calls(child, calls);
+                }
+            }
+            for child in else_body {
                 collect_ir_component_calls(child, calls);
             }
         }

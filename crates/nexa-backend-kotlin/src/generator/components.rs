@@ -204,6 +204,37 @@ pub(super) fn render_node(
             indent(out, depth);
             out.push('}');
         }
+        Node::When {
+            value,
+            cases,
+            else_body,
+        } => {
+            indent(out, depth);
+            out.push_str(&format!(
+                "when ({}) {{\n",
+                super::expressions::expression(value)
+            ));
+            for case in cases {
+                indent(out, depth + 1);
+                out.push_str(&format!(
+                    "{} -> {{\n",
+                    super::expressions::expression(&case.value)
+                ));
+                render_children(&case.body, module, features, depth + 2, out);
+                out.push('\n');
+                indent(out, depth + 1);
+                out.push_str("}\n");
+            }
+            indent(out, depth + 1);
+            out.push_str("else -> {\n");
+            render_children(else_body, module, features, depth + 2, out);
+            out.push('\n');
+            indent(out, depth + 1);
+            out.push('}');
+            out.push('\n');
+            indent(out, depth);
+            out.push('}');
+        }
         Node::ComponentCall { name, arguments } => {
             indent(out, depth);
             let mut rendered_arguments = arguments

@@ -19,6 +19,7 @@ cargo run -p nexa-cli -- check examples/collection-list.nx
 cargo run -p nexa-cli -- check examples/collection-values.nx
 cargo run -p nexa-cli -- check examples/collection-indexing.nx
 cargo run -p nexa-cli -- check examples/nullable-values.nx
+cargo run -p nexa-cli -- check examples/when.nx
 cargo run -p nexa-cli -- check examples/themed-app.nx
 cargo run -p nexa-cli -- check examples/custom-components.nx
 cargo run -p nexa-cli -- check examples/function-locals.nx

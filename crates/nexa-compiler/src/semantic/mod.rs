@@ -379,6 +379,14 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
                     .as_deref()
                     .is_some_and(|body| body.iter().any(contains_status_bar))
         }
+        Node::When {
+            cases, else_body, ..
+        } => {
+            cases
+                .iter()
+                .any(|case| case.body.iter().any(contains_status_bar))
+                || else_body.iter().any(contains_status_bar)
+        }
         Node::Text { .. }
         | Node::Button { .. }
         | Node::TextInput { .. }
@@ -444,6 +452,14 @@ pub(super) fn contains_direction(node: &Node) -> bool {
                 || else_body
                     .as_deref()
                     .is_some_and(|body| body.iter().any(contains_direction))
+        }
+        Node::When {
+            cases, else_body, ..
+        } => {
+            cases
+                .iter()
+                .any(|case| case.body.iter().any(contains_direction))
+                || else_body.iter().any(contains_direction)
         }
         Node::StatusBar { .. }
         | Node::Text { .. }
@@ -517,6 +533,14 @@ pub(super) fn contains_on_appear(node: &Node) -> bool {
                     .as_deref()
                     .is_some_and(|body| body.iter().any(contains_on_appear))
         }
+        Node::When {
+            cases, else_body, ..
+        } => {
+            cases
+                .iter()
+                .any(|case| case.body.iter().any(contains_on_appear))
+                || else_body.iter().any(contains_on_appear)
+        }
         Node::StatusBar { .. }
         | Node::Direction { .. }
         | Node::Text { .. }
@@ -583,6 +607,14 @@ pub(super) fn contains_on_disappear(node: &Node) -> bool {
                 || else_body
                     .as_deref()
                     .is_some_and(|body| body.iter().any(contains_on_disappear))
+        }
+        Node::When {
+            cases, else_body, ..
+        } => {
+            cases
+                .iter()
+                .any(|case| case.body.iter().any(contains_on_disappear))
+                || else_body.iter().any(contains_on_disappear)
         }
         Node::StatusBar { .. }
         | Node::Direction { .. }

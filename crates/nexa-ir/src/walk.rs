@@ -58,6 +58,18 @@ pub fn walk_ir(
                     walk_ir(else_body, visit_node, visit_expression);
                 }
             }
+            Node::When {
+                value,
+                cases,
+                else_body,
+            } => {
+                walk_expression(value, visit_expression);
+                for case in cases {
+                    walk_expression(&case.value, visit_expression);
+                    walk_ir(&case.body, visit_node, visit_expression);
+                }
+                walk_ir(else_body, visit_node, visit_expression);
+            }
             Node::Text { value, .. } => walk_expression(value, visit_expression),
             Node::Button {
                 label,
@@ -170,6 +182,12 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
             ..
         } => {
             contains_scrollable(then_body) || else_body.as_deref().is_some_and(contains_scrollable)
+        }
+        Node::When {
+            cases, else_body, ..
+        } => {
+            cases.iter().any(|case| contains_scrollable(&case.body))
+                || contains_scrollable(else_body)
         }
         Node::StatusBar { .. }
         | Node::Direction { .. }

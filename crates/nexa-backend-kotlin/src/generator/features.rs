@@ -353,7 +353,7 @@ impl Features {
                     self.record_child_layout(else_body);
                 }
             }
-            Node::NavigationStack { .. } | Node::ComponentCall { .. } => {}
+            Node::NavigationStack { .. } | Node::When { .. } | Node::ComponentCall { .. } => {}
         }
     }
 

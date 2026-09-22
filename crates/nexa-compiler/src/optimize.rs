@@ -500,6 +500,21 @@ fn optimize_node(node: Node) -> Option<Node> {
                 }),
             }
         }
+        Node::When {
+            value,
+            cases,
+            else_body,
+        } => Some(Node::When {
+            value: fold_expression(value),
+            cases: cases
+                .into_iter()
+                .map(|case| nexa_ir::WhenCase {
+                    value: fold_expression(case.value),
+                    body: optimize_nodes(case.body),
+                })
+                .collect(),
+            else_body: optimize_nodes(else_body),
+        }),
         Node::ComponentCall { name, arguments } => Some(Node::ComponentCall {
             name,
             arguments: arguments

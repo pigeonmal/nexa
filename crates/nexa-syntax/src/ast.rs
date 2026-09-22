@@ -254,11 +254,24 @@ pub enum Node {
         else_body: Option<Vec<Node>>,
         span: Span,
     },
+    When {
+        value: Expr,
+        cases: Vec<WhenCase>,
+        else_body: Vec<Node>,
+        span: Span,
+    },
     ComponentCall {
         name: String,
         arguments: BTreeMap<String, Expr>,
         span: Span,
     },
+}
+
+#[derive(Clone, Debug)]
+pub struct WhenCase {
+    pub value: Expr,
+    pub body: Vec<Node>,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug)]
