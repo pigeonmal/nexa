@@ -35,6 +35,15 @@ pub fn parse_program(tokens: Vec<Token>) -> Result<Program, CompileError> {
     .program()
 }
 
+pub fn parse_config(tokens: Vec<Token>) -> Result<Config, CompileError> {
+    Parser {
+        tokens,
+        cursor: 0,
+        enum_names: std::collections::BTreeSet::new(),
+    }
+    .config()
+}
+
 struct Parser {
     tokens: Vec<Token>,
     cursor: usize,
@@ -42,6 +51,78 @@ struct Parser {
 }
 
 impl Parser {
+    fn config(mut self) -> Result<Config, CompileError> {
+        let span = self.peek().span;
+        self.expect_word("config")?;
+        self.expect(Kind::LBrace, "expected `{` after config")?;
+        let mut permissions = Vec::new();
+        let mut has_permissions = false;
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            if self.word_is("permissions") {
+                if has_permissions {
+                    return self.error_here("a config can declare only one `permissions` block");
+                }
+                has_permissions = true;
+                permissions = self.config_permissions_decl()?;
+            } else {
+                return self.error_here("expected a `permissions` block in config");
+            }
+        }
+        self.expect(Kind::RBrace, "expected `}` to close config")?;
+        self.optional_semicolon();
+        if !self.check(&Kind::Eof) {
+            return self.error_here("unexpected content after config");
+        }
+        Ok(Config { permissions, span })
+    }
+
+    fn config_permissions_decl(&mut self) -> Result<Vec<PermissionConfig>, CompileError> {
+        self.expect_word("permissions")?;
+        self.expect(Kind::LBrace, "expected `{` after `permissions`")?;
+        let mut permissions = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (name, span) = self.ident()?;
+            if permissions
+                .iter()
+                .any(|permission: &PermissionConfig| permission.name == name)
+            {
+                return Err(CompileError::new(
+                    span,
+                    format!("permission `{name}` is declared more than once"),
+                ));
+            }
+            self.expect(Kind::Colon, "expected `:` after permission name")?;
+            let token = self.advance().clone();
+            let Kind::String(message) = token.kind else {
+                return Err(CompileError::new(
+                    token.span,
+                    "permission message must be a quoted string",
+                ));
+            };
+            if message.trim().is_empty() {
+                return Err(CompileError::new(
+                    token.span,
+                    "permission message cannot be empty",
+                ));
+            }
+            permissions.push(PermissionConfig {
+                name,
+                message,
+                span,
+            });
+            if self.take(&Kind::Comma) {
+                continue;
+            }
+            self.optional_semicolon();
+            if !self.check(&Kind::RBrace) {
+                return self.error_here("expected `,` or `}` after permission message");
+            }
+        }
+        self.expect(Kind::RBrace, "expected `}` to close config permissions")?;
+        self.optional_semicolon();
+        Ok(permissions)
+    }
+
     fn program(mut self) -> Result<Program, CompileError> {
         let mut imports = Vec::new();
         let mut plugins = Vec::new();

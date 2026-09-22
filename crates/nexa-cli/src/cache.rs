@@ -13,7 +13,7 @@ use std::{
 
 use nexa_syntax::ast::Program;
 
-const CACHE_VERSION: &str = "build-v8";
+const CACHE_VERSION: &str = "build-v9";
 
 pub(super) struct CachedBuild {
     pub(super) warnings: Vec<String>,
@@ -96,6 +96,14 @@ fn cache_directory(entry: &Path) -> PathBuf {
 }
 
 pub(super) fn key(entry: &Path, target: &str) -> Result<String, String> {
+    key_with_extra(entry, target, &[])
+}
+
+pub(super) fn key_with_extra(
+    entry: &Path,
+    target: &str,
+    extra_files: &[&Path],
+) -> Result<String, String> {
     let mut hasher = Fnv64::default();
     hasher.write(CACHE_VERSION.as_bytes());
     hasher.write(target.as_bytes());
@@ -107,6 +115,11 @@ pub(super) fn key(entry: &Path, target: &str) -> Result<String, String> {
         &mut visited,
         &mut hasher,
     )?;
+    for extra in extra_files {
+        if extra.is_file() {
+            fingerprint_file(extra, false, false, &mut visited, &mut hasher)?;
+        }
+    }
     Ok(format!("{target}-{:016x}", hasher.finish()))
 }
 

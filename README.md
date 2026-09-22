@@ -2,7 +2,7 @@
 
 Nexa is an early ahead-of-time compiler prototype for a shared mobile language that emits native SwiftUI and Jetpack Compose source. Its frontend and typed intermediate representation are Rust; generated applications use the platform UI frameworks directly and do not include a JavaScript or Dart runtime.
 
-The current implementation covers the compiler foundation and a growing native-control slice. It parses app state, typed value structs, checks primitive and collection value types and bindings, lowers to a platform-independent IR, and emits native SwiftUI or Compose controls, including virtualized range and collection lists. `nexa generate` also creates a native iOS Xcode project and Android Gradle project around the generated sources.
+The current implementation covers the compiler foundation and a growing native-control slice. It parses app state, typed value structs, checks primitive and collection value types and bindings, lowers to a platform-independent IR, and emits native SwiftUI or Compose controls, including virtualized range and collection lists. `nexa generate` also creates a native iOS Xcode project and Android Gradle project around the generated sources, including a typed `nexa.config.nx` file for compile-time host metadata.
 
 Nexa's product direction is to let people create complete mobile apps from `.nx` without writing native source. The current compiler supports only the documented language slice below; unsupported language features remain explicit roadmap items. The core component set comes first, while integrations such as SQLite, MMKV, and maps are planned as optional plugins. Its first theme slice compiles typed color, spacing, radius, and font-size tokens directly into native code.
 
@@ -108,7 +108,20 @@ cargo run -p nexa-cli -- build examples/network-image.nx --target kotlin --out /
 cargo run -p nexa-cli -- generate examples/counter.nx --out CounterProject --name CounterApp
 ```
 
-The default output replaces the input file extension, producing `counter.swift` or `counter.kt`. `nexa generate` writes `ios/<App>.xcodeproj`, an iOS app target, an Android Compose/Gradle project, and a `nexa.project.json` manifest. Regenerate from the `.nx` entry file after source changes; generated native files are build outputs.
+The default output replaces the input file extension, producing `counter.swift` or `counter.kt`. `nexa generate` writes `ios/<App>.xcodeproj`, an iOS app target, an Android Compose/Gradle project, a `nexa.project.json` manifest, and a typed `nexa.config.nx` file. The config is created on the first generation, validated on later generations, and included in the project cache key so edits regenerate affected host metadata. Regenerate from the `.nx` entry file after source changes; generated native files are build outputs.
+
+Compile-time permissions are kept in `nexa.config.nx`, separate from the app UI source. For example:
+
+```nexa
+config {
+    permissions {
+        camera: "Scan receipts and labels safely.",
+        photos: "Choose a profile photo."
+    }
+}
+```
+
+The CLI validates the permission names and messages, uses the messages for iOS usage-description keys, and emits only the selected Android manifest permissions. The legacy app-level `permissions { camera, ... }` block remains supported when no generated config exists.
 
 ## Workspace layout
 
@@ -130,7 +143,7 @@ Compiler orchestration and semantic analysis are separate modules inside `nexa-c
 
 The compiler also runs a conservative IR optimization pass before backend generation. It folds pure literal conditions, removes statically unreachable UI and event branches, and prunes pure functions that are unreachable from the app. These changes add no runtime machinery and do not alter native component mappings. See [constant-branches.nx](examples/constant-branches.nx).
 
-`nexa build`, `nexa check`, and `nexa generate` use a content-addressed `.nexa/cache` beside the entry file. They fingerprint the entry/import/plugin-IDL graph, and project generation also fingerprints plugin implementation sources. Unchanged native output, diagnostics, or complete generated projects are restored without repeating semantic lowering. The IR pass also removes declared plugins with no surviving typed calls, so unused native plugin sources do not enter generated projects. The cache is ignored by Git and can be deleted safely.
+`nexa build`, `nexa check`, and `nexa generate` use a content-addressed `.nexa/cache` beside the entry file. They fingerprint the entry/import/plugin-IDL graph, and project generation also fingerprints plugin implementation sources and `nexa.config.nx`. Unchanged native output, diagnostics, or complete generated projects are restored without repeating semantic lowering. The IR pass also removes declared plugins with no surviving typed calls, so unused native plugin sources do not enter generated projects. The cache is ignored by Git and can be deleted safely.
 
 Compiler warnings cover unused declarations, function parameters, action-loop bindings, `FastList` row bindings, unused pure functions, unused component parameters, and constant conditions. Read [compiler diagnostics and optimization](docs/compiler-diagnostics.md) for the warning policy, `--deny-warnings`, and the native-code optimization boundaries.
 

@@ -70,6 +70,19 @@ pub struct Program {
 }
 
 #[derive(Clone, Debug)]
+pub struct Config {
+    pub permissions: Vec<PermissionConfig>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct PermissionConfig {
+    pub name: String,
+    pub message: String,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
 pub struct ImportDecl {
     pub path: String,
     pub span: Span,

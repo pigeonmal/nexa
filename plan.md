@@ -868,16 +868,27 @@ Navigation transitions should remain native.
 
 Provide a typed cross-platform permissions API.
 
-The first static declaration slice is implemented. An app may declare one
-`permissions { camera, microphone, photos, location, notifications, contacts,
-calendar, bluetooth }` block. Semantic lowering validates names and duplicates,
-and `nexa generate` emits only the required iOS `Info.plist` usage descriptions
-and Android manifest permissions. This keeps host-project declarations in the
-Nexa source and adds no runtime permission registry. Runtime status values are
-implemented below; request flows, denial handling, and platform-specific
-permission APIs remain future work.
+Generated projects now contain a separate typed `nexa.config.nx` file at the
+project root:
 
-Typed runtime status is now available as the asynchronous native call
+```nexa
+config {
+    permissions {
+        camera: "This app uses the camera to capture photos.",
+        photos: "This app uses your photos so you can choose images."
+    }
+}
+```
+
+`nexa generate` creates this file automatically. Its parser validates permission
+names, duplicate entries, and non-empty purpose messages. iOS uses the messages
+for the required `Info.plist` usage-description keys, while Android uses the
+permission set for manifest declarations. Notifications do not require an iOS
+usage-description key. The legacy app-level `permissions` block remains a
+backward-compatible fallback when no config file exists; the generated config
+takes precedence.
+
+Typed runtime status is available as the asynchronous native call
 `await Permissions.status(permission: Camera)`, returning
 `PermissionStatus.granted`, `denied`, `restricted`, or `notDetermined`. iOS
 queries the corresponding authorization framework and Android checks the
@@ -896,8 +907,6 @@ Support common permissions such as:
 - contacts,
 - calendar,
 - Bluetooth.
-
-Expose platform differences explicitly when needed.
 
 Permissions should have strongly typed status values.
 
@@ -1127,15 +1136,16 @@ Create a project/build system that handles:
 The first project-generation slice is available as `nexa generate`. It writes
 deterministic iOS Xcode and Android Gradle/Compose host projects, generated
 native sources, feature-gated dependency declarations, and a
-`nexa.project.json` manifest from one `.nx` entry file. Multi-target generation
+`nexa.project.json` manifest plus a generated `nexa.config.nx` host configuration
+from one `.nx` entry file. Multi-target generation
 loads and parses the shared source/import graph once before lowering each
 platform independently, avoiding duplicate frontend I/O and parsing work while
 preserving target-specific semantic analysis. `nexa build`, `nexa check`, and
 `nexa generate` now keep content-addressed `.nexa/cache` entries keyed by the
 entry/import/plugin-IDL graph and target; project generation also fingerprints
-plugin platform source trees. Exact matches restore generated native source,
-diagnostics, or complete host projects. Dependency/plugin package resolution
-and native release signing remain future work.
+plugin platform source trees and `nexa.config.nx`. Exact matches restore
+generated native source, diagnostics, or complete host projects. Dependency/plugin
+package resolution and native release signing remain future work.
 
 Incremental compilation should be a major priority.
 

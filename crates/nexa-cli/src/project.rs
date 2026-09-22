@@ -16,7 +16,7 @@ use nexa_codegen::Backend;
 use nexa_compiler::{Target, compile_file_with_warnings_for_targets};
 use nexa_ir::Module;
 
-use crate::cache;
+use crate::{cache, config::ProjectConfig};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProjectTarget {
@@ -90,8 +90,15 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         ProjectTarget::Android => "project-android",
         ProjectTarget::All => "project-all",
     };
-    let cache_key =
-        cache::key(&input, project_target).map_err(|error| format!("project cache: {error}"))?;
+    let config_path = output.join("nexa.config.nx");
+    let existing_config = config_path.is_file();
+    let project_config = if existing_config {
+        Some(ProjectConfig::parse_file(&config_path)?)
+    } else {
+        None
+    };
+    let mut cache_key = cache::key_with_extra(&input, project_target, &[config_path.as_path()])
+        .map_err(|error| format!("project cache: {error}"))?;
     if project_cache_is_current(&output, &app_name, target, &cache_key) {
         if let Some(warnings) = cache::restore_warnings(&input, &cache_key)
             .map_err(|error| format!("project cache: {error}"))?
@@ -127,6 +134,19 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     let warnings = super::deduplicate_warnings(warnings);
     super::report_warnings(&warnings, deny_warnings)?;
 
+    let project_config = project_config.unwrap_or_else(|| {
+        let permissions = compiled
+            .first()
+            .map(|(_, module)| module.permissions.clone())
+            .unwrap_or_default();
+        ProjectConfig::from_permissions(&permissions)
+    });
+    if !existing_config {
+        write_if_changed(&config_path, &project_config.render())?;
+        cache_key = cache::key_with_extra(&input, project_target, &[config_path.as_path()])
+            .map_err(|error| format!("project cache: {error}"))?;
+    }
+
     fs::create_dir_all(&output).map_err(|error| format!("{}: {error}", output.display()))?;
 
     let mut generated_targets = Vec::new();
@@ -134,11 +154,11 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         module.app_name = app_name.clone();
         match compile_target {
             Target::Swift => {
-                generate_ios(&output, &app_name, &module)?;
+                generate_ios(&output, &app_name, &module, &project_config)?;
                 generated_targets.push("ios");
             }
             Target::Kotlin => {
-                generate_android(&output, &app_name, &module)?;
+                generate_android(&output, &app_name, &module, &project_config)?;
                 generated_targets.push("android");
             }
             Target::All => unreachable!("project generation compiles concrete platform targets"),
@@ -174,7 +194,12 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn generate_ios(root: &Path, app_name: &str, module: &Module) -> Result<(), String> {
+fn generate_ios(
+    root: &Path,
+    app_name: &str,
+    module: &Module,
+    config: &ProjectConfig,
+) -> Result<(), String> {
     let directory = root.join("ios").join(app_name);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let screen = nexa_codegen::names::screen_name(app_name);
@@ -188,7 +213,7 @@ fn generate_ios(root: &Path, app_name: &str, module: &Module) -> Result<(), Stri
     )?;
     write_if_changed(
         &directory.join("Info.plist"),
-        &ios_info_plist(app_name, &module.permissions),
+        &ios_info_plist(app_name, config),
     )?;
     write_if_changed(
         &root
@@ -199,7 +224,12 @@ fn generate_ios(root: &Path, app_name: &str, module: &Module) -> Result<(), Stri
     Ok(())
 }
 
-fn generate_android(root: &Path, app_name: &str, module: &Module) -> Result<(), String> {
+fn generate_android(
+    root: &Path,
+    app_name: &str,
+    module: &Module,
+    config: &ProjectConfig,
+) -> Result<(), String> {
     let package = package_name(app_name);
     let package_path = package.replace('.', "/");
     let source_dir = root.join("android/app/src/main/java").join(&package_path);
@@ -235,7 +265,7 @@ fn generate_android(root: &Path, app_name: &str, module: &Module) -> Result<(), 
     )?;
     write_if_changed(
         &root.join("android/app/src/main/AndroidManifest.xml"),
-        &android_manifest(app_name, &package, uses_network, &module.permissions),
+        &android_manifest(app_name, &package, uses_network, config),
     )?;
     write_if_changed(
         &root.join("android/settings.gradle.kts"),
@@ -392,6 +422,15 @@ fn json_escape(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 fn source_app_name(path: &Path) -> Option<String> {
     let source = fs::read_to_string(path).ok()?;
     nexa_syntax::parse_program(&source)
@@ -413,6 +452,9 @@ fn project_cache_is_current(
         return false;
     }
     if !output.join("README.md").is_file() {
+        return false;
+    }
+    if !output.join("nexa.config.nx").is_file() {
         return false;
     }
     let needs_ios = matches!(target, ProjectTarget::Ios | ProjectTarget::All);
@@ -465,7 +507,7 @@ fn project_cache_is_current(
 
 fn root_readme(app_name: &str, targets: &[&str]) -> String {
     let mut readme = format!(
-        "# {app_name}\n\nGenerated by Nexa from a single `.nx` entry file. Edit the Nexa source and regenerate; generated native files are build outputs.\n\n"
+        "# {app_name}\n\nGenerated by Nexa from a single `.nx` entry file. Edit the Nexa source and regenerate; generated native files are build outputs. Edit `nexa.config.nx` to customize compile-time permissions and their iOS purpose messages.\n\n"
     );
     if targets.contains(&"ios") {
         readme.push_str(&format!("## iOS\n\n`xcodebuild -project ios/{app_name}.xcodeproj -scheme {app_name} -sdk iphonesimulator build`\n\nOpen `ios/{app_name}.xcodeproj` in Xcode to run on a device or simulator.\n\n"));
@@ -477,39 +519,31 @@ fn root_readme(app_name: &str, targets: &[&str]) -> String {
     readme
 }
 
-fn ios_info_plist(app_name: &str, permissions: &[nexa_ir::Permission]) -> String {
+fn ios_info_plist(app_name: &str, config: &ProjectConfig) -> String {
     let mut entries = String::new();
-    for permission in permissions {
-        let (key, description) = match permission {
-            nexa_ir::Permission::Camera => {
-                ("NSCameraUsageDescription", "Nexa needs camera access.")
-            }
-            nexa_ir::Permission::Microphone => (
-                "NSMicrophoneUsageDescription",
-                "Nexa needs microphone access.",
-            ),
-            nexa_ir::Permission::Photos => (
-                "NSPhotoLibraryUsageDescription",
-                "Nexa needs photo library access.",
-            ),
-            nexa_ir::Permission::Location => (
-                "NSLocationWhenInUseUsageDescription",
-                "Nexa needs location access while in use.",
-            ),
+    for (permission, description) in config.permissions() {
+        let keys: &[&str] = match *permission {
+            nexa_ir::Permission::Camera => &["NSCameraUsageDescription"],
+            nexa_ir::Permission::Microphone => &["NSMicrophoneUsageDescription"],
+            nexa_ir::Permission::Photos => &["NSPhotoLibraryUsageDescription"],
+            nexa_ir::Permission::Location => &["NSLocationWhenInUseUsageDescription"],
             // iOS notification authorization has no Info.plist usage-description key.
-            nexa_ir::Permission::Notifications => continue,
-            nexa_ir::Permission::Contacts => {
-                ("NSContactsUsageDescription", "Nexa needs contacts access.")
-            }
-            nexa_ir::Permission::Calendar => {
-                ("NSCalendarsUsageDescription", "Nexa needs calendar access.")
-            }
-            nexa_ir::Permission::Bluetooth => (
-                "NSBluetoothAlwaysUsageDescription",
-                "Nexa needs Bluetooth access.",
-            ),
+            nexa_ir::Permission::Notifications => &[],
+            nexa_ir::Permission::Contacts => &["NSContactsUsageDescription"],
+            // Keep the deprecated key for iOS 16 deployment targets while using
+            // the full-access key required by current EventKit APIs.
+            nexa_ir::Permission::Calendar => &[
+                "NSCalendarsFullAccessUsageDescription",
+                "NSCalendarsUsageDescription",
+            ],
+            nexa_ir::Permission::Bluetooth => &["NSBluetoothAlwaysUsageDescription"],
         };
-        entries.push_str(&format!("<key>{key}</key><string>{description}</string>"));
+        for key in keys {
+            entries.push_str(&format!(
+                "<key>{key}</key><string>{}</string>",
+                xml_escape(description)
+            ));
+        }
     }
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{app_name}</string><key>CFBundleIdentifier</key><string>com.nexa.{}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>1.0</string><key>CFBundleVersion</key><string>1</string><key>LSRequiresIPhoneOS</key><true/>{entries}</dict></plist>\n",
@@ -537,18 +571,13 @@ fn android_root_gradle() -> String {
 fn android_properties() -> String {
     "android.useAndroidX=true\nandroid.enableJetifier=true\nkotlin.code.style=official\norg.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n".to_owned()
 }
-fn android_manifest(
-    app_name: &str,
-    package: &str,
-    remote: bool,
-    permissions: &[nexa_ir::Permission],
-) -> String {
+fn android_manifest(app_name: &str, package: &str, remote: bool, config: &ProjectConfig) -> String {
     let mut declared = String::new();
     if remote {
         declared.push_str("    <uses-permission android:name=\"android.permission.INTERNET\" />\n");
     }
-    for permission in permissions {
-        let names: &[&str] = match permission {
+    for (permission, _) in config.permissions() {
+        let names: &[&str] = match *permission {
             nexa_ir::Permission::Camera => &["android.permission.CAMERA"],
             nexa_ir::Permission::Microphone => &["android.permission.RECORD_AUDIO"],
             nexa_ir::Permission::Photos => &[
@@ -583,6 +612,7 @@ fn android_manifest(
         "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{app_name}\" android:theme=\"@android:style/Theme.Material.Light.NoActionBar\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\">\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n        </activity>\n    </application>\n</manifest>\n"
     )
 }
+
 fn android_app_gradle(
     package: &str,
     uses_network: bool,

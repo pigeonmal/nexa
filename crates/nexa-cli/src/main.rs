@@ -9,6 +9,7 @@ use nexa_compiler::{
 };
 
 mod cache;
+mod config;
 mod plugin;
 mod project;
 

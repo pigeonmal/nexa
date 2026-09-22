@@ -309,28 +309,43 @@ The selected build target keeps its block and removes the other block before sem
 
 ## Compile-time permissions
 
-Declare the host permissions an app needs in one compile-time block:
+Permissions and their iOS purpose messages live in the generated project
+configuration, separate from the app UI source. `nexa generate` creates
+`nexa.config.nx` automatically at the project root:
 
 ```nexa
-app CameraExample {
+config {
     permissions {
-        camera,
-        microphone,
-        photos,
-        location,
-        notifications,
-        contacts,
-        calendar,
-        bluetooth
-    }
-
-    body {
-        Text("Permission declarations are part of the generated host project")
+        camera: "This app uses the camera to capture photos.",
+        photos: "This app uses your photos so you can choose images."
     }
 }
 ```
 
-Supported names are `camera`, `microphone`, `photos`, `location`, `notifications`, `contacts`, `calendar`, and `bluetooth`. The compiler validates names and duplicates, then stores the result as project metadata. `nexa generate` writes the matching iOS `Info.plist` usage descriptions and Android manifest permissions, so supported apps do not need native edits for declarations. Runtime status is available as `await Permissions.status(permission: Camera)` and returns the typed `PermissionStatus.granted`, `.denied`, `.restricted`, or `.notDetermined` value; iOS queries the native authorization frameworks and Android checks the declared platform permission and its user-decision flags with the application context. Android exposes `granted`, `denied`, and `notDetermined`; `restricted` is reserved for platforms that expose that state. Request flows and denial recovery remain future work. Notification access has no iOS usage-description key, while Android receives `POST_NOTIFICATIONS`. See [permissions.nx](../examples/permissions.nx) and [permissions-status.nx](../examples/permissions-status.nx).
+The config parser validates permission names, duplicate entries, and non-empty
+messages. The CLI uses each message for the corresponding iOS `Info.plist`
+purpose string and uses the same permission set for Android manifest entries.
+Supported names are `camera`, `microphone`, `photos`, `location`,
+`notifications`, `contacts`, `calendar`, and `bluetooth`.
+Notifications do not create an iOS usage-description key because Apple does not
+require one; Android receives `POST_NOTIFICATIONS`. Editing the config and
+regenerating updates the native host metadata without changing `.nx` UI code.
+The existing app-level `permissions { camera, ... }` block remains accepted as a
+backward-compatible fallback when no generated config exists; a generated config
+takes precedence. The iOS mapping follows Apple's
+[protected resources documentation](https://developer.apple.com/documentation/bundleresources/protected-resources),
+including the required camera and photo-library usage-description keys. Calendar
+projects receive the current full-access key plus the deprecated calendar key so
+the generated iOS 16 deployment target remains compatible.
+
+Runtime status is available as `await Permissions.status(permission: Camera)`
+and returns the typed `PermissionStatus.granted`, `.denied`, `.restricted`, or
+`.notDetermined` value. iOS queries the native authorization frameworks and
+Android checks the declared platform permission and its user-decision flags with
+the application context. Android exposes `granted`, `denied`, and
+`notDetermined`; `restricted` is reserved for platforms that expose that state.
+Request flows and denial recovery remain future work. See
+[permissions-status.nx](../examples/permissions-status.nx).
 
 ## Native network and file library
 
@@ -408,4 +423,4 @@ When `nexa generate` targets both platforms, the compiler loads and parses the e
 
 ## Current boundaries
 
-`nexa generate entry.nx --target ios|android|all --out AppProject --name AppName` creates a native project bundle with generated Swift/Kotlin sources, an iOS Xcode project, an Android Compose/Gradle project, platform dependency declarations, and a `nexa.project.json` manifest. Edit the `.nx` entry source and regenerate; generated native files are outputs. An iOS app using `FastList` must target iOS 16 or newer for `UIHostingConfiguration`; table rows use self-sizing with estimated heights, update visible cells in place, and reload table data only when the row count changes. Navigation currently supports parameterless screens, a single stack, and compile-time checked links; typed route parameters, tabs, deep links, modals, and navigation guards remain future work. `Link` accepts static or typed dynamic `String` URLs; literal schemes are checked at compile time and dynamic values are guarded by each platform's native URL parser. Incoming links, URL availability expressions, and universal-link routing remain future work. `Accessibility` supports static or typed dynamic `String` labels and the `Button`, `Link`, `Header`, and `Image` roles; literal labels are validated while state and function expressions lower directly to native accessibility values. Hints, focus control, custom accessibility actions, and richer dynamic values remain future work. `Direction` currently supports one app-level static `LTR` or `RTL` override; dynamic language changes and direction-specific spacing/margins remain future work. `OnAppear` and `OnDisappear` support one top-level callback on the app body or each named screen; `OnAppear async` and typed `async fn` are implemented for direct lifecycle work, while app active/background events and richer cancellation controls remain future work. `FastList` supports integer ranges and primitive `Array<T>` collections. Custom stable row keys, mutable element-level bindings, paging, grids, horizontal lists, scroll controls, and FastList-specific refresh integration remain future work. `KeyboardAware` handles basic scrolling and inset adjustment, but keyboard height/events, explicit focus management, and programmatic dismissal remain future work. `StatusBar` supports static style/visibility declarations at the app root or named screen level; background colors and animated transitions remain future work. `BottomSheet` currently supports a native modal with a mutable Boolean binding; snap points, custom transitions, and drag callbacks remain future work. `RefreshControl` currently supports a native pull-to-refresh wrapper and callback block; custom indicators and refresh event streams remain future work. Network and file APIs are emitted as native helpers and can be called from `.nx` with qualified `Network`, `Path`, and `File` expressions; typed error values remain future language work. Local plugins are declared as `plugin "path" as Namespace`, checked against `interfaces.nxid`, and lowered to direct Swift/Kotlin implementation calls; generated projects include their conventional platform source trees, while package installation and typed error recovery remain future work. `Pressable` currently supports press, long press, and static or dynamic disabled state; hover, pressed-state styling, focus, and haptics remain future work. `TextInput` supports native submit/Done callbacks and mutable focus bindings; selection, autofill, password-manager integration, validation, and richer submit actions remain future work. Pure app functions support typed parameters, ordered immutable local constants, one return expression, and native async boundaries; closures, generic functions, enum associated-value patterns, loop expressions, collection transformations, and class/reference types remain future work. Struct construction and member access, including optional chaining, are implemented with native value types. Callback and lifecycle action blocks support direct native `for`/`while` loops with arrays, sets, Int32 ranges, positive literal steps, `break`, and `continue`; use `FastList` for UI repetition. Custom component callbacks and content slots, advanced theme features, FFI bindings, fine-grained incremental semantic compilation, formatting, and language-server support remain on the roadmap in `plan.md`. Compiler warnings and the current IR optimization pass are documented in [compiler-diagnostics.md](compiler-diagnostics.md).
+`nexa generate entry.nx --target ios|android|all --out AppProject --name AppName` creates a native project bundle with generated Swift/Kotlin sources, an iOS Xcode project, an Android Compose/Gradle project, platform dependency declarations, a `nexa.project.json` manifest, and a generated `nexa.config.nx` project configuration. Edit that config to change compile-time permissions and iOS purpose messages, or edit the `.nx` entry source, then regenerate; generated native files are outputs. An iOS app using `FastList` must target iOS 16 or newer for `UIHostingConfiguration`; table rows use self-sizing with estimated heights, update visible cells in place, and reload table data only when the row count changes. Navigation currently supports parameterless screens, a single stack, and compile-time checked links; typed route parameters, tabs, deep links, modals, and navigation guards remain future work. `Link` accepts static or typed dynamic `String` URLs; literal schemes are checked at compile time and dynamic values are guarded by each platform's native URL parser. Incoming links, URL availability expressions, and universal-link routing remain future work. `Accessibility` supports static or typed dynamic `String` labels and the `Button`, `Link`, `Header`, and `Image` roles; literal labels are validated while state and function expressions lower directly to native accessibility values. Hints, focus control, custom accessibility actions, and richer dynamic values remain future work. `Direction` currently supports one app-level static `LTR` or `RTL` override; dynamic language changes and direction-specific spacing/margins remain future work. `OnAppear` and `OnDisappear` support one top-level callback on the app body or each named screen; `OnAppear async` and typed `async fn` are implemented for direct lifecycle work, while app active/background events and richer cancellation controls remain future work. `FastList` supports integer ranges and primitive `Array<T>` collections. Custom stable row keys, mutable element-level bindings, paging, grids, horizontal lists, scroll controls, and FastList-specific refresh integration remain future work. `KeyboardAware` handles basic scrolling and inset adjustment, but keyboard height/events, explicit focus management, and programmatic dismissal remain future work. `StatusBar` supports static style/visibility declarations at the app root or named screen level; background colors and animated transitions remain future work. `BottomSheet` currently supports a native modal with a mutable Boolean binding; snap points, custom transitions, and drag callbacks remain future work. `RefreshControl` currently supports a native pull-to-refresh wrapper and callback block; custom indicators and refresh event streams remain future work. Network and file APIs are emitted as native helpers and can be called from `.nx` with qualified `Network`, `Path`, and `File` expressions; typed error values remain future language work. Local plugins are declared as `plugin "path" as Namespace`, checked against `interfaces.nxid`, and lowered to direct Swift/Kotlin implementation calls; generated projects include their conventional platform source trees, while package installation and typed error recovery remain future work. `Pressable` currently supports press, long press, and static or dynamic disabled state; hover, pressed-state styling, focus, and haptics remain future work. `TextInput` supports native submit/Done callbacks and mutable focus bindings; selection, autofill, password-manager integration, validation, and richer submit actions remain future work. Pure app functions support typed parameters, ordered immutable local constants, one return expression, and native async boundaries; closures, generic functions, enum associated-value patterns, loop expressions, collection transformations, and class/reference types remain future work. Struct construction and member access, including optional chaining, are implemented with native value types. Callback and lifecycle action blocks support direct native `for`/`while` loops with arrays, sets, Int32 ranges, positive literal steps, `break`, and `continue`; use `FastList` for UI repetition. Custom component callbacks and content slots, advanced theme features, FFI bindings, fine-grained incremental semantic compilation, formatting, and language-server support remain on the roadmap in `plan.md`. Compiler warnings and the current IR optimization pass are documented in [compiler-diagnostics.md](compiler-diagnostics.md).
