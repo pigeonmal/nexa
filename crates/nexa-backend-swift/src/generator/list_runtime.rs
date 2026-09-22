@@ -89,6 +89,108 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         }
     }
 }
+
+private let nexaFastHorizontalListCellReuseIdentifier = "NexaFastHorizontalListCell"
+
+@available(iOS 16.0, *)
+private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
+    let rowCount: Int
+    let rowKey: ((Int) -> AnyHashable)?
+    let rowContent: (Int) -> RowContent
+
+    init(
+        rowCount: Int,
+        rowKey: ((Int) -> AnyHashable)? = nil,
+        @ViewBuilder rowContent: @escaping (Int) -> RowContent
+    ) {
+        self.rowCount = max(0, rowCount)
+        self.rowKey = rowKey
+        self.rowContent = rowContent
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(rowCount: rowCount, rowKey: rowKey, rowContent: rowContent)
+    }
+
+    func makeUIView(context: Context) -> UICollectionView {
+        let layout = UICollectionViewFlowLayout()
+        layout.scrollDirection = .horizontal
+        layout.estimatedItemSize = UICollectionViewFlowLayout.automaticSize
+        layout.minimumLineSpacing = 0
+        layout.minimumInteritemSpacing = 0
+        let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.dataSource = context.coordinator
+        collectionView.register(
+            UICollectionViewCell.self,
+            forCellWithReuseIdentifier: nexaFastHorizontalListCellReuseIdentifier
+        )
+        collectionView.alwaysBounceHorizontal = true
+        collectionView.showsHorizontalScrollIndicator = true
+        collectionView.backgroundColor = .clear
+        collectionView.reloadData()
+        return collectionView
+    }
+
+    func updateUIView(_ collectionView: UICollectionView, context: Context) {
+        let coordinator = context.coordinator
+        let previousRowCount = coordinator.rowCount
+        coordinator.rowCount = rowCount
+        coordinator.rowKey = rowKey
+        coordinator.rowContent = rowContent
+
+        guard previousRowCount != rowCount else {
+            let visibleItems = collectionView.indexPathsForVisibleItems
+            if !visibleItems.isEmpty {
+                collectionView.reloadItems(at: visibleItems)
+            }
+            return
+        }
+        collectionView.reloadData()
+    }
+
+    final class Coordinator: NSObject, UICollectionViewDataSource {
+        var rowCount: Int
+        var rowKey: ((Int) -> AnyHashable)?
+        var rowContent: (Int) -> RowContent
+
+        init(
+            rowCount: Int,
+            rowKey: ((Int) -> AnyHashable)?,
+            rowContent: @escaping (Int) -> RowContent
+        ) {
+            self.rowCount = rowCount
+            self.rowKey = rowKey
+            self.rowContent = rowContent
+            super.init()
+        }
+
+        func collectionView(
+            _ collectionView: UICollectionView,
+            numberOfItemsInSection section: Int
+        ) -> Int {
+            rowCount
+        }
+
+        func collectionView(
+            _ collectionView: UICollectionView,
+            cellForItemAt indexPath: IndexPath
+        ) -> UICollectionViewCell {
+            let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: nexaFastHorizontalListCellReuseIdentifier,
+                for: indexPath
+            )
+            cell.contentConfiguration = UIHostingConfiguration {
+                if let rowKey {
+                    rowContent(indexPath.item).id(rowKey(indexPath.item))
+                } else {
+                    rowContent(indexPath.item)
+                }
+            }
+            .margins(.all, 0)
+            return cell
+        }
+    }
+}
 "#,
     );
 }

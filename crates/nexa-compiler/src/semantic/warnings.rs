@@ -374,6 +374,7 @@ fn walk_node(
         }
         ast::Node::FastList {
             source,
+            axis: _,
             index,
             item,
             key,

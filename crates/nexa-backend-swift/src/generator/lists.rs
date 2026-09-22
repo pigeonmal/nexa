@@ -1,10 +1,11 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Expr, ListSource, Module, Node};
+use nexa_ir::{Expr, ListAxis, ListSource, Module, Node};
 
 use super::{components::render_children, expressions::expression, utils::indent};
 
 pub(super) fn render_virtualized_list(
     source: &ListSource,
+    axis: ListAxis,
     index: &str,
     item: Option<&str>,
     key: Option<&Expr>,
@@ -14,6 +15,10 @@ pub(super) fn render_virtualized_list(
     out: &mut String,
 ) {
     indent(out, depth);
+    let list_view = match axis {
+        ListAxis::Vertical => "NexaFastList",
+        ListAxis::Horizontal => "NexaFastHorizontalList",
+    };
     match source {
         ListSource::Count(count) => {
             let key = key
@@ -25,7 +30,7 @@ pub(super) fn render_virtualized_list(
                 })
                 .unwrap_or_default();
             out.push_str(&format!(
-                "NexaFastList(rowCount: max(0, Int({})){}) {{ listPosition in\n",
+                "{list_view}(rowCount: max(0, Int({})){}) {{ listPosition in\n",
                 expression(count),
                 key
             ));
@@ -50,7 +55,7 @@ pub(super) fn render_virtualized_list(
                 })
                 .unwrap_or_default();
             out.push_str(&format!(
-                "NexaFastList(rowCount: {collection}.count{key}) {{ listPosition in\n"
+                "{list_view}(rowCount: {collection}.count{key}) {{ listPosition in\n"
             ));
             indent(out, depth + 1);
             out.push_str(&format!(

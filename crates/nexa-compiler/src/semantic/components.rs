@@ -4,7 +4,7 @@ use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
     AccessibilityRole, Action, BottomBarTab, Capitalization, CollectionMutation, DirectionConfig,
     DirectionStyle, Expr, FontWeight, HapticStyle, ImageScale, ImageSource, KeyboardDismissMode,
-    KeyboardType, LayoutKind, ListSource, Node, NumericType, ScreenId, StatusBarConfig,
+    KeyboardType, LayoutKind, ListAxis, ListSource, Node, NumericType, ScreenId, StatusBarConfig,
     StatusBarStyle, TextStyle, Type, WhenCase,
 };
 use nexa_syntax::ast;
@@ -643,12 +643,32 @@ pub(super) fn lower_node(
         }
         ast::Node::FastList {
             source,
+            axis,
             index,
             item,
             key,
             children,
             span,
         } => {
+            let axis = match axis {
+                None => ListAxis::Vertical,
+                Some(ast::Expr::Name(name, axis_span)) => match name.as_str() {
+                    "Vertical" => ListAxis::Vertical,
+                    "Horizontal" => ListAxis::Horizontal,
+                    _ => {
+                        return Err(CompileError::new(
+                            axis_span,
+                            "FastList `axis` must be `Vertical` or `Horizontal`",
+                        ));
+                    }
+                },
+                Some(expression) => {
+                    return Err(CompileError::new(
+                        expression.span(),
+                        "FastList `axis` must be `Vertical` or `Horizontal`",
+                    ));
+                }
+            };
             let row_index_type = Type::Numeric(NumericType::Int32);
             let index = binding_name(index, "index", "FastList index")?;
             let (source, item, item_type) = match source {
@@ -748,6 +768,7 @@ pub(super) fn lower_node(
             }
             Ok(Node::FastList {
                 source,
+                axis,
                 index,
                 item,
                 key,

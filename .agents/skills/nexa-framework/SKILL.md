@@ -80,6 +80,7 @@ Work on the Nexa framework itself: a Rust ahead-of-time compiler that turns `.nx
 - Keep `TextInput` submit actions and static positive `maxLength` limits in the shared IR. Lower the optional action block directly to SwiftUI `.onSubmit` and Compose `KeyboardActions`/`ImeAction.Done`, and lower `maxLength` to SwiftUI `onChange` with `String.prefix` or Compose `onValueChange` with `take`; feature-gate submit imports and modifiers so fields without those behaviors remain minimal. Keep focus, selection, autofill, password-manager integration, and richer validation out until their native semantics are defined.
 - Keep `KeyboardAware` as a native scroll/inset wrapper with an optional static `dismiss: Interactive|Never` mode. Lower it to SwiftUI `scrollDismissesKeyboard` or Compose `imeNestedScroll` plus `imePadding`; feature-gate the Compose experimental opt-in and import, and do not add a keyboard event bridge.
 - Keep `FastList` as the sole virtualized list component name.
+- Keep `FastList` axis-aware without a shared list runtime: lower vertical lists to iOS `UITableView`/Compose `LazyColumn` and horizontal lists to iOS `UICollectionView`/Compose `LazyRow`, preserving direct item lookup, scalar keys, and row-tree generation once per visible cell.
 
 ## Change workflow
 

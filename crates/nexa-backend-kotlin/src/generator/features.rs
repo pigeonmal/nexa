@@ -45,6 +45,7 @@ pub(super) struct Features {
     pub(super) uses_accessibility_role: bool,
     pub(super) uses_accessibility_heading: bool,
     pub(super) uses_list: bool,
+    pub(super) uses_horizontal_list: bool,
     pub(super) uses_keyboard_aware: bool,
     pub(super) uses_keyboard_interactive: bool,
     pub(super) app_uses_keyboard_interactive: bool,
@@ -510,8 +511,9 @@ impl Features {
                 }
                 self.record_child_layout(children);
             }
-            Node::FastList { children, .. } => {
+            Node::FastList { axis, children, .. } => {
                 self.uses_list = true;
+                self.uses_horizontal_list |= matches!(axis, nexa_ir::ListAxis::Horizontal);
                 self.record_child_layout(children);
             }
             Node::If {

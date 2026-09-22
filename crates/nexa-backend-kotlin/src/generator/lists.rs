@@ -1,5 +1,5 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Expr, ListSource, Module, Node};
+use nexa_ir::{Expr, ListAxis, ListSource, Module, Node};
 
 use super::{
     components::render_children, expressions::expression, features::Features, utils::indent,
@@ -7,6 +7,7 @@ use super::{
 
 pub(super) fn render_virtualized_list(
     source: &ListSource,
+    axis: ListAxis,
     index: &str,
     item: Option<&str>,
     key: Option<&Expr>,
@@ -17,7 +18,10 @@ pub(super) fn render_virtualized_list(
     out: &mut String,
 ) {
     indent(out, depth);
-    out.push_str("LazyColumn {\n");
+    out.push_str(match axis {
+        ListAxis::Vertical => "LazyColumn {\n",
+        ListAxis::Horizontal => "LazyRow {\n",
+    });
     indent(out, depth + 1);
     match source {
         ListSource::Count(count) => {

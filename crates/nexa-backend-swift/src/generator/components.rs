@@ -173,6 +173,7 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
         }
         Node::FastList {
             source,
+            axis,
             index,
             item,
             key,
@@ -180,6 +181,7 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
         } => {
             lists::render_virtualized_list(
                 source,
+                *axis,
                 index,
                 item.as_deref(),
                 key.as_ref(),

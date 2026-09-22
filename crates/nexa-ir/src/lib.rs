@@ -396,6 +396,7 @@ pub enum Node {
     },
     FastList {
         source: ListSource,
+        axis: ListAxis,
         index: String,
         item: Option<String>,
         key: Option<Expr>,
@@ -450,6 +451,12 @@ pub enum ListSource {
         collection: Expr,
         element_type: Type,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListAxis {
+    Vertical,
+    Horizontal,
 }
 
 #[derive(Clone, Copy, Debug)]
