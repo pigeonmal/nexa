@@ -894,8 +894,12 @@ inside declared screens and lowers to native dismiss/pop-back-stack behavior.
 Screens also support scalar typed route parameters. Links and stack roots check
 destination, arity, and exact parameter types at compile time and lower to typed
 Swift route payloads or Compose route arguments without a route dictionary.
-Collections and nullable route parameters, deep links, and navigation guards
-remain future work.
+`NavigationLink` also accepts an optional `when: Bool` guard. The guard keeps the
+native link content visible and maps directly to SwiftUI disabled state or
+Compose `TextButton(enabled:)`; literal guards are folded without a runtime
+guard object. Asynchronous authorization hooks remain future work.
+Collections and nullable route parameters, deep links, and asynchronous guard
+hooks remain future work.
 
 ## Permissions
 

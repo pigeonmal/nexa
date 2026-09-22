@@ -30,11 +30,15 @@ pub fn walk_ir(
             }
             Node::NavigationLink {
                 arguments,
+                guard,
                 children,
                 ..
             } => {
                 for argument in arguments {
                     walk_expression(argument, visit_expression);
+                }
+                if let Some(guard) = guard {
+                    walk_expression(guard, visit_expression);
                 }
                 walk_ir(children, visit_node, visit_expression);
             }

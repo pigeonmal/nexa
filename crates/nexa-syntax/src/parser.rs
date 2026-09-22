@@ -1071,17 +1071,19 @@ impl Parser {
                 })
             }
             "NavigationLink" => {
-                let mut args = self.named_args(&["destination"])?;
+                let mut args = self.named_args(&["destination", "when"])?;
                 let destination = self.required_arg(
                     &mut args,
                     "destination",
                     "NavigationLink requires a declared screen as `destination`",
                 )?;
+                let guard = args.remove("when");
                 let (destination, arguments) = split_navigation_target(destination);
                 let children = self.block_nodes()?;
                 Ok(Node::NavigationLink {
                     destination,
                     arguments,
+                    guard,
                     children,
                     span,
                 })

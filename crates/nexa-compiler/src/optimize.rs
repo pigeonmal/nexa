@@ -1095,10 +1095,15 @@ fn optimize_node(node: Node) -> Option<Node> {
         Node::NavigationLink {
             destination,
             arguments,
+            guard,
             children,
         } => Some(Node::NavigationLink {
             destination,
             arguments: arguments.into_iter().map(fold_expression).collect(),
+            guard: guard.and_then(|guard| match fold_expression(guard) {
+                Expr::Bool(true) => None,
+                guard => Some(guard),
+            }),
             children: optimize_nodes(children),
         }),
         Node::Link { url, children } => Some(Node::Link {

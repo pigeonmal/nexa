@@ -381,6 +381,7 @@ pub enum Node {
     NavigationLink {
         destination: ScreenId,
         arguments: Vec<Expr>,
+        guard: Option<Expr>,
         children: Vec<Node>,
     },
     NavigationBack {

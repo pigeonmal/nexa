@@ -491,6 +491,7 @@ pub(super) fn lower_node(
         ast::Node::NavigationLink {
             destination,
             arguments,
+            guard,
             children,
             span,
         } => {
@@ -509,6 +510,9 @@ pub(super) fn lower_node(
                     error
                 }
             })?;
+            let guard = guard
+                .map(|guard| lower_expr(&guard, Some(&Type::Bool), symbols, functions, false))
+                .transpose()?;
             let lowered_children = lower_nodes(
                 children,
                 symbols,
@@ -523,6 +527,7 @@ pub(super) fn lower_node(
             Ok(Node::NavigationLink {
                 destination: destination.0,
                 arguments: destination.1,
+                guard,
                 children: lowered_children,
             })
         }

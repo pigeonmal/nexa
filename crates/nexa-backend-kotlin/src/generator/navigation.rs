@@ -20,16 +20,24 @@ pub(super) fn render_back(label: &nexa_ir::Expr, depth: usize, out: &mut String)
 pub(super) fn render_link(
     destination: ScreenId,
     arguments: &[Expr],
+    guard: Option<&Expr>,
     children: &[Node],
     module: &Module,
     features: &Features,
     depth: usize,
     out: &mut String,
 ) {
+    if matches!(guard, Some(Expr::Bool(false))) {
+        render_children(children, module, features, depth, out);
+        return;
+    }
     indent(out, depth);
     out.push_str(&format!(
-        "TextButton(onClick = {{ navController.navigate({}) }}) {{\n",
-        route_value(module, destination, arguments)
+        "TextButton(onClick = {{ navController.navigate({}) }}{}) {{\n",
+        route_value(module, destination, arguments),
+        guard.map_or(String::new(), |guard| {
+            format!(", enabled = {}", super::expressions::expression(guard))
+        })
     ));
     render_children(children, module, features, depth + 1, out);
     out.push('\n');

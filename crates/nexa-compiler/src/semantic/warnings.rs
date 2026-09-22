@@ -370,11 +370,15 @@ fn walk_node(
         }
         ast::Node::NavigationLink {
             arguments,
+            guard,
             children,
             ..
         } => {
             for argument in arguments {
                 walk_expression(argument, names, used);
+            }
+            if let Some(guard) = guard {
+                walk_expression(guard, names, used);
             }
             for child in children {
                 walk_node(child, names, used, target, file, warnings);

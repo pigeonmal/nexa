@@ -305,6 +305,7 @@ pub enum Node {
     NavigationLink {
         destination: Expr,
         arguments: Vec<Expr>,
+        guard: Option<Expr>,
         children: Vec<Node>,
         span: Span,
     },

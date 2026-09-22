@@ -148,10 +148,12 @@ pub(super) fn render_node(
         Node::NavigationLink {
             destination,
             arguments,
+            guard,
             children,
         } => navigation::render_link(
             *destination,
             arguments,
+            guard.as_ref(),
             children,
             module,
             features,

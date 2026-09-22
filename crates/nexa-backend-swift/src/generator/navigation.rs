@@ -9,11 +9,16 @@ use super::{components::render_children, utils::indent};
 pub(super) fn render_link(
     destination: ScreenId,
     arguments: &[Expr],
+    guard: Option<&Expr>,
     children: &[Node],
     module: &Module,
     depth: usize,
     out: &mut String,
 ) {
+    if matches!(guard, Some(Expr::Bool(false))) {
+        render_children(children, module, depth, out);
+        return;
+    }
     indent(out, depth);
     out.push_str(&format!(
         "NavigationLink(value: {}) {{\n",
@@ -23,6 +28,9 @@ pub(super) fn render_link(
     out.push('\n');
     indent(out, depth);
     out.push('}');
+    if let Some(guard) = guard {
+        out.push_str(&format!(".disabled(!({}))", expression(guard)));
+    }
 }
 
 pub(super) fn render_back(label: &nexa_ir::Expr, depth: usize, out: &mut String) {
