@@ -98,6 +98,9 @@ pub(super) fn expression(expr: &Expr) -> String {
             binary_operator(*op),
             expression(right)
         ),
+        Expr::Contains {
+            value, collection, ..
+        } => format!("({} in {})", expression(value), expression(collection)),
     }
 }
 
@@ -105,6 +108,7 @@ fn binary_operator(operator: BinaryOp) -> &'static str {
     match operator {
         BinaryOp::And => "&&",
         BinaryOp::Or => "||",
+        BinaryOp::Contains => "in",
         BinaryOp::Equal => "==",
         BinaryOp::NotEqual => "!=",
         BinaryOp::Less => "<",

@@ -141,6 +141,11 @@ pub enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    Contains {
+        value: Box<Expr>,
+        collection: Box<Expr>,
+        collection_type: Type,
+    },
     Array(Vec<Expr>),
     Set(Vec<Expr>),
     Map(Vec<(Expr, Expr)>),
@@ -179,6 +184,7 @@ pub enum InterpolatedPart {
 pub enum BinaryOp {
     And,
     Or,
+    Contains,
     Equal,
     NotEqual,
     Less,

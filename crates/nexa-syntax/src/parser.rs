@@ -933,6 +933,9 @@ impl Parser {
                 Some(BinaryOp::Equal)
             } else if self.take(&Kind::BangEqual) {
                 Some(BinaryOp::NotEqual)
+            } else if self.word_is("in") {
+                self.advance();
+                Some(BinaryOp::Contains)
             } else {
                 None
             };

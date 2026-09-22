@@ -609,6 +609,7 @@ fn constant_bool(expression: &ast::Expr) -> Option<bool> {
                 let right = constant_value(right)?;
                 compare_constants(left, *operator, right)
             }
+            ast::BinaryOp::Contains => None,
         },
         _ => None,
     }
@@ -642,6 +643,6 @@ fn compare_constants(
         ast::BinaryOp::LessEqual => comparison.is_le(),
         ast::BinaryOp::Greater => comparison.is_gt(),
         ast::BinaryOp::GreaterEqual => comparison.is_ge(),
-        ast::BinaryOp::And | ast::BinaryOp::Or => return None,
+        ast::BinaryOp::And | ast::BinaryOp::Or | ast::BinaryOp::Contains => return None,
     })
 }

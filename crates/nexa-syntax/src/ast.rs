@@ -359,6 +359,7 @@ pub enum StringPart {
 pub enum BinaryOp {
     And,
     Or,
+    Contains,
     Equal,
     NotEqual,
     Less,

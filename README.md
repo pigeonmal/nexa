@@ -18,6 +18,7 @@ cargo run -p nexa-cli -- check examples/virtualized-list.nx
 cargo run -p nexa-cli -- check examples/collection-list.nx
 cargo run -p nexa-cli -- check examples/collection-values.nx
 cargo run -p nexa-cli -- check examples/collection-indexing.nx
+cargo run -p nexa-cli -- check examples/collection-membership.nx
 cargo run -p nexa-cli -- check examples/nullable-values.nx
 cargo run -p nexa-cli -- check examples/when.nx
 cargo run -p nexa-cli -- check examples/action-loops.nx
@@ -160,6 +161,8 @@ String interpolation supports `$name` and `\(name)` for declared state and const
 `OnAppear { ... }` and `OnDisappear { ... }` are top-level app or named-screen lifecycle callbacks. Use `OnAppear async { ... }` to await an app-local `async fn`; Swift lowers it to `.task`, while Android uses `LaunchedEffect(Unit)` for the same native coroutine lifecycle. See [lifecycle.nx](examples/lifecycle.nx), [async.nx](examples/async.nx), and [navigation.nx](examples/navigation.nx). App background events remain future lifecycle slices.
 
 Button, pressable, submit, refresh, and lifecycle action blocks support direct native `for item in array`, `for item in start..end`, and `while condition` loops with `break` and `continue`. `..` is inclusive, `..<` is exclusive, and `...` is an inclusive alias; range bounds are `Int32` and do not materialize an array. Loop bindings are immutable and functions remain pure; use `FastList` for repeated UI rows. See [action-loops.nx](examples/action-loops.nx) and [ranges.nx](examples/ranges.nx).
+
+Scalar membership uses `value in collection` for arrays and sets, or `key in map` for map keys. The compiler lowers this directly to Swift `contains`/dictionary-key lookup and Kotlin `in`, without a shared collection runtime; see [collection-membership.nx](examples/collection-membership.nx).
 
 Typed app functions use `fn name(parameters) -> ReturnType { let local = expression; return expression }`; local constants are resolved and emitted as direct Swift `let` or Kotlin `val` statements. `async fn` adds a native async boundary and `await` calls it from `OnAppear async`. Calls are resolved during compilation with no runtime registry. See [functions.nx](examples/functions.nx), [function-locals.nx](examples/function-locals.nx), and [async.nx](examples/async.nx).
 

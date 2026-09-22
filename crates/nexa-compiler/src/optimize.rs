@@ -72,6 +72,12 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
             collect_expression_state_names(left, names);
             collect_expression_state_names(right, names);
         }
+        Expr::Contains {
+            value, collection, ..
+        } => {
+            collect_expression_state_names(value, names);
+            collect_expression_state_names(collection, names);
+        }
         Expr::Not(value) | Expr::Await(value) => collect_expression_state_names(value, names),
         Expr::Index {
             collection, index, ..
@@ -138,6 +144,9 @@ fn is_pure_expression(expression: &Expr) -> bool {
         Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
             is_pure_expression(left) && is_pure_expression(right)
         }
+        Expr::Contains {
+            value, collection, ..
+        } => is_pure_expression(value) && is_pure_expression(collection),
         Expr::Not(value) => is_pure_expression(value),
         Expr::Index {
             collection, index, ..
@@ -728,6 +737,15 @@ fn fold_expression(expression: Expr) -> Expr {
                 }),
             }
         }
+        Expr::Contains {
+            value,
+            collection,
+            collection_type,
+        } => Expr::Contains {
+            value: Box::new(fold_expression(*value)),
+            collection: Box::new(fold_expression(*collection)),
+            collection_type,
+        },
         Expr::Add(left, right, ty) => {
             let left = fold_expression(*left);
             let right = fold_expression(*right);
@@ -930,7 +948,7 @@ fn evaluate_binary(op: BinaryOp, left: &Expr, right: &Expr) -> Option<Expr> {
                 BinaryOp::LessEqual => left <= right,
                 BinaryOp::Greater => left > right,
                 BinaryOp::GreaterEqual => left >= right,
-                BinaryOp::And | BinaryOp::Or => return None,
+                BinaryOp::And | BinaryOp::Or | BinaryOp::Contains => return None,
             };
             Some(Expr::Bool(value))
         }

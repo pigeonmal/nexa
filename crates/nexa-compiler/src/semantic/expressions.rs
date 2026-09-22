@@ -493,6 +493,7 @@ fn lower_binary(
     let ir_operator = match operator {
         ast::BinaryOp::And => BinaryOp::And,
         ast::BinaryOp::Or => BinaryOp::Or,
+        ast::BinaryOp::Contains => BinaryOp::Contains,
         ast::BinaryOp::Equal => BinaryOp::Equal,
         ast::BinaryOp::NotEqual => BinaryOp::NotEqual,
         ast::BinaryOp::Less => BinaryOp::Less,
@@ -501,6 +502,49 @@ fn lower_binary(
         ast::BinaryOp::GreaterEqual => BinaryOp::GreaterEqual,
     };
     let is_logical = matches!(operator, ast::BinaryOp::And | ast::BinaryOp::Or);
+    if matches!(operator, ast::BinaryOp::Contains) {
+        if expected.is_some_and(|expected| expected != &Type::Bool) {
+            return Err(CompileError::new(
+                span,
+                "membership expressions produce Bool",
+            ));
+        }
+        let Some(collection_type) = infer_expr_type(right, symbols, functions) else {
+            return Err(CompileError::new(
+                span,
+                "the right side of `in` must be an Array<T>, Set<T>, or Map<K, V>",
+            ));
+        };
+        let element_type = match &collection_type {
+            Type::Array(element) | Type::Set(element) => element.as_ref(),
+            Type::Map(key, _) => key.as_ref(),
+            _ => {
+                return Err(CompileError::new(
+                    span,
+                    "the right side of `in` must be an Array<T>, Set<T>, or Map<K, V>",
+                ));
+            }
+        };
+        if !matches!(element_type, Type::String | Type::Bool | Type::Numeric(_)) {
+            return Err(CompileError::new(
+                span,
+                "membership currently supports scalar elements and keys only",
+            ));
+        }
+        let left = lower_expr(left, Some(element_type), symbols, functions, allow_await)?;
+        let right = lower_expr(
+            right,
+            Some(&collection_type),
+            symbols,
+            functions,
+            allow_await,
+        )?;
+        return Ok(Expr::Contains {
+            value: Box::new(left),
+            collection: Box::new(right),
+            collection_type,
+        });
+    }
     let is_ordered = matches!(
         operator,
         ast::BinaryOp::Less

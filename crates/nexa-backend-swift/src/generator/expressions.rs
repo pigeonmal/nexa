@@ -112,6 +112,19 @@ pub(super) fn expression(expr: &Expr) -> String {
             binary_operator(*op),
             expression(right)
         ),
+        Expr::Contains {
+            value,
+            collection,
+            collection_type,
+        } => {
+            let collection = expression(collection);
+            let receiver = if matches!(collection_type, Type::Map(_, _)) {
+                format!("{}.keys", collection)
+            } else {
+                collection
+            };
+            format!("{}.contains({})", receiver, expression(value))
+        }
     }
 }
 
@@ -129,6 +142,7 @@ fn binary_operator(operator: BinaryOp) -> &'static str {
     match operator {
         BinaryOp::And => "&&",
         BinaryOp::Or => "||",
+        BinaryOp::Contains => "contains",
         BinaryOp::Equal => "==",
         BinaryOp::NotEqual => "!=",
         BinaryOp::Less => "<",

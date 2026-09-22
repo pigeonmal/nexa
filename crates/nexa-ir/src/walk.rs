@@ -109,6 +109,12 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             walk_expression(left, visit);
             walk_expression(right, visit);
         }
+        Expr::Contains {
+            value, collection, ..
+        } => {
+            walk_expression(value, visit);
+            walk_expression(collection, visit);
+        }
         Expr::Not(value) => walk_expression(value, visit),
         Expr::Array(items) | Expr::Set(items) => {
             for item in items {
