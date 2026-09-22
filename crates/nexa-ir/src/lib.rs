@@ -166,6 +166,7 @@ pub enum Expr {
     Member {
         base: Box<Expr>,
         name: String,
+        optional: bool,
         base_type: Type,
         field_type: Type,
     },

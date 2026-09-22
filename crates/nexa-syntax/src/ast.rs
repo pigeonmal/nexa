@@ -341,6 +341,7 @@ pub enum Expr {
     Member {
         base: Box<Expr>,
         name: String,
+        optional: bool,
         span: Span,
     },
     Range {

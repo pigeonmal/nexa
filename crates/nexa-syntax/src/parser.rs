@@ -1009,6 +1009,23 @@ impl Parser {
                 expression = Expr::Member {
                     base: Box::new(expression),
                     name,
+                    optional: false,
+                    span,
+                };
+            } else if self.take(&Kind::Question) {
+                self.expect(
+                    Kind::Dot,
+                    "expected `.` after `?` in optional member access",
+                )?;
+                let (name, name_span) = self.ident()?;
+                let span = Span {
+                    end: name_span.end,
+                    ..expression.span()
+                };
+                expression = Expr::Member {
+                    base: Box::new(expression),
+                    name,
+                    optional: true,
                     span,
                 };
             } else {

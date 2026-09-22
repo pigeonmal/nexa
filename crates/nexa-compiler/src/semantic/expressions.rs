@@ -374,25 +374,60 @@ pub(super) fn lower_expr(
                 element_type: result_type,
             })
         }
-        ast::Expr::Member { base, name, span } => {
+        ast::Expr::Member {
+            base,
+            name,
+            optional,
+            span,
+        } => {
             let Some(base_type) = infer_expr_type(base, symbols, functions) else {
                 return Err(CompileError::new(
                     *span,
                     format!("cannot access member `{name}` on an untyped value"),
                 ));
             };
-            let Some(field_type) = member_field_type(&base_type, name) else {
-                return Err(CompileError::new(
-                    *span,
-                    format!("`{}` has no member `{name}`", type_name(&base_type)),
-                ));
+            let (member_base_type, field_type) = if *optional {
+                let Type::Optional(inner) = &base_type else {
+                    return Err(CompileError::new(
+                        *span,
+                        "`?.` requires an optional Pair or Triple value",
+                    ));
+                };
+                let Some(field_type) = member_field_type(inner, name) else {
+                    return Err(CompileError::new(
+                        *span,
+                        format!("`{}` has no member `{name}`", type_name(inner)),
+                    ));
+                };
+                (base_type.clone(), Type::Optional(Box::new(field_type)))
+            } else {
+                if matches!(base_type, Type::Optional(_)) {
+                    return Err(CompileError::new(
+                        *span,
+                        "optional values require `?.` for member access",
+                    ));
+                }
+                let Some(field_type) = member_field_type(&base_type, name) else {
+                    return Err(CompileError::new(
+                        *span,
+                        format!("`{}` has no member `{name}`", type_name(&base_type)),
+                    ));
+                };
+                (base_type.clone(), field_type)
             };
-            let base = lower_expr(base, Some(&base_type), symbols, functions, allow_await)?;
+            let base = lower_expr(
+                base,
+                Some(&member_base_type),
+                symbols,
+                functions,
+                allow_await,
+            )?;
             require_expected(expected, &field_type, *span)?;
             Ok(Expr::Member {
                 base: Box::new(base),
                 name: name.clone(),
-                base_type,
+                optional: *optional,
+                base_type: member_base_type,
                 field_type,
             })
         }
@@ -684,8 +719,21 @@ pub(super) fn infer_expr_type(
             Some(Type::Map(_, value_type)) => Some(Type::Optional(value_type)),
             _ => None,
         },
-        ast::Expr::Member { base, name, .. } => infer_expr_type(base, symbols, functions)
-            .and_then(|base_type| member_field_type(&base_type, name)),
+        ast::Expr::Member {
+            base,
+            name,
+            optional,
+            ..
+        } => infer_expr_type(base, symbols, functions).and_then(|base_type| {
+            if *optional {
+                let Type::Optional(inner) = base_type else {
+                    return None;
+                };
+                member_field_type(&inner, name).map(|field| Type::Optional(Box::new(field)))
+            } else {
+                member_field_type(&base_type, name)
+            }
+        }),
         ast::Expr::Range { .. } => None,
         ast::Expr::Null(_) => None,
         ast::Expr::Coalesce(left, right, _) => {

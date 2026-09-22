@@ -1,0 +1,14 @@
+app OptionalMembers {
+    let maybePair: Pair<String, Int32>? = null
+    let maybeTriple: Triple<String, Int32, Bool>? = Triple("Nexa", 42, true)
+
+    body {
+        Column(spacing: 8, padding: 20) {
+            Text(maybePair?.first ?? "No pair")
+            Text(maybePair?.second ?? 0)
+            if maybeTriple?.third ?? false {
+                Text("Triple is enabled")
+            }
+        }
+    }
+}

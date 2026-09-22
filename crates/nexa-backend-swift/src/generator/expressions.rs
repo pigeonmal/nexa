@@ -63,16 +63,26 @@ pub(super) fn expression(expr: &Expr) -> String {
         Expr::Member {
             base,
             name,
+            optional,
             base_type,
             ..
         } => {
-            let field = match (base_type, name.as_str()) {
+            let tuple_type = match base_type {
+                Type::Optional(inner) => inner.as_ref(),
+                base_type => base_type,
+            };
+            let field = match (tuple_type, name.as_str()) {
                 (Type::Pair(_, _), "first") | (Type::Triple(_, _, _), "first") => ".0",
                 (Type::Pair(_, _), "second") | (Type::Triple(_, _, _), "second") => ".1",
                 (Type::Triple(_, _, _), "third") => ".2",
                 _ => unreachable!("semantic analysis validates tuple members"),
             };
-            format!("{}{}", expression(base), field)
+            format!(
+                "{}{}{}",
+                expression(base),
+                if *optional { "?" } else { "" },
+                field
+            )
         }
         Expr::Array(items) => format!(
             "[{}]",

@@ -811,11 +811,13 @@ fn fold_expression(expression: Expr) -> Expr {
         Expr::Member {
             base,
             name,
+            optional,
             base_type,
             field_type,
         } => Expr::Member {
             base: Box::new(fold_expression(*base)),
             name,
+            optional,
             base_type,
             field_type,
         },
