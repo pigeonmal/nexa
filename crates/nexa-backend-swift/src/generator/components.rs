@@ -155,9 +155,18 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
         Node::Link { url, children } => links::render_link(url, children, module, depth, out),
         Node::Accessibility {
             label,
+            hint,
             role,
             children,
-        } => accessibility::render_accessibility(label, *role, children, module, depth, out),
+        } => accessibility::render_accessibility(
+            label,
+            hint.as_ref(),
+            *role,
+            children,
+            module,
+            depth,
+            out,
+        ),
         Node::KeyboardAware { dismiss, children } => {
             keyboard::render_keyboard_aware(*dismiss, children, module, depth, out)
         }

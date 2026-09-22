@@ -154,10 +154,18 @@ pub(super) fn render_node(
         }
         Node::Accessibility {
             label,
+            hint,
             role,
             children,
         } => accessibility::render_accessibility(
-            label, *role, children, module, features, depth, out,
+            label,
+            hint.as_ref(),
+            *role,
+            children,
+            module,
+            features,
+            depth,
+            out,
         ),
         Node::KeyboardAware { dismiss, children } => {
             keyboard::render_keyboard_aware(*dismiss, children, module, features, depth, out)

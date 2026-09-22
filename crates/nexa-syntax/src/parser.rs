@@ -1063,13 +1063,15 @@ impl Parser {
                 })
             }
             "Accessibility" => {
-                let mut args = self.named_args(&["label", "role"])?;
+                let mut args = self.named_args(&["label", "hint", "role"])?;
                 let label =
                     self.required_arg(&mut args, "label", "Accessibility requires `label`")?;
+                let hint = args.remove("hint");
                 let role = args.remove("role");
                 let children = self.block_nodes()?;
                 Ok(Node::Accessibility {
                     label,
+                    hint,
                     role,
                     children,
                     span,

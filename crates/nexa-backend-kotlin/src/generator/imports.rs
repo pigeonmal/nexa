@@ -384,6 +384,10 @@ pub(super) fn render(
         "androidx.compose.ui.semantics.heading",
     );
     add(
+        features.uses_accessibility_hint,
+        "androidx.compose.ui.semantics.hintText",
+    );
+    add(
         features.uses_switch || features.uses_accessibility,
         "androidx.compose.ui.semantics.contentDescription",
     );

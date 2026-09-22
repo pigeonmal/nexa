@@ -8,6 +8,7 @@ use super::{
 
 pub(super) fn render_accessibility(
     label: &Expr,
+    hint: Option<&Expr>,
     role: AccessibilityRole,
     children: &[Node],
     module: &Module,
@@ -31,6 +32,15 @@ pub(super) fn render_accessibility(
             value => format!("Text({})", expression(value)),
         };
         out.push_str(&format!(".accessibilityLabel({label})"));
+    }
+    if let Some(hint) = hint {
+        out.push('\n');
+        indent(out, depth + 1);
+        let hint = match hint {
+            Expr::String(value) => swift_string(value),
+            value => format!("Text({})", expression(value)),
+        };
+        out.push_str(&format!(".accessibilityHint({hint})"));
     }
     if let Some(trait_name) = trait_name(role) {
         out.push('\n');

@@ -480,6 +480,7 @@ pub(super) fn lower_node(
         }
         ast::Node::Accessibility {
             label,
+            hint,
             role,
             children,
             span,
@@ -493,6 +494,21 @@ pub(super) fn lower_node(
                     ));
                 }
             }
+            let lowered_hint = hint
+                .map(|hint| {
+                    let lowered =
+                        lower_expr(&hint, Some(&Type::String), symbols, functions, false)?;
+                    if let ast::Expr::String(value, _) = &hint {
+                        if value.is_empty() {
+                            return Err(CompileError::new(
+                                hint.span(),
+                                "Accessibility hint cannot be empty",
+                            ));
+                        }
+                    }
+                    Ok(lowered)
+                })
+                .transpose()?;
             let role = match role {
                 None => AccessibilityRole::None,
                 Some(ast::Expr::Name(name, role_span)) => match name.as_str() {
@@ -526,6 +542,7 @@ pub(super) fn lower_node(
             }
             Ok(Node::Accessibility {
                 label: lowered_label,
+                hint: lowered_hint,
                 role,
                 children,
             })

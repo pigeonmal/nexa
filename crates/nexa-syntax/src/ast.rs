@@ -312,6 +312,7 @@ pub enum Node {
     },
     Accessibility {
         label: Expr,
+        hint: Option<Expr>,
         role: Option<Expr>,
         children: Vec<Node>,
         span: Span,

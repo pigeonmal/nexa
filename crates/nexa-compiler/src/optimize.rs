@@ -1101,10 +1101,12 @@ fn optimize_node(node: Node) -> Option<Node> {
         }),
         Node::Accessibility {
             label,
+            hint,
             role,
             children,
         } => Some(Node::Accessibility {
             label,
+            hint: hint.map(fold_expression),
             role,
             children: optimize_nodes(children),
         }),

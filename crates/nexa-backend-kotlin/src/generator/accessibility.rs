@@ -6,6 +6,7 @@ use super::{
 
 pub(super) fn render_accessibility(
     label: &Expr,
+    hint: Option<&Expr>,
     role: AccessibilityRole,
     children: &[Node],
     module: &Module,
@@ -23,6 +24,10 @@ pub(super) fn render_accessibility(
     if !child_has_same_image_label {
         indent(out, depth + 2);
         out.push_str(&format!("contentDescription = {}\n", expression(label)));
+    }
+    if let Some(hint) = hint {
+        indent(out, depth + 2);
+        out.push_str(&format!("hintText = {}\n", expression(hint)));
     }
     if matches!(role, AccessibilityRole::Header) {
         indent(out, depth + 2);

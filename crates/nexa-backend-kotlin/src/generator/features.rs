@@ -44,6 +44,7 @@ pub(super) struct Features {
     pub(super) uses_accessibility: bool,
     pub(super) uses_accessibility_role: bool,
     pub(super) uses_accessibility_heading: bool,
+    pub(super) uses_accessibility_hint: bool,
     pub(super) uses_list: bool,
     pub(super) uses_linear_list: bool,
     pub(super) uses_horizontal_list: bool,
@@ -494,8 +495,14 @@ impl Features {
                 self.uses_modifier = true;
                 self.record_child_layout(children);
             }
-            Node::Accessibility { role, children, .. } => {
+            Node::Accessibility {
+                hint,
+                role,
+                children,
+                ..
+            } => {
                 self.uses_accessibility = true;
+                self.uses_accessibility_hint |= hint.is_some();
                 self.uses_accessibility_role |= matches!(
                     role,
                     nexa_ir::AccessibilityRole::Button | nexa_ir::AccessibilityRole::Image
