@@ -352,6 +352,8 @@ pub struct TextStyle {
     pub font_size: Option<f32>,
     pub font_weight: Option<FontWeight>,
     pub line_limit: Option<i32>,
+    pub line_height: Option<f32>,
+    pub letter_spacing: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

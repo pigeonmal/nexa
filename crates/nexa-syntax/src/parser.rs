@@ -409,7 +409,14 @@ impl Parser {
                 self.expect(Kind::LParen, "expected `(` after Text")?;
                 let value = self.expr()?;
                 let mut args = if self.take(&Kind::Comma) {
-                    self.named_args_contents(&["color", "fontSize", "fontWeight", "lineLimit"])?
+                    self.named_args_contents(&[
+                        "color",
+                        "fontSize",
+                        "fontWeight",
+                        "lineLimit",
+                        "lineHeight",
+                        "letterSpacing",
+                    ])?
                 } else {
                     BTreeMap::new()
                 };
@@ -420,6 +427,8 @@ impl Parser {
                     font_size: args.remove("fontSize"),
                     font_weight: args.remove("fontWeight"),
                     line_limit: args.remove("lineLimit"),
+                    line_height: args.remove("lineHeight"),
+                    letter_spacing: args.remove("letterSpacing"),
                     span,
                 })
             }

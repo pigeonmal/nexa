@@ -49,6 +49,20 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                     "    ".repeat(depth + 1)
                 ));
             }
+            if let Some(line_height) = style.line_height {
+                out.push_str(&format!(
+                    "\n{}.lineSpacing({})",
+                    "    ".repeat(depth + 1),
+                    number(line_height)
+                ));
+            }
+            if let Some(letter_spacing) = style.letter_spacing {
+                out.push_str(&format!(
+                    "\n{}.tracking({})",
+                    "    ".repeat(depth + 1),
+                    number(letter_spacing)
+                ));
+            }
         }
         Node::Button { label, actions } => {
             controls::render_button(label, actions, depth, out);

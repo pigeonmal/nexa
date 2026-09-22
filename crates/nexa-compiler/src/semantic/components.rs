@@ -130,6 +130,8 @@ pub(super) fn lower_node(
             font_size,
             font_weight,
             line_limit,
+            line_height,
+            letter_spacing,
             ..
         } => {
             let value = lower_expr(&value, None, symbols)?;
@@ -142,6 +144,8 @@ pub(super) fn lower_node(
             )?;
             let font_weight = lower_font_weight(font_weight)?;
             let line_limit = lower_line_limit(line_limit)?;
+            let line_height = optional_dimension(line_height, "lineHeight", None, themes)?;
+            let letter_spacing = optional_dimension(letter_spacing, "letterSpacing", None, themes)?;
             Ok(Node::Text {
                 value,
                 style: TextStyle {
@@ -149,6 +153,8 @@ pub(super) fn lower_node(
                     font_size,
                     font_weight,
                     line_limit,
+                    line_height,
+                    letter_spacing,
                 },
             })
         }

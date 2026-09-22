@@ -22,8 +22,8 @@ pub(super) struct Features {
     pub(super) uses_list: bool,
     pub(super) uses_keyboard_aware: bool,
     pub(super) uses_adaptive_color: bool,
-    pub(super) uses_font_size: bool,
     pub(super) uses_font_weight: bool,
+    pub(super) uses_text_sp: bool,
     pub(super) uses_button: bool,
     pub(super) uses_text: bool,
     pub(super) uses_text_input: bool,
@@ -205,10 +205,10 @@ impl Features {
                 self.uses_adaptive_color |= style
                     .color
                     .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
-                if style.font_size.is_some() {
-                    self.uses_font_size = true;
-                }
                 self.uses_font_weight |= style.font_weight.is_some();
+                self.uses_text_sp |= style.font_size.is_some()
+                    || style.line_height.is_some()
+                    || style.letter_spacing.is_some();
             }
             Node::Button { .. } => {
                 self.uses_button = true;

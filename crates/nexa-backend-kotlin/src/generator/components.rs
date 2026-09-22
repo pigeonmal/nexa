@@ -46,6 +46,12 @@ pub(super) fn render_node(
             if let Some(line_limit) = style.line_limit {
                 out.push_str(&format!(", maxLines = {line_limit}"));
             }
+            if let Some(line_height) = style.line_height {
+                out.push_str(&format!(", lineHeight = {}.sp", number(line_height)));
+            }
+            if let Some(letter_spacing) = style.letter_spacing {
+                out.push_str(&format!(", letterSpacing = {}.sp", number(letter_spacing)));
+            }
             out.push(')');
         }
         Node::Button { label, actions } => {

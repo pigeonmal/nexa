@@ -219,7 +219,7 @@ pub(super) fn render(
         "androidx.compose.ui.text.input.PasswordVisualTransformation",
     );
     add(features.uses_dp, "androidx.compose.ui.unit.dp");
-    add(features.uses_font_size, "androidx.compose.ui.unit.sp");
+    add(features.uses_text_sp, "androidx.compose.ui.unit.sp");
     add(
         features.uses_placeholder,
         "androidx.compose.ui.res.painterResource",

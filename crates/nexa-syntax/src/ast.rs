@@ -138,6 +138,8 @@ pub enum Node {
         font_size: Option<Expr>,
         font_weight: Option<Expr>,
         line_limit: Option<Expr>,
+        line_height: Option<Expr>,
+        letter_spacing: Option<Expr>,
         span: Span,
     },
     Button {
