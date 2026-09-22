@@ -1,5 +1,5 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, CollectionMutation, Module, Node};
+use nexa_ir::{Action, CollectionMutation, HapticStyle, Module, Node};
 
 use super::{
     components::render_children,
@@ -105,6 +105,7 @@ pub(super) fn render_switch(state: &str, label: &str, depth: usize, out: &mut St
 
 pub(super) fn render_pressable(
     disabled: &nexa_ir::Expr,
+    haptic: Option<HapticStyle>,
     children: &[Node],
     actions: &[Action],
     long_press_actions: &[Action],
@@ -115,9 +116,19 @@ pub(super) fn render_pressable(
     indent(out, depth);
     out.push_str("Button(action: {");
     if actions.is_empty() {
-        out.push_str(" }) {");
+        if let Some(haptic) = haptic {
+            out.push('\n');
+            render_haptic(haptic, depth + 1, out);
+            indent(out, depth);
+            out.push_str("}) {");
+        } else {
+            out.push_str(" }) {");
+        }
     } else {
         out.push('\n');
+        if let Some(haptic) = haptic {
+            render_haptic(haptic, depth + 1, out);
+        }
         render_actions(actions, depth + 1, out);
         indent(out, depth);
         out.push_str("}) {");
@@ -136,10 +147,25 @@ pub(super) fn render_pressable(
     if !matches!(disabled, nexa_ir::Expr::Bool(true)) && !long_press_actions.is_empty() {
         out.push_str(".onLongPressGesture {");
         out.push('\n');
+        if let Some(haptic) = haptic {
+            render_haptic(haptic, depth + 1, out);
+        }
         render_actions(long_press_actions, depth + 1, out);
         indent(out, depth);
         out.push('}');
     }
+}
+
+fn render_haptic(style: HapticStyle, depth: usize, out: &mut String) {
+    indent(out, depth);
+    let style = match style {
+        HapticStyle::Light => "light",
+        HapticStyle::Medium => "medium",
+        HapticStyle::Heavy => "heavy",
+    };
+    out.push_str(&format!(
+        "UIImpactFeedbackGenerator(style: .{style}).impactOccurred()\n"
+    ));
 }
 
 pub(super) fn render_actions(actions: &[Action], depth: usize, out: &mut String) {

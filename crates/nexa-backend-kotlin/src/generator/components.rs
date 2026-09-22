@@ -124,11 +124,13 @@ pub(super) fn render_node(
         ),
         Node::Pressable {
             disabled,
+            haptic,
             children,
             actions,
             long_press_actions,
         } => controls::render_pressable(
             disabled,
+            *haptic,
             children,
             actions,
             long_press_actions,

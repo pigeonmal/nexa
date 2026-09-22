@@ -230,7 +230,7 @@ String interpolation supports `$name` and `\(expression)`. Embedded expressions 
 
 `StatusBar(style: Default|Light|Dark, hidden: true|false)` is a static app-root or named-screen configuration that lowers to native status-bar APIs; see [status-bar.nx](examples/status-bar.nx) and [navigation.nx](examples/navigation.nx).
 
-`Pressable` supports a tap action block, an optional third long-press action block, and a Boolean `disabled` expression. Long press and disabled state map to native SwiftUI and Compose gestures without a shared runtime; see [pressable-long-press.nx](examples/pressable-long-press.nx).
+`Pressable` supports a tap action block, an optional third long-press action block, a Boolean `disabled` expression, and static `haptic: Light|Medium|Heavy` feedback. Long press, disabled state, and haptics map to native SwiftUI/UIKit and Compose APIs without a shared runtime; see [pressable-long-press.nx](examples/pressable-long-press.nx).
 
 `Button` supports an optional static `icon` name plus `loading` and `disabled` Boolean expressions. SwiftUI maps the icon to an SF Symbol; Compose resolves the matching drawable through the generated remembered asset lookup. The compiler emits native loading indicators and combines both conditions into one platform-native enabled/disabled expression; see [button-loading.nx](examples/button-loading.nx) and [button-disabled.nx](examples/button-disabled.nx).
 

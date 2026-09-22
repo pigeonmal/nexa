@@ -10,6 +10,7 @@ pub(super) struct Features {
     pub(super) uses_remote_image: bool,
     pub(super) uses_native_library: bool,
     pub(super) uses_permissions: bool,
+    pub(super) uses_haptic: bool,
     pub(super) app_uses_adaptive_color: bool,
     pub(super) app_uses_regular_width: bool,
     components_using_adaptive_color: HashSet<String>,
@@ -96,6 +97,7 @@ impl Features {
                 &component.body,
                 &mut |node| {
                     features.record_list_usage(node);
+                    features.uses_haptic |= node_uses_haptic(node);
                     features.uses_link |= matches!(node, Node::Link { .. });
                     features.uses_remote_image |= matches!(
                         node,
@@ -139,6 +141,7 @@ impl Features {
 
     fn record_app_node(&mut self, node: &Node) {
         self.record_list_usage(node);
+        self.uses_haptic |= node_uses_haptic(node);
         self.uses_link |= matches!(node, Node::Link { .. });
         self.uses_remote_image |= matches!(
             node,
@@ -153,6 +156,16 @@ impl Features {
     fn record_list_usage(&mut self, node: &Node) {
         self.uses_fast_list |= matches!(node, Node::FastList { .. });
     }
+}
+
+fn node_uses_haptic(node: &Node) -> bool {
+    matches!(
+        node,
+        Node::Pressable {
+            haptic: Some(_),
+            ..
+        }
+    )
 }
 
 fn node_uses_adaptive_color(node: &Node) -> bool {

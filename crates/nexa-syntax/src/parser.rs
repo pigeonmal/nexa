@@ -924,8 +924,9 @@ impl Parser {
                 })
             }
             "Pressable" => {
-                let args = self.named_args(&["disabled"])?;
-                let disabled = args.into_iter().next().map(|(_, value)| value);
+                let mut args = self.named_args(&["disabled", "haptic"])?;
+                let disabled = args.remove("disabled");
+                let haptic = args.remove("haptic");
                 let children = self.block_nodes()?;
                 let actions = self.block_stmts()?;
                 let long_press_actions = if self.check(&Kind::LBrace) {
@@ -935,6 +936,7 @@ impl Parser {
                 };
                 Ok(Node::Pressable {
                     disabled,
+                    haptic,
                     children,
                     actions,
                     long_press_actions,

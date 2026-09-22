@@ -852,11 +852,13 @@ fn optimize_node(node: Node) -> Option<Node> {
         }),
         Node::Pressable {
             disabled,
+            haptic,
             children,
             actions,
             long_press_actions,
         } => Some(Node::Pressable {
             disabled: fold_expression(disabled),
+            haptic,
             children: optimize_nodes(children),
             actions: optimize_actions(actions),
             long_press_actions: optimize_actions(long_press_actions),

@@ -33,7 +33,7 @@ pub(super) fn generate(module: &Module) -> String {
         focus_bindings.extend(collect_focus_bindings(&screen.body));
     }
     let uses_fast_list = features.uses_fast_list;
-    let mut out = if uses_fast_list || features.uses_remote_image {
+    let mut out = if uses_fast_list || features.uses_remote_image || features.uses_haptic {
         String::from("import SwiftUI\nimport UIKit\n")
     } else {
         String::from("import SwiftUI\n\n")

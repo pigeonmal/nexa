@@ -128,11 +128,13 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
         ),
         Node::Pressable {
             disabled,
+            haptic,
             children,
             actions,
             long_press_actions,
         } => controls::render_pressable(
             disabled,
+            *haptic,
             children,
             actions,
             long_press_actions,

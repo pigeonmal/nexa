@@ -1,5 +1,5 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, CollectionMutation, Expr, Module, Node};
+use nexa_ir::{Action, CollectionMutation, Expr, HapticStyle, Module, Node};
 
 use super::{
     components::render_children,
@@ -94,6 +94,7 @@ pub(super) fn render_switch(state: &str, label: &str, depth: usize, out: &mut St
 
 pub(super) fn render_pressable(
     disabled: &Expr,
+    haptic: Option<HapticStyle>,
     children: &[Node],
     actions: &[Action],
     long_press_actions: &[Action],
@@ -118,10 +119,13 @@ pub(super) fn render_pressable(
         "    ".repeat(depth),
         "    ".repeat(depth)
     ));
-    if actions.is_empty() {
+    if actions.is_empty() && haptic.is_none() {
         out.push_str(if has_long_press { " },\n" } else { " }),\n" });
     } else {
         out.push('\n');
+        if let Some(haptic) = haptic {
+            render_haptic(haptic, depth + 3, out);
+        }
         render_actions(actions, depth + 3, out);
         indent(out, depth + 2);
         out.push_str(if has_long_press { "},\n" } else { "}),\n" });
@@ -129,6 +133,9 @@ pub(super) fn render_pressable(
     if has_long_press {
         indent(out, depth + 2);
         out.push_str("onLongClick = {\n");
+        if let Some(haptic) = haptic {
+            render_haptic(haptic, depth + 3, out);
+        }
         render_actions(long_press_actions, depth + 3, out);
         indent(out, depth + 2);
         out.push_str("},\n");
@@ -141,6 +148,18 @@ pub(super) fn render_pressable(
     out.push('\n');
     indent(out, depth);
     out.push('}');
+}
+
+fn render_haptic(style: HapticStyle, depth: usize, out: &mut String) {
+    indent(out, depth);
+    let constant = match style {
+        HapticStyle::Light => "KEYBOARD_TAP",
+        HapticStyle::Medium => "VIRTUAL_KEY",
+        HapticStyle::Heavy => "LONG_PRESS",
+    };
+    out.push_str(&format!(
+        "nexaHapticView.performHapticFeedback(HapticFeedbackConstants.{constant})\n"
+    ));
 }
 
 pub(super) fn render_actions(actions: &[Action], depth: usize, out: &mut String) {

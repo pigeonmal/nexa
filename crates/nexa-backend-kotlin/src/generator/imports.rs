@@ -16,6 +16,7 @@ pub(super) fn render(
     };
 
     add(features.uses_status_bar, "android.app.Activity");
+    add(features.uses_haptic, "android.view.HapticFeedbackConstants");
     add(features.uses_status_bar, "androidx.core.view.WindowCompat");
     add(
         features.uses_status_bar,
@@ -274,6 +275,10 @@ pub(super) fn render(
     add(
         features.uses_link,
         "androidx.compose.ui.platform.LocalContext",
+    );
+    add(
+        features.uses_haptic,
+        "androidx.compose.ui.platform.LocalView",
     );
     add(
         has_direction,

@@ -276,6 +276,7 @@ pub enum Node {
     },
     Pressable {
         disabled: Option<Expr>,
+        haptic: Option<Expr>,
         children: Vec<Node>,
         actions: Vec<Stmt>,
         long_press_actions: Vec<Stmt>,

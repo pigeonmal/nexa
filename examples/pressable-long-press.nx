@@ -5,7 +5,7 @@ app PressableLongPress {
 
     body {
         Column(spacing: 12, padding: 20) {
-            Pressable(disabled: isDisabled) {
+            Pressable(disabled: isDisabled, haptic: Light) {
                 Text("Press or hold")
             } {
                 taps = taps + 1

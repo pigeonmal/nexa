@@ -75,6 +75,9 @@ pub(super) fn generate(module: &Module) -> String {
     if features.uses_native_library || features.uses_permissions {
         out.push_str("    NexaRuntime.bind(LocalContext.current)\n");
     }
+    if features.app_uses_haptic {
+        out.push_str("    val nexaHapticView = LocalView.current\n");
+    }
     for state in &module.states {
         let name = nexa_codegen::names::state_name(&state.name);
         if state.mutable {

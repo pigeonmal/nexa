@@ -61,6 +61,9 @@ fn render_component(component: &Component, module: &Module, features: &Features,
     if features.component_uses_link(&component.name) {
         out.push_str("    val nexaLinkContext = LocalContext.current\n");
     }
+    if features.component_uses_haptic(&component.name) {
+        out.push_str("    val nexaHapticView = LocalView.current\n");
+    }
     render_component_states(&component.states, 1, out);
     let focus_bindings = features::collect_focus_bindings(&component.body);
     for binding in &focus_bindings {

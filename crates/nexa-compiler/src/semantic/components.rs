@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
     AccessibilityRole, Action, BottomBarTab, Capitalization, CollectionMutation, DirectionConfig,
-    DirectionStyle, Expr, FontWeight, ImageScale, ImageSource, KeyboardType, LayoutKind,
-    ListSource, Node, NumericType, ScreenId, StatusBarConfig, StatusBarStyle, TextStyle, Type,
-    WhenCase,
+    DirectionStyle, Expr, FontWeight, HapticStyle, ImageScale, ImageSource, KeyboardType,
+    LayoutKind, ListSource, Node, NumericType, ScreenId, StatusBarConfig, StatusBarStyle,
+    TextStyle, Type, WhenCase,
 };
 use nexa_syntax::ast;
 
@@ -378,6 +378,7 @@ pub(super) fn lower_node(
         }
         ast::Node::Pressable {
             disabled,
+            haptic,
             children,
             actions,
             long_press_actions,
@@ -387,6 +388,7 @@ pub(super) fn lower_node(
                 .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions, false))
                 .transpose()?
                 .unwrap_or(Expr::Bool(false));
+            let haptic = lower_haptic(haptic)?;
             let lowered_children = lower_nodes(
                 children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
@@ -394,6 +396,7 @@ pub(super) fn lower_node(
             let long_press_actions = lower_actions(long_press_actions, symbols, functions, false)?;
             Ok(Node::Pressable {
                 disabled,
+                haptic,
                 children: lowered_children,
                 actions,
                 long_press_actions,
@@ -969,6 +972,30 @@ fn lower_status_bar(
         None => false,
     };
     Ok(StatusBarConfig { style, hidden })
+}
+
+fn lower_haptic(value: Option<ast::Expr>) -> Result<Option<HapticStyle>, CompileError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let ast::Expr::Name(name, span) = value else {
+        return Err(CompileError::new(
+            value.span(),
+            "Pressable haptic must be `Light`, `Medium`, or `Heavy`",
+        ));
+    };
+    let style = match name.as_str() {
+        "Light" => HapticStyle::Light,
+        "Medium" => HapticStyle::Medium,
+        "Heavy" => HapticStyle::Heavy,
+        _ => {
+            return Err(CompileError::new(
+                span,
+                "Pressable haptic must be `Light`, `Medium`, or `Heavy`",
+            ));
+        }
+    };
+    Ok(Some(style))
 }
 
 fn lower_direction(value: ast::Expr) -> Result<DirectionConfig, CompileError> {

@@ -134,6 +134,13 @@ pub struct StatusBarConfig {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HapticStyle {
+    Light,
+    Medium,
+    Heavy,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DirectionConfig {
     pub style: DirectionStyle,
 }
@@ -339,6 +346,7 @@ pub enum Node {
     },
     Pressable {
         disabled: Expr,
+        haptic: Option<HapticStyle>,
         children: Vec<Node>,
         actions: Vec<Action>,
         long_press_actions: Vec<Action>,
