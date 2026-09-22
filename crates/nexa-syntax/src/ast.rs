@@ -329,6 +329,7 @@ pub enum Node {
         source: ListSource,
         axis: Option<Expr>,
         item_extent: Option<Expr>,
+        section: Option<Expr>,
         index: Option<Expr>,
         item: Option<Expr>,
         key: Option<Expr>,
@@ -337,6 +338,7 @@ pub enum Node {
         on_end_reached: Option<Vec<Stmt>>,
         on_scroll: Option<Vec<Stmt>>,
         sticky_header: Option<Vec<Node>>,
+        section_header: Option<Vec<Node>>,
         span: Span,
     },
     If {
@@ -373,6 +375,7 @@ pub struct WhenCase {
 pub enum ListSource {
     Count(Expr),
     Items(Expr),
+    Sections(Expr),
 }
 
 #[derive(Clone, Debug)]

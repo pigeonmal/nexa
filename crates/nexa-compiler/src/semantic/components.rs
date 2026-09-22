@@ -654,6 +654,7 @@ pub(super) fn lower_node(
             source,
             axis,
             item_extent,
+            section,
             index,
             item,
             key,
@@ -662,8 +663,10 @@ pub(super) fn lower_node(
             on_end_reached,
             on_scroll,
             sticky_header,
+            section_header,
             span,
         } => {
+            let sections_source = matches!(&source, ast::ListSource::Sections(_));
             let axis = match axis {
                 None => ListAxis::Vertical,
                 Some(ast::Expr::Name(name, axis_span)) => match name.as_str() {
@@ -714,6 +717,38 @@ pub(super) fn lower_node(
                     "FastList `stickyHeader` is supported only for vertical lists",
                 ));
             }
+            if sections_source && !matches!(axis, ListAxis::Vertical) {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `sections` is supported only for vertical lists",
+                ));
+            }
+            if sections_source && sticky_header.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `sections` uses `sectionHeader` instead of `stickyHeader`",
+                ));
+            }
+            if !sections_source && section.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `section` is only available with a `sections` source",
+                ));
+            }
+            if !sections_source && section_header.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `sectionHeader` is only available with a `sections` source",
+                ));
+            }
+            if sections_source
+                && (scroll_position.is_some() || on_end_reached.is_some() || on_scroll.is_some())
+            {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `sections` does not yet support scrollPosition, onEndReached, or onScroll",
+                ));
+            }
             let item_extent = optional_dimension(item_extent, "FastList itemExtent", None, themes)?;
             if item_extent.is_some_and(|value| value <= 0.0) {
                 return Err(CompileError::new(
@@ -722,6 +757,9 @@ pub(super) fn lower_node(
                 ));
             }
             let row_index_type = Type::Numeric(NumericType::Int32);
+            let section_index_type = Type::Numeric(NumericType::Int32);
+            let has_section_binding = section.is_some();
+            let section_name = binding_name(section, "section", "FastList section")?;
             let index = binding_name(index, "index", "FastList index")?;
             let scroll_position = scroll_position
                 .map(|position| {
@@ -734,12 +772,12 @@ pub(super) fn lower_node(
                     )
                 })
                 .transpose()?;
-            let (source, item, item_type) = match source {
+            let (source, section, item, item_type) = match source {
                 ast::ListSource::Count(count) => {
-                    if item.is_some() {
+                    if item.is_some() || has_section_binding {
                         return Err(CompileError::new(
                             span,
-                            "FastList `item` is only available with an `items` source",
+                            "FastList item and section bindings are only available with an `items` or `sections` source",
                         ));
                     }
                     let count_value =
@@ -752,9 +790,15 @@ pub(super) fn lower_node(
                             ));
                         }
                     }
-                    (ListSource::Count(count_value), None, None)
+                    (ListSource::Count(count_value), None, None, None)
                 }
                 ast::ListSource::Items(collection) => {
+                    if has_section_binding {
+                        return Err(CompileError::new(
+                            span,
+                            "FastList `section` is only available with a `sections` source",
+                        ));
+                    }
                     let ast::Expr::Name(name, name_span) = collection else {
                         return Err(CompileError::new(
                             collection.span(),
@@ -785,6 +829,49 @@ pub(super) fn lower_node(
                             collection: Expr::State(name, ty.clone()),
                             element_type: (**element_type).clone(),
                         },
+                        None,
+                        Some(item_name),
+                        Some((**element_type).clone()),
+                    )
+                }
+                ast::ListSource::Sections(collection) => {
+                    let ast::Expr::Name(name, name_span) = collection else {
+                        return Err(CompileError::new(
+                            collection.span(),
+                            "FastList `sections` must be an Array<Array<T>> binding",
+                        ));
+                    };
+                    let Some((ty, _)) = symbols.get(&name) else {
+                        return Err(CompileError::new(
+                            name_span,
+                            format!("unknown state `{name}`"),
+                        ));
+                    };
+                    let Type::Array(section_type) = ty else {
+                        return Err(CompileError::new(
+                            name_span,
+                            format!("FastList sections `{name}` must have type Array<Array<T>>"),
+                        ));
+                    };
+                    let Type::Array(element_type) = &**section_type else {
+                        return Err(CompileError::new(
+                            name_span,
+                            format!("FastList sections `{name}` must have type Array<Array<T>>"),
+                        ));
+                    };
+                    let item_name = binding_name(item, "item", "FastList item")?;
+                    if item_name == index || item_name == section_name || index == section_name {
+                        return Err(CompileError::new(
+                            name_span,
+                            "FastList section, item, and index bindings must have different names",
+                        ));
+                    }
+                    (
+                        ListSource::Sections {
+                            collection: Expr::State(name, ty.clone()),
+                            element_type: (**element_type).clone(),
+                        },
+                        Some(section_name.clone()),
                         Some(item_name),
                         Some((**element_type).clone()),
                     )
@@ -792,6 +879,9 @@ pub(super) fn lower_node(
             };
             let mut row_symbols = symbols.clone();
             row_symbols.insert(index.clone(), (row_index_type, false));
+            if let Some(section_name) = &section {
+                row_symbols.insert(section_name.clone(), (section_index_type, false));
+            }
             if let (Some(item_name), Some(item_type)) = (&item, &item_type) {
                 row_symbols.insert(item_name.clone(), (item_type.clone(), false));
             }
@@ -835,6 +925,12 @@ pub(super) fn lower_node(
                     "FastList `stickyHeader` requires at least one header component",
                 ));
             }
+            if section_header.as_ref().is_some_and(Vec::is_empty) {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `sectionHeader` requires at least one header component",
+                ));
+            }
             let on_end_reached = on_end_reached
                 .map(|actions| lower_actions(actions, symbols, functions, false))
                 .transpose()?;
@@ -848,6 +944,27 @@ pub(super) fn lower_node(
                     )
                 })
                 .transpose()?;
+            let section_header = section_header
+                .map(|header| {
+                    let mut header_symbols = symbols.clone();
+                    if let Some(section_name) = &section {
+                        header_symbols.insert(
+                            section_name.clone(),
+                            (Type::Numeric(NumericType::Int32), false),
+                        );
+                    }
+                    lower_nodes(
+                        header,
+                        &header_symbols,
+                        screen_ids,
+                        themes,
+                        components,
+                        functions,
+                        false,
+                        target,
+                    )
+                })
+                .transpose()?;
             Ok(Node::FastList {
                 source,
                 axis,
@@ -856,10 +973,12 @@ pub(super) fn lower_node(
                 item,
                 key,
                 scroll_position,
+                section,
                 children: lowered_children,
                 on_end_reached,
                 on_scroll,
                 sticky_header,
+                section_header,
                 refresh: None,
             })
         }

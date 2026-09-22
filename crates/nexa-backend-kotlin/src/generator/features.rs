@@ -531,10 +531,11 @@ impl Features {
                 refresh,
                 scroll_position,
                 sticky_header,
+                section_header,
                 children,
                 ..
             } => {
-                self.uses_sticky_header |= sticky_header.is_some();
+                self.uses_sticky_header |= sticky_header.is_some() || section_header.is_some();
                 self.uses_refresh_control |= refresh.is_some();
                 self.uses_list_scroll_position |= scroll_position.is_some();
                 self.uses_linear_list_scroll_position |=

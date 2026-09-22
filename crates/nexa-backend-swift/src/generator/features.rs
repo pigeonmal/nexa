@@ -9,6 +9,7 @@ pub(super) struct Features {
     pub(super) uses_vertical_list: bool,
     pub(super) uses_horizontal_list: bool,
     pub(super) uses_grid_list: bool,
+    pub(super) uses_sectioned_list: bool,
     pub(super) uses_sticky_header: bool,
     pub(super) uses_scroll_events: bool,
     pub(super) uses_link: bool,
@@ -186,6 +187,7 @@ impl Features {
     fn record_list_usage(&mut self, node: &Node) {
         let Node::FastList {
             axis,
+            source,
             sticky_header,
             on_scroll,
             ..
@@ -194,10 +196,14 @@ impl Features {
             return;
         };
         self.uses_fast_list = true;
-        match axis {
-            nexa_ir::ListAxis::Vertical => self.uses_vertical_list = true,
-            nexa_ir::ListAxis::Horizontal => self.uses_horizontal_list = true,
-            nexa_ir::ListAxis::Grid { .. } => self.uses_grid_list = true,
+        if matches!(source, nexa_ir::ListSource::Sections { .. }) {
+            self.uses_sectioned_list = true;
+        } else {
+            match axis {
+                nexa_ir::ListAxis::Vertical => self.uses_vertical_list = true,
+                nexa_ir::ListAxis::Horizontal => self.uses_horizontal_list = true,
+                nexa_ir::ListAxis::Grid { .. } => self.uses_grid_list = true,
+            }
         }
         self.uses_sticky_header |= sticky_header.is_some();
         self.uses_scroll_events |= on_scroll.is_some();

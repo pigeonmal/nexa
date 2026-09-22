@@ -148,6 +148,7 @@ pub(super) fn generate(module: &Module) -> String {
             features.uses_vertical_list,
             features.uses_horizontal_list,
             features.uses_grid_list,
+            features.uses_sectioned_list,
         );
     }
     if features.uses_native_library {

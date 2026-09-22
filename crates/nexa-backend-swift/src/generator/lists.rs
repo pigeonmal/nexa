@@ -9,6 +9,7 @@ pub(super) fn render_virtualized_list(
     source: &ListSource,
     axis: ListAxis,
     item_extent: Option<f32>,
+    section: Option<&str>,
     index: &str,
     item: Option<&str>,
     key: Option<&Expr>,
@@ -17,11 +18,33 @@ pub(super) fn render_virtualized_list(
     on_scroll: Option<&[Action]>,
     scroll_position: Option<&str>,
     sticky_header: Option<&[Node]>,
+    section_header: Option<&[Node]>,
     refresh: Option<&FastListRefresh>,
     module: &Module,
     depth: usize,
     out: &mut String,
 ) {
+    if let ListSource::Sections {
+        collection,
+        element_type,
+    } = source
+    {
+        return render_sectioned_list(
+            collection,
+            element_type,
+            item_extent,
+            section.expect("semantic lowering always provides a section binding"),
+            index,
+            item.expect("semantic lowering always provides an item binding"),
+            key,
+            children,
+            section_header,
+            refresh,
+            module,
+            depth,
+            out,
+        );
+    }
     indent(out, depth);
     match source {
         ListSource::Count(count) => {
@@ -93,11 +116,106 @@ pub(super) fn render_virtualized_list(
                 element_type.swift()
             ));
         }
+        ListSource::Sections { .. } => unreachable!("sectioned list handled above"),
     }
     render_children(children, module, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');
+}
+
+fn render_sectioned_list(
+    collection: &Expr,
+    element_type: &nexa_ir::Type,
+    item_extent: Option<f32>,
+    section: &str,
+    index: &str,
+    item: &str,
+    key: Option<&Expr>,
+    children: &[Node],
+    section_header: Option<&[Node]>,
+    refresh: Option<&FastListRefresh>,
+    module: &Module,
+    depth: usize,
+    out: &mut String,
+) {
+    let collection = expression(collection);
+    indent(out, depth);
+    out.push_str("NexaFastSectionedList(\n");
+    indent(out, depth + 1);
+    out.push_str(&format!("sectionCount: {collection}.count,\n"));
+    indent(out, depth + 1);
+    out.push_str(&format!("sectionCounts: {collection}.map(\\.count),\n"));
+    if let Some(item_extent) = item_extent {
+        indent(out, depth + 1);
+        out.push_str(&format!("rowHeight: {},\n", format_float(item_extent)));
+    }
+    if let Some(key) = key {
+        indent(out, depth + 1);
+        out.push_str("rowKey: { sectionPosition, itemPosition in AnyHashable(");
+        out.push_str(&render_sectioned_key(
+            key,
+            section,
+            index,
+            item,
+            &collection,
+            "sectionPosition",
+            "itemPosition",
+        ));
+        out.push_str(") },\n");
+    }
+    if let Some(header) = section_header {
+        indent(out, depth + 1);
+        out.push_str("headerContent: { sectionPosition in\n");
+        indent(out, depth + 2);
+        out.push_str("AnyView(VStack(spacing: 0) {\n");
+        indent(out, depth + 3);
+        out.push_str(&format!(
+            "let {}: Int32 = Int32(clamping: sectionPosition)\n",
+            state_name(section)
+        ));
+        render_children(header, module, depth + 3, out);
+        out.push('\n');
+        indent(out, depth + 2);
+        out.push_str("})\n");
+        indent(out, depth + 1);
+        out.push_str("},\n");
+    }
+    if let Some(refresh) = refresh {
+        indent(out, depth + 1);
+        out.push_str("isRefreshing: ");
+        out.push_str(&state_name(&refresh.state));
+        out.push_str(",\n");
+        indent(out, depth + 1);
+        out.push_str("onRefresh: {\n");
+        render_actions(&refresh.actions, depth + 2, out);
+        indent(out, depth + 1);
+        out.push_str("},\n");
+    }
+    indent(out, depth + 1);
+    out.push_str("rowContent: { sectionPosition, itemPosition in\n");
+    indent(out, depth + 2);
+    out.push_str(&format!(
+        "let {}: Int32 = Int32(clamping: sectionPosition)\n",
+        state_name(section)
+    ));
+    indent(out, depth + 2);
+    out.push_str(&format!(
+        "let {}: Int32 = Int32(clamping: itemPosition)\n",
+        state_name(index)
+    ));
+    indent(out, depth + 2);
+    out.push_str(&format!(
+        "let {}: {} = {collection}[sectionPosition][itemPosition]\n",
+        state_name(item),
+        element_type.swift()
+    ));
+    render_children(children, module, depth + 2, out);
+    out.push('\n');
+    indent(out, depth + 1);
+    out.push_str("}\n");
+    indent(out, depth);
+    out.push(')');
 }
 
 fn list_constructor(
@@ -225,6 +343,26 @@ fn render_key(
             &format!("{collection}[{position_name}]"),
         );
     }
+    rendered
+}
+
+fn render_sectioned_key(
+    key: &Expr,
+    section: &str,
+    index: &str,
+    item: &str,
+    collection: &str,
+    section_position: &str,
+    item_position: &str,
+) -> String {
+    let mut rendered = expression(key);
+    rendered = replace_identifier(&rendered, &state_name(section), section_position);
+    rendered = replace_identifier(&rendered, &state_name(index), item_position);
+    rendered = replace_identifier(
+        &rendered,
+        &state_name(item),
+        &format!("{collection}[{section_position}][{item_position}]"),
+    );
     rendered
 }
 

@@ -1058,8 +1058,10 @@ impl Parser {
                 let mut args = self.named_args(&[
                     "count",
                     "items",
+                    "sections",
                     "axis",
                     "itemExtent",
+                    "section",
                     "index",
                     "item",
                     "key",
@@ -1067,21 +1069,25 @@ impl Parser {
                 ])?;
                 let count = args.remove("count");
                 let items = args.remove("items");
-                let source = match (count, items) {
-                    (Some(count), None) => ListSource::Count(count),
-                    (None, Some(items)) => ListSource::Items(items),
-                    (None, None) => {
-                        return self.error_here("FastList requires `count` or `items`");
+                let sections = args.remove("sections");
+                let source = match (count, items, sections) {
+                    (Some(count), None, None) => ListSource::Count(count),
+                    (None, Some(items), None) => ListSource::Items(items),
+                    (None, None, Some(sections)) => ListSource::Sections(sections),
+                    (None, None, None) => {
+                        return self
+                            .error_here("FastList requires `count`, `items`, or `sections`");
                     }
-                    (Some(_), Some(_)) => {
+                    _ => {
                         return Err(CompileError::new(
                             span,
-                            "FastList accepts `count` or `items`, not both",
+                            "FastList accepts exactly one of `count`, `items`, or `sections`",
                         ));
                     }
                 };
                 let axis = args.remove("axis");
                 let item_extent = args.remove("itemExtent");
+                let section = args.remove("section");
                 let index = args.remove("index");
                 let item = args.remove("item");
                 let key = args.remove("key");
@@ -1090,6 +1096,7 @@ impl Parser {
                 let mut on_end_reached = None;
                 let mut on_scroll = None;
                 let mut sticky_header = None;
+                let mut section_header = None;
                 loop {
                     if self.word_is("onEndReached") {
                         if on_end_reached.is_some() {
@@ -1111,6 +1118,13 @@ impl Parser {
                         }
                         self.advance();
                         sticky_header = Some(self.block_nodes()?);
+                    } else if self.word_is("sectionHeader") {
+                        if section_header.is_some() {
+                            return self
+                                .error_here("FastList accepts only one `sectionHeader` block");
+                        }
+                        self.advance();
+                        section_header = Some(self.block_nodes()?);
                     } else {
                         break;
                     }
@@ -1119,6 +1133,7 @@ impl Parser {
                     source,
                     axis,
                     item_extent,
+                    section,
                     index,
                     item,
                     key,
@@ -1127,6 +1142,7 @@ impl Parser {
                     on_end_reached,
                     on_scroll,
                     sticky_header,
+                    section_header,
                     span,
                 })
             }

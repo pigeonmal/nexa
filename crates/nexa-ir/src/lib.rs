@@ -402,10 +402,12 @@ pub enum Node {
         item: Option<String>,
         key: Option<Expr>,
         scroll_position: Option<String>,
+        section: Option<String>,
         children: Vec<Node>,
         on_end_reached: Option<Vec<Action>>,
         on_scroll: Option<Vec<Action>>,
         sticky_header: Option<Vec<Node>>,
+        section_header: Option<Vec<Node>>,
         refresh: Option<FastListRefresh>,
     },
     If {
@@ -460,6 +462,10 @@ pub enum AccessibilityRole {
 pub enum ListSource {
     Count(Expr),
     Items {
+        collection: Expr,
+        element_type: Type,
+    },
+    Sections {
         collection: Expr,
         element_type: Type,
     },

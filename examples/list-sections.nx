@@ -1,0 +1,18 @@
+app FastListSectionsDemo {
+    state groups: Array<Array<String>> = [["Alpha", "Beta"], ["Gamma"], ["Delta", "Epsilon"]]
+
+    body {
+        FastList(
+            sections: groups,
+            section: sectionIndex,
+            index: itemIndex,
+            item: item,
+            itemExtent: 48,
+            key: item
+        ) {
+            Text("\(sectionIndex):\(itemIndex) \(item)")
+        } sectionHeader {
+            Text("Section \(sectionIndex)")
+        }
+    }
+}

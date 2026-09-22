@@ -10,6 +10,7 @@ pub(super) fn render_virtualized_list(
     source: &ListSource,
     axis: ListAxis,
     item_extent: Option<f32>,
+    section: Option<&str>,
     index: &str,
     item: Option<&str>,
     key: Option<&Expr>,
@@ -18,6 +19,7 @@ pub(super) fn render_virtualized_list(
     on_scroll: Option<&[Action]>,
     scroll_position: Option<&str>,
     sticky_header: Option<&[Node]>,
+    section_header: Option<&[Node]>,
     refresh: Option<&FastListRefresh>,
     module: &Module,
     features: &Features,
@@ -25,6 +27,28 @@ pub(super) fn render_virtualized_list(
     out: &mut String,
 ) {
     let list_id = out.len();
+    if let ListSource::Sections {
+        collection,
+        element_type,
+    } = source
+    {
+        return render_sectioned_list(
+            collection,
+            element_type,
+            item_extent,
+            section.expect("semantic lowering always provides a section binding"),
+            index,
+            item.expect("semantic lowering always provides an item binding"),
+            key,
+            children,
+            section_header,
+            refresh,
+            module,
+            features,
+            depth,
+            out,
+        );
+    }
     if let ListAxis::Grid { columns } = axis {
         return render_grid_list(
             columns,
@@ -132,6 +156,7 @@ pub(super) fn render_virtualized_list(
                 state_name(index)
             ));
         }
+        ListSource::Sections { .. } => unreachable!("sectioned list handled above"),
     }
     render_row_content(
         item_extent,
@@ -143,6 +168,96 @@ pub(super) fn render_virtualized_list(
         out,
     );
     out.push('\n');
+    indent(out, list_depth + 1);
+    out.push_str("}\n");
+    indent(out, list_depth);
+    out.push('}');
+    render_refresh_close(refresh, depth, out);
+}
+
+fn render_sectioned_list(
+    collection: &Expr,
+    element_type: &nexa_ir::Type,
+    item_extent: Option<f32>,
+    section: &str,
+    index: &str,
+    item: &str,
+    key: Option<&Expr>,
+    children: &[Node],
+    section_header: Option<&[Node]>,
+    refresh: Option<&FastListRefresh>,
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut String,
+) {
+    let collection = expression(collection);
+    let list_depth = render_refresh_open(refresh, depth, out);
+    indent(out, list_depth);
+    out.push_str("LazyColumn {\n");
+    indent(out, list_depth + 1);
+    out.push_str(&format!(
+        "{collection}.forEachIndexed {{ sectionPosition, sectionItems ->\n"
+    ));
+    if let Some(header) = section_header {
+        indent(out, list_depth + 2);
+        out.push_str("stickyHeader {\n");
+        indent(out, list_depth + 3);
+        out.push_str(&format!(
+            "val {}: Int = sectionPosition\n",
+            state_name(section)
+        ));
+        render_children(header, module, features, list_depth + 3, out);
+        out.push('\n');
+        indent(out, list_depth + 2);
+        out.push_str("}\n");
+    }
+    indent(out, list_depth + 2);
+    out.push_str("items(\n");
+    indent(out, list_depth + 3);
+    out.push_str("count = sectionItems.size,\n");
+    indent(out, list_depth + 3);
+    let key = key
+        .map(|key| {
+            render_sectioned_key(
+                key,
+                section,
+                index,
+                item,
+                "sectionItems",
+                "sectionPosition",
+                "itemPosition",
+            )
+        })
+        .unwrap_or_else(|| "itemPosition".to_owned());
+    out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
+    indent(out, list_depth + 2);
+    out.push_str(") { itemPosition ->\n");
+    indent(out, list_depth + 3);
+    out.push_str(&format!(
+        "val {}: Int = sectionPosition\n",
+        state_name(section)
+    ));
+    indent(out, list_depth + 3);
+    out.push_str(&format!("val {}: Int = itemPosition\n", state_name(index)));
+    indent(out, list_depth + 3);
+    out.push_str(&format!(
+        "val {}: {} = sectionItems[itemPosition]\n",
+        state_name(item),
+        element_type.kotlin()
+    ));
+    render_row_content(
+        item_extent,
+        ListAxis::Vertical,
+        children,
+        module,
+        features,
+        list_depth + 3,
+        out,
+    );
+    out.push('\n');
+    indent(out, list_depth + 2);
+    out.push_str("}\n");
     indent(out, list_depth + 1);
     out.push_str("}\n");
     indent(out, list_depth);
@@ -241,6 +356,7 @@ fn render_grid_list(
                 state_name(index)
             ));
         }
+        ListSource::Sections { .. } => unreachable!("sectioned list handled above"),
     }
     render_row_content(
         item_extent,
@@ -396,6 +512,7 @@ fn source_count_expression(source: &ListSource) -> String {
     match source {
         ListSource::Count(count) => format!("({}).coerceAtLeast(0)", expression(count)),
         ListSource::Items { collection, .. } => format!("{}.size", expression(collection)),
+        ListSource::Sections { .. } => unreachable!("sectioned list has no flat count"),
     }
 }
 
@@ -452,6 +569,26 @@ fn render_key(
             &format!("{collection}[{position_name}]"),
         );
     }
+    rendered
+}
+
+fn render_sectioned_key(
+    key: &Expr,
+    section: &str,
+    index: &str,
+    item: &str,
+    collection: &str,
+    section_position: &str,
+    item_position: &str,
+) -> String {
+    let mut rendered = expression(key);
+    rendered = replace_identifier(&rendered, &state_name(section), section_position);
+    rendered = replace_identifier(&rendered, &state_name(index), item_position);
+    rendered = replace_identifier(
+        &rendered,
+        &state_name(item),
+        &format!("{collection}[{item_position}]"),
+    );
     rendered
 }
 

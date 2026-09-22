@@ -897,10 +897,12 @@ fn optimize_node(node: Node) -> Option<Node> {
             index,
             item,
             key,
+            section,
             children,
             on_end_reached,
             on_scroll,
             sticky_header,
+            section_header,
             refresh,
             scroll_position,
         } => Some(Node::FastList {
@@ -914,7 +916,9 @@ fn optimize_node(node: Node) -> Option<Node> {
             on_end_reached: on_end_reached.map(optimize_actions),
             on_scroll: on_scroll.map(optimize_actions),
             sticky_header: sticky_header.map(optimize_nodes),
+            section_header: section_header.map(optimize_nodes),
             scroll_position,
+            section,
             refresh: refresh.map(|refresh| nexa_ir::FastListRefresh {
                 state: refresh.state,
                 actions: optimize_actions(refresh.actions),
@@ -1082,6 +1086,13 @@ fn optimize_list_source(source: ListSource) -> ListSource {
             collection,
             element_type,
         } => ListSource::Items {
+            collection: fold_expression(collection),
+            element_type,
+        },
+        ListSource::Sections {
+            collection,
+            element_type,
+        } => ListSource::Sections {
             collection: fold_expression(collection),
             element_type,
         },

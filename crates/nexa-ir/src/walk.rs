@@ -56,6 +56,7 @@ pub fn walk_ir(
                 on_end_reached,
                 on_scroll,
                 sticky_header,
+                section_header,
                 refresh,
                 ..
             } => {
@@ -74,6 +75,9 @@ pub fn walk_ir(
                 }
                 if let Some(sticky_header) = sticky_header {
                     walk_ir(sticky_header, visit_node, visit_expression);
+                }
+                if let Some(section_header) = section_header {
+                    walk_ir(section_header, visit_node, visit_expression);
                 }
                 walk_ir(children, visit_node, visit_expression);
             }
@@ -289,6 +293,7 @@ fn walk_list_source(source: &ListSource, visit: &mut impl FnMut(&Expr)) {
     match source {
         ListSource::Count(count) => walk_expression(count, visit),
         ListSource::Items { collection, .. } => walk_expression(collection, visit),
+        ListSource::Sections { collection, .. } => walk_expression(collection, visit),
     }
 }
 

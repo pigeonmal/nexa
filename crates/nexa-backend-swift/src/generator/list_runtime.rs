@@ -5,6 +5,7 @@ pub(super) fn render(
     uses_vertical_list: bool,
     uses_horizontal_list: bool,
     uses_grid_list: bool,
+    uses_sectioned_list: bool,
 ) {
     let mut runtime = String::from(
         r#"
@@ -52,6 +53,191 @@ private func nexaUpdateRefreshControl(
     }
     controller?.update(isRefreshing: isRefreshing)
 }
+
+// <nexa:list-runtime-sectioned:begin>
+private let nexaFastSectionedCellReuseIdentifier = "NexaFastSectionedCell"
+private let nexaFastSectionedHeaderReuseIdentifier = "NexaFastSectionedHeader"
+
+@available(iOS 16.0, *)
+private struct NexaFastSectionedList<RowContent: View>: UIViewRepresentable {
+    let sectionCount: Int
+    let sectionCounts: [Int]
+    let rowHeight: CGFloat?
+    let rowKey: ((Int, Int) -> AnyHashable)?
+    let isRefreshing: Bool
+    let onRefresh: (() -> Void)?
+    let headerContent: ((Int) -> AnyView)?
+    let rowContent: (Int, Int) -> RowContent
+
+    init(
+        sectionCount: Int,
+        sectionCounts: [Int],
+        rowHeight: CGFloat? = nil,
+        rowKey: ((Int, Int) -> AnyHashable)? = nil,
+        isRefreshing: Bool = false,
+        onRefresh: (() -> Void)? = nil,
+        headerContent: ((Int) -> AnyView)? = nil,
+        @ViewBuilder rowContent: @escaping (Int, Int) -> RowContent
+    ) {
+        self.sectionCount = max(0, sectionCount)
+        self.sectionCounts = sectionCounts.map { max(0, $0) }
+        self.rowHeight = rowHeight
+        self.rowKey = rowKey
+        self.isRefreshing = isRefreshing
+        self.onRefresh = onRefresh
+        self.headerContent = headerContent
+        self.rowContent = rowContent
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            sectionCount: sectionCount,
+            sectionCounts: sectionCounts,
+            rowHeight: rowHeight,
+            rowKey: rowKey,
+            headerContent: headerContent,
+            rowContent: rowContent
+        )
+    }
+
+    func makeUIView(context: Context) -> UITableView {
+        let tableView = UITableView(frame: .zero, style: .plain)
+        tableView.dataSource = context.coordinator
+        tableView.delegate = context.coordinator
+        tableView.sectionHeaderTopPadding = 0
+        nexaUpdateRefreshControl(
+            tableView,
+            controller: &context.coordinator.refreshController,
+            isRefreshing: isRefreshing,
+            action: onRefresh
+        )
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: nexaFastSectionedCellReuseIdentifier)
+        tableView.register(
+            UITableViewHeaderFooterView.self,
+            forHeaderFooterViewReuseIdentifier: nexaFastSectionedHeaderReuseIdentifier
+        )
+        if let rowHeight {
+            tableView.rowHeight = rowHeight
+            tableView.estimatedRowHeight = rowHeight
+        } else {
+            tableView.rowHeight = UITableView.automaticDimension
+            tableView.estimatedRowHeight = 44
+        }
+        tableView.allowsSelection = false
+        tableView.backgroundColor = .clear
+        tableView.reloadData()
+        return tableView
+    }
+
+    func updateUIView(_ tableView: UITableView, context: Context) {
+        let coordinator = context.coordinator
+        let previousSectionCount = coordinator.sectionCount
+        let previousSectionCounts = coordinator.sectionCounts
+        coordinator.sectionCount = sectionCount
+        coordinator.sectionCounts = sectionCounts.map { max(0, $0) }
+        coordinator.rowHeight = rowHeight
+        coordinator.rowKey = rowKey
+        coordinator.headerContent = headerContent
+        coordinator.rowContent = rowContent
+        nexaUpdateRefreshControl(
+            tableView,
+            controller: &coordinator.refreshController,
+            isRefreshing: isRefreshing,
+            action: onRefresh
+        )
+        guard previousSectionCount == coordinator.sectionCount,
+              previousSectionCounts == coordinator.sectionCounts else {
+            tableView.reloadData()
+            return
+        }
+        let visibleRows = tableView.indexPathsForVisibleRows ?? []
+        if !visibleRows.isEmpty {
+            UIView.performWithoutAnimation {
+                tableView.reconfigureRows(at: visibleRows)
+            }
+        }
+        if let headerContent {
+            for section in 0..<coordinator.sectionCount {
+                guard let header = tableView.headerView(forSection: section) else { continue }
+                header.contentConfiguration = UIHostingConfiguration {
+                    headerContent(section)
+                }
+                .margins(.all, 0)
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
+        var sectionCount: Int
+        var sectionCounts: [Int]
+        var rowHeight: CGFloat?
+        var rowKey: ((Int, Int) -> AnyHashable)?
+        var refreshController: NexaFastListRefreshController?
+        var headerContent: ((Int) -> AnyView)?
+        var rowContent: (Int, Int) -> RowContent
+
+        init(
+            sectionCount: Int,
+            sectionCounts: [Int],
+            rowHeight: CGFloat?,
+            rowKey: ((Int, Int) -> AnyHashable)?,
+            headerContent: ((Int) -> AnyView)?,
+            rowContent: @escaping (Int, Int) -> RowContent
+        ) {
+            self.sectionCount = sectionCount
+            self.sectionCounts = sectionCounts
+            self.rowHeight = rowHeight
+            self.rowKey = rowKey
+            self.refreshController = nil
+            self.headerContent = headerContent
+            self.rowContent = rowContent
+            super.init()
+        }
+
+        func numberOfSections(in tableView: UITableView) -> Int {
+            min(sectionCount, sectionCounts.count)
+        }
+
+        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+            section < sectionCounts.count ? sectionCounts[section] : 0
+        }
+
+        func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+            let cell = tableView.dequeueReusableCell(withIdentifier: nexaFastSectionedCellReuseIdentifier, for: indexPath)
+            cell.selectionStyle = .none
+            cell.contentConfiguration = UIHostingConfiguration {
+                if let rowKey {
+                    rowContent(indexPath.section, indexPath.row).id(rowKey(indexPath.section, indexPath.row))
+                } else {
+                    rowContent(indexPath.section, indexPath.row)
+                }
+            }
+            .margins(.all, 0)
+            return cell
+        }
+
+        func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+            guard let headerContent else { return nil }
+            let header = tableView.dequeueReusableHeaderFooterView(
+                withIdentifier: nexaFastSectionedHeaderReuseIdentifier
+            ) ?? UITableViewHeaderFooterView(reuseIdentifier: nexaFastSectionedHeaderReuseIdentifier)
+            header.contentConfiguration = UIHostingConfiguration {
+                headerContent(section)
+            }
+            .margins(.all, 0)
+            return header
+        }
+
+        func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+            headerContent == nil ? .leastNormalMagnitude : UITableView.automaticDimension
+        }
+
+        func tableView(_ tableView: UITableView, estimatedHeightForHeaderInSection section: Int) -> CGFloat {
+            headerContent == nil ? 0 : 44
+        }
+    }
+}
+// <nexa:list-runtime-sectioned:end>
 
 // <nexa:list-runtime-vertical-constants:begin>
 private let nexaFastListCellReuseIdentifier = "NexaFastListCell"
@@ -885,6 +1071,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             runtime = remove_marked_section(&mut runtime, "list-runtime", section);
         }
     }
+    if !uses_sectioned_list {
+        runtime = remove_marked_section(&mut runtime, "list-runtime", "sectioned");
+    }
     if !uses_vertical_list {
         runtime = remove_marked_section(&mut runtime, "list-runtime", "vertical-constants");
     }
@@ -919,7 +1108,13 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
     ] {
         runtime = strip_markers(&mut runtime, "scroll-events", section);
     }
-    for section in ["vertical", "horizontal", "grid", "vertical-constants"] {
+    for section in [
+        "sectioned",
+        "vertical",
+        "horizontal",
+        "grid",
+        "vertical-constants",
+    ] {
         runtime = strip_markers(&mut runtime, "list-runtime", section);
     }
     out.push_str(&runtime);

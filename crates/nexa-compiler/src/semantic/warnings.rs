@@ -375,6 +375,7 @@ fn walk_node(
         ast::Node::FastList {
             source,
             axis: _,
+            section,
             item_extent,
             index,
             item,
@@ -384,12 +385,17 @@ fn walk_node(
             on_end_reached,
             on_scroll,
             sticky_header,
+            section_header,
             span,
         } => {
             match source {
                 ast::ListSource::Count(count) | ast::ListSource::Items(count) => {
                     walk_expression(count, names, used)
                 }
+                ast::ListSource::Sections(sections) => walk_expression(sections, names, used),
+            }
+            if let Some(section) = section {
+                walk_expression(section, names, used);
             }
             if let Some(item_extent) = item_extent {
                 walk_expression(item_extent, names, used);
@@ -409,6 +415,17 @@ fn walk_node(
                 }
             }
             let mut row_names = names.clone();
+            let is_sections = source_is_sections(source);
+            let section_name = section
+                .as_ref()
+                .and_then(|section| match section {
+                    ast::Expr::Name(name, _) => Some(name.as_str()),
+                    _ => None,
+                })
+                .unwrap_or("section");
+            if is_sections && section_name != "_" {
+                row_names.insert(section_name.to_owned());
+            }
             let index_name = index
                 .as_ref()
                 .and_then(|index| match index {
@@ -458,6 +475,32 @@ fn walk_node(
                     ),
                     file,
                 );
+            }
+            let key_uses_section = key
+                .as_ref()
+                .is_some_and(|key| expression_references_name(key, section_name));
+            if section_name != "_"
+                && is_sections
+                && !key_uses_section
+                && !nodes_reference_name(children, section_name, target)
+                && !section_header
+                    .as_deref()
+                    .is_some_and(|header| nodes_reference_name(header, section_name, target))
+            {
+                push_warning(
+                    warnings,
+                    *span,
+                    format!(
+                        "unused FastList section binding `{section_name}`{}",
+                        target_suffix(target)
+                    ),
+                    file,
+                );
+            }
+            if let Some(section_header) = section_header {
+                for child in section_header {
+                    walk_node(child, &row_names, used, target, file, warnings);
+                }
             }
             for child in children {
                 walk_node(child, &row_names, used, target, file, warnings);
@@ -874,6 +917,10 @@ fn push_warning(
         Some(file) => warning.with_file(file),
         None => warning,
     });
+}
+
+fn source_is_sections(source: &ast::ListSource) -> bool {
+    matches!(source, ast::ListSource::Sections(_))
 }
 
 #[derive(Clone, Copy)]
