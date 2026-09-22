@@ -93,7 +93,7 @@ App authors should be able to create reusable UI components in Nexa source files
 
 The first implementation supports typed parameters, private state, nested custom components, relative `.nx` imports, import-cycle diagnostics, and reachability-based output pruning. Callback properties, content slots, navigation links from components, explicit visibility/module namespaces, and shared state bindings remain future work.
 
-The first `StatusBar` slice is implemented as one top-level app declaration with static `style` (`Default`, `Light`, or `Dark`) and `hidden` options. It lowers to SwiftUI status-bar modifiers and AndroidX insets-controller APIs; background configuration and animated transitions remain future work.
+The first `StatusBar` slice is implemented as one top-level app or named-screen declaration with static `style` (`Default`, `Light`, or `Dark`) and `hidden` options. It lowers to SwiftUI status-bar modifiers and AndroidX insets-controller APIs; background configuration and animated transitions remain future work.
 
 Compile-time platform blocks are supported with `platform ios { ... }` and `platform android { ... }`. Target-specific lowering removes the inactive block before semantic analysis and backend generation, so platform selection adds no runtime branch or cross-platform UI wrapper.
 
@@ -514,10 +514,9 @@ The first cross-platform `StatusBar` API slice is implemented. It accepts one ap
 Remaining work:
 
 - background configuration where supported,
-- animated transitions,
-- screen-specific configuration.
+- animated transitions.
 
-The compiler rejects nested and repeated declarations and emits no shared status-bar runtime. The current style applies to the app root; screen-specific overrides remain future work.
+The compiler rejects nested and repeated declarations and emits no shared status-bar runtime. A named screen's configuration overrides the app-level configuration while that screen is visible.
 
 ## Application bottom bar
 
