@@ -276,6 +276,7 @@ pub fn lower_with_warnings(
             &component_signatures,
             &function_signatures,
             false,
+            true,
             target,
         )?;
         let (status_bar, screen_body) = extract_status_bar(screen_body, screen.span, "screen")?;
@@ -323,6 +324,7 @@ pub fn lower_with_warnings(
         &component_signatures,
         &function_signatures,
         true,
+        false,
         target,
     )?;
     let (status_bar, body) = extract_status_bar(body, app.span, "app")?;
@@ -962,6 +964,7 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
         | Node::Switch { .. }
         | Node::Image { .. }
         | Node::NavigationStack { .. }
+        | Node::NavigationBack { .. }
         | Node::ComponentCall { .. }
         | Node::Content
         | Node::Direction { .. }
@@ -1054,6 +1057,7 @@ pub(super) fn contains_direction(node: &Node) -> bool {
         | Node::Switch { .. }
         | Node::Image { .. }
         | Node::NavigationStack { .. }
+        | Node::NavigationBack { .. }
         | Node::ComponentCall { .. }
         | Node::Content
         | Node::OnAppear { .. }
@@ -1152,6 +1156,7 @@ pub(super) fn contains_on_appear(node: &Node) -> bool {
         | Node::Switch { .. }
         | Node::Image { .. }
         | Node::NavigationStack { .. }
+        | Node::NavigationBack { .. }
         | Node::ComponentCall { .. }
         | Node::Content
         | Node::OnDisappear { .. }
@@ -1335,6 +1340,7 @@ fn contains_lifecycle_event(node: &Node, event: LifecycleEvent) -> bool {
             | Node::Switch { .. }
             | Node::Image { .. }
             | Node::NavigationStack { .. }
+            | Node::NavigationBack { .. }
             | Node::ComponentCall { .. }
             | Node::Content => false,
         },
@@ -1399,6 +1405,7 @@ pub(super) fn contains_on_disappear(node: &Node) -> bool {
         | Node::Switch { .. }
         | Node::Image { .. }
         | Node::NavigationStack { .. }
+        | Node::NavigationBack { .. }
         | Node::ComponentCall { .. }
         | Node::Content => false,
     }

@@ -3,9 +3,19 @@ use nexa_ir::{Module, Node, ScreenId};
 
 use super::{
     components::render_children,
+    expressions::text_expression,
     features::Features,
     utils::{indent, kotlin_string},
 };
+
+pub(super) fn render_back(label: &nexa_ir::Expr, depth: usize, out: &mut String) {
+    indent(out, depth);
+    out.push_str("TextButton(onClick = { navController.popBackStack() }) {\n");
+    indent(out, depth + 1);
+    out.push_str(&format!("Text({})\n", text_expression(label)));
+    indent(out, depth);
+    out.push('}');
+}
 
 pub(super) fn render_link(
     destination: ScreenId,

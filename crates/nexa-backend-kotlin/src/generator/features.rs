@@ -44,6 +44,7 @@ pub(super) struct Features {
     pub(super) uses_permission_request: bool,
     pub(super) uses_placeholder: bool,
     pub(super) uses_navigation_link: bool,
+    pub(super) uses_navigation_back: bool,
     pub(super) uses_link: bool,
     pub(super) app_uses_link: bool,
     pub(super) uses_accessibility: bool,
@@ -508,6 +509,9 @@ impl Features {
             Node::NavigationLink { children, .. } => {
                 self.uses_navigation_link = true;
                 self.record_child_layout(children);
+            }
+            Node::NavigationBack { .. } => {
+                self.uses_navigation_back = true;
             }
             Node::Link { children, .. } => {
                 self.uses_link = true;

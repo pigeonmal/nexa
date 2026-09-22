@@ -128,8 +128,12 @@ pub(super) fn generate(module: &Module) -> String {
     {
         out.push_str("    @Environment(\\.scenePhase) private var nexaScenePhase\n");
     }
+    if features.uses_navigation_back {
+        out.push_str("    @Environment(\\.dismiss) private var nexaDismiss\n");
+    }
     if features.app_uses_adaptive_color
         || features.app_uses_size_class
+        || features.uses_navigation_back
         || module.on_active.is_some()
         || module.on_inactive.is_some()
         || module.on_background.is_some()

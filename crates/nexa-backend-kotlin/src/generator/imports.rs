@@ -524,11 +524,11 @@ pub(super) fn render(
         "kotlin.coroutines.resumeWithException",
     );
     add(
-        features.uses_navigation_link,
+        features.uses_navigation_link || features.uses_navigation_back,
         "androidx.compose.material3.TextButton",
     );
     add(
-        features.uses_navigation_link,
+        features.uses_navigation_link || features.uses_navigation_back,
         "androidx.navigation.NavHostController",
     );
     add(has_navigation, "androidx.navigation.compose.NavHost");

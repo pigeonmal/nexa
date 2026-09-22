@@ -25,6 +25,7 @@ pub(super) fn lower_nodes(
     components: &ComponentSignatures,
     functions: &FunctionSignatures,
     allow_navigation_stack: bool,
+    allow_navigation_back: bool,
     target: Target,
 ) -> Result<Vec<Node>, CompileError> {
     let mut lowered = Vec::with_capacity(nodes.len());
@@ -44,6 +45,7 @@ pub(super) fn lower_nodes(
                         components,
                         functions,
                         allow_navigation_stack,
+                        allow_navigation_back,
                         target,
                     )?);
                 }
@@ -59,6 +61,7 @@ pub(super) fn lower_nodes(
                     components,
                     functions,
                     allow_navigation,
+                    allow_navigation_back,
                     target,
                 )?);
             }
@@ -82,6 +85,7 @@ pub(super) fn lower_node(
     components: &ComponentSignatures,
     functions: &FunctionSignatures,
     allow_navigation_stack: bool,
+    allow_navigation_back: bool,
     target: Target,
 ) -> Result<Node, CompileError> {
     match node {
@@ -142,7 +146,15 @@ pub(super) fn lower_node(
             .unwrap_or(0.0);
             let style = lower_style(style, themes)?;
             let lowered = lower_nodes(
-                children, symbols, screen_ids, themes, components, functions, false, target,
+                children,
+                symbols,
+                screen_ids,
+                themes,
+                components,
+                functions,
+                false,
+                allow_navigation_back,
+                target,
             )?;
             let kind = match kind {
                 ast::LayoutKind::Column => LayoutKind::Column,
@@ -411,7 +423,15 @@ pub(super) fn lower_node(
                 .unwrap_or(Expr::Bool(false));
             let haptic = lower_haptic(haptic)?;
             let lowered_children = lower_nodes(
-                children, symbols, screen_ids, themes, components, functions, false, target,
+                children,
+                symbols,
+                screen_ids,
+                themes,
+                components,
+                functions,
+                false,
+                allow_navigation_back,
+                target,
             )?;
             let actions = lower_actions(actions, symbols, functions, false)?;
             let long_press_actions = lower_actions(long_press_actions, symbols, functions, false)?;
@@ -433,6 +453,19 @@ pub(super) fn lower_node(
             let root = resolve_screen(&root, screen_ids, "NavigationStack root")?;
             Ok(Node::NavigationStack { root })
         }
+        ast::Node::NavigationBack { label, span } => {
+            if !allow_navigation_back {
+                return Err(CompileError::new(
+                    span,
+                    "NavigationBack is only allowed inside a declared screen",
+                ));
+            }
+            let label = label
+                .map(|label| lower_expr(&label, Some(&Type::String), symbols, functions, false))
+                .transpose()?
+                .unwrap_or_else(|| Expr::String("Back".to_owned()));
+            Ok(Node::NavigationBack { label })
+        }
         ast::Node::NavigationLink {
             destination,
             children,
@@ -449,7 +482,15 @@ pub(super) fn lower_node(
                     },
                 )?;
             let lowered_children = lower_nodes(
-                children, symbols, screen_ids, themes, components, functions, false, target,
+                children,
+                symbols,
+                screen_ids,
+                themes,
+                components,
+                functions,
+                false,
+                allow_navigation_back,
+                target,
             )?;
             Ok(Node::NavigationLink {
                 destination,
@@ -471,7 +512,15 @@ pub(super) fn lower_node(
                 }
             }
             let children = lower_nodes(
-                children, symbols, screen_ids, themes, components, functions, false, target,
+                children,
+                symbols,
+                screen_ids,
+                themes,
+                components,
+                functions,
+                false,
+                allow_navigation_back,
+                target,
             )?;
             Ok(Node::Link {
                 url: lowered_url,
@@ -532,7 +581,15 @@ pub(super) fn lower_node(
                 }
             };
             let children = lower_nodes(
-                children, symbols, screen_ids, themes, components, functions, false, target,
+                children,
+                symbols,
+                screen_ids,
+                themes,
+                components,
+                functions,
+                false,
+                allow_navigation_back,
+                target,
             )?;
             if children.is_empty() {
                 return Err(CompileError::new(
@@ -551,7 +608,15 @@ pub(super) fn lower_node(
             dismiss, children, ..
         } => {
             let lowered_children = lower_nodes(
-                children, symbols, screen_ids, themes, components, functions, false, target,
+                children,
+                symbols,
+                screen_ids,
+                themes,
+                components,
+                functions,
+                false,
+                allow_navigation_back,
+                target,
             )?;
             Ok(Node::KeyboardAware {
                 dismiss: lower_keyboard_dismiss(dismiss)?,
@@ -567,7 +632,15 @@ pub(super) fn lower_node(
             let state =
                 require_mutable_binding(&is_presented, &Type::Bool, symbols, span, "BottomSheet")?;
             let lowered_children = lower_nodes(
-                children, symbols, screen_ids, themes, components, functions, false, target,
+                children,
+                symbols,
+                screen_ids,
+                themes,
+                components,
+                functions,
+                false,
+                allow_navigation_back,
+                target,
             )?;
             Ok(Node::BottomSheet {
                 state,
@@ -589,7 +662,15 @@ pub(super) fn lower_node(
                 "RefreshControl",
             )?;
             let mut lowered_children = lower_nodes(
-                children, symbols, screen_ids, themes, components, functions, false, target,
+                children,
+                symbols,
+                screen_ids,
+                themes,
+                components,
+                functions,
+                false,
+                allow_navigation_back,
+                target,
             )?;
             let actions = lower_actions(actions, symbols, functions, false)?;
             if lowered_children.len() == 1 {
@@ -661,6 +742,7 @@ pub(super) fn lower_node(
                     components,
                     functions,
                     false,
+                    allow_navigation_back,
                     target,
                 )?;
                 lowered_tabs.push(BottomBarTab {
@@ -963,6 +1045,7 @@ pub(super) fn lower_node(
                 components,
                 functions,
                 false,
+                allow_navigation_back,
                 target,
             )?;
             if lowered_children.is_empty() {
@@ -992,7 +1075,15 @@ pub(super) fn lower_node(
             let sticky_header = sticky_header
                 .map(|header| {
                     lower_nodes(
-                        header, symbols, screen_ids, themes, components, functions, false, target,
+                        header,
+                        symbols,
+                        screen_ids,
+                        themes,
+                        components,
+                        functions,
+                        false,
+                        allow_navigation_back,
+                        target,
                     )
                 })
                 .transpose()?;
@@ -1013,6 +1104,7 @@ pub(super) fn lower_node(
                         components,
                         functions,
                         false,
+                        allow_navigation_back,
                         target,
                     )
                 })
@@ -1042,12 +1134,28 @@ pub(super) fn lower_node(
         } => {
             let condition = lower_expr(&condition, Some(&Type::Bool), symbols, functions, false)?;
             let lowered_then = lower_nodes(
-                then_body, symbols, screen_ids, themes, components, functions, false, target,
+                then_body,
+                symbols,
+                screen_ids,
+                themes,
+                components,
+                functions,
+                false,
+                allow_navigation_back,
+                target,
             )?;
             let lowered_else = else_body
                 .map(|body| {
                     lower_nodes(
-                        body, symbols, screen_ids, themes, components, functions, false, target,
+                        body,
+                        symbols,
+                        screen_ids,
+                        themes,
+                        components,
+                        functions,
+                        false,
+                        allow_navigation_back,
+                        target,
                     )
                 })
                 .transpose()?;
@@ -1100,7 +1208,15 @@ pub(super) fn lower_node(
                     ));
                 }
                 let body = lower_nodes(
-                    case.body, symbols, screen_ids, themes, components, functions, false, target,
+                    case.body,
+                    symbols,
+                    screen_ids,
+                    themes,
+                    components,
+                    functions,
+                    false,
+                    allow_navigation_back,
+                    target,
                 )?;
                 lowered_cases.push(WhenCase {
                     value: lowered_case,
@@ -1108,7 +1224,15 @@ pub(super) fn lower_node(
                 });
             }
             let lowered_else = lower_nodes(
-                else_body, symbols, screen_ids, themes, components, functions, false, target,
+                else_body,
+                symbols,
+                screen_ids,
+                themes,
+                components,
+                functions,
+                false,
+                allow_navigation_back,
+                target,
             )?;
             Ok(Node::When {
                 value: lowered_value,
@@ -1165,7 +1289,15 @@ pub(super) fn lower_node(
             let lowered_children = children
                 .map(|children| {
                     let lowered = lower_nodes(
-                        children, symbols, screen_ids, themes, components, functions, false, target,
+                        children,
+                        symbols,
+                        screen_ids,
+                        themes,
+                        components,
+                        functions,
+                        false,
+                        allow_navigation_back,
+                        target,
                     )?;
                     if lowered.iter().any(contains_content) {
                         return Err(CompileError::new(
@@ -1246,7 +1378,8 @@ pub(super) fn contains_content(node: &Node) -> bool {
         | Node::TextInput { .. }
         | Node::Switch { .. }
         | Node::Image { .. }
-        | Node::NavigationStack { .. } => false,
+        | Node::NavigationStack { .. }
+        | Node::NavigationBack { .. } => false,
     }
 }
 

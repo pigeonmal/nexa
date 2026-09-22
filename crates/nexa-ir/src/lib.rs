@@ -380,6 +380,9 @@ pub enum Node {
         destination: ScreenId,
         children: Vec<Node>,
     },
+    NavigationBack {
+        label: Expr,
+    },
     Link {
         url: Expr,
         children: Vec<Node>,

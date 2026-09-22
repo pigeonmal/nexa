@@ -1,6 +1,7 @@
 use nexa_codegen::names::navigation_case_name;
 use nexa_ir::{Module, Node, ScreenId};
 
+use super::expressions::text_expression;
 use super::render_immutable_state;
 use super::{components::render_children, utils::indent};
 
@@ -18,6 +19,15 @@ pub(super) fn render_link(
     ));
     render_children(children, module, depth + 1, out);
     out.push('\n');
+    indent(out, depth);
+    out.push('}');
+}
+
+pub(super) fn render_back(label: &nexa_ir::Expr, depth: usize, out: &mut String) {
+    indent(out, depth);
+    out.push_str(&format!("Button({}) {{\n", text_expression(label)));
+    indent(out, depth + 1);
+    out.push_str("nexaDismiss()\n");
     indent(out, depth);
     out.push('}');
 }

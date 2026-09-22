@@ -13,6 +13,7 @@ pub(super) struct Features {
     pub(super) uses_sticky_header: bool,
     pub(super) uses_scroll_events: bool,
     pub(super) uses_link: bool,
+    pub(super) uses_navigation_back: bool,
     pub(super) uses_remote_image: bool,
     pub(super) uses_native_library: bool,
     pub(super) uses_network_api: bool,
@@ -207,6 +208,7 @@ impl Features {
         self.record_list_usage(node);
         self.uses_haptic |= node_uses_haptic(node);
         self.uses_link |= matches!(node, Node::Link { .. });
+        self.uses_navigation_back |= matches!(node, Node::NavigationBack { .. });
         self.uses_remote_image |= matches!(
             node,
             Node::Image {

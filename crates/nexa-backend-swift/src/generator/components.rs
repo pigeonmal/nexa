@@ -152,6 +152,7 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             destination,
             children,
         } => navigation::render_link(*destination, children, module, depth, out),
+        Node::NavigationBack { label } => navigation::render_back(label, depth, out),
         Node::Link { url, children } => links::render_link(url, children, module, depth, out),
         Node::Accessibility {
             label,

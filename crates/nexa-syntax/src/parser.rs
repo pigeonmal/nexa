@@ -1052,6 +1052,13 @@ impl Parser {
                     span,
                 })
             }
+            "NavigationBack" => {
+                let mut args = self.named_args(&["label"])?;
+                Ok(Node::NavigationBack {
+                    label: args.remove("label"),
+                    span,
+                })
+            }
             "Link" => {
                 let mut args = self.named_args(&["url"])?;
                 let url = self.required_arg(&mut args, "url", "Link requires `url`")?;

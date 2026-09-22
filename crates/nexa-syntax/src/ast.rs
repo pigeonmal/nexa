@@ -305,6 +305,10 @@ pub enum Node {
         children: Vec<Node>,
         span: Span,
     },
+    NavigationBack {
+        label: Option<Expr>,
+        span: Span,
+    },
     Link {
         url: Expr,
         children: Vec<Node>,

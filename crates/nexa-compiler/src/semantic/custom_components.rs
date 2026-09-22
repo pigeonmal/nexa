@@ -201,6 +201,7 @@ fn lower_component(
         signatures,
         functions,
         false,
+        false,
         target,
     )?;
     if body.iter().any(super::contains_status_bar) {
@@ -400,6 +401,7 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
         | ast::Node::Switch { .. }
         | ast::Node::Image { .. }
         | ast::Node::NavigationStack { .. }
+        | ast::Node::NavigationBack { .. }
         | ast::Node::Content { .. }
         | ast::Node::Direction { .. }
         | ast::Node::OnAppear { .. }
@@ -488,6 +490,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::Switch { .. }
         | Node::Image { .. }
         | Node::NavigationStack { .. }
+        | Node::NavigationBack { .. }
         | Node::Direction { .. }
         | Node::OnAppear { .. }
         | Node::OnDisappear { .. }
@@ -562,6 +565,7 @@ fn contains_content_slot(node: &ast::Node) -> bool {
         | ast::Node::Switch { .. }
         | ast::Node::Image { .. }
         | ast::Node::NavigationStack { .. }
+        | ast::Node::NavigationBack { .. }
         | ast::Node::Direction { .. }
         | ast::Node::OnAppear { .. }
         | ast::Node::OnDisappear { .. }

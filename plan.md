@@ -889,8 +889,9 @@ Navigation transitions should remain native.
 Named screens may declare typed `state` and `let` bindings before their UI
 nodes. The compiler lowers these declarations into direct native state storage
 and requires unique state names across the app so the generated navigation
-stack remains statically bound. Typed route parameters, deep links, and
-navigation guards remain future work.
+stack remains statically bound. `NavigationBack(label: ...)` is supported
+inside declared screens and lowers to native dismiss/pop-back-stack behavior.
+Typed route parameters, deep links, and navigation guards remain future work.
 
 ## Permissions
 

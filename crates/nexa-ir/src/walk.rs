@@ -141,6 +141,7 @@ pub fn walk_ir(
             | Node::StatusBar { .. }
             | Node::Direction { .. }
             | Node::NavigationStack { .. } => {}
+            Node::NavigationBack { label } => walk_expression(label, visit_expression),
             Node::Image { source, .. } => {
                 if let crate::ImageSource::RemoteUrl(url) = source {
                     walk_expression(url, visit_expression);
@@ -284,6 +285,7 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::Switch { .. }
         | Node::Image { .. }
         | Node::NavigationStack { .. }
+        | Node::NavigationBack { .. }
         | Node::ComponentCall { .. }
         | Node::Content
         | Node::OnAppear { .. }

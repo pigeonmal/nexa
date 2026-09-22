@@ -1068,7 +1068,8 @@ fn optimize_node(node: Node) -> Option<Node> {
         | Node::Image { .. }
         | Node::StatusBar { .. }
         | Node::Direction { .. }
-        | Node::NavigationStack { .. }) => Some(node),
+        | Node::NavigationStack { .. }
+        | Node::NavigationBack { .. }) => Some(node),
         Node::OnAppear {
             actions,
             asynchronous,
