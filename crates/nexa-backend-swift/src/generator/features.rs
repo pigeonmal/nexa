@@ -187,16 +187,20 @@ impl Features {
         }
         let (uses_network_api, uses_path_api, uses_file_api, uses_file_async) =
             native_api_usage(module);
-        features.uses_network_api = uses_network_api || features.uses_remote_image;
+        features.uses_network_api = uses_network_api;
         features.uses_path_api = uses_path_api;
         features.uses_file_api = uses_file_api;
         features.uses_file_async = uses_file_async;
         features.uses_native_library =
-            features.uses_network_api || features.uses_path_api || features.uses_file_api;
+            features.uses_network_transport() || features.uses_path_api || features.uses_file_api;
         features.uses_permissions = uses_permissions;
         features.uses_permission_request = uses_permission_request;
         collect_permission_usage(module, &mut features);
         features
+    }
+
+    pub(super) fn uses_network_transport(&self) -> bool {
+        self.uses_network_api || self.uses_remote_image
     }
 
     pub(super) fn uses_permission(&self, permission: Permission) -> bool {

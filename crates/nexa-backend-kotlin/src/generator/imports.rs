@@ -9,6 +9,7 @@ pub(super) fn render(
     has_lifecycle_events: bool,
     out: &mut String,
 ) {
+    let uses_network_transport = features.uses_network_transport();
     let mut imports = Vec::with_capacity(40);
     let mut add = |enabled: bool, import: &'static str| {
         if enabled {
@@ -450,7 +451,7 @@ pub(super) fn render(
     );
     add(features.uses_image, "coil3.compose.AsyncImage");
     add(
-        features.uses_network_api || features.uses_path_api || features.uses_permissions,
+        uses_network_transport || features.uses_path_api || features.uses_permissions,
         "android.content.Context",
     );
     add(features.uses_network_api, "android.net.Uri");
@@ -467,7 +468,7 @@ pub(super) fn render(
             || features.uses_tab_icon
             || features.uses_button_icon
             || features.uses_placeholder
-            || features.uses_network_api
+            || uses_network_transport
             || features.uses_path_api
             || features.uses_permissions,
         "androidx.compose.ui.platform.LocalContext",
@@ -483,7 +484,7 @@ pub(super) fn render(
         "coil3.network.NetworkResponseBody",
     );
     add(
-        features.uses_network_api,
+        uses_network_transport,
         "kotlinx.coroutines.CancellationException",
     );
     add(
@@ -491,7 +492,7 @@ pub(super) fn render(
         "kotlinx.coroutines.Dispatchers",
     );
     add(
-        features.uses_network_api,
+        uses_network_transport,
         "kotlinx.coroutines.suspendCancellableCoroutine",
     );
     add(
@@ -500,30 +501,27 @@ pub(super) fn render(
     );
     add(features.uses_network_api, "kotlinx.coroutines.withTimeout");
     add(features.uses_remote_image, "okio.Buffer");
-    add(features.uses_network_api, "org.chromium.net.CronetEngine");
+    add(uses_network_transport, "org.chromium.net.CronetEngine");
     add(
-        features.uses_network_api,
+        uses_network_transport,
         "org.chromium.net.UploadDataProvider",
     );
-    add(features.uses_network_api, "org.chromium.net.UploadDataSink");
-    add(features.uses_network_api, "org.chromium.net.UrlRequest");
-    add(
-        features.uses_network_api,
-        "org.chromium.net.UrlResponseInfo",
-    );
-    add(features.uses_network_api, "java.io.ByteArrayOutputStream");
+    add(uses_network_transport, "org.chromium.net.UploadDataSink");
+    add(uses_network_transport, "org.chromium.net.UrlRequest");
+    add(uses_network_transport, "org.chromium.net.UrlResponseInfo");
+    add(uses_network_transport, "java.io.ByteArrayOutputStream");
     add(
         features.uses_network_api || features.uses_path_api || features.uses_file_api,
         "java.io.File",
     );
     add(features.uses_network_api, "java.io.FileOutputStream");
-    add(features.uses_network_api, "java.nio.ByteBuffer");
-    add(features.uses_network_api, "java.util.Date");
-    add(features.uses_network_api, "java.util.WeakHashMap");
-    add(features.uses_network_api, "java.util.concurrent.Executors");
-    add(features.uses_network_api, "kotlin.coroutines.resume");
+    add(uses_network_transport, "java.io.OutputStream");
+    add(uses_network_transport, "java.nio.ByteBuffer");
+    add(uses_network_transport, "java.util.WeakHashMap");
+    add(uses_network_transport, "java.util.concurrent.Executors");
+    add(uses_network_transport, "kotlin.coroutines.resume");
     add(
-        features.uses_network_api,
+        uses_network_transport,
         "kotlin.coroutines.resumeWithException",
     );
     add(

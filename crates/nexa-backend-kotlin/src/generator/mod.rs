@@ -32,9 +32,9 @@ fn project_features_from_analysis(
     features: &features::Features,
 ) -> crate::KotlinProjectFeatures {
     crate::KotlinProjectFeatures {
-        uses_network: features.uses_network_api,
+        uses_network: features.uses_network_transport(),
         uses_remote_image: features.uses_remote_image,
-        uses_coroutines: features.uses_network_api
+        uses_coroutines: features.uses_network_transport()
             || features.uses_file_async
             || features.uses_permission_request,
         uses_permission_request: features.uses_permission_request,

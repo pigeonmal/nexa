@@ -41,7 +41,7 @@ pub(super) fn generate(module: &Module) -> String {
     if features.uses_network_api {
         out.push_str("import CryptoKit\n");
     }
-    if features.uses_network_api || features.uses_path_api || features.uses_file_api {
+    if features.uses_network_transport() || features.uses_path_api || features.uses_file_api {
         out.push_str("import Foundation\n\n");
     } else if features.uses_link {
         out.push_str("import Foundation\n\n");

@@ -11,6 +11,25 @@ pub(super) fn render(
     include_file: bool,
     include_file_async: bool,
 ) {
+    if include_network || include_image_support {
+        out.push_str(
+            r#"
+private enum NexaURLSessionSupport {
+    static let configuration: URLSessionConfiguration = {
+        let configuration = URLSessionConfiguration.default
+        configuration.urlCache = URLCache(
+            memoryCapacity: 16 * 1024 * 1024,
+            diskCapacity: 64 * 1024 * 1024
+        )
+        configuration.requestCachePolicy = .useProtocolCachePolicy
+        return configuration
+    }()
+    static let sharedSession = URLSession(configuration: configuration)
+}
+
+"#,
+        );
+    }
     if include_network {
         out.push_str(
             r#"
@@ -78,17 +97,6 @@ private final class NexaURLSessionDelegate: NSObject, URLSessionTaskDelegate {
 }
 
 public enum NexaNetwork {
-    private static let configuration: URLSessionConfiguration = {
-        let configuration = URLSessionConfiguration.default
-        configuration.urlCache = URLCache(
-            memoryCapacity: 16 * 1024 * 1024,
-            diskCapacity: 64 * 1024 * 1024
-        )
-        configuration.requestCachePolicy = .useProtocolCachePolicy
-        return configuration
-    }()
-    private static let sharedSession = URLSession(configuration: configuration)
-
     public static func fetch(
         url: String,
         method: String = "GET",
@@ -117,8 +125,8 @@ public enum NexaNetwork {
                 certificatePins: certificatePins
             )
         let session = delegate == nil
-            ? sharedSession
-            : URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+            ? NexaURLSessionSupport.sharedSession
+            : URLSession(configuration: NexaURLSessionSupport.configuration, delegate: delegate, delegateQueue: nil)
         defer {
             if delegate != nil { session.finishTasksAndInvalidate() }
         }
@@ -177,8 +185,8 @@ public enum NexaNetwork {
                 certificatePins: certificatePins
             )
         let session = delegate == nil
-            ? sharedSession
-            : URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+            ? NexaURLSessionSupport.sharedSession
+            : URLSession(configuration: NexaURLSessionSupport.configuration, delegate: delegate, delegateQueue: nil)
         defer {
             if delegate != nil { session.finishTasksAndInvalidate() }
         }
@@ -295,6 +303,11 @@ public enum NexaNetwork {
     if include_image_support {
         out.push_str(
             r#"
+private enum NexaRemoteImageError: Error {
+    case invalidURL
+    case invalidResponse
+}
+
 private enum NexaImageScale {
     case fit
     case fill
@@ -324,11 +337,13 @@ private struct NexaRemoteImage: View {
         .task(id: url) {
             do {
                 guard let parsedURL = URL(string: url), parsedURL.scheme?.lowercased() == "https" else {
-                    throw NexaNetworkError.invalidURL
+                    throw NexaRemoteImageError.invalidURL
                 }
-                let response = try await NexaNetwork.fetch(url: url)
-                guard let decoded = UIImage(data: response.body) else {
-                    throw NexaNetworkError.invalidResponse
+                let (data, response) = try await NexaURLSessionSupport.sharedSession.data(from: parsedURL)
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200..<300).contains(httpResponse.statusCode),
+                      let decoded = UIImage(data: data) else {
+                    throw NexaRemoteImageError.invalidResponse
                 }
                 image = Image(uiImage: decoded)
             } catch {

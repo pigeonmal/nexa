@@ -11,11 +11,14 @@ pub(super) fn render(
     include_file: bool,
     include_file_async: bool,
 ) {
-    if include_network {
+    if include_network || include_image_support {
+        out.push_str(if include_network {
+            "\npublic data class NexaNetworkResponse(\n"
+        } else {
+            "\nprivate data class NexaNetworkResponse(\n"
+        });
         out.push_str(
-            r#"
-public data class NexaNetworkResponse(
-    val statusCode: Int,
+            r#"    val statusCode: Int,
     val headers: Map<String, List<String>>,
     val body: ByteArray,
 ) {
@@ -45,7 +48,7 @@ private object NexaCronetRuntime {
                 CronetEngine.Builder.HTTP_CACHE_DISK,
                 64L * 1024L * 1024L,
             )
-        val expiration = Date(System.currentTimeMillis() + 365L * 24L * 60L * 60L * 1000L)
+        val expiration = java.util.Date(System.currentTimeMillis() + 365L * 24L * 60L * 60L * 1000L)
         for ((host, pins) in certificatePins) {
             builder.addPublicKeyPins(host, pins, true, expiration)
         }
@@ -89,7 +92,7 @@ private class NexaCronetRequestClient(
         maxResponseBytes: Long,
         followRedirects: Boolean,
         useCache: Boolean = true,
-        sink: FileOutputStream? = null,
+        sink: OutputStream? = null,
     ): NexaNetworkResponse = suspendCancellableCoroutine { continuation ->
         val output = if (sink == null) ByteArrayOutputStream() else null
         var receivedBytes = 0L
@@ -146,7 +149,12 @@ private class NexaCronetRequestClient(
     }
 }
 
-private fun hexPin(value: String): ByteArray {
+"#,
+        );
+    }
+    if include_network {
+        out.push_str(
+            r#"private fun hexPin(value: String): ByteArray {
     require(value.length % 2 == 0) { "certificate pins must be hexadecimal SHA-256 values" }
     return value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 }
