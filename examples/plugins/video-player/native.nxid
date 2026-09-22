@@ -1,0 +1,41 @@
+struct PlayerOptions {
+    autoplay: Bool = false
+    volume: Float64 = 1.0
+}
+
+enum PlayerState {
+    idle
+    preparing
+    ready
+    playing
+    paused
+    ended
+}
+
+error PlayerError {
+    invalidUrl
+    unsupportedFormat
+    decodingFailed
+}
+
+native class VideoPlayer {
+    init(options: PlayerOptions)
+
+    readonly property state: PlayerState
+    readonly property duration: Float64
+    property volume: Float64
+
+    async fn prepare(url: String) throws PlayerError
+    fn play()
+    fn pause()
+    fn seek(position: Float64)
+    fn dispose()
+
+    event ended()
+}
+
+native component VideoView {
+    prop player: VideoPlayer
+    prop controls: Bool
+    event tapped()
+}

@@ -46,8 +46,8 @@ pub(crate) fn swift(idl: &PluginIdl) -> String {
         out.push_str("}\n\n");
         if interface.kind == InterfaceKind::NativeClass {
             out.push_str(&format!(
-                "public typealias {} = {}\n\n",
-                interface.name, contract_name
+                "public typealias {} = {}Impl\n\n",
+                interface.name, interface.name
             ));
         }
     }
@@ -65,13 +65,9 @@ pub(crate) fn kotlin(idl: &PluginIdl, package: &str) -> String {
             "public interface {} {{\n",
             kotlin_contract_name(interface)
         ));
-        for constructor in &interface.constructors {
-            out.push_str("    fun create(");
-            out.push_str(&kotlin_parameters(&constructor.parameters));
-            out.push_str("): ");
-            out.push_str(&interface.name);
-            out.push('\n');
-        }
+        // Kotlin interfaces cannot declare constructors. The generated
+        // implementation alias below keeps construction direct while the
+        // implementation class owns its concrete constructor.
         for property in &interface.properties {
             out.push_str("    ");
             out.push_str(&kotlin_property(property));
@@ -90,9 +86,8 @@ pub(crate) fn kotlin(idl: &PluginIdl, package: &str) -> String {
         out.push_str("}\n\n");
         if interface.kind == InterfaceKind::NativeClass {
             out.push_str(&format!(
-                "public typealias {} = {}\n\n",
-                interface.name,
-                kotlin_contract_name(interface)
+                "public typealias {} = {}Impl\n\n",
+                interface.name, interface.name
             ));
         }
     }

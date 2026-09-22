@@ -21,7 +21,7 @@ Help extend Nexa with optional features that users can install without placing e
 - Use `nexa plugin init <plugin.id> --kind pure` for a source-only package. It creates `plugin.nx` and `assets/`; the app declares the package with the same `plugin "path" as Namespace` form, and the compiler loads reusable components/functions through the normal `.nx` graph. Use the default `--kind native` for IDL-backed Swift/Kotlin integrations. Pure plugins do not create native dependencies or bindings.
 - Put plugin-owned images and other platform resources under `assets/`. Project generation copies reachable plugin assets into Android `drawable-nodpi` and an iOS asset catalog, with deterministic names. Keep resource names stable and lowercase-safe because generated Android lookup uses resource identifiers.
 - Native scaffolds do not require a hand-authored C ABI. The normal path is direct Swift/Kotlin code generation; optional C++ support must later generate ownership, exception, and platform adapters from the same typed contract.
-- Treat native bindings as direct typed calls with explicit ownership. Do not add reflection, JSON/RPC, a runtime registry, or a manually maintained C wrapper to the normal Swift/Kotlin path.
+- Treat native bindings as direct typed calls with explicit ownership. Native class bindings expect a concrete `{Name}Impl` implementation and alias `{Name}` to it, keeping construction direct. Do not add reflection, JSON/RPC, a runtime registry, or a manually maintained C wrapper to the normal Swift/Kotlin path.
 - Expose platform differences intentionally when APIs cannot share the same behavior; do not hide incompatible semantics behind a misleading common abstraction.
 
 ## Implementation workflow

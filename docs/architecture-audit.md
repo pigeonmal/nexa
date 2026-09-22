@@ -91,9 +91,9 @@ implemented after the findings were reviewed.
 - Added native class constructor and instance-method lowering. A `native class`
   constructor now creates a typed object expression, and calls such as
   `player.prepare()` lower to direct receiver calls instead of the service
-  singleton path. Read-only properties also lower to direct member access;
-  mutable writes, deterministic disposal, void action statements, and instance
-  events remain follow-up work.
+  singleton path. Read-only properties, named arguments, and `Void`/async
+  action calls also lower directly; mutable writes, deterministic disposal, and
+  instance events remain follow-up work.
 
 ## Independent Swift/Kotlin review
 
@@ -108,8 +108,8 @@ ABI or measured binary-size reduction without release builds.
 ## Remaining architectural work
 
 1. Generate native implementation conformance checks and factories, then add
-   mutable property writes, disposal, void action statements, instance-scoped
-   events, and native visual component lowering from `native.nxid`.
+   mutable property writes, disposal, and instance-scoped events alongside
+   native visual component lowering from `native.nxid`.
 2. Add SPM/Maven dependency declarations and honor manifest platform minimums
    during project generation. Manifest source globs are now honored.
 3. Extend `nexa audit` with Android R8/resource-shrink results and Swift

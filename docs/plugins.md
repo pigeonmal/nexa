@@ -129,8 +129,9 @@ The parser validates duplicate names, type references, generic arity,
 constructor/property/event parameters, and asynchronous throwing methods.
 Generated Swift output contains value types and protocols such as
 `VideoPlayerSpec`; generated Kotlin output contains equivalent data classes,
-enums, and interfaces. A native class also gets a type alias named after the
-Nexa class so component properties remain typed as `VideoPlayer`.
+enums, and interfaces. A native class contract expects the plugin implementation
+to provide a concrete `{Name}Impl` class; generated bindings alias `{Name}` to
+that implementation so construction stays a direct native call.
 
 `service` declares stateless APIs. `interface` remains available for a shared
 contract. `native class` represents an independently constructible stateful
