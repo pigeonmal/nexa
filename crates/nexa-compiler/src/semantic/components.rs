@@ -1173,10 +1173,14 @@ pub(super) fn contains_content(node: &Node) -> bool {
         Node::FastList {
             children,
             sticky_header,
+            section_header,
             ..
         } => {
             children.iter().any(contains_content)
                 || sticky_header
+                    .as_deref()
+                    .is_some_and(|header| header.iter().any(contains_content))
+                || section_header
                     .as_deref()
                     .is_some_and(|header| header.iter().any(contains_content))
         }

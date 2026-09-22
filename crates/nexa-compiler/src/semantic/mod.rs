@@ -849,10 +849,14 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
         Node::FastList {
             children,
             sticky_header,
+            section_header,
             ..
         } => {
             children.iter().any(contains_status_bar)
                 || sticky_header
+                    .as_deref()
+                    .is_some_and(|header| header.iter().any(contains_status_bar))
+                || section_header
                     .as_deref()
                     .is_some_and(|header| header.iter().any(contains_status_bar))
         }
@@ -933,10 +937,14 @@ pub(super) fn contains_direction(node: &Node) -> bool {
         Node::FastList {
             children,
             sticky_header,
+            section_header,
             ..
         } => {
             children.iter().any(contains_direction)
                 || sticky_header
+                    .as_deref()
+                    .is_some_and(|header| header.iter().any(contains_direction))
+                || section_header
                     .as_deref()
                     .is_some_and(|header| header.iter().any(contains_direction))
         }
@@ -1023,10 +1031,14 @@ pub(super) fn contains_on_appear(node: &Node) -> bool {
         Node::FastList {
             children,
             sticky_header,
+            section_header,
             ..
         } => {
             children.iter().any(contains_on_appear)
                 || sticky_header
+                    .as_deref()
+                    .is_some_and(|header| header.iter().any(contains_on_appear))
+                || section_header
                     .as_deref()
                     .is_some_and(|header| header.iter().any(contains_on_appear))
         }
@@ -1108,10 +1120,14 @@ pub(super) fn contains_on_disappear(node: &Node) -> bool {
         Node::FastList {
             children,
             sticky_header,
+            section_header,
             ..
         } => {
             children.iter().any(contains_on_disappear)
                 || sticky_header
+                    .as_deref()
+                    .is_some_and(|header| header.iter().any(contains_on_disappear))
+                || section_header
                     .as_deref()
                     .is_some_and(|header| header.iter().any(contains_on_disappear))
         }

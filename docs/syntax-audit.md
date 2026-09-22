@@ -133,6 +133,11 @@ with a row binding, while keeping common UI calls short.
   blocks. They now use named dot modifiers (`.onPress`, `.onLongPress`, and
   `.onRefresh`) so a block cannot be mistaken for a different gesture or
   refresh callback. The parser rejects the old adjacent-block form.
+- Every nested `FastList` slot is part of semantic traversal. Row content,
+  `stickyHeader`, and `sectionHeader` all participate in component reachability,
+  `Content()` validation, top-level-only declarations, and unused-binding
+  diagnostics. A component used only by a section header is retained, and an
+  invalid `Content()` in an app-level section header is rejected at compile time.
 - Native calls use named arguments and an explicit `await`, which keeps method,
   body, headers, timeout, cache, redirect, response-limit, and pinning options
   distinguishable across Swift and Kotlin.

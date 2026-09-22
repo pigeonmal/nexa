@@ -339,6 +339,7 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
         ast::Node::FastList {
             children,
             sticky_header,
+            section_header,
             ..
         } => {
             for child in children {
@@ -346,6 +347,11 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
             }
             if let Some(sticky_header) = sticky_header {
                 for child in sticky_header {
+                    collect_component_calls(child, calls);
+                }
+            }
+            if let Some(section_header) = section_header {
+                for child in section_header {
                     collect_component_calls(child, calls);
                 }
             }
@@ -418,6 +424,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         Node::FastList {
             children,
             sticky_header,
+            section_header,
             ..
         } => {
             for child in children {
@@ -425,6 +432,11 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
             }
             if let Some(sticky_header) = sticky_header {
                 for child in sticky_header {
+                    collect_ir_component_calls(child, calls);
+                }
+            }
+            if let Some(section_header) = section_header {
+                for child in section_header {
                     collect_ir_component_calls(child, calls);
                 }
             }
@@ -496,10 +508,14 @@ fn contains_content_slot(node: &ast::Node) -> bool {
         ast::Node::FastList {
             children,
             sticky_header,
+            section_header,
             ..
         } => {
             children.iter().any(contains_content_slot)
                 || sticky_header
+                    .as_deref()
+                    .is_some_and(|header| header.iter().any(contains_content_slot))
+                || section_header
                     .as_deref()
                     .is_some_and(|header| header.iter().any(contains_content_slot))
         }
