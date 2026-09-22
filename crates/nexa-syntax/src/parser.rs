@@ -833,7 +833,7 @@ impl Parser {
                 self.expect(Kind::LParen, "expected `(` after Button")?;
                 let label = self.expr()?;
                 let options = if self.take(&Kind::Comma) {
-                    self.named_args_contents(&["loading", "disabled"])?
+                    self.named_args_contents(&["icon", "loading", "disabled"])?
                 } else {
                     BTreeMap::new()
                 };
@@ -845,6 +845,7 @@ impl Parser {
                 };
                 Ok(Node::Button {
                     label,
+                    icon: options.get("icon").cloned(),
                     loading: options.get("loading").cloned(),
                     disabled: options.get("disabled").cloned(),
                     actions,
@@ -1394,7 +1395,7 @@ impl Parser {
                         arguments,
                         span,
                     };
-                } else if self.check(&Kind::LBrace) {
+                } else if self.check(&Kind::LBrace) && matches!(name.as_str(), "map" | "filter") {
                     expression = Expr::MethodCall {
                         base: Box::new(expression),
                         name,

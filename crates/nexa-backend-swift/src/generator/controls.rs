@@ -9,6 +9,7 @@ use super::{
 
 pub(super) fn render_button(
     label: &nexa_ir::Expr,
+    icon: Option<&str>,
     loading: Option<&nexa_ir::Expr>,
     disabled: Option<&nexa_ir::Expr>,
     actions: &[Action],
@@ -33,8 +34,7 @@ pub(super) fn render_button(
         out.push_str("ProgressView()\n");
         indent(out, depth + 1);
         out.push_str("} else {\n");
-        indent(out, depth + 2);
-        out.push_str(&format!("Text({})\n", expression(label)));
+        render_button_label(label, icon, depth + 2, out);
         indent(out, depth + 1);
         out.push('}');
         out.push('\n');
@@ -50,17 +50,47 @@ pub(super) fn render_button(
         return;
     }
     indent(out, depth);
-    out.push_str(&format!("Button({}) {{", expression(label)));
-    if actions.is_empty() {
-        out.push_str(" }");
+    if icon.is_none() {
+        out.push_str(&format!("Button({}) {{", expression(label)));
+        if actions.is_empty() {
+            out.push_str(" }");
+        } else {
+            out.push('\n');
+            render_actions(actions, depth + 1, out);
+            indent(out, depth);
+            out.push('}');
+        }
     } else {
+        out.push_str("Button(action: {");
+        if actions.is_empty() {
+            out.push_str(" }) {");
+        } else {
+            out.push('\n');
+            render_actions(actions, depth + 1, out);
+            indent(out, depth);
+            out.push_str("}) {");
+        }
         out.push('\n');
-        render_actions(actions, depth + 1, out);
+        render_button_label(label, icon, depth + 1, out);
+        out.push('\n');
         indent(out, depth);
         out.push('}');
     }
     if let Some(disabled) = disabled {
         out.push_str(&format!(".disabled({})", expression(disabled)));
+    }
+}
+
+fn render_button_label(label: &nexa_ir::Expr, icon: Option<&str>, depth: usize, out: &mut String) {
+    indent(out, depth);
+    if let Some(icon) = icon {
+        out.push_str(&format!(
+            "Label({}, systemImage: {})\n",
+            expression(label),
+            swift_string(icon)
+        ));
+    } else {
+        out.push_str(&format!("Text({})\n", expression(label)));
     }
 }
 

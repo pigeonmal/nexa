@@ -174,6 +174,7 @@ pub(super) fn lower_node(
         }
         ast::Node::Button {
             label,
+            icon,
             loading,
             disabled,
             actions,
@@ -186,6 +187,9 @@ pub(super) fn lower_node(
             ) {
                 return Err(CompileError::new(span, "Button label must be a String"));
             }
+            let icon = icon
+                .map(|value| require_string_literal(&value, "Button icon"))
+                .transpose()?;
             let loading = loading
                 .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions, false))
                 .transpose()?;
@@ -195,6 +199,7 @@ pub(super) fn lower_node(
             let lowered = lower_actions(actions, symbols, functions, false)?;
             Ok(Node::Button {
                 label,
+                icon,
                 loading,
                 disabled,
                 actions: lowered,

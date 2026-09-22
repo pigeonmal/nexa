@@ -90,6 +90,7 @@ pub fn walk_ir(
                 loading,
                 disabled,
                 actions,
+                ..
             } => {
                 walk_expression(label, visit_expression);
                 if let Some(loading) = loading {

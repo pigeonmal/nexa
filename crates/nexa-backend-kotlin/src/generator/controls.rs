@@ -10,6 +10,7 @@ use super::{
 
 pub(super) fn render_button(
     label: &Expr,
+    icon: Option<&str>,
     loading: Option<&Expr>,
     disabled: Option<&Expr>,
     actions: &[Action],
@@ -41,8 +42,7 @@ pub(super) fn render_button(
         out.push_str("CircularProgressIndicator()\n");
         indent(out, depth + 1);
         out.push_str("} else {\n");
-        indent(out, depth + 2);
-        out.push_str(&format!("Text({})\n", expression(label)));
+        render_button_content(label, icon, depth + 2, out);
         indent(out, depth + 1);
         out.push('}');
         out.push('\n');
@@ -65,10 +65,21 @@ pub(super) fn render_button(
         out.push_str(&expression(disabled));
     }
     out.push_str(") {\n");
-    indent(out, depth + 1);
-    out.push_str(&format!("Text({})\n", expression(label)));
+    render_button_content(label, icon, depth + 1, out);
     indent(out, depth);
     out.push('}');
+}
+
+fn render_button_content(label: &Expr, icon: Option<&str>, depth: usize, out: &mut String) {
+    if let Some(icon) = icon {
+        indent(out, depth);
+        out.push_str(&format!(
+            "Icon(painter = nexaDrawablePainter({}), contentDescription = null)\n",
+            kotlin_string(icon)
+        ));
+    }
+    indent(out, depth);
+    out.push_str(&format!("Text({})\n", expression(label)));
 }
 
 pub(super) fn render_switch(state: &str, label: &str, depth: usize, out: &mut String) {

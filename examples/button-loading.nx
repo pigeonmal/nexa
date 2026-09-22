@@ -4,7 +4,7 @@ app ButtonLoading {
     body {
         Column(spacing: 12) {
             Text("Native loading button")
-            Button("Save", loading: loading) {
+            Button("Save", icon: "checkmark", loading: loading) {
                 loading = true
             }
         }

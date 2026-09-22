@@ -243,6 +243,7 @@ pub enum Node {
     },
     Button {
         label: Expr,
+        icon: Option<Expr>,
         loading: Option<Expr>,
         disabled: Option<Expr>,
         actions: Vec<Stmt>,

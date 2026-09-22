@@ -447,7 +447,7 @@ The first input interaction slice is implemented: single-line `TextInput` accept
 
 Button must map directly to native button/interaction primitives.
 
-The first loading and disabled slices are implemented: `Button(..., loading: Bool, disabled: Bool)` emits native `ProgressView`/`CircularProgressIndicator` loading content and maps disabled state directly to SwiftUI `.disabled` or Compose `enabled = !disabled`. Loading and disabled conditions are combined into one native expression, and omitted options add no code. See [button-loading.nx](examples/button-loading.nx) and [button-disabled.nx](examples/button-disabled.nx).
+The first loading, disabled, and icon slices are implemented: `Button(..., icon: "name", loading: Bool, disabled: Bool)` emits a native SF Symbol label on SwiftUI or a remembered Android drawable lookup on Compose, shows `ProgressView`/`CircularProgressIndicator` while loading, and maps disabled state directly to SwiftUI `.disabled` or Compose `enabled = !disabled`. Loading and disabled conditions are combined into one native expression, and omitted options add no code. See [button-loading.nx](examples/button-loading.nx) and [button-disabled.nx](examples/button-disabled.nx).
 
 Support:
 

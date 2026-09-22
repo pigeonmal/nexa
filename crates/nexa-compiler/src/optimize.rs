@@ -835,11 +835,13 @@ fn optimize_node(node: Node) -> Option<Node> {
         }),
         Node::Button {
             label,
+            icon,
             loading,
             disabled,
             actions,
         } => Some(Node::Button {
             label: fold_expression(label),
+            icon,
             loading: loading
                 .map(fold_expression)
                 .filter(|loading| !matches!(loading, Expr::Bool(false))),

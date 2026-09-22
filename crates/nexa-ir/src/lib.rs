@@ -310,6 +310,7 @@ pub enum Node {
     },
     Button {
         label: Expr,
+        icon: Option<String>,
         loading: Option<Expr>,
         disabled: Option<Expr>,
         actions: Vec<Action>,

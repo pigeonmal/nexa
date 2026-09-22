@@ -72,12 +72,14 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
         }
         Node::Button {
             label,
+            icon,
             loading,
             disabled,
             actions,
         } => {
             controls::render_button(
                 label,
+                icon.as_deref(),
                 loading.as_ref(),
                 disabled.as_ref(),
                 actions,

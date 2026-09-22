@@ -258,7 +258,10 @@ pub(super) fn render(
 
     add(features.uses_modifier, "androidx.compose.ui.Modifier");
     add(features.uses_asset, "androidx.compose.foundation.Image");
-    add(features.uses_tab_icon, "androidx.compose.material3.Icon");
+    add(
+        features.uses_tab_icon || features.uses_button_icon,
+        "androidx.compose.material3.Icon",
+    );
     add(features.uses_tab_badge, "androidx.compose.material3.Badge");
     add(
         features.uses_tab_badge,
@@ -327,19 +330,31 @@ pub(super) fn render(
     );
     add(features.uses_text_sp, "androidx.compose.ui.unit.sp");
     add(
-        features.uses_asset || features.uses_tab_icon || features.uses_placeholder,
+        features.uses_asset
+            || features.uses_tab_icon
+            || features.uses_button_icon
+            || features.uses_placeholder,
         "androidx.compose.ui.graphics.Color",
     );
     add(
-        features.uses_asset || features.uses_tab_icon || features.uses_placeholder,
+        features.uses_asset
+            || features.uses_tab_icon
+            || features.uses_button_icon
+            || features.uses_placeholder,
         "androidx.compose.ui.graphics.painter.ColorPainter",
     );
     add(
-        features.uses_asset || features.uses_tab_icon || features.uses_placeholder,
+        features.uses_asset
+            || features.uses_tab_icon
+            || features.uses_button_icon
+            || features.uses_placeholder,
         "androidx.compose.ui.graphics.painter.Painter",
     );
     add(
-        features.uses_asset || features.uses_tab_icon || features.uses_placeholder,
+        features.uses_asset
+            || features.uses_tab_icon
+            || features.uses_button_icon
+            || features.uses_placeholder,
         "androidx.compose.ui.res.painterResource",
     );
     add(features.uses_image, "coil3.compose.AsyncImage");
@@ -351,6 +366,7 @@ pub(super) fn render(
     add(
         features.uses_asset
             || features.uses_tab_icon
+            || features.uses_button_icon
             || features.uses_placeholder
             || features.uses_remote_image,
         "androidx.compose.runtime.remember",
@@ -358,6 +374,7 @@ pub(super) fn render(
     add(
         features.uses_asset
             || features.uses_tab_icon
+            || features.uses_button_icon
             || features.uses_placeholder
             || features.uses_native_library
             || features.uses_permissions,

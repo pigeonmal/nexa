@@ -232,7 +232,7 @@ String interpolation supports `$name` and `\(expression)`. Embedded expressions 
 
 `Pressable` supports a tap action block, an optional third long-press action block, and a Boolean `disabled` expression. Long press and disabled state map to native SwiftUI and Compose gestures without a shared runtime; see [pressable-long-press.nx](examples/pressable-long-press.nx).
 
-`Button` supports optional `loading` and `disabled` Boolean expressions. The compiler emits native loading indicators and combines both conditions into one platform-native enabled/disabled expression; see [button-loading.nx](examples/button-loading.nx) and [button-disabled.nx](examples/button-disabled.nx).
+`Button` supports an optional static `icon` name plus `loading` and `disabled` Boolean expressions. SwiftUI maps the icon to an SF Symbol; Compose resolves the matching drawable through the generated remembered asset lookup. The compiler emits native loading indicators and combines both conditions into one platform-native enabled/disabled expression; see [button-loading.nx](examples/button-loading.nx) and [button-disabled.nx](examples/button-disabled.nx).
 
 `TextInput` supports optional mutable `focused` and positive literal `maxLength` bindings. Focus maps to SwiftUI focus state and Compose `FocusRequester`/focus callbacks; submit actions remain native `.onSubmit`/`KeyboardActions`; length limits use direct SwiftUI `onChange`/`String.prefix` and Compose `onValueChange`/`take` callbacks. See [text-input-submit.nx](examples/text-input-submit.nx).
 
