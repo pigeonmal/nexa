@@ -757,10 +757,11 @@ impl Parser {
                 actions: self.block_stmts()?,
                 span,
             }),
-            "Column" | "Row" => {
+            "Column" | "Row" | "Stack" => {
                 let kind = match name.as_str() {
                     "Column" => LayoutKind::Column,
-                    _ => LayoutKind::Row,
+                    "Row" => LayoutKind::Row,
+                    _ => LayoutKind::Stack,
                 };
                 let mut args = if self.check(&Kind::LParen) {
                     self.named_args(&[

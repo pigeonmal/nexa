@@ -18,17 +18,22 @@ pub(super) fn render_layout(
     let layout = match kind {
         LayoutKind::Column => "VStack",
         LayoutKind::Row => "HStack",
+        LayoutKind::Stack => "ZStack",
     };
     indent(out, depth);
     let alignment = style.alignment.map(|alignment| match (kind, alignment) {
         (LayoutKind::Row, Alignment::Start) => ".top",
         (LayoutKind::Row, Alignment::Center) => ".center",
         (LayoutKind::Row, Alignment::End) => ".bottom",
+        (LayoutKind::Stack, Alignment::Start) => ".topLeading",
+        (LayoutKind::Stack, Alignment::Center) => ".center",
+        (LayoutKind::Stack, Alignment::End) => ".bottomTrailing",
         (_, Alignment::Start) => ".leading",
         (_, Alignment::Center) => ".center",
         (_, Alignment::End) => ".trailing",
     });
-    match (alignment, spacing > 0.0) {
+    let has_spacing = spacing > 0.0 && !matches!(kind, LayoutKind::Stack);
+    match (alignment, has_spacing) {
         (Some(alignment), true) => out.push_str(&format!(
             "{layout}(alignment: {alignment}, spacing: {}) {{\n",
             number(spacing)

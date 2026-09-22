@@ -132,6 +132,7 @@ pub(super) fn lower_node(
             let kind = match kind {
                 ast::LayoutKind::Column => LayoutKind::Column,
                 ast::LayoutKind::Row => LayoutKind::Row,
+                ast::LayoutKind::Stack => LayoutKind::Stack,
             };
             Ok(Node::Layout {
                 kind,

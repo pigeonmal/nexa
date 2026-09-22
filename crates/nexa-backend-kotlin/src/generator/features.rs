@@ -383,6 +383,7 @@ impl Features {
                 match kind {
                     LayoutKind::Column => self.uses_column = true,
                     LayoutKind::Row => self.uses_row = true,
+                    LayoutKind::Stack => self.uses_box = true,
                 }
                 if *spacing > 0.0 {
                     self.uses_dp = true;

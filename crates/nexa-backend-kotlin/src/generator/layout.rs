@@ -20,14 +20,16 @@ pub(super) fn render_layout(
     let layout = match kind {
         LayoutKind::Column => "Column",
         LayoutKind::Row => "Row",
+        LayoutKind::Stack => "Box",
     };
     indent(out, depth);
-    let arrangement = if spacing > 0.0 {
+    let arrangement = if spacing > 0.0 && !matches!(kind, LayoutKind::Stack) {
         Some(format!(
             "{} = Arrangement.spacedBy({}.dp)",
             match kind {
                 LayoutKind::Row => "horizontalArrangement",
                 LayoutKind::Column => "verticalArrangement",
+                LayoutKind::Stack => unreachable!("stack has no arrangement"),
             },
             number(spacing)
         ))
@@ -39,6 +41,9 @@ pub(super) fn render_layout(
             (LayoutKind::Row, Alignment::Start) => ("verticalAlignment", "Top"),
             (LayoutKind::Row, Alignment::Center) => ("verticalAlignment", "CenterVertically"),
             (LayoutKind::Row, Alignment::End) => ("verticalAlignment", "Bottom"),
+            (LayoutKind::Stack, Alignment::Start) => ("contentAlignment", "TopStart"),
+            (LayoutKind::Stack, Alignment::Center) => ("contentAlignment", "Center"),
+            (LayoutKind::Stack, Alignment::End) => ("contentAlignment", "BottomEnd"),
             (LayoutKind::Column, Alignment::Start) => ("horizontalAlignment", "Start"),
             (LayoutKind::Column, Alignment::Center) => {
                 ("horizontalAlignment", "CenterHorizontally")

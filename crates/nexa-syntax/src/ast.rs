@@ -401,6 +401,7 @@ pub struct LayoutStyle {
 pub enum LayoutKind {
     Column,
     Row,
+    Stack,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
