@@ -99,7 +99,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
     if features.uses_adaptive_color {
         out.push_str("    val nexaIsDarkTheme = isSystemInDarkTheme()\n");
     }
-    render_status_bar(module.status_bar, features.uses_status_bar, 1, &mut out);
+    components::status_bar::render(module.status_bar, features.uses_status_bar, 1, &mut out);
     if features.app_uses_link {
         out.push_str("    val nexaLinkContext = LocalContext.current\n");
     }
@@ -178,21 +178,14 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
     if !module.states.is_empty() {
         out.push('\n');
     }
-    let body_depth = if let Some(direction) = module.direction {
-        let direction = match direction.style {
-            nexa_ir::DirectionStyle::Ltr => "Ltr",
-            nexa_ir::DirectionStyle::Rtl => "Rtl",
-        };
-        out.push_str("    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.");
-        out.push_str(direction);
-        out.push_str(") {\n");
-        2
-    } else {
-        1
-    };
-    render_on_appear_effect(module.on_appear.as_deref(), body_depth, &mut out);
-    render_on_disappear_effect(module.on_disappear.as_deref(), body_depth, &mut out);
-    render_lifecycle_effect(module, body_depth, &mut out);
+    let body_depth = components::direction::start(module.direction, &mut out);
+    components::lifecycle::render_on_appear(module.on_appear.as_deref(), body_depth, &mut out);
+    components::lifecycle::render_on_disappear(
+        module.on_disappear.as_deref(),
+        body_depth,
+        &mut out,
+    );
+    components::lifecycle::render_app(module, body_depth, &mut out);
     if module.body.len() == 1 {
         component_renderer::render_node(&module.body[0], module, &features, body_depth, &mut out);
     } else {
@@ -207,9 +200,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
             &mut out,
         );
     }
-    if module.direction.is_some() {
-        out.push_str("\n    }");
-    }
+    components::direction::end(module.direction, &mut out);
     out.push_str("\n}\n");
     out.push_str("// nexa-unit:components\n");
     custom_components::render(module, &features, &mut out);
@@ -248,160 +239,4 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
     out.push_str("// nexa-unit:functions\n");
     functions::render(module, &mut out);
     out
-}
-
-pub(super) fn render_on_appear_effect(
-    actions: Option<&[nexa_ir::Action]>,
-    depth: usize,
-    out: &mut String,
-) {
-    let Some(actions) = actions else {
-        return;
-    };
-    utils::indent(out, depth);
-    out.push_str("LaunchedEffect(Unit) {");
-    if actions.is_empty() {
-        out.push_str("}\n");
-        return;
-    }
-    out.push('\n');
-    controls::render_actions(actions, depth + 1, out);
-    utils::indent(out, depth);
-    out.push_str("}\n");
-}
-
-pub(super) fn render_on_disappear_effect(
-    actions: Option<&[nexa_ir::Action]>,
-    depth: usize,
-    out: &mut String,
-) {
-    let Some(actions) = actions else {
-        return;
-    };
-    utils::indent(out, depth);
-    out.push_str("DisposableEffect(Unit) {");
-    if actions.is_empty() {
-        out.push('\n');
-        utils::indent(out, depth + 1);
-        out.push_str("onDispose {}\n");
-        utils::indent(out, depth);
-        out.push_str("}\n");
-        return;
-    }
-    out.push('\n');
-    utils::indent(out, depth + 1);
-    out.push_str("onDispose {\n");
-    controls::render_actions(actions, depth + 2, out);
-    utils::indent(out, depth + 1);
-    out.push_str("}\n");
-    utils::indent(out, depth);
-    out.push_str("}\n");
-}
-
-fn render_lifecycle_effect(module: &Module, depth: usize, out: &mut String) {
-    if module.on_active.is_none() && module.on_inactive.is_none() && module.on_background.is_none()
-    {
-        return;
-    }
-    let indent = "    ".repeat(depth);
-    let nested = "    ".repeat(depth + 1);
-    let deep = "    ".repeat(depth + 2);
-    out.push_str(&format!(
-        "{indent}val nexaLifecycleOwner = LocalLifecycleOwner.current\n"
-    ));
-    out.push_str(&format!(
-        "{indent}DisposableEffect(nexaLifecycleOwner) {{\n"
-    ));
-    out.push_str(&format!(
-        "{nested}val nexaLifecycleObserver = LifecycleEventObserver {{ _, event ->\n"
-    ));
-    out.push_str(&format!("{deep}when (event) {{\n"));
-    render_lifecycle_case("ON_RESUME", module.on_active.as_deref(), depth + 3, out);
-    render_lifecycle_case("ON_PAUSE", module.on_inactive.as_deref(), depth + 3, out);
-    render_lifecycle_case("ON_STOP", module.on_background.as_deref(), depth + 3, out);
-    out.push_str(&format!("{}else -> Unit\n", "    ".repeat(depth + 3)));
-    out.push_str(&format!("{deep}}}\n"));
-    out.push_str(&format!("{nested}}}\n"));
-    out.push_str(&format!(
-        "{nested}nexaLifecycleOwner.lifecycle.addObserver(nexaLifecycleObserver)\n"
-    ));
-    out.push_str(&format!(
-        "{nested}onDispose {{ nexaLifecycleOwner.lifecycle.removeObserver(nexaLifecycleObserver) }}\n"
-    ));
-    out.push_str(&format!("{indent}}}\n"));
-}
-
-fn render_lifecycle_case(
-    event: &str,
-    actions: Option<&[nexa_ir::Action]>,
-    depth: usize,
-    out: &mut String,
-) {
-    let indent = "    ".repeat(depth);
-    out.push_str(&format!("{indent}Lifecycle.Event.{event} -> {{\n"));
-    if let Some(actions) = actions {
-        if actions.is_empty() {
-            out.push_str(&format!("{}Unit\n", "    ".repeat(depth + 1)));
-        } else {
-            controls::render_actions(actions, depth + 1, out);
-        }
-    } else {
-        out.push_str(&format!("{}Unit\n", "    ".repeat(depth + 1)));
-    }
-    out.push_str(&format!("{indent}}}\n"));
-}
-
-pub(super) fn render_status_bar(
-    config: Option<nexa_ir::StatusBarConfig>,
-    enabled: bool,
-    depth: usize,
-    out: &mut String,
-) {
-    if !enabled {
-        return;
-    }
-    let Some(config) = config else {
-        return;
-    };
-    let indent = "    ".repeat(depth);
-    let nested_indent = "    ".repeat(depth + 1);
-    let deeply_nested_indent = "    ".repeat(depth + 2);
-    out.push_str(&format!(
-        "{indent}val nexaStatusBarView = LocalView.current\n"
-    ));
-    out.push_str(&format!("{indent}SideEffect {{\n"));
-    out.push_str(&format!(
-        "{nested_indent}val nexaWindow = (nexaStatusBarView.context as? Activity)?.window\n"
-    ));
-    out.push_str(&format!(
-        "{nested_indent}nexaWindow?.let {{ nexaWindow ->\n{deeply_nested_indent}val nexaController = WindowCompat.getInsetsController(nexaWindow, nexaStatusBarView)\n"
-    ));
-    if config.hidden {
-        out.push_str(&format!(
-            "{deeply_nested_indent}nexaController.hide(WindowInsetsCompat.Type.statusBars())\n"
-        ));
-    } else {
-        out.push_str(&format!(
-            "{deeply_nested_indent}nexaController.show(WindowInsetsCompat.Type.statusBars())\n"
-        ));
-    }
-    match config.style {
-        nexa_ir::StatusBarStyle::Light => out.push_str(&format!(
-            "{deeply_nested_indent}nexaController.isAppearanceLightStatusBars = false\n"
-        )),
-        nexa_ir::StatusBarStyle::Dark => out.push_str(&format!(
-            "{deeply_nested_indent}nexaController.isAppearanceLightStatusBars = true\n"
-        )),
-        nexa_ir::StatusBarStyle::Default => {}
-    }
-    if let Some(nexa_ir::ColorValue::Static(color)) = config.background {
-        let argb = (u32::from(color.alpha) << 24)
-            | (u32::from(color.red) << 16)
-            | (u32::from(color.green) << 8)
-            | u32::from(color.blue);
-        out.push_str(&format!(
-            "{deeply_nested_indent}nexaWindow.statusBarColor = android.graphics.Color.parseColor(\"#{argb:08X}\")\n"
-        ));
-    }
-    out.push_str(&format!("{nested_indent}}}\n{indent}}}\n"));
 }

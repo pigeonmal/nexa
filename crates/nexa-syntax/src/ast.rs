@@ -30,6 +30,10 @@ pub struct PluginDecl {
     /// package layout without rediscovering or guessing conventional folders.
     pub ios_sources: Vec<String>,
     pub android_sources: Vec<String>,
+    pub ios_min_version: Option<String>,
+    pub android_min_sdk: Option<u32>,
+    pub swift_packages: Vec<nexa_plugin_idl::manifest::SwiftPackage>,
+    pub maven_dependencies: Vec<String>,
 }
 
 #[derive(Clone, Debug)]

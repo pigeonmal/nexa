@@ -1,77 +1,11 @@
 use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 
 use crate::generator::{
-    accessibility, bottom_bar, colors, controls,
-    expressions::text_expression,
-    features::Features,
-    images, input, keyboard, layout, links, lists, navigation, refresh, sheets,
-    utils::{indent, number},
+    accessibility, bottom_bar, controls, features::Features, images, input, keyboard, layout,
+    links, lists, navigation, refresh, sheets, utils::indent,
 };
 
-use crate::generator::engine::imports::{ImportContext, ImportSet};
-
-pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
-    let features = context.features;
-    imports.add(features.uses_status_bar, "android.app.Activity");
-    imports.add(features.uses_status_bar, "androidx.core.view.WindowCompat");
-    imports.add(
-        features.uses_status_bar,
-        "androidx.core.view.WindowInsetsCompat",
-    );
-    imports.add(
-        features.uses_status_bar,
-        "androidx.compose.runtime.SideEffect",
-    );
-    imports.add(
-        features.uses_status_bar,
-        "androidx.compose.ui.platform.LocalView",
-    );
-    imports.add(
-        context.has_direction,
-        "androidx.compose.runtime.CompositionLocalProvider",
-    );
-    imports.add(
-        context.has_direction,
-        "androidx.compose.ui.platform.LocalLayoutDirection",
-    );
-    imports.add(
-        context.has_direction,
-        "androidx.compose.ui.unit.LayoutDirection",
-    );
-    imports.add(
-        features.uses_size_class,
-        "androidx.compose.ui.platform.LocalConfiguration",
-    );
-    imports.add(
-        features.uses_font_weight,
-        "androidx.compose.ui.text.font.FontWeight",
-    );
-    imports.add(
-        features.uses_selectable_text,
-        "androidx.compose.foundation.text.selection.SelectionContainer",
-    );
-    imports.add(
-        context.has_on_appear
-            || features.uses_focus
-            || features.uses_list_end_reached
-            || features.uses_list_scroll_position
-            || features.uses_list_scroll_events,
-        "androidx.compose.runtime.LaunchedEffect",
-    );
-    imports.add(
-        context.has_on_disappear || context.has_lifecycle_events,
-        "androidx.compose.runtime.DisposableEffect",
-    );
-    imports.add(
-        context.has_lifecycle_events,
-        "androidx.lifecycle.compose.LocalLifecycleOwner",
-    );
-    imports.add(context.has_lifecycle_events, "androidx.lifecycle.Lifecycle");
-    imports.add(
-        context.has_lifecycle_events,
-        "androidx.lifecycle.LifecycleEventObserver",
-    );
-}
+use crate::generator::components::text;
 
 pub(crate) fn render_node(
     node: &Node,
@@ -96,44 +30,7 @@ pub(crate) fn render_node(
         } => layout::render_layout(
             *kind, *spacing, style, children, module, features, depth, out,
         ),
-        Node::Text { value, style } => {
-            let text_depth = if style.selectable {
-                indent(out, depth);
-                out.push_str("SelectionContainer {\n");
-                depth + 1
-            } else {
-                depth
-            };
-            indent(out, text_depth);
-            out.push_str(&format!("Text({}", text_expression(value)));
-            if let Some(color) = style.color {
-                out.push_str(&format!(", color = {}", colors::expression(color)));
-            }
-            if let Some(font_size) = style.font_size {
-                out.push_str(&format!(", fontSize = {}.sp", number(font_size)));
-            }
-            if let Some(font_weight) = style.font_weight {
-                out.push_str(&format!(
-                    ", fontWeight = {}",
-                    kotlin_font_weight(font_weight)
-                ));
-            }
-            if let Some(line_limit) = style.line_limit {
-                out.push_str(&format!(", maxLines = {line_limit}"));
-            }
-            if let Some(line_height) = style.line_height {
-                out.push_str(&format!(", lineHeight = {}.sp", number(line_height)));
-            }
-            if let Some(letter_spacing) = style.letter_spacing {
-                out.push_str(&format!(", letterSpacing = {}.sp", number(letter_spacing)));
-            }
-            out.push(')');
-            if style.selectable {
-                out.push('\n');
-                indent(out, depth);
-                out.push('}');
-            }
-        }
+        Node::Text { value, style } => text::render(value, style, depth, out),
         Node::Button {
             label,
             icon,
@@ -409,15 +306,6 @@ pub(crate) fn render_node(
                 out.push('}');
             }
         }
-    }
-}
-
-fn kotlin_font_weight(weight: nexa_ir::FontWeight) -> &'static str {
-    match weight {
-        nexa_ir::FontWeight::Normal => "FontWeight.Normal",
-        nexa_ir::FontWeight::Medium => "FontWeight.Medium",
-        nexa_ir::FontWeight::Semibold => "FontWeight.SemiBold",
-        nexa_ir::FontWeight::Bold => "FontWeight.Bold",
     }
 }
 

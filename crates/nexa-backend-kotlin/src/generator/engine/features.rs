@@ -80,7 +80,7 @@ pub(crate) struct Features {
     pub(crate) uses_button: bool,
     pub(crate) uses_button_icon: bool,
     pub(crate) uses_button_loading: bool,
-    pub(crate) uses_text: bool,
+    pub(crate) uses_text_node: bool,
     pub(crate) uses_text_input: bool,
     pub(crate) uses_text_input_submit: bool,
     pub(crate) uses_focus: bool,
@@ -461,7 +461,7 @@ impl Features {
                 self.record_style(style);
             }
             Node::Text { style, .. } => {
-                self.uses_text = true;
+                self.uses_text_node = true;
                 self.uses_color |= style.color.is_some();
                 self.uses_adaptive_color |= style
                     .color
@@ -474,7 +474,6 @@ impl Features {
             }
             Node::Button { icon, loading, .. } => {
                 self.uses_button = true;
-                self.uses_text = true;
                 self.uses_button_icon |= icon.is_some();
                 self.uses_button_loading |= loading.is_some();
             }
@@ -486,7 +485,6 @@ impl Features {
                 ..
             } => {
                 self.uses_text_input = true;
-                self.uses_text = true;
                 self.uses_text_input_submit |= !actions.is_empty();
                 self.uses_focus |= focused.is_some();
                 self.uses_modifier |= focused.is_some();
@@ -569,7 +567,6 @@ impl Features {
             Node::AppBottomBar { tabs, .. } => {
                 self.uses_bottom_bar = true;
                 self.uses_column = true;
-                self.uses_text = true;
                 self.uses_modifier = true;
                 self.uses_padding = true;
                 for tab in tabs {

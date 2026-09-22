@@ -153,6 +153,12 @@ deterministic order, and renders the final import block. This keeps platform
 feature changes local without moving component dependencies into a monolithic
 imports list.
 
+Kotlin follows this ownership through the Text, status bar, direction, and
+lifecycle emitters; expression-only references such as `LocalConfiguration`
+are declared by the expression module. The generic node renderer dispatches to
+those focused emitters, and repeated imports remain safe because the shared
+collector deduplicates them.
+
 The common IR must be platform-independent.
 
 The IR should make it possible to add other backends later without redesigning the language frontend.

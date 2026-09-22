@@ -31,6 +31,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.ui.focus.onFocusChanged",
     );
     imports.add(
+        features.uses_focus,
+        "androidx.compose.runtime.LaunchedEffect",
+    );
+    imports.add(
         features.uses_capitalization,
         "androidx.compose.ui.text.input.KeyboardCapitalization as NativeKeyboardCapitalization",
     );
@@ -50,6 +54,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_text_input,
         "androidx.compose.material3.TextField",
     );
+    imports.add(features.uses_text_input, "androidx.compose.material3.Text");
 }
 
 pub(crate) fn render_text_input(

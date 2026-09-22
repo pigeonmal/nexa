@@ -45,7 +45,200 @@ pub(super) fn ios_info_plist(app_name: &str, config: &ProjectConfig) -> String {
     )
 }
 
+fn merge_swift_packages(plugins: &[nexa_ir::Plugin]) -> Result<Vec<nexa_ir::SwiftPackage>, String> {
+    let mut packages: Vec<nexa_ir::SwiftPackage> = Vec::new();
+    let mut product_owners = std::collections::HashMap::<String, String>::new();
+    for plugin in plugins {
+        for package in &plugin.swift_packages {
+            if let Some(existing) = packages.iter_mut().find(|value| value.url == package.url) {
+                if existing.from != package.from {
+                    return Err(format!(
+                        "Swift package `{}` has conflicting minimum versions `{}` and `{}`",
+                        package.url, existing.from, package.from
+                    ));
+                }
+                for product in &package.products {
+                    if let Some(owner) = product_owners.get(product)
+                        && owner != &package.url
+                    {
+                        return Err(format!(
+                            "Swift package product `{product}` is declared by both `{owner}` and `{}`",
+                            package.url
+                        ));
+                    }
+                    product_owners.insert(product.clone(), package.url.clone());
+                    if !existing.products.contains(product) {
+                        existing.products.push(product.clone());
+                    }
+                }
+            } else {
+                for product in &package.products {
+                    if let Some(owner) = product_owners.get(product)
+                        && owner != &package.url
+                    {
+                        return Err(format!(
+                            "Swift package product `{product}` is declared by both `{owner}` and `{}`",
+                            package.url
+                        ));
+                    }
+                    product_owners.insert(product.clone(), package.url.clone());
+                }
+                packages.push(package.clone());
+            }
+        }
+    }
+    Ok(packages)
+}
+
+fn render_swift_package_objects(packages: &[nexa_ir::SwiftPackage]) -> String {
+    let mut objects = String::new();
+    let mut product_index = 0;
+    for (package_index, package) in packages.iter().enumerate() {
+        objects.push_str(&format!(
+            "\n\t\t{} = {{ isa = XCRemoteSwiftPackageReference; repositoryURL = \"{}\"; requirement = {{ kind = upToNextMajorVersion; minimumVersion = \"{}\"; }}; }};",
+            pbx_identifier(1000 + package_index),
+            package.url,
+            package.from
+        ));
+        for product in &package.products {
+            objects.push_str(&format!(
+                "\n\t\t{} = {{ isa = XCSwiftPackageProductDependency; package = {}; productName = \"{}\"; }};\n\t\t{} = {{ isa = PBXBuildFile; productRef = {}; }};",
+                pbx_identifier(2000 + product_index),
+                pbx_identifier(1000 + package_index),
+                product,
+                pbx_identifier(3000 + product_index),
+                pbx_identifier(2000 + product_index)
+            ));
+            product_index += 1;
+        }
+    }
+    objects
+}
+
+fn pbx_identifier(index: usize) -> String {
+    format!("BB{:022X}", index)
+}
+
+fn minimum_ios_version(plugins: &[nexa_ir::Plugin]) -> Result<String, String> {
+    let mut minimum = vec![17_u32, 0];
+    for version in plugins
+        .iter()
+        .filter_map(|plugin| plugin.ios_min_version.as_deref())
+    {
+        let parts = version
+            .split('.')
+            .map(str::parse::<u32>)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| format!("invalid iOS minimum version `{version}`"))?;
+        if parts.len() < 2 || parts.len() > 3 {
+            return Err(format!("invalid iOS minimum version `{version}`"));
+        }
+        let width = minimum.len().max(parts.len());
+        let greater = (0..width)
+            .map(|index| {
+                (
+                    *parts.get(index).unwrap_or(&0),
+                    *minimum.get(index).unwrap_or(&0),
+                )
+            })
+            .find(|(left, right)| left != right)
+            .is_some_and(|(left, right)| left > right);
+        if greater {
+            minimum = parts;
+        }
+    }
+    let mut formatted = minimum.iter().map(u32::to_string).collect::<Vec<_>>();
+    while formatted.len() > 2 && formatted.last().is_some_and(|part| part == "0") {
+        formatted.pop();
+    }
+    Ok(formatted.join("."))
+}
+
+fn merge_maven_dependencies(plugins: &[nexa_ir::Plugin]) -> Result<Vec<String>, String> {
+    let mut dependencies = Vec::new();
+    let mut versions = std::collections::HashMap::<String, String>::new();
+    for dependency in plugins
+        .iter()
+        .flat_map(|plugin| plugin.maven_dependencies.iter())
+    {
+        let parts = dependency.split(':').collect::<Vec<_>>();
+        if parts.len() != 3 {
+            return Err(format!("invalid Android Maven dependency `{dependency}`"));
+        }
+        let artifact = format!("{}:{}", parts[0], parts[1]);
+        if let Some(version) = versions.get(&artifact) {
+            if version != parts[2] {
+                return Err(format!(
+                    "Android Maven artifact `{artifact}` has conflicting versions `{version}` and `{}`",
+                    parts[2]
+                ));
+            }
+            continue;
+        }
+        versions.insert(artifact, parts[2].to_owned());
+        dependencies.push(dependency.clone());
+    }
+    Ok(dependencies)
+}
+
 pub(super) fn ios_project_file(
+    app_name: &str,
+    has_assets: bool,
+    generated_sources: &[String],
+    plugin_sources: &[String],
+    plugins: &[nexa_ir::Plugin],
+) -> Result<String, String> {
+    let packages = merge_swift_packages(plugins)?;
+    let product_count = packages
+        .iter()
+        .map(|package| package.products.len())
+        .sum::<usize>();
+    let package_reference_ids = (0..packages.len())
+        .map(|index| pbx_identifier(1000 + index))
+        .collect::<Vec<_>>();
+    let package_product_ids = (0..product_count)
+        .map(|index| pbx_identifier(2000 + index))
+        .collect::<Vec<_>>();
+    let package_build_ids = (0..product_count)
+        .map(|index| pbx_identifier(3000 + index))
+        .collect::<Vec<_>>();
+    let package_objects = render_swift_package_objects(&packages);
+    let mut project =
+        ios_project_base_file(app_name, has_assets, generated_sources, plugin_sources);
+    project = project.replace(
+        "targets = ( AA0000000000000000000005 );",
+        &format!(
+            "targets = ( AA0000000000000000000005 ); packageReferences = ( {} );",
+            package_reference_ids.join(", ")
+        ),
+    );
+    project = project.replace(
+        "productType = \"com.apple.product-type.application\"; };",
+        &format!(
+            "productType = \"com.apple.product-type.application\"; packageProductDependencies = ( {} ); }};",
+            package_product_ids.join(", ")
+        ),
+    );
+    project = project.replace(
+        "PBXFrameworksBuildPhase; files = (); };",
+        &format!(
+            "PBXFrameworksBuildPhase; files = ( {} ); }};",
+            package_build_ids.join(", ")
+        ),
+    );
+    if !package_objects.is_empty() {
+        let insertion = "\n\t\tAA0000000000000000000005 = { isa = PBXNativeTarget;";
+        project = project.replace(insertion, &format!("{package_objects}{insertion}"));
+    }
+    let minimum_version = minimum_ios_version(plugins)?;
+    project = project.replace(
+        "IPHONEOS_DEPLOYMENT_TARGET = 17.0",
+        &format!("IPHONEOS_DEPLOYMENT_TARGET = {minimum_version}"),
+    );
+    Ok(project)
+}
+
+fn ios_project_base_file(
     app_name: &str,
     has_assets: bool,
     generated_sources: &[String],
@@ -237,7 +430,15 @@ pub(super) fn android_manifest(
 pub(super) fn android_app_gradle(
     package: &str,
     features: nexa_backend_kotlin::KotlinProjectFeatures,
-) -> String {
+    plugins: &[nexa_ir::Plugin],
+) -> Result<String, String> {
+    let maven_dependencies = merge_maven_dependencies(plugins)?;
+    let minimum_sdk = plugins
+        .iter()
+        .filter_map(|plugin| plugin.android_min_sdk)
+        .max()
+        .unwrap_or(26)
+        .max(26);
     let mut dependencies = String::from(
         "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.material3:material3\")\n",
     );
@@ -268,9 +469,12 @@ pub(super) fn android_app_gradle(
             "    implementation(\"com.google.android.gms:play-services-cronet:18.0.1\")\n",
         );
     }
-    format!(
-        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{package}\"; minSdk = 26; targetSdk = 37; versionCode = 1; versionName = \"1.0\" }}\n    buildFeatures {{ compose = true }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencies {{\n{dependencies}}}\n"
-    )
+    for dependency in maven_dependencies {
+        dependencies.push_str(&format!("    implementation(\"{dependency}\")\n"));
+    }
+    Ok(format!(
+        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{package}\"; minSdk = {minimum_sdk}; targetSdk = 37; versionCode = 1; versionName = \"1.0\" }}\n    buildFeatures {{ compose = true }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencies {{\n{dependencies}}}\n"
+    ))
 }
 
 pub(super) fn android_proguard_rules() -> &'static str {
@@ -284,4 +488,75 @@ fn xml_escape(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plugin(namespace: &str) -> nexa_ir::Plugin {
+        nexa_ir::Plugin {
+            namespace: namespace.to_owned(),
+            idl_path: String::new(),
+            ios_sources: Vec::new(),
+            android_sources: Vec::new(),
+            ios_min_version: None,
+            android_min_sdk: None,
+            swift_packages: Vec::new(),
+            maven_dependencies: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn emits_native_dependency_metadata_into_both_projects() {
+        let mut plugin = plugin("Media");
+        plugin.ios_min_version = Some("18.2".to_owned());
+        plugin.android_min_sdk = Some(29);
+        plugin.swift_packages.push(nexa_ir::SwiftPackage {
+            url: "https://example.com/media.git".to_owned(),
+            from: "2.3.0".to_owned(),
+            products: vec!["MediaKit".to_owned()],
+        });
+        plugin
+            .maven_dependencies
+            .push("com.example:media:2.3.0".to_owned());
+        let plugins = [plugin];
+
+        let ios = ios_project_file(
+            "Demo",
+            false,
+            &["NexaGenerated.swift".to_owned()],
+            &[],
+            &plugins,
+        )
+        .expect("SwiftPM metadata should render");
+        assert!(ios.contains("XCRemoteSwiftPackageReference"));
+        assert!(ios.contains("repositoryURL = \"https://example.com/media.git\""));
+        assert!(ios.contains("productName = \"MediaKit\""));
+        assert!(ios.contains("IPHONEOS_DEPLOYMENT_TARGET = 18.2"));
+
+        let android = android_app_gradle(
+            "com.example.demo",
+            nexa_backend_kotlin::KotlinProjectFeatures::default(),
+            &plugins,
+        )
+        .expect("Maven metadata should render");
+        assert!(android.contains("minSdk = 29"));
+        assert!(android.contains("implementation(\"com.example:media:2.3.0\")"));
+    }
+
+    #[test]
+    fn rejects_conflicting_versions_across_plugins() {
+        let mut first = plugin("First");
+        first.maven_dependencies = vec!["com.example:media:1.0.0".to_owned()];
+        let mut second = plugin("Second");
+        second.maven_dependencies = vec!["com.example:media:2.0.0".to_owned()];
+        let error = android_app_gradle(
+            "com.example.demo",
+            nexa_backend_kotlin::KotlinProjectFeatures::default(),
+            &[first, second],
+        )
+        .expect_err("conflicting Maven versions must fail project generation");
+        assert!(error.contains("conflicting versions"));
+    }
 }

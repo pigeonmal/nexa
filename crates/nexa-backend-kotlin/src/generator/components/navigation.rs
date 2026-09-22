@@ -17,6 +17,10 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
         "androidx.compose.material3.TextButton",
     );
     imports.add(
+        features.uses_navigation_back,
+        "androidx.compose.material3.Text",
+    );
+    imports.add(
         features.uses_navigation_link,
         "androidx.navigation.NavHostController",
     );
@@ -121,8 +125,12 @@ pub(crate) fn render_navigation_stack(
         if screen.on_appear.is_some() || screen.on_disappear.is_some() {
             out.push('\n');
         }
-        crate::generator::render_on_appear_effect(screen.on_appear.as_deref(), depth + 2, out);
-        crate::generator::render_on_disappear_effect(
+        crate::generator::components::lifecycle::render_on_appear(
+            screen.on_appear.as_deref(),
+            depth + 2,
+            out,
+        );
+        crate::generator::components::lifecycle::render_on_disappear(
             screen.on_disappear.as_deref(),
             depth + 2,
             out,
@@ -130,7 +138,7 @@ pub(crate) fn render_navigation_stack(
         if screen.status_bar.or(module.status_bar).is_some() {
             out.push('\n');
         }
-        crate::generator::render_status_bar(
+        crate::generator::components::status_bar::render(
             screen.status_bar.or(module.status_bar),
             features.uses_status_bar,
             depth + 2,

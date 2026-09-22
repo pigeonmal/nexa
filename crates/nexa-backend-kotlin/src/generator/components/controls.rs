@@ -26,7 +26,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.material3.CircularProgressIndicator",
     );
     imports.add(features.uses_switch, "androidx.compose.material3.Switch");
-    imports.add(features.uses_text, "androidx.compose.material3.Text");
+    imports.add(features.uses_button, "androidx.compose.material3.Text");
     imports.add(
         features.uses_tab_icon || features.uses_button_icon,
         "androidx.compose.material3.Icon",

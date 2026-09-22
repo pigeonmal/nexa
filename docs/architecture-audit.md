@@ -112,6 +112,22 @@ implemented after the findings were reviewed.
   content and component event subscription syntax remain intentionally outside
   this first slice. The cache schema is now `build-v61` for this semantic and
   generated-source change.
+- Added declarative native dependencies and platform minimums to the manifest.
+  Reachable Swift packages become Xcode package/product references; Android
+  Maven coordinates enter Gradle, and host deployment minimums rise to satisfy
+  plugin requirements. Conflicting versions fail project generation. The cache
+  schema advances to `build-v63` for the changed project output.
+- Finished Kotlin import ownership for Text, status bar, direction, lifecycle,
+  and expression-generated size-class access. Their focused emitters now declare
+  their own imports; the shared import set only orchestrates, deduplicates,
+  sorts, and renders. The generic component module now dispatches Text rendering
+  to its feature file. Cache schema `build-v63` also invalidates prior generated
+  output after this backend module change.
+- Tightened Kotlin import gates found by independent review: scroll observers
+  now import `LaunchedEffect` for end-reached, scroll-position, and scroll-event
+  handlers, while Compose `Image` is emitted only for local image nodes rather
+  than icon-only asset helpers. The cache advances to `build-v64` so these final
+  generated imports cannot be restored from the previous schema.
 
 ## Independent Swift/Kotlin review
 
@@ -128,8 +144,9 @@ ABI or measured binary-size reduction without release builds.
 1. Generate native implementation conformance checks and factories, then add
    mutable property writes, disposal, and instance-scoped events alongside
    native visual component lowering from `native.nxid`.
-2. Add SPM/Maven dependency declarations and honor manifest platform minimums
-   during project generation. Manifest source globs are now honored.
+2. Add dependency repository configuration and dependency lockfile handling.
+   Manifest platform minimums and declared source globs now reach generated
+   projects.
 3. Extend `nexa audit` with Android R8/resource-shrink results and Swift
    release binary/resource sizes when native release toolchains are available.
 4. Define certificate pinning as one representation on both platforms (the

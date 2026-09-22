@@ -40,7 +40,10 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     let mut imports = ImportSet::default();
     imports.add(true, "androidx.compose.runtime.Composable");
 
-    crate::generator::components::components::imports(&context, &mut imports);
+    crate::generator::components::direction::imports(&context, &mut imports);
+    crate::generator::components::lifecycle::imports(&context, &mut imports);
+    crate::generator::components::status_bar::imports(context.features, &mut imports);
+    crate::generator::components::text::imports(context.features, &mut imports);
     crate::generator::components::accessibility::imports(context.features, &mut imports);
     crate::generator::components::assets::imports(context.features, &mut imports);
     crate::generator::components::bottom_bar::imports(context.features, &mut imports);
@@ -57,6 +60,7 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     crate::generator::api::network::imports(context.features, &mut imports);
     crate::generator::api::permissions::imports(context.features, &mut imports);
     crate::generator::engine::state::imports(context.features, &mut imports);
+    crate::generator::engine::expressions::imports(context.features, &mut imports);
 
     imports.render()
 }

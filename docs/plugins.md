@@ -33,11 +33,36 @@ plugin {
 
 The manifest is the package source of truth. Paths are relative to the package
 root and cannot escape it. A package must declare at least Nexa source, a native
-contract, or assets. Swift Package Manager/Maven dependency declarations are
-planned next. The `ios.sources` and `android.sources` arrays are resolved
+contract, or assets. The `ios.sources` and `android.sources` arrays are resolved
 during project generation and accept files, directories, or `*`/`?`/`**` path
 patterns. When omitted, the generator falls back to the conventional platform
-source roots.
+source roots. Platform minimums and native dependencies are declared here too:
+
+```text
+ios {
+    minVersion: "17.0"
+    sources: ["ios/Sources/**"]
+    dependencies {
+        swiftPackage {
+            url: "https://github.com/vendor/player-sdk.git"
+            from: "2.0.0"
+            products: ["PlayerSDK"]
+        }
+    }
+}
+
+android {
+    minSdk: 26
+    sources: ["android/src/main/kotlin/**"]
+    dependencies: ["com.vendor:player-sdk:2.0.0"]
+}
+```
+
+`nexa generate` adds Swift packages and products to the Xcode target, adds
+Maven coordinates to the Gradle app, and raises deployment minimums to satisfy
+the reachable plugins. Repeated dependencies are deduplicated; incompatible
+versions or ambiguous Swift product names fail generation. Xcode and Gradle
+resolve and fetch declared packages when the native projects build.
 
 Create a package with:
 
@@ -202,8 +227,8 @@ direct generated Swift/Kotlin constants; no runtime option map is emitted.
 Local package discovery, pure-source loading, typed native parsing, direct
 Swift/Kotlin contract generation, asset reachability, compile-time options, and
 the first qualified native visual component slice are implemented. Package
-installation/version resolution, native implementation conformance checks,
-mutable property writes and disposal, typed error recovery in `.nx`,
-instance-scoped event subscriptions, SPM/Maven dependency injection, and
-optional generated C++ adapters remain planned work. See `plugin-plan.md` for
-the full migration and test matrix.
+installation/version resolution, dependency repository configuration and
+lockfile handling, native implementation conformance checks, mutable property
+writes and disposal, typed error recovery in `.nx`, instance-scoped event
+subscriptions, and optional generated C++ adapters remain planned work. See
+`plugin-plan.md` for the full migration and test matrix.

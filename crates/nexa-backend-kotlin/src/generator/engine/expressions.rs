@@ -2,6 +2,14 @@ use nexa_codegen::names::{function_name, state_name};
 use nexa_ir::{BinaryOp, CollectionTransform, Expr, InterpolatedPart, NumericType, Type};
 
 use super::utils::{kotlin_string, kotlin_string_content};
+use super::{features::Features, imports::ImportSet};
+
+pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
+    imports.add(
+        features.uses_size_class,
+        "androidx.compose.ui.platform.LocalConfiguration",
+    );
+}
 
 pub(crate) fn expression(expr: &Expr) -> String {
     expression_with_locals(expr, &[])

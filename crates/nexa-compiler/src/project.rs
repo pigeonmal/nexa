@@ -163,12 +163,27 @@ fn load_file(
                     })
                 })
                 .transpose()?;
+            if let Some(manifest) = manifest.as_ref() {
+                plugin.ios_sources =
+                    resolve_manifest_sources(&declared_path, &manifest.ios.sources);
+                plugin.android_sources =
+                    resolve_manifest_sources(&declared_path, &manifest.android.sources);
+                plugin.ios_min_version = manifest.ios.min_version.clone();
+                plugin.android_min_sdk = manifest.android.min_sdk;
+                plugin.swift_packages = manifest.ios.swift_packages.clone();
+                plugin.maven_dependencies = manifest.android.maven_dependencies.clone();
+                plugin.assets_path = manifest
+                    .assets
+                    .first()
+                    .and_then(|asset| asset.strip_suffix("/**"))
+                    .map(|asset| declared_path.join(asset).display().to_string());
+            }
             let pure_source = manifest
                 .as_ref()
                 .and_then(|manifest| manifest.nexa.as_ref())
                 .map(|source| declared_path.join(source))
                 .filter(|source| source.is_file());
-            if let Some(source) = pure_source {
+            if let Some(source) = pure_source.as_ref() {
                 // Pure Nexa plugins are ordinary source modules. Loading them
                 // through the existing project graph keeps component/function
                 // reachability and diagnostics identical to local imports.
@@ -180,23 +195,21 @@ fn load_file(
                     loaded_paths,
                     loaded,
                 )?;
-                plugin.pure = true;
-                plugin.path = source.display().to_string();
-                if let Some(manifest) = manifest.as_ref() {
-                    plugin.ios_sources =
-                        resolve_manifest_sources(&declared_path, &manifest.ios.sources);
-                    plugin.android_sources =
-                        resolve_manifest_sources(&declared_path, &manifest.android.sources);
+                if plugin.assets_path.is_none() {
+                    plugin.assets_path = source
+                        .parent()
+                        .map(|parent| parent.join("assets"))
+                        .filter(|path| path.is_dir())
+                        .map(|path| path.display().to_string());
                 }
-                let assets = manifest
+            }
+            if pure_source.is_some()
+                && manifest
                     .as_ref()
-                    .and_then(|manifest| manifest.assets.first())
-                    .and_then(|asset| asset.strip_suffix("/**"))
-                    .map(|asset| declared_path.join(asset))
-                    .or_else(|| source.parent().map(|parent| parent.join("assets")));
-                plugin.assets_path = assets
-                    .filter(|path| path.is_dir())
-                    .map(|path| path.display().to_string());
+                    .is_some_and(|manifest| manifest.native.is_none())
+            {
+                plugin.pure = true;
+                plugin.path = pure_source.expect("checked above").display().to_string();
                 continue;
             }
             let idl_path = if declared_path.is_dir() {
@@ -207,23 +220,14 @@ fn load_file(
                     )
                     .with_file(canonical_path.display().to_string())
                 })?;
-                plugin.ios_sources =
-                    resolve_manifest_sources(&declared_path, &manifest.ios.sources);
-                plugin.android_sources =
-                    resolve_manifest_sources(&declared_path, &manifest.android.sources);
-                let native = manifest.native.ok_or_else(|| {
+                let native = manifest.native.as_ref().ok_or_else(|| {
                     CompileError::new(
                         plugin.span,
-                        "plugin manifest does not declare `sources.native`",
+                        "plugin package must declare `sources.native` or `sources.nexa`",
                     )
                     .with_file(canonical_path.display().to_string())
                 })?;
                 let path = declared_path.join(native);
-                plugin.assets_path = manifest
-                    .assets
-                    .first()
-                    .and_then(|asset| asset.strip_suffix("/**"))
-                    .map(|asset| declared_path.join(asset).display().to_string());
                 path
             } else {
                 declared_path

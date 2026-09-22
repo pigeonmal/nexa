@@ -364,6 +364,10 @@ impl Parser {
             assets_path: None,
             ios_sources: Vec::new(),
             android_sources: Vec::new(),
+            ios_min_version: None,
+            android_min_sdk: None,
+            swift_packages: Vec::new(),
+            maven_dependencies: Vec::new(),
         })
     }
 

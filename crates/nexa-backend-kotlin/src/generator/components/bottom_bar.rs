@@ -22,6 +22,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_bottom_bar,
         "androidx.compose.material3.Scaffold",
     );
+    imports.add(features.uses_bottom_bar, "androidx.compose.material3.Text");
     imports.add(
         features.uses_tab_icon || features.uses_button_icon,
         "androidx.compose.material3.Icon",

@@ -30,6 +30,17 @@ pub struct Plugin {
     /// Absolute source roots/globs declared by `plugin.config.nx`.
     pub ios_sources: Vec<String>,
     pub android_sources: Vec<String>,
+    pub ios_min_version: Option<String>,
+    pub android_min_sdk: Option<u32>,
+    pub swift_packages: Vec<SwiftPackage>,
+    pub maven_dependencies: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SwiftPackage {
+    pub url: String,
+    pub from: String,
+    pub products: Vec<String>,
 }
 
 #[derive(Clone, Debug)]

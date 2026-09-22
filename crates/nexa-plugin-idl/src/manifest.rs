@@ -25,7 +25,15 @@ pub struct PlatformManifest {
     pub min_version: Option<String>,
     pub min_sdk: Option<u32>,
     pub sources: Vec<String>,
-    pub dependencies: Vec<String>,
+    pub swift_packages: Vec<SwiftPackage>,
+    pub maven_dependencies: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SwiftPackage {
+    pub url: String,
+    pub from: String,
+    pub products: Vec<String>,
 }
 
 impl Default for PluginManifest {
@@ -306,8 +314,12 @@ impl Parser {
                     platform.min_sdk = Some(self.parse_u32_field("minSdk")?)
                 }
                 Some("sources") => platform.sources = self.parse_string_array_field("sources")?,
+                Some("dependencies") if android => {
+                    platform.maven_dependencies = self.parse_string_array_field("dependencies")?;
+                    validate_maven_dependencies(&platform.maven_dependencies)?;
+                }
                 Some("dependencies") => {
-                    platform.dependencies = self.parse_string_array_field("dependencies")?
+                    platform.swift_packages = self.parse_swift_packages()?;
                 }
                 Some(name) => return self.error(format!("unknown platform field `{name}`")),
                 None => return self.error("expected a platform field"),
@@ -315,6 +327,54 @@ impl Parser {
             self.consume(TokenKind::Comma);
         }
         Ok(())
+    }
+
+    fn parse_swift_packages(&mut self) -> Result<Vec<SwiftPackage>, String> {
+        self.expect_identifier("dependencies")?;
+        self.expect(TokenKind::LeftBrace, "`{`")?;
+        let mut packages = Vec::new();
+        let mut urls = std::collections::HashSet::new();
+        while !self.consume(TokenKind::RightBrace) {
+            if self.at_end() {
+                return self.error("expected `}` to close iOS dependencies");
+            }
+            self.expect_identifier("swiftPackage")?;
+            self.expect(TokenKind::LeftBrace, "`{`")?;
+            let mut seen = std::collections::HashSet::new();
+            let mut url = None;
+            let mut from = None;
+            let mut products = None;
+            while !self.consume(TokenKind::RightBrace) {
+                let field = self
+                    .peek_identifier()
+                    .ok_or_else(|| self.error_value("expected a Swift package field"))?;
+                if !seen.insert(field.clone()) {
+                    return Err(self.error_value(format!(
+                        "Swift package field `{field}` is declared more than once"
+                    )));
+                }
+                match field.as_str() {
+                    "url" => url = Some(self.parse_string_field("url")?),
+                    "from" => from = Some(self.parse_string_field("from")?),
+                    "products" => products = Some(self.parse_string_array_field("products")?),
+                    name => return self.error(format!("unknown Swift package field `{name}`")),
+                }
+                self.consume(TokenKind::Comma);
+            }
+            let package = SwiftPackage {
+                url: url.ok_or_else(|| self.error_value("Swift package requires `url`"))?,
+                from: from.ok_or_else(|| self.error_value("Swift package requires `from`"))?,
+                products: products
+                    .ok_or_else(|| self.error_value("Swift package requires `products`"))?,
+            };
+            validate_swift_package(&package)?;
+            if !urls.insert(package.url.clone()) {
+                return self.error("an iOS Swift package URL may be declared only once");
+            }
+            packages.push(package);
+            self.consume(TokenKind::Comma);
+        }
+        Ok(packages)
     }
 
     fn parse_string_field(&mut self, name: &str) -> Result<String, String> {
@@ -386,6 +446,13 @@ impl Parser {
             .chain(manifest.android.sources.iter())
         {
             validate_relative_path(path)?;
+        }
+        if let Some(version) = &manifest.ios.min_version {
+            validate_numeric_version(version, "iOS minVersion", 2, 3)?;
+        }
+        validate_maven_dependencies(&manifest.android.maven_dependencies)?;
+        for package in &manifest.ios.swift_packages {
+            validate_swift_package(package)?;
         }
         if manifest.nexa.is_none() && manifest.native.is_none() && manifest.assets.is_empty() {
             return Err(
@@ -490,6 +557,91 @@ impl Parser {
     }
 }
 
+fn validate_swift_package(package: &SwiftPackage) -> Result<(), String> {
+    if !(package.url.starts_with("https://") || package.url.starts_with("ssh://"))
+        || package
+            .url
+            .chars()
+            .any(|character| character.is_whitespace() || matches!(character, '"' | '\\'))
+    {
+        return Err(format!(
+            "Swift package URL `{}` must use https:// or ssh:// and contain no whitespace or quoting characters",
+            package.url
+        ));
+    }
+    validate_numeric_version(&package.from, "Swift package `from`", 3, 3)?;
+    if package.products.is_empty() {
+        return Err(format!(
+            "Swift package `{}` must declare at least one product",
+            package.url
+        ));
+    }
+    let mut products = std::collections::HashSet::new();
+    for product in &package.products {
+        let mut characters = product.chars();
+        let valid = characters
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+            && characters.all(|character| character.is_ascii_alphanumeric() || character == '_');
+        if !valid {
+            return Err(format!(
+                "Swift package product `{product}` must be a Swift identifier"
+            ));
+        }
+        if !products.insert(product) {
+            return Err(format!("duplicate Swift package product `{product}`"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_maven_dependencies(dependencies: &[String]) -> Result<(), String> {
+    let mut artifacts = std::collections::HashSet::new();
+    for dependency in dependencies {
+        let parts = dependency.split(':').collect::<Vec<_>>();
+        if parts.len() != 3
+            || parts
+                .iter()
+                .any(|part| part.is_empty() || !part.chars().all(is_maven_coordinate_character))
+        {
+            return Err(format!(
+                "Android Maven dependency `{dependency}` must use `group:artifact:version` with non-empty coordinate parts"
+            ));
+        }
+        let artifact = format!("{}:{}", parts[0], parts[1]);
+        if !artifacts.insert(artifact.clone()) {
+            return Err(format!(
+                "Android Maven artifact `{artifact}` is declared more than once"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn is_maven_coordinate_character(character: char) -> bool {
+    character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-' | '+')
+}
+
+fn validate_numeric_version(
+    version: &str,
+    field: &str,
+    min_parts: usize,
+    max_parts: usize,
+) -> Result<(), String> {
+    let parts = version.split('.').collect::<Vec<_>>();
+    if parts.len() < min_parts
+        || parts.len() > max_parts
+        || parts.iter().any(|part| {
+            part.is_empty() || !part.chars().all(|character| character.is_ascii_digit())
+        })
+    {
+        return Err(format!(
+            "{field} must be a numeric dotted version with {min_parts} to {max_parts} parts"
+        ));
+    }
+    Ok(())
+}
+
 fn validate_relative_path(path: &str) -> Result<(), String> {
     let path = Path::new(path);
     if path.is_absolute()
@@ -520,16 +672,37 @@ mod tests {
                 sources {
                     native: "native.nxid"
                 }
-                ios { minVersion: "17.0", sources: ["ios/Sources/**"] }
-                android { minSdk: 26, sources: ["android/src/main/kotlin/**"] }
+                ios {
+                    minVersion: "17.0"
+                    sources: ["ios/Sources/**"]
+                    dependencies {
+                        swiftPackage {
+                            url: "https://github.com/example/video-sdk.git"
+                            from: "2.1.0"
+                            products: ["VideoSDK"]
+                        }
+                    }
+                }
+                android {
+                    minSdk: 28
+                    sources: ["android/src/main/kotlin/**"]
+                    dependencies: ["androidx.media3:media3-exoplayer:1.5.1"]
+                }
                 assets: ["assets/**"]
             }
             "#,
         )
         .expect("manifest should parse");
         assert_eq!(manifest.native.as_deref(), Some("native.nxid"));
-        assert_eq!(manifest.android.min_sdk, Some(26));
+        assert_eq!(manifest.android.min_sdk, Some(28));
         assert_eq!(manifest.ios.sources, vec!["ios/Sources/**"]);
+        assert_eq!(manifest.ios.swift_packages.len(), 1);
+        assert_eq!(manifest.ios.swift_packages[0].from, "2.1.0");
+        assert_eq!(manifest.ios.swift_packages[0].products, vec!["VideoSDK"]);
+        assert_eq!(
+            manifest.android.maven_dependencies,
+            vec!["androidx.media3:media3-exoplayer:1.5.1"]
+        );
     }
 
     #[test]
@@ -538,5 +711,20 @@ mod tests {
             parse(r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" assets: ["../outside"] }"#)
                 .expect_err("path traversal must be rejected");
         assert!(error.contains("must stay inside"));
+    }
+
+    #[test]
+    fn rejects_unsafe_native_dependency_coordinates() {
+        let swift_error = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" sources { native: "native.nxid" } ios { dependencies { swiftPackage { url: "https://example.com/sdk.git" from: "latest" products: ["SDK"] } } } }"#,
+        )
+        .expect_err("Swift package versions must be pinned to a numeric lower bound");
+        assert!(swift_error.contains("numeric dotted version"));
+
+        let maven_error = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" sources { native: "native.nxid" } android { dependencies: ["group:artifact:$version"] } }"#,
+        )
+        .expect_err("Gradle code injection must not pass manifest validation");
+        assert!(maven_error.contains("group:artifact:version"));
     }
 }

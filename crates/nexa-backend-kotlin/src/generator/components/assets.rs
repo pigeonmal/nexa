@@ -12,7 +12,6 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         || features.uses_tab_icon
         || features.uses_button_icon
         || features.uses_placeholder;
-    imports.add(uses_assets, "androidx.compose.foundation.Image");
     imports.add(uses_assets, "androidx.compose.runtime.remember");
     imports.add(uses_assets, "androidx.compose.ui.graphics.Color");
     imports.add(

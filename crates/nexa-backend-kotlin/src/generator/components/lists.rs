@@ -70,7 +70,9 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.runtime.setValue",
     );
     imports.add(
-        features.uses_list_end_reached,
+        features.uses_list_end_reached
+            || features.uses_list_scroll_position
+            || features.uses_list_scroll_events,
         "androidx.compose.runtime.LaunchedEffect",
     );
     imports.add(

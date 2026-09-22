@@ -399,6 +399,18 @@ pub fn lower_with_warnings(
             idl_path: plugin.path.clone(),
             ios_sources: plugin.ios_sources.clone(),
             android_sources: plugin.android_sources.clone(),
+            ios_min_version: plugin.ios_min_version.clone(),
+            android_min_sdk: plugin.android_min_sdk,
+            swift_packages: plugin
+                .swift_packages
+                .iter()
+                .map(|dependency| nexa_ir::SwiftPackage {
+                    url: dependency.url.clone(),
+                    from: dependency.from.clone(),
+                    products: dependency.products.clone(),
+                })
+                .collect(),
+            maven_dependencies: plugin.maven_dependencies.clone(),
         })
         .collect();
     let plugin_assets = app

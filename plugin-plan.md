@@ -1097,7 +1097,10 @@ Document the threading guarantee in the generated contract.
 
 Community plugins need native dependency management.
 
-Add native dependency declarations to `plugin.config.nx`.
+Add native dependency declarations to `plugin.config.nx`. The first slice is
+implemented: iOS uses `ios.dependencies.swiftPackage` with `url`, `from`, and
+`products`; Android uses a `dependencies` array of `group:artifact:version`
+coordinates.
 
 Support iOS dependencies through Swift Package Manager.
 
@@ -1121,15 +1124,16 @@ Conceptually:
 
 ```text
 android {
-    dependencies {
-        maven: [
-            "com.vendor:sdk:2.0.0"
-        ]
-    }
+    minSdk: 26
+    dependencies: ["com.vendor:sdk:2.0.0"]
 }
 ```
 
-Integrate these dependencies automatically into generated projects.
+Reachable plugin dependencies are integrated automatically into generated
+Xcode and Gradle projects. Duplicate declarations are deduplicated, while
+conflicting versions for the same product or Maven artifact fail project
+generation. Repository configuration and lockfile management remain future
+work.
 
 Detect dependency conflicts early and report useful errors.
 
@@ -1137,7 +1141,10 @@ Detect dependency conflicts early and report useful errors.
 
 # 26. Native platform configuration
 
-`plugin.config.nx` should eventually be capable of declaratively describing platform requirements.
+`plugin.config.nx` should declaratively describe platform requirements. The
+first slice supports `ios.minVersion` and `android.minSdk`; project generation
+raises the host minimum to the highest requirement among reachable plugins.
+The other metadata below remains future work.
 
 Examples:
 
@@ -1530,6 +1537,12 @@ For Android handle:
 
 Generated projects must remain deterministic.
 
+The current slice emits reachable native plugin source files, SwiftPM package
+products, Maven coordinates, and raised iOS/Android minimum versions. It rejects
+conflicting dependency versions and keeps per-feature native source files as
+separate build inputs. Framework/linker settings, repository configuration,
+lockfiles, and the remaining platform metadata below are still future work.
+
 ---
 
 # 35. Cache correctness
@@ -1867,16 +1880,17 @@ Jetpack Compose
 
 Use VideoView as the first reference component.
 
-## Phase 8 — dependency/config integration
+## Phase 8 — remaining dependency/config integration
 
-Add:
+Reachable SwiftPM and Maven dependencies plus `ios.minVersion` and
+`android.minSdk` now flow from `plugin.config.nx` into generated projects.
+Continue with the still-missing configuration:
 
 ```text
-SPM
-Maven/Gradle
 permissions
 resources
-platform requirements
+remaining platform requirements
+dependency repositories and lockfiles
 ```
 
 ## Phase 9 — optional C++

@@ -9,6 +9,7 @@ use crate::generator::engine::features::Features;
 use crate::generator::engine::imports::ImportSet;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
+    imports.add(features.uses_asset, "androidx.compose.foundation.Image");
     imports.add(features.uses_image, "coil3.compose.AsyncImage");
     imports.add(
         features.uses_remote_image,
