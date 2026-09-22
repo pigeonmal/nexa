@@ -580,9 +580,11 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
         ast::Expr::Coalesce(left, right, _) => {
             expression_references_name(left, name) || expression_references_name(right, name)
         }
-        ast::Expr::Interpolation(parts, _) => parts
-            .iter()
-            .any(|part| matches!(part, ast::StringPart::Name(candidate) if candidate == name)),
+        ast::Expr::Interpolation(parts, _) => parts.iter().any(|part| match part {
+            ast::StringPart::Name(candidate) => candidate == name,
+            ast::StringPart::Expression(expression) => expression_references_name(expression, name),
+            ast::StringPart::Literal(_) => false,
+        }),
         ast::Expr::String(_, _)
         | ast::Expr::Number(_, _)
         | ast::Expr::Bool(_, _)
@@ -666,10 +668,16 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
         ast::Expr::Await(value, _) => walk_expression(value, names, used),
         ast::Expr::Interpolation(parts, _) => {
             for part in parts {
-                if let ast::StringPart::Name(name) = part {
-                    if names.contains(name) {
-                        used.insert(name.clone());
+                match part {
+                    ast::StringPart::Name(name) => {
+                        if names.contains(name) {
+                            used.insert(name.clone());
+                        }
                     }
+                    ast::StringPart::Expression(expression) => {
+                        walk_expression(expression, names, used);
+                    }
+                    ast::StringPart::Literal(_) => {}
                 }
             }
         }

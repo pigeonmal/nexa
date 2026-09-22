@@ -143,7 +143,7 @@ See the [language guide](docs/language.md) for syntax, supported types, themes, 
 
 The authoring surface keeps mutability explicit: `state` stays mutable and `let` stays immutable. Both declarations infer their type from non-empty initializers using the same defaults: integer literals become `Int32` and decimal literals become `Float64`; the resolved type is fixed in the typed IR before native bindings are generated. Nullable `T?`, `null`, and `??` lower directly to native Swift/Kotlin optional semantics. `Column` is the single vertical container; it emits direct native stack code on both platforms. `View` is no longer a Nexa component; replace it with `Column` in existing `.nx` files. SwiftUI's native `View` protocol remains part of generated Swift output.
 
-String interpolation supports `$name` and `\(name)` for declared state and constant names. The compiler lowers each segment into direct Swift or Kotlin interpolation without a template runtime; see [interpolation.nx](examples/interpolation.nx).
+String interpolation supports `$name` and `\(expression)`. Embedded expressions use the normal Nexa type checker and lower directly into Swift or Kotlin interpolation without a template runtime; see [interpolation.nx](examples/interpolation.nx).
 
 `StatusBar(style: Default|Light|Dark, hidden: true|false)` is a single top-level app configuration that lowers to native status-bar APIs; see [status-bar.nx](examples/status-bar.nx).
 

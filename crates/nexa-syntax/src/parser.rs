@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     ast::*,
-    lexer::{Kind, Token},
+    lexer::{self, Kind, Token},
 };
 use nexa_diagnostics::{CompileError, Span};
 
@@ -1138,45 +1138,27 @@ impl Parser {
         let mut chars = value.chars().peekable();
 
         while let Some(character) = chars.next() {
-            let name = if character == '$' {
+            let part = if character == '$' {
                 if chars.peek().copied().is_some_and(is_ident_start) {
-                    Some(self.take_interpolation_name(&mut chars))
+                    Some(StringPart::Name(self.take_interpolation_name(&mut chars)))
                 } else {
                     None
                 }
             } else if character == '\\' && chars.peek() == Some(&'(') {
                 chars.next();
-                let mut name = String::new();
-                let mut closed = false;
-                while let Some(character) = chars.next() {
-                    if character == ')' {
-                        closed = true;
-                        break;
-                    }
-                    if !is_ident_continue(character) {
-                        return Err(CompileError::new(
-                            span,
-                            "string interpolation expects a state name inside `\\(...)`",
-                        ));
-                    }
-                    name.push(character);
-                }
-                if name.is_empty() || !closed {
-                    return Err(CompileError::new(
-                        span,
-                        "unterminated string interpolation; expected `)`",
-                    ));
-                }
-                Some(name)
+                let source = self.take_interpolation_expression(&mut chars, span)?;
+                Some(StringPart::Expression(
+                    self.parse_interpolation_expression(&source, span)?,
+                ))
             } else {
                 None
             };
 
-            if let Some(name) = name {
+            if let Some(part) = part {
                 if !literal.is_empty() {
                     parts.push(StringPart::Literal(std::mem::take(&mut literal)));
                 }
-                parts.push(StringPart::Name(name));
+                parts.push(part);
             } else {
                 literal.push(character);
             }
@@ -1191,6 +1173,69 @@ impl Parser {
             return Ok(Expr::String(value, span));
         }
         Ok(Expr::Interpolation(parts, span))
+    }
+
+    fn take_interpolation_expression(
+        &self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        span: Span,
+    ) -> Result<String, CompileError> {
+        let mut expression = String::new();
+        let mut depth = 1usize;
+        let mut in_string = false;
+        let mut escaped = false;
+        while let Some(character) = chars.next() {
+            if in_string {
+                expression.push(character);
+                if escaped {
+                    escaped = false;
+                } else if character == '\\' {
+                    escaped = true;
+                } else if character == '"' {
+                    in_string = false;
+                }
+                continue;
+            }
+            match character {
+                '"' => {
+                    in_string = true;
+                    expression.push(character);
+                }
+                '(' => {
+                    depth += 1;
+                    expression.push(character);
+                }
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Ok(expression);
+                    }
+                    expression.push(character);
+                }
+                _ => expression.push(character),
+            }
+        }
+        Err(CompileError::new(
+            span,
+            "unterminated string interpolation; expected `)`",
+        ))
+    }
+
+    fn parse_interpolation_expression(
+        &self,
+        source: &str,
+        span: Span,
+    ) -> Result<Expr, CompileError> {
+        let tokens = lexer::lex(source)?;
+        let mut parser = Parser { tokens, cursor: 0 };
+        let expression = parser.expr()?;
+        if !parser.check(&Kind::Eof) {
+            return Err(CompileError::new(
+                span,
+                "string interpolation contains an incomplete expression",
+            ));
+        }
+        Ok(expression)
     }
 
     fn take_interpolation_name(

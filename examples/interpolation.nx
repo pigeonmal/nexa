@@ -5,6 +5,7 @@ app Interpolation {
     body {
         Column(spacing: 8) {
             Text("$title: \\(count)")
+            Text("Next: \\(count + 1)")
             Button("Increment $count") {
                 count = count + 1
             }

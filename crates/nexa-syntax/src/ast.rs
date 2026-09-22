@@ -360,6 +360,7 @@ pub enum Expr {
 pub enum StringPart {
     Literal(String),
     Name(String),
+    Expression(Expr),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

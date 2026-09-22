@@ -79,9 +79,11 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         }
         ast::Expr::Coalesce(left, right, _) => references_state(left) || references_state(right),
         ast::Expr::Await(value, _) => references_state(value),
-        ast::Expr::Interpolation(parts, _) => parts
-            .iter()
-            .any(|part| matches!(part, ast::StringPart::Name(_))),
+        ast::Expr::Interpolation(parts, _) => parts.iter().any(|part| match part {
+            ast::StringPart::Name(_) => true,
+            ast::StringPart::Expression(expression) => references_state(expression),
+            ast::StringPart::Literal(_) => false,
+        }),
         ast::Expr::String(_, _)
         | ast::Expr::Number(_, _)
         | ast::Expr::Bool(_, _)
@@ -135,6 +137,15 @@ pub(super) fn lower_expr(
                             allow_await,
                         )?;
                         lowered.push(InterpolatedPart::Value(Box::new(value)));
+                    }
+                    ast::StringPart::Expression(expression) => {
+                        lowered.push(InterpolatedPart::Value(Box::new(lower_expr(
+                            expression,
+                            None,
+                            symbols,
+                            functions,
+                            allow_await,
+                        )?)));
                     }
                 }
             }

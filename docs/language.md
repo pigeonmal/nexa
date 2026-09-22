@@ -47,7 +47,7 @@ let releaseMap = ["iOS": 16, "Android": 26]
 let selectedPlatform = Pair("Nexa", 3)
 ```
 
-String literals can include a state name with either `$name` or `\(name)`. Interpolation is resolved during semantic lowering and becomes native Swift or Kotlin string interpolation; it does not add a runtime template engine. The embedded value must be a declared state or constant name, and it keeps that value's native type:
+String literals can include a state or constant with `$name`, or any supported expression inside `\(...)`. Interpolation is parsed and resolved during semantic lowering and becomes native Swift or Kotlin string interpolation; it does not add a runtime template engine or an intermediate string. The embedded expression keeps its native type:
 
 ```nexa
 state count = 3
@@ -55,6 +55,7 @@ let title = "Nexa"
 
 body {
     Text("$title: \(count)")
+    Text("Next: \(count + 1)")
     Button("Increment $count") {
         count = count + 1
     }
