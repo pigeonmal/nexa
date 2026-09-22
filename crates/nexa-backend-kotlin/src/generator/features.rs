@@ -1,7 +1,9 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use nexa_ir::walk::{contains_scrollable, walk_actions, walk_expression, walk_ir};
-use nexa_ir::{ColorValue, Component, Expr, LayoutKind, Module, Node, State, ViewStyle};
+use nexa_ir::{
+    ColorValue, Component, Expr, LayoutKind, Module, Node, Permission, State, ViewStyle,
+};
 
 pub(super) fn collect_focus_bindings(nodes: &[Node]) -> BTreeSet<String> {
     let mut bindings = BTreeSet::new();
@@ -42,6 +44,8 @@ pub(super) struct Features {
     pub(super) uses_file_async: bool,
     pub(super) uses_permissions: bool,
     pub(super) uses_permission_request: bool,
+    pub(super) used_permissions: HashSet<Permission>,
+    pub(super) dynamic_permission: bool,
     pub(super) uses_placeholder: bool,
     pub(super) uses_navigation_link: bool,
     pub(super) uses_navigation_back: bool,
@@ -366,6 +370,7 @@ impl Features {
             features.uses_network_api || features.uses_path_api || features.uses_file_api;
         features.uses_permissions = uses_permissions;
         features.uses_permission_request = uses_permission_request;
+        collect_permission_usage(module, &mut features);
         features
     }
 
@@ -868,4 +873,96 @@ fn uses_permissions_call(expr: &Expr) -> bool {
         Expr::NativeCall { namespace, name, .. }
             if namespace == "Permissions" && matches!(name.as_str(), "status" | "request")
     )
+}
+
+fn collect_permission_usage(module: &Module, features: &mut Features) {
+    let mut visit = |expr: &Expr| record_permission_usage(expr, features);
+    for state in &module.states {
+        walk_expression(&state.initial, &mut visit);
+    }
+    for function in &module.functions {
+        for local in &function.locals {
+            walk_expression(&local.initial, &mut visit);
+        }
+        walk_expression(&function.body, &mut visit);
+    }
+    walk_ir(&module.body, &mut |_| {}, &mut visit);
+    for actions in module
+        .on_appear
+        .iter()
+        .chain(module.on_disappear.iter())
+        .chain(module.on_active.iter())
+        .chain(module.on_inactive.iter())
+        .chain(module.on_background.iter())
+    {
+        walk_actions(actions, &mut visit);
+    }
+    for screen in &module.screens {
+        for state in &screen.states {
+            walk_expression(&state.initial, &mut visit);
+        }
+        walk_ir(&screen.body, &mut |_| {}, &mut visit);
+        for actions in screen.on_appear.iter().chain(screen.on_disappear.iter()) {
+            walk_actions(actions, &mut visit);
+        }
+    }
+    for component in &module.components {
+        for state in &component.states {
+            walk_expression(&state.initial, &mut visit);
+        }
+        walk_ir(&component.body, &mut |_| {}, &mut visit);
+    }
+}
+
+fn record_permission_usage(expr: &Expr, features: &mut Features) {
+    let Expr::NativeCall {
+        namespace,
+        name,
+        arguments,
+        ..
+    } = expr
+    else {
+        return;
+    };
+    if namespace != "Permissions" || !matches!(name.as_str(), "status" | "request") {
+        return;
+    }
+    let Some((_, permission)) = arguments.iter().find(|(name, _)| name == "permission") else {
+        features.dynamic_permission = true;
+        return;
+    };
+    match permission {
+        Expr::EnumValue {
+            enum_name,
+            case_name,
+            ..
+        } if enum_name == "Permission" => match case_name.as_str() {
+            "Camera" => {
+                features.used_permissions.insert(Permission::Camera);
+            }
+            "Microphone" => {
+                features.used_permissions.insert(Permission::Microphone);
+            }
+            "Photos" => {
+                features.used_permissions.insert(Permission::Photos);
+            }
+            "Location" => {
+                features.used_permissions.insert(Permission::Location);
+            }
+            "Notifications" => {
+                features.used_permissions.insert(Permission::Notifications);
+            }
+            "Contacts" => {
+                features.used_permissions.insert(Permission::Contacts);
+            }
+            "Calendar" => {
+                features.used_permissions.insert(Permission::Calendar);
+            }
+            "Bluetooth" => {
+                features.used_permissions.insert(Permission::Bluetooth);
+            }
+            _ => features.dynamic_permission = true,
+        },
+        _ => features.dynamic_permission = true,
+    }
 }

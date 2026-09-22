@@ -245,7 +245,12 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
         assets::render(&mut out);
     }
     if features.uses_permissions {
-        permissions::render(&mut out, features.uses_permission_request);
+        permissions::render(
+            &mut out,
+            features.uses_permission_request,
+            &features.used_permissions,
+            features.dynamic_permission,
+        );
     }
     functions::render(module, &mut out);
     out

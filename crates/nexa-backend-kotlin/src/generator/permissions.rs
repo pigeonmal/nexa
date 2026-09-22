@@ -1,17 +1,33 @@
-/// Emits direct Android permission status queries for the typed `Permissions` API.
-pub(super) fn render(out: &mut String, include_request: bool) {
+use std::collections::HashSet;
+
+use nexa_ir::Permission;
+
+const ALL_PERMISSIONS: [Permission; 8] = [
+    Permission::Camera,
+    Permission::Microphone,
+    Permission::Photos,
+    Permission::Location,
+    Permission::Notifications,
+    Permission::Contacts,
+    Permission::Calendar,
+    Permission::Bluetooth,
+];
+
+/// Emits only the permission cases reachable from the module.
+/// Dynamic permission values conservatively retain every platform case.
+pub(super) fn render(
+    out: &mut String,
+    include_request: bool,
+    used: &HashSet<Permission>,
+    dynamic: bool,
+) {
+    let permissions = selected_permissions(used, dynamic);
+    out.push_str("\nprivate enum class NexaPermission {\n");
+    for permission in &permissions {
+        out.push_str(&format!("    {},\n", case_name(*permission)));
+    }
     out.push_str(
-        r#"
-private enum class NexaPermission {
-    Camera,
-    Microphone,
-    Photos,
-    Location,
-    Notifications,
-    Contacts,
-    Calendar,
-    Bluetooth,
-}
+        r#"}
 
 private enum class NexaPermissionStatus {
     granted,
@@ -23,34 +39,12 @@ private enum class NexaPermissionStatus {
 private object NexaPermissions {
     fun status(context: android.content.Context, permission: NexaPermission): NexaPermissionStatus {
         return when (permission) {
-            NexaPermission.Camera -> statusFor(context, android.Manifest.permission.CAMERA)
-            NexaPermission.Microphone -> statusFor(context, android.Manifest.permission.RECORD_AUDIO)
-            NexaPermission.Photos -> if (android.os.Build.VERSION.SDK_INT >= 33) {
-                statusFor(context, android.Manifest.permission.READ_MEDIA_IMAGES)
-            } else {
-                statusFor(context, android.Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-            NexaPermission.Location -> combine(
-                statusFor(context, android.Manifest.permission.ACCESS_COARSE_LOCATION),
-                statusFor(context, android.Manifest.permission.ACCESS_FINE_LOCATION),
-            )
-            NexaPermission.Notifications -> if (android.os.Build.VERSION.SDK_INT < 33) {
-                NexaPermissionStatus.granted
-            } else {
-                statusFor(context, android.Manifest.permission.POST_NOTIFICATIONS)
-            }
-            NexaPermission.Contacts -> statusFor(context, android.Manifest.permission.READ_CONTACTS)
-            NexaPermission.Calendar -> statusFor(context, android.Manifest.permission.READ_CALENDAR)
-            NexaPermission.Bluetooth -> if (android.os.Build.VERSION.SDK_INT < 31) {
-                NexaPermissionStatus.granted
-            } else {
-                statusFor(context, android.Manifest.permission.BLUETOOTH_SCAN)
-            }
-        }
-    }
-
 "#,
     );
+    for permission in &permissions {
+        out.push_str(status_case(*permission));
+    }
+    out.push_str("        }\n    }\n\n");
     if include_request {
         out.push_str(
             r#"    suspend fun request(
@@ -58,39 +52,13 @@ private object NexaPermissions {
         permission: NexaPermission,
     ): NexaPermissionStatus {
         val permissions = when (permission) {
-            NexaPermission.Camera -> arrayOf(android.Manifest.permission.CAMERA)
-            NexaPermission.Microphone -> arrayOf(android.Manifest.permission.RECORD_AUDIO)
-            NexaPermission.Photos -> if (android.os.Build.VERSION.SDK_INT >= 33) {
-                arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES)
-            } else {
-                arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-            NexaPermission.Location -> arrayOf(
-                android.Manifest.permission.ACCESS_COARSE_LOCATION,
-                android.Manifest.permission.ACCESS_FINE_LOCATION,
-            )
-            NexaPermission.Notifications -> if (android.os.Build.VERSION.SDK_INT >= 33) {
-                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS)
-            } else {
-                emptyArray()
-            }
-            NexaPermission.Contacts -> arrayOf(
-                android.Manifest.permission.READ_CONTACTS,
-                android.Manifest.permission.WRITE_CONTACTS,
-            )
-            NexaPermission.Calendar -> arrayOf(
-                android.Manifest.permission.READ_CALENDAR,
-                android.Manifest.permission.WRITE_CALENDAR,
-            )
-            NexaPermission.Bluetooth -> if (android.os.Build.VERSION.SDK_INT >= 31) {
-                arrayOf(
-                    android.Manifest.permission.BLUETOOTH_SCAN,
-                    android.Manifest.permission.BLUETOOTH_CONNECT,
-                )
-            } else {
-                emptyArray()
-            }
+"#,
+        );
+        for permission in &permissions {
+            out.push_str(request_case(*permission));
         }
+        out.push_str(
+            r#"        }
         NexaRuntime.requestPermissions(permissions)
         return status(context, permission)
     }
@@ -113,7 +81,11 @@ private object NexaPermissions {
         }
     }
 
-    private fun combine(
+"#,
+    );
+    if permissions.contains(&Permission::Location) {
+        out.push_str(
+            r#"    private fun combine(
         coarse: NexaPermissionStatus,
         fine: NexaPermissionStatus,
     ): NexaPermissionStatus = when {
@@ -122,7 +94,136 @@ private object NexaPermissions {
         coarse == NexaPermissionStatus.denied && fine == NexaPermissionStatus.denied -> NexaPermissionStatus.denied
         else -> NexaPermissionStatus.notDetermined
     }
-}
+
 "#,
-    );
+        );
+    }
+    out.push_str("}\n");
+}
+
+fn selected_permissions(used: &HashSet<Permission>, dynamic: bool) -> Vec<Permission> {
+    ALL_PERMISSIONS
+        .into_iter()
+        .filter(|permission| dynamic || used.contains(permission))
+        .collect()
+}
+
+fn case_name(permission: Permission) -> &'static str {
+    match permission {
+        Permission::Camera => "Camera",
+        Permission::Microphone => "Microphone",
+        Permission::Photos => "Photos",
+        Permission::Location => "Location",
+        Permission::Notifications => "Notifications",
+        Permission::Contacts => "Contacts",
+        Permission::Calendar => "Calendar",
+        Permission::Bluetooth => "Bluetooth",
+    }
+}
+
+fn status_case(permission: Permission) -> &'static str {
+    match permission {
+        Permission::Camera => {
+            "            NexaPermission.Camera -> statusFor(context, android.Manifest.permission.CAMERA)\n"
+        }
+        Permission::Microphone => {
+            "            NexaPermission.Microphone -> statusFor(context, android.Manifest.permission.RECORD_AUDIO)\n"
+        }
+        Permission::Photos => {
+            r#"            NexaPermission.Photos -> if (android.os.Build.VERSION.SDK_INT >= 33) {
+                statusFor(context, android.Manifest.permission.READ_MEDIA_IMAGES)
+            } else {
+                statusFor(context, android.Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+"#
+        }
+        Permission::Location => {
+            r#"            NexaPermission.Location -> combine(
+                statusFor(context, android.Manifest.permission.ACCESS_COARSE_LOCATION),
+                statusFor(context, android.Manifest.permission.ACCESS_FINE_LOCATION),
+            )
+"#
+        }
+        Permission::Notifications => {
+            r#"            NexaPermission.Notifications -> if (android.os.Build.VERSION.SDK_INT < 33) {
+                NexaPermissionStatus.granted
+            } else {
+                statusFor(context, android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+"#
+        }
+        Permission::Contacts => {
+            "            NexaPermission.Contacts -> statusFor(context, android.Manifest.permission.READ_CONTACTS)\n"
+        }
+        Permission::Calendar => {
+            "            NexaPermission.Calendar -> statusFor(context, android.Manifest.permission.READ_CALENDAR)\n"
+        }
+        Permission::Bluetooth => {
+            r#"            NexaPermission.Bluetooth -> if (android.os.Build.VERSION.SDK_INT < 31) {
+                NexaPermissionStatus.granted
+            } else {
+                statusFor(context, android.Manifest.permission.BLUETOOTH_SCAN)
+            }
+"#
+        }
+    }
+}
+
+fn request_case(permission: Permission) -> &'static str {
+    match permission {
+        Permission::Camera => {
+            "            NexaPermission.Camera -> arrayOf(android.Manifest.permission.CAMERA)\n"
+        }
+        Permission::Microphone => {
+            "            NexaPermission.Microphone -> arrayOf(android.Manifest.permission.RECORD_AUDIO)\n"
+        }
+        Permission::Photos => {
+            r#"            NexaPermission.Photos -> if (android.os.Build.VERSION.SDK_INT >= 33) {
+                arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES)
+            } else {
+                arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+"#
+        }
+        Permission::Location => {
+            r#"            NexaPermission.Location -> arrayOf(
+                android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+            )
+"#
+        }
+        Permission::Notifications => {
+            r#"            NexaPermission.Notifications -> if (android.os.Build.VERSION.SDK_INT >= 33) {
+                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                emptyArray()
+            }
+"#
+        }
+        Permission::Contacts => {
+            r#"            NexaPermission.Contacts -> arrayOf(
+                android.Manifest.permission.READ_CONTACTS,
+                android.Manifest.permission.WRITE_CONTACTS,
+            )
+"#
+        }
+        Permission::Calendar => {
+            r#"            NexaPermission.Calendar -> arrayOf(
+                android.Manifest.permission.READ_CALENDAR,
+                android.Manifest.permission.WRITE_CALENDAR,
+            )
+"#
+        }
+        Permission::Bluetooth => {
+            r#"            NexaPermission.Bluetooth -> if (android.os.Build.VERSION.SDK_INT >= 31) {
+                arrayOf(
+                    android.Manifest.permission.BLUETOOTH_SCAN,
+                    android.Manifest.permission.BLUETOOTH_CONNECT,
+                )
+            } else {
+                emptyArray()
+            }
+"#
+        }
+    }
 }
