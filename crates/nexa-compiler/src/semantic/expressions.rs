@@ -12,9 +12,11 @@ pub(super) struct FunctionSignature {
 }
 
 pub(super) type FunctionSignatures = HashMap<String, FunctionSignature>;
+pub(super) type StructTypes = HashMap<String, Type>;
 
 pub(super) fn collect_function_signatures(
     declarations: &[ast::FunctionDecl],
+    structs: &StructTypes,
 ) -> Result<FunctionSignatures, CompileError> {
     let mut signatures = HashMap::with_capacity(declarations.len());
     for declaration in declarations {
@@ -36,13 +38,16 @@ pub(super) fn collect_function_signatures(
                     ),
                 ));
             }
-            parameters.push((parameter.name.clone(), parse_type(&parameter.ty)?));
+            parameters.push((
+                parameter.name.clone(),
+                resolve_struct_type(&parse_type(&parameter.ty)?, structs),
+            ));
         }
         signatures.insert(
             declaration.name.clone(),
             FunctionSignature {
                 parameters,
-                return_type: parse_type(&declaration.return_type)?,
+                return_type: resolve_struct_type(&parse_type(&declaration.return_type)?, structs),
                 is_async: declaration.is_async,
             },
         );
@@ -485,7 +490,7 @@ pub(super) fn lower_expr(
                 let Type::Optional(inner) = &base_type else {
                     return Err(CompileError::new(
                         *span,
-                        "`?.` requires an optional Pair or Triple value",
+                        "`?.` requires an optional Pair, Triple, or struct value",
                     ));
                 };
                 let Some(field_type) = member_field_type(inner, name) else {
@@ -934,6 +939,10 @@ fn member_field_type(base_type: &Type, name: &str) -> Option<Type> {
         (Type::Triple(first, _, _), "first") => Some((**first).clone()),
         (Type::Triple(_, second, _), "second") => Some((**second).clone()),
         (Type::Triple(_, _, third), "third") => Some((**third).clone()),
+        (Type::Struct { fields, .. }, field_name) => fields
+            .iter()
+            .find(|(field, _)| field == field_name)
+            .map(|(_, ty)| ty.clone()),
         _ => None,
     }
 }
@@ -1009,10 +1018,34 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
     }
 }
 
+pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
+    match ty {
+        Type::Enum(name) => structs.get(name).cloned().unwrap_or_else(|| ty.clone()),
+        Type::Optional(inner) => Type::Optional(Box::new(resolve_struct_type(inner, structs))),
+        Type::Array(element) => Type::Array(Box::new(resolve_struct_type(element, structs))),
+        Type::Set(element) => Type::Set(Box::new(resolve_struct_type(element, structs))),
+        Type::Map(key, value) => Type::Map(
+            Box::new(resolve_struct_type(key, structs)),
+            Box::new(resolve_struct_type(value, structs)),
+        ),
+        Type::Pair(first, second) => Type::Pair(
+            Box::new(resolve_struct_type(first, structs)),
+            Box::new(resolve_struct_type(second, structs)),
+        ),
+        Type::Triple(first, second, third) => Type::Triple(
+            Box::new(resolve_struct_type(first, structs)),
+            Box::new(resolve_struct_type(second, structs)),
+            Box::new(resolve_struct_type(third, structs)),
+        ),
+        Type::String | Type::Bool | Type::Numeric(_) | Type::Struct { .. } => ty.clone(),
+    }
+}
+
 pub(super) fn resolve_declaration_type(
     declaration: &ast::StateDecl,
     symbols: &HashMap<String, (Type, bool)>,
     functions: &FunctionSignatures,
+    structs: &StructTypes,
 ) -> Result<Type, CompileError> {
     resolve_value_type(
         &declaration.name,
@@ -1020,6 +1053,7 @@ pub(super) fn resolve_declaration_type(
         &declaration.initial,
         symbols,
         functions,
+        structs,
     )
 }
 
@@ -1029,9 +1063,10 @@ pub(super) fn resolve_value_type(
     initial: &ast::Expr,
     symbols: &HashMap<String, (Type, bool)>,
     functions: &FunctionSignatures,
+    structs: &StructTypes,
 ) -> Result<Type, CompileError> {
     let ty = match annotation {
-        Some(syntax) => parse_type(syntax)?,
+        Some(syntax) => resolve_struct_type(&parse_type(syntax)?, structs),
         None => infer_expr_type(initial, symbols, functions).ok_or_else(|| {
             CompileError::new(
                 initial.span(),
@@ -1068,7 +1103,9 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
             validate_type_constraints(third, span)
         }
         Type::Optional(inner) => validate_type_constraints(inner, span),
-        Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_) => Ok(()),
+        Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_) | Type::Struct { .. } => {
+            Ok(())
+        }
     }
 }
 
@@ -1181,6 +1218,7 @@ pub(super) fn type_name(ty: &Type) -> String {
             type_name(third)
         ),
         Type::Enum(name) => name.clone(),
+        Type::Struct { name, .. } => name.clone(),
         Type::Optional(inner) => format!("{}?", type_name(inner)),
     }
 }

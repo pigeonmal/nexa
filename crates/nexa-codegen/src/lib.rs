@@ -39,9 +39,19 @@ pub mod names {
         format!("nexa_fn_{name}")
     }
 
+    /// Gives source-defined struct fields a stable name that cannot shadow a native member.
+    pub fn struct_field_name(name: &str) -> String {
+        format!("nexa_field_{name}")
+    }
+
     /// Gives source-defined enum declarations stable native type names.
     pub fn enum_name(name: &str) -> String {
         format!("Nexa{}", pascal_name(name, "Enum"))
+    }
+
+    /// Gives source-defined value structs stable native type names.
+    pub fn struct_name(name: &str) -> String {
+        format!("Nexa{}", pascal_name(name, "Struct"))
     }
 
     pub fn navigation_case_name(screen: nexa_ir::ScreenId) -> String {

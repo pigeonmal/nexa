@@ -47,6 +47,7 @@ pub(crate) fn optimize(module: &mut Module) {
     }
     prune_unused_functions(module);
     prune_unused_states(module);
+    prune_unused_structs(module);
 }
 
 fn prune_unused_function_locals(function: &mut nexa_ir::Function) {
@@ -340,6 +341,189 @@ fn prune_unused_states(module: &mut Module) {
         let mut used = HashSet::new();
         collect_node_state_references(&component.body, &mut used);
         retain_referenced_states(&mut component.states, used);
+    }
+}
+
+fn prune_unused_structs(module: &mut Module) {
+    let declarations = module
+        .structs
+        .iter()
+        .map(|declaration| (declaration.name.as_str(), declaration))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut used = HashSet::new();
+    for state in &module.states {
+        collect_type_struct_names(&state.ty, &mut used);
+        collect_expression_struct_names(&state.initial, &mut used);
+    }
+    for function in &module.functions {
+        for parameter in &function.parameters {
+            collect_type_struct_names(&parameter.ty, &mut used);
+        }
+        collect_type_struct_names(&function.return_type, &mut used);
+        for local in &function.locals {
+            collect_type_struct_names(&local.ty, &mut used);
+            collect_expression_struct_names(&local.initial, &mut used);
+        }
+        collect_expression_struct_names(&function.body, &mut used);
+    }
+    for component in &module.components {
+        for parameter in &component.parameters {
+            collect_type_struct_names(&parameter.ty, &mut used);
+        }
+        for state in &component.states {
+            collect_type_struct_names(&state.ty, &mut used);
+            collect_expression_struct_names(&state.initial, &mut used);
+        }
+        collect_node_struct_names(&component.body, &mut used);
+    }
+    collect_node_struct_names(&module.body, &mut used);
+    for screen in &module.screens {
+        collect_node_struct_names(&screen.body, &mut used);
+        if let Some(actions) = &screen.on_appear {
+            collect_action_struct_names(actions, &mut used);
+        }
+        if let Some(actions) = &screen.on_disappear {
+            collect_action_struct_names(actions, &mut used);
+        }
+    }
+    if let Some(actions) = &module.on_appear {
+        collect_action_struct_names(actions, &mut used);
+    }
+    if let Some(actions) = &module.on_disappear {
+        collect_action_struct_names(actions, &mut used);
+    }
+
+    let mut pending = used.iter().cloned().collect::<Vec<_>>();
+    let mut expanded = HashSet::new();
+    while let Some(name) = pending.pop() {
+        if !expanded.insert(name.clone()) {
+            continue;
+        }
+        let Some(declaration) = declarations.get(name.as_str()) else {
+            continue;
+        };
+        for field in &declaration.fields {
+            collect_type_struct_names(&field.ty, &mut used);
+        }
+        pending.extend(
+            used.iter()
+                .filter(|field_name| !expanded.contains(*field_name))
+                .cloned(),
+        );
+    }
+    module
+        .structs
+        .retain(|declaration| used.contains(declaration.name.as_str()));
+}
+
+fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
+    match ty {
+        nexa_ir::Type::Struct { name, fields } => {
+            used.insert(name.clone());
+            for (_, field) in fields {
+                collect_type_struct_names(field, used);
+            }
+        }
+        nexa_ir::Type::Optional(inner)
+        | nexa_ir::Type::Array(inner)
+        | nexa_ir::Type::Set(inner) => collect_type_struct_names(inner, used),
+        nexa_ir::Type::Map(key, value) | nexa_ir::Type::Pair(key, value) => {
+            collect_type_struct_names(key, used);
+            collect_type_struct_names(value, used);
+        }
+        nexa_ir::Type::Triple(first, second, third) => {
+            collect_type_struct_names(first, used);
+            collect_type_struct_names(second, used);
+            collect_type_struct_names(third, used);
+        }
+        nexa_ir::Type::String
+        | nexa_ir::Type::Bool
+        | nexa_ir::Type::Numeric(_)
+        | nexa_ir::Type::Enum(_) => {}
+    }
+}
+
+fn collect_expression_struct_names(expression: &Expr, used: &mut HashSet<String>) {
+    nexa_ir::walk::walk_expression(expression, &mut |expression| {
+        collect_expression_type_struct_names(expression, used)
+    });
+}
+
+fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<String>) {
+    match expression {
+        Expr::State(_, ty) | Expr::Null(ty) => collect_type_struct_names(ty, used),
+        Expr::Call { return_type, .. } => collect_type_struct_names(return_type, used),
+        Expr::Index {
+            collection_type,
+            element_type,
+            ..
+        } => {
+            collect_type_struct_names(collection_type, used);
+            collect_type_struct_names(element_type, used);
+        }
+        Expr::Member {
+            base_type,
+            field_type,
+            ..
+        } => {
+            collect_type_struct_names(base_type, used);
+            collect_type_struct_names(field_type, used);
+        }
+        Expr::Contains {
+            collection_type, ..
+        } => collect_type_struct_names(collection_type, used),
+        Expr::String(_)
+        | Expr::Interpolation(_)
+        | Expr::Bool(_)
+        | Expr::Number { .. }
+        | Expr::EnumValue { .. }
+        | Expr::Add(_, _, _)
+        | Expr::Not(_)
+        | Expr::Binary { .. }
+        | Expr::Array(_)
+        | Expr::Set(_)
+        | Expr::Map(_)
+        | Expr::Pair(_, _)
+        | Expr::Triple(_, _, _)
+        | Expr::Range { .. }
+        | Expr::Coalesce(_, _)
+        | Expr::Await(_)
+        | Expr::IsRegularWidth => {}
+    }
+}
+
+fn collect_node_struct_names(nodes: &[Node], used: &mut HashSet<String>) {
+    nexa_ir::walk::walk_ir(nodes, &mut |_| {}, &mut |expression| {
+        collect_expression_type_struct_names(expression, used)
+    });
+}
+
+fn collect_action_struct_names(actions: &[Action], used: &mut HashSet<String>) {
+    for action in actions {
+        match action {
+            Action::Assign { value, .. } => collect_expression_struct_names(value, used),
+            Action::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                collect_expression_struct_names(condition, used);
+                collect_action_struct_names(then_branch, used);
+                if let Some(else_branch) = else_branch {
+                    collect_action_struct_names(else_branch, used);
+                }
+            }
+            Action::For { iterable, body, .. }
+            | Action::ForMap { iterable, body, .. }
+            | Action::While {
+                condition: iterable,
+                body,
+            } => {
+                collect_expression_struct_names(iterable, used);
+                collect_action_struct_names(body, used);
+            }
+            Action::Break | Action::Continue => {}
+        }
     }
 }
 

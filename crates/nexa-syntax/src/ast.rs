@@ -6,6 +6,7 @@ use nexa_diagnostics::Span;
 pub struct App {
     pub name: String,
     pub enums: Vec<EnumDecl>,
+    pub structs: Vec<StructDecl>,
     pub permissions: Vec<PermissionDecl>,
     pub states: Vec<StateDecl>,
     pub functions: Vec<FunctionDecl>,
@@ -13,6 +14,21 @@ pub struct App {
     pub theme: Option<ThemeDecl>,
     pub components: Vec<ComponentDecl>,
     pub body: Vec<Node>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct StructDecl {
+    pub name: String,
+    pub fields: Vec<StructFieldDecl>,
+    pub span: Span,
+    pub source_file: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct StructFieldDecl {
+    pub name: String,
+    pub ty: TypeSyntax,
     pub span: Span,
 }
 
@@ -39,6 +55,7 @@ pub struct EnumCaseDecl {
 pub struct Program {
     pub imports: Vec<ImportDecl>,
     pub components: Vec<ComponentDecl>,
+    pub structs: Vec<StructDecl>,
     pub app: Option<App>,
 }
 

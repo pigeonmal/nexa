@@ -11,8 +11,9 @@ use self::{
     components::lower_nodes,
     custom_components::{lower_components, retain_reachable},
     expressions::{
-        FunctionSignatures, collect_function_signatures, lower_expr, parse_type, references_state,
-        resolve_declaration_type, resolve_value_type,
+        FunctionSignature, FunctionSignatures, StructTypes, collect_function_signatures,
+        lower_expr, parse_type, references_state, resolve_declaration_type, resolve_struct_type,
+        resolve_value_type,
     },
     themes::lower_theme,
 };
@@ -32,14 +33,78 @@ pub fn lower_with_warnings(
     let warnings = warnings::analyze(&app, target);
     let themes = lower_theme(app.theme.as_ref())?;
     let enum_declarations = lower_enum_declarations(&app.enums)?;
+    let (struct_declarations, struct_types) = lower_struct_declarations(&app.structs)?;
     let permissions = lower_permissions(&app.permissions)?;
     let enum_symbols = enum_symbols(&enum_declarations);
     let enum_names = enum_declarations
         .iter()
         .map(|declaration| declaration.name.as_str())
         .collect::<std::collections::HashSet<_>>();
-    validate_declared_types(&app, &enum_names)?;
-    let function_signatures = collect_function_signatures(&app.functions)?;
+    validate_declared_types(&app, &enum_names, &struct_types)?;
+    for declaration in &struct_declarations {
+        if enum_names.contains(declaration.name.as_str()) {
+            return Err(CompileError::new(
+                app.span,
+                format!(
+                    "struct `{}` conflicts with an enum of the same name",
+                    declaration.name
+                ),
+            ));
+        }
+    }
+    for declaration in &app.functions {
+        if struct_types.contains_key(&declaration.name) {
+            return Err(CompileError::new(
+                declaration.span,
+                format!(
+                    "function `{}` conflicts with a struct of the same name",
+                    declaration.name
+                ),
+            ));
+        }
+    }
+    for declaration in &app.components {
+        if struct_types.contains_key(&declaration.name) {
+            return Err(CompileError::new(
+                declaration.span,
+                format!(
+                    "component `{}` conflicts with a struct of the same name",
+                    declaration.name
+                ),
+            ));
+        }
+    }
+    let mut function_signatures = collect_function_signatures(&app.functions, &struct_types)?;
+    for declaration in &struct_declarations {
+        if function_signatures.contains_key(&declaration.name) {
+            return Err(CompileError::new(
+                app.span,
+                format!(
+                    "struct `{}` conflicts with a function of the same name",
+                    declaration.name
+                ),
+            ));
+        }
+        function_signatures.insert(
+            declaration.name.clone(),
+            FunctionSignature {
+                parameters: declaration
+                    .fields
+                    .iter()
+                    .map(|field| (field.name.clone(), field.ty.clone()))
+                    .collect(),
+                return_type: Type::Struct {
+                    name: declaration.name.clone(),
+                    fields: declaration
+                        .fields
+                        .iter()
+                        .map(|field| (field.name.clone(), field.ty.clone()))
+                        .collect(),
+                },
+                is_async: false,
+            },
+        );
+    }
     for declaration in &enum_declarations {
         if function_signatures.contains_key(&declaration.name) {
             return Err(CompileError::new(
@@ -88,6 +153,7 @@ pub fn lower_with_warnings(
         &screen_ids,
         &themes,
         &function_signatures,
+        &struct_types,
         &enum_symbols,
         target,
     )?;
@@ -95,6 +161,7 @@ pub fn lower_with_warnings(
     let functions = lower_functions(
         std::mem::take(&mut app.functions),
         &function_signatures,
+        &struct_types,
         &enum_symbols,
     )?;
 
@@ -113,7 +180,8 @@ pub fn lower_with_warnings(
                 format!("`{}` is already declared as a function", declaration.name),
             ));
         }
-        let ty = resolve_declaration_type(&declaration, &symbols, &function_signatures)?;
+        let ty =
+            resolve_declaration_type(&declaration, &symbols, &function_signatures, &struct_types)?;
         let initial = lower_expr(
             &declaration.initial,
             Some(&ty),
@@ -190,6 +258,7 @@ pub fn lower_with_warnings(
     let mut module = Module {
         app_name: app.name,
         enums: enum_declarations,
+        structs: struct_declarations,
         permissions,
         functions,
         states,
@@ -295,6 +364,158 @@ fn lower_enum_declarations(
     Ok(lowered)
 }
 
+fn lower_struct_declarations(
+    declarations: &[ast::StructDecl],
+) -> Result<(Vec<nexa_ir::StructDecl>, StructTypes), CompileError> {
+    let mut raw = HashMap::with_capacity(declarations.len());
+    let mut names = std::collections::HashSet::with_capacity(declarations.len());
+    for declaration in declarations {
+        if matches!(
+            declaration.name.as_str(),
+            "String"
+                | "Bool"
+                | "Int8"
+                | "Int16"
+                | "Int32"
+                | "Int64"
+                | "UInt8"
+                | "UInt16"
+                | "UInt32"
+                | "UInt64"
+                | "Float32"
+                | "Float64"
+                | "Array"
+                | "Set"
+                | "Map"
+                | "Pair"
+                | "Triple"
+                | "Theme"
+                | "Layout"
+        ) {
+            return Err(CompileError::new(
+                declaration.span,
+                format!("struct name `{}` is reserved", declaration.name),
+            ));
+        }
+        if !names.insert(&declaration.name) {
+            return Err(CompileError::new(
+                declaration.span,
+                format!("struct `{}` is declared more than once", declaration.name),
+            ));
+        }
+        let fields = declaration
+            .fields
+            .iter()
+            .map(|field| Ok((field.name.clone(), parse_type(&field.ty)?)))
+            .collect::<Result<Vec<_>, CompileError>>()?;
+        raw.insert(declaration.name.clone(), fields);
+    }
+
+    let mut types = HashMap::with_capacity(declarations.len());
+    for declaration in declarations {
+        resolve_struct_definition(
+            &declaration.name,
+            &raw,
+            &mut types,
+            &mut Vec::new(),
+            declaration.span,
+        )?;
+    }
+    let lowered = declarations
+        .iter()
+        .map(|declaration| {
+            let Type::Struct { fields, .. } = types
+                .get(&declaration.name)
+                .expect("resolved struct declaration")
+                .clone()
+            else {
+                unreachable!("struct resolver always produces a struct type")
+            };
+            nexa_ir::StructDecl {
+                name: declaration.name.clone(),
+                fields: fields
+                    .into_iter()
+                    .map(|(name, ty)| nexa_ir::StructField { name, ty })
+                    .collect(),
+            }
+        })
+        .collect();
+    Ok((lowered, types))
+}
+
+fn resolve_struct_definition(
+    name: &str,
+    raw: &HashMap<String, Vec<(String, Type)>>,
+    cache: &mut StructTypes,
+    active: &mut Vec<String>,
+    span: nexa_diagnostics::Span,
+) -> Result<Type, CompileError> {
+    if let Some(ty) = cache.get(name) {
+        return Ok(ty.clone());
+    }
+    if active.iter().any(|active_name| active_name == name) {
+        return Err(CompileError::new(
+            span,
+            format!("recursive struct `{name}` is not supported in value types"),
+        ));
+    }
+    let Some(raw_fields) = raw.get(name) else {
+        return Err(CompileError::new(span, format!("unknown struct `{name}`")));
+    };
+    active.push(name.to_owned());
+    let mut fields = Vec::with_capacity(raw_fields.len());
+    for (field_name, field_type) in raw_fields {
+        fields.push((
+            field_name.clone(),
+            resolve_struct_members(field_type, raw, cache, active, span)?,
+        ));
+    }
+    active.pop();
+    let ty = Type::Struct {
+        name: name.to_owned(),
+        fields,
+    };
+    cache.insert(name.to_owned(), ty.clone());
+    Ok(ty)
+}
+
+fn resolve_struct_members(
+    ty: &Type,
+    raw: &HashMap<String, Vec<(String, Type)>>,
+    cache: &mut StructTypes,
+    active: &mut Vec<String>,
+    span: nexa_diagnostics::Span,
+) -> Result<Type, CompileError> {
+    match ty {
+        Type::Enum(name) if raw.contains_key(name) => {
+            resolve_struct_definition(name, raw, cache, active, span)
+        }
+        Type::Optional(inner) => Ok(Type::Optional(Box::new(resolve_struct_members(
+            inner, raw, cache, active, span,
+        )?))),
+        Type::Array(inner) => Ok(Type::Array(Box::new(resolve_struct_members(
+            inner, raw, cache, active, span,
+        )?))),
+        Type::Set(inner) => Ok(Type::Set(Box::new(resolve_struct_members(
+            inner, raw, cache, active, span,
+        )?))),
+        Type::Map(key, value) => Ok(Type::Map(
+            Box::new(resolve_struct_members(key, raw, cache, active, span)?),
+            Box::new(resolve_struct_members(value, raw, cache, active, span)?),
+        )),
+        Type::Pair(first, second) => Ok(Type::Pair(
+            Box::new(resolve_struct_members(first, raw, cache, active, span)?),
+            Box::new(resolve_struct_members(second, raw, cache, active, span)?),
+        )),
+        Type::Triple(first, second, third) => Ok(Type::Triple(
+            Box::new(resolve_struct_members(first, raw, cache, active, span)?),
+            Box::new(resolve_struct_members(second, raw, cache, active, span)?),
+            Box::new(resolve_struct_members(third, raw, cache, active, span)?),
+        )),
+        _ => Ok(ty.clone()),
+    }
+}
+
 fn enum_symbols(declarations: &[nexa_ir::EnumDecl]) -> HashMap<String, (nexa_ir::Type, bool)> {
     let mut symbols = HashMap::new();
     for declaration in declarations {
@@ -313,34 +534,61 @@ fn enum_symbols(declarations: &[nexa_ir::EnumDecl]) -> HashMap<String, (nexa_ir:
 fn validate_declared_types(
     app: &ast::App,
     enum_names: &std::collections::HashSet<&str>,
+    struct_types: &StructTypes,
 ) -> Result<(), CompileError> {
+    for declaration in &app.structs {
+        for field in &declaration.fields {
+            let ty = resolve_struct_type(&parse_type(&field.ty)?, struct_types);
+            validate_type_names(&ty, enum_names, field.ty.span())?;
+        }
+    }
     for declaration in &app.states {
         if let Some(ty) = &declaration.ty {
-            validate_type_names(&parse_type(ty)?, enum_names, ty.span())?;
+            validate_type_names(
+                &resolve_struct_type(&parse_type(ty)?, struct_types),
+                enum_names,
+                ty.span(),
+            )?;
         }
     }
     for declaration in &app.functions {
         for parameter in &declaration.parameters {
-            validate_type_names(&parse_type(&parameter.ty)?, enum_names, parameter.ty.span())?;
+            validate_type_names(
+                &resolve_struct_type(&parse_type(&parameter.ty)?, struct_types),
+                enum_names,
+                parameter.ty.span(),
+            )?;
         }
         validate_type_names(
-            &parse_type(&declaration.return_type)?,
+            &resolve_struct_type(&parse_type(&declaration.return_type)?, struct_types),
             enum_names,
             declaration.return_type.span(),
         )?;
         for statement in &declaration.body {
             if let ast::Stmt::Let { ty: Some(ty), .. } = statement {
-                validate_type_names(&parse_type(ty)?, enum_names, ty.span())?;
+                validate_type_names(
+                    &resolve_struct_type(&parse_type(ty)?, struct_types),
+                    enum_names,
+                    ty.span(),
+                )?;
             }
         }
     }
     for declaration in &app.components {
         for parameter in &declaration.parameters {
-            validate_type_names(&parse_type(&parameter.ty)?, enum_names, parameter.ty.span())?;
+            validate_type_names(
+                &resolve_struct_type(&parse_type(&parameter.ty)?, struct_types),
+                enum_names,
+                parameter.ty.span(),
+            )?;
         }
         for state in &declaration.states {
             if let Some(ty) = &state.ty {
-                validate_type_names(&parse_type(ty)?, enum_names, ty.span())?;
+                validate_type_names(
+                    &resolve_struct_type(&parse_type(ty)?, struct_types),
+                    enum_names,
+                    ty.span(),
+                )?;
             }
         }
     }
@@ -368,6 +616,9 @@ fn validate_type_names(
             validate_type_names(second, enum_names, span)?;
             validate_type_names(third, enum_names, span)
         }
+        Type::Struct { fields, .. } => fields
+            .iter()
+            .try_for_each(|(_, field)| validate_type_names(field, enum_names, span)),
         Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_) => Ok(()),
     }
 }
@@ -375,6 +626,7 @@ fn validate_type_names(
 fn lower_functions(
     declarations: Vec<ast::FunctionDecl>,
     signatures: &FunctionSignatures,
+    structs: &StructTypes,
     enum_symbols: &HashMap<String, (Type, bool)>,
 ) -> Result<Vec<Function>, CompileError> {
     declarations
@@ -424,6 +676,7 @@ fn lower_functions(
                             &initial,
                             &symbols,
                             signatures,
+                            structs,
                         )?;
                         let lowered = lower_expr(
                             &initial,

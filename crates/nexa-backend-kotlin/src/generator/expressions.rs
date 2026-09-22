@@ -73,13 +73,25 @@ pub(super) fn expression(expr: &Expr) -> String {
             base,
             name,
             optional,
+            base_type,
             ..
-        } => format!(
-            "{}{}{}",
-            expression(base),
-            if *optional { "?." } else { "." },
-            name
-        ),
+        } => {
+            let member_name = match base_type {
+                Type::Optional(inner) => inner.as_ref(),
+                base_type => base_type,
+            };
+            let name = if matches!(member_name, Type::Struct { .. }) {
+                nexa_codegen::names::struct_field_name(name)
+            } else {
+                name.clone()
+            };
+            format!(
+                "{}{}{}",
+                expression(base),
+                if *optional { "?." } else { "." },
+                name
+            )
+        }
         Expr::Array(items) => format!(
             "listOf({})",
             items.iter().map(expression).collect::<Vec<_>>().join(", ")
@@ -194,7 +206,13 @@ fn kotlin_number(raw: &str, ty: NumericType) -> String {
 
 pub(super) fn text_expression(expr: &Expr) -> String {
     match expr {
-        Expr::String(_) | Expr::State(_, Type::String) | Expr::Interpolation(_) => expression(expr),
+        Expr::String(_)
+        | Expr::State(_, Type::String)
+        | Expr::Member {
+            field_type: Type::String,
+            ..
+        }
+        | Expr::Interpolation(_) => expression(expr),
         _ => format!("{}.toString()", expression(expr)),
     }
 }

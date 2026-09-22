@@ -21,6 +21,7 @@ pub fn parse(tokens: Vec<Token>) -> Result<App, CompileError> {
         ));
     };
     app.components = program.components;
+    app.structs = program.structs;
     Ok(app)
 }
 
@@ -43,10 +44,13 @@ impl Parser {
     fn program(mut self) -> Result<Program, CompileError> {
         let mut imports = Vec::new();
         let mut components = Vec::new();
+        let mut structs = Vec::new();
         let mut app = None;
         while !self.check(&Kind::Eof) {
             if self.word_is("import") {
                 imports.push(self.import_decl()?);
+            } else if self.word_is("struct") {
+                structs.push(self.struct_decl()?);
             } else if self.word_is("component") {
                 components.push(self.component_decl()?);
             } else if self.word_is("app") {
@@ -55,13 +59,57 @@ impl Parser {
                 }
                 app = Some(self.app_decl()?);
             } else {
-                return self.error_here("expected an `import`, `component`, or `app` declaration");
+                return self.error_here(
+                    "expected an `import`, `struct`, `component`, or `app` declaration",
+                );
             }
         }
         Ok(Program {
             imports,
             components,
+            structs,
             app,
+        })
+    }
+
+    fn struct_decl(&mut self) -> Result<StructDecl, CompileError> {
+        let span = self.advance().span;
+        let (name, _) = self.ident()?;
+        self.expect(Kind::LBrace, "expected `{` after struct name")?;
+        let mut fields = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (field_name, field_span) = self.ident()?;
+            if fields
+                .iter()
+                .any(|field: &StructFieldDecl| field.name == field_name)
+            {
+                return Err(CompileError::new(
+                    field_span,
+                    format!("struct field `{field_name}` is declared more than once"),
+                ));
+            }
+            self.expect(Kind::Colon, "expected `:` after struct field name")?;
+            let ty = self.type_syntax()?;
+            fields.push(StructFieldDecl {
+                name: field_name,
+                ty,
+                span: field_span,
+            });
+            if self.take(&Kind::Comma) {
+                continue;
+            }
+            self.optional_semicolon();
+            if !self.check(&Kind::RBrace) {
+                return self.error_here("expected `,` or `}` after struct field");
+            }
+        }
+        self.expect(Kind::RBrace, "expected `}` to close struct")?;
+        self.optional_semicolon();
+        Ok(StructDecl {
+            name,
+            fields,
+            span,
+            source_file: None,
         })
     }
 
@@ -202,6 +250,7 @@ impl Parser {
         Ok(App {
             name,
             enums,
+            structs: Vec::new(),
             permissions,
             states,
             functions,

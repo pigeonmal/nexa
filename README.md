@@ -2,7 +2,7 @@
 
 Nexa is an early ahead-of-time compiler prototype for a shared mobile language that emits native SwiftUI and Jetpack Compose source. Its frontend and typed intermediate representation are Rust; generated applications use the platform UI frameworks directly and do not include a JavaScript or Dart runtime.
 
-The current implementation covers the compiler foundation and a growing native-control slice. It parses app state, checks primitive and collection value types and bindings, lowers to a platform-independent IR, and emits native SwiftUI or Compose controls, including virtualized range and collection lists. `nexa generate` also creates a native iOS Xcode project and Android Gradle project around the generated sources.
+The current implementation covers the compiler foundation and a growing native-control slice. It parses app state, typed value structs, checks primitive and collection value types and bindings, lowers to a platform-independent IR, and emits native SwiftUI or Compose controls, including virtualized range and collection lists. `nexa generate` also creates a native iOS Xcode project and Android Gradle project around the generated sources.
 
 Nexa's product direction is to let people create complete mobile apps from `.nx` without writing native source. The current compiler supports only the documented language slice below; unsupported language features remain explicit roadmap items. The core component set comes first, while integrations such as SQLite, MMKV, and maps are planned as optional plugins. Its first theme slice compiles typed color, spacing, radius, and font-size tokens directly into native code.
 
@@ -33,6 +33,7 @@ cargo run -p nexa-cli -- check examples/conditional-logic.nx
 cargo run -p nexa-cli -- check examples/responsive-layout.nx
 cargo run -p nexa-cli -- check examples/constant-branches.nx
 cargo run -p nexa-cli -- check examples/enums.nx
+cargo run -p nexa-cli -- check examples/structs.nx
 cargo run -p nexa-cli -- check examples/interpolation.nx
 cargo run -p nexa-cli -- check examples/status-bar.nx
 cargo run -p nexa-cli -- check examples/bottom-sheet.nx
@@ -65,6 +66,8 @@ cargo run -p nexa-cli -- build examples/responsive-layout.nx --target swift --ou
 cargo run -p nexa-cli -- build examples/responsive-layout.nx --target kotlin --out /tmp/ResponsiveLayout.kt
 cargo run -p nexa-cli -- build examples/constant-branches.nx --target swift --out /tmp/ConstantBranches.swift
 cargo run -p nexa-cli -- build examples/constant-branches.nx --target kotlin --out /tmp/ConstantBranches.kt
+cargo run -p nexa-cli -- build examples/structs.nx --target swift --out /tmp/Structs.swift
+cargo run -p nexa-cli -- build examples/structs.nx --target kotlin --out /tmp/Structs.kt
 cargo run -p nexa-cli -- build examples/interpolation.nx --target swift --out /tmp/Interpolation.swift
 cargo run -p nexa-cli -- build examples/interpolation.nx --target kotlin --out /tmp/Interpolation.kt
 cargo run -p nexa-cli -- build examples/status-bar.nx --target swift --out /tmp/StatusBar.swift
@@ -119,7 +122,7 @@ The default output replaces the input file extension, producing `counter.swift` 
 
 Each target backend consumes the same typed IR. Adding another backend should require implementing the `nexa-codegen::Backend` contract without changing the lexer or parser.
 
-Compiler orchestration and semantic analysis are separate modules inside `nexa-compiler`. Native generation lives in backend-local `src/generator/` modules, with component-specific files for controls, inputs, images, layout, navigation, lists, keyboard behavior, expressions, state, networking, and formatting. A shared IR walker keeps structural scans consistent across backends; each backend analyzes a module once and uses that result to emit only the imports and native helpers the generated app needs. This keeps platform concerns out of the shared IR and makes compiler changes easier to review and maintain.
+Compiler orchestration and semantic analysis are separate modules inside `nexa-compiler`. Native generation lives in backend-local `src/generator/` modules, with component-specific files for controls, inputs, images, layout, navigation, lists, keyboard behavior, expressions, value structs, state, networking, and formatting. A shared IR walker keeps structural scans consistent across backends; each backend analyzes a module once and uses that result to emit only the imports and native helpers the generated app needs. This keeps platform concerns out of the shared IR and makes compiler changes easier to review and maintain.
 
 The compiler also runs a conservative IR optimization pass before backend generation. It folds pure literal conditions, removes statically unreachable UI and event branches, and prunes pure functions that are unreachable from the app. These changes add no runtime machinery and do not alter native component mappings. See [constant-branches.nx](examples/constant-branches.nx).
 
@@ -152,6 +155,25 @@ See the [language guide](docs/language.md) for syntax, supported types, themes, 
 The authoring surface keeps mutability explicit: `state` stays mutable and `let` stays immutable. Both declarations infer their type from non-empty initializers using the same defaults: integer literals become `Int32` and decimal literals become `Float64`; the resolved type is fixed in the typed IR before native bindings are generated. Nullable `T?`, `null`, `??`, and safe collection indexing (`values?[index]`) lower directly to native Swift/Kotlin optional semantics. `Column` is the single vertical container; it emits direct native stack code on both platforms. `View` is no longer a Nexa component; replace it with `Column` in existing `.nx` files. SwiftUI's native `View` protocol remains part of generated Swift output.
 
 Closed enums use `enum Name { caseA, caseB }`, construct values as `Name.caseA`, and can be matched in exhaustive scalar `when` branches. Swift receives a private native `enum`; Kotlin receives a private `enum class`; no enum registry or runtime reflection is generated. See [enums.nx](examples/enums.nx).
+
+Value models use top-level structs with typed fields, positional construction, and direct member access:
+
+```nexa
+struct User {
+    id: Int64,
+    name: String
+}
+
+app Profile {
+    state user: User = User(42, "Ada")
+
+    body {
+        Text(user.name)
+    }
+}
+```
+
+Structs lower to private Swift value structs and Kotlin data classes. Their constructors and members are checked before native generation; recursive value structs, named arguments, methods, and mutation are not part of this slice.
 
 String interpolation supports `$name` and `\(expression)`. Embedded expressions use the normal Nexa type checker and lower directly into Swift or Kotlin interpolation without a template runtime; see [interpolation.nx](examples/interpolation.nx).
 

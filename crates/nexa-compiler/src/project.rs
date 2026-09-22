@@ -5,7 +5,7 @@ use std::{
 };
 
 use nexa_diagnostics::{CompileError, Span};
-use nexa_syntax::ast::{App, ComponentDecl, ImportDecl};
+use nexa_syntax::ast::{App, ComponentDecl, ImportDecl, StructDecl};
 
 use crate::{Target, semantic};
 
@@ -56,6 +56,7 @@ fn compile_file_with_target(
         .with_file(entry_path.display().to_string())
     })?;
     app.components = loaded.components;
+    app.structs = loaded.structs;
     let (module, mut warnings) = semantic::lower_with_warnings(app, target)
         .map_err(|error| error.with_file(entry_path.display().to_string()))?;
     for warning in &mut warnings {
@@ -70,6 +71,7 @@ fn compile_file_with_target(
 struct LoadedProject {
     app: Option<App>,
     components: Vec<ComponentDecl>,
+    structs: Vec<StructDecl>,
 }
 
 fn load_file(
@@ -118,6 +120,12 @@ fn load_file(
         .extend(program.components.into_iter().map(|mut component| {
             component.source_file = Some(source_file.clone());
             component
+        }));
+    loaded
+        .structs
+        .extend(program.structs.into_iter().map(|mut structure| {
+            structure.source_file = Some(source_file.clone());
+            structure
         }));
 
     if let Some(app) = program.app {

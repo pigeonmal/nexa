@@ -22,6 +22,7 @@ mod navigation;
 mod network;
 mod refresh;
 mod sheets;
+mod structs;
 mod utils;
 
 pub(super) fn generate(module: &Module) -> String {
@@ -54,6 +55,7 @@ pub(super) fn generate(module: &Module) -> String {
         }
         out.push_str("}\n\n");
     }
+    structs::render(module, &mut out);
     out.push_str(&format!(
         "public struct {}: View {{\n",
         nexa_codegen::names::screen_name(&module.app_name)

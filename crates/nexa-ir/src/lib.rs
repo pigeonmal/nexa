@@ -4,6 +4,7 @@ pub mod walk;
 pub struct Module {
     pub app_name: String,
     pub enums: Vec<EnumDecl>,
+    pub structs: Vec<StructDecl>,
     pub permissions: Vec<Permission>,
     pub functions: Vec<Function>,
     pub states: Vec<State>,
@@ -33,6 +34,18 @@ pub enum Permission {
 pub struct EnumDecl {
     pub name: String,
     pub cases: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct StructDecl {
+    pub name: String,
+    pub fields: Vec<StructField>,
+}
+
+#[derive(Clone, Debug)]
+pub struct StructField {
+    pub name: String,
+    pub ty: Type,
 }
 
 #[derive(Clone, Debug)]
@@ -143,6 +156,10 @@ pub enum Type {
     Pair(Box<Type>, Box<Type>),
     Triple(Box<Type>, Box<Type>, Box<Type>),
     Enum(String),
+    Struct {
+        name: String,
+        fields: Vec<(String, Type)>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -560,6 +577,7 @@ impl Type {
                 format!("({}, {}, {})", first.swift(), second.swift(), third.swift())
             }
             Self::Enum(name) => native_enum_name(name),
+            Self::Struct { name, .. } => native_struct_name(name),
         }
     }
     pub fn kotlin(&self) -> String {
@@ -581,6 +599,7 @@ impl Type {
                 third.kotlin()
             ),
             Self::Enum(name) => native_enum_name(name),
+            Self::Struct { name, .. } => native_struct_name(name),
         }
     }
 }
@@ -597,6 +616,25 @@ fn native_enum_name(name: &str) -> String {
         } else {
             result.push(character);
         }
+    }
+    result
+}
+
+fn native_struct_name(name: &str) -> String {
+    let mut result = String::from("Nexa");
+    let mut uppercase = true;
+    for character in name.chars() {
+        if character == '_' {
+            uppercase = true;
+        } else if uppercase {
+            result.extend(character.to_uppercase());
+            uppercase = false;
+        } else {
+            result.push(character);
+        }
+    }
+    if result == "Nexa" {
+        result.push_str("Struct");
     }
     result
 }

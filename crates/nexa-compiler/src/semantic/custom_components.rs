@@ -7,7 +7,8 @@ use nexa_syntax::ast;
 use super::{
     components::lower_nodes,
     expressions::{
-        FunctionSignatures, lower_expr, parse_type, references_state, resolve_declaration_type,
+        FunctionSignatures, StructTypes, lower_expr, parse_type, references_state,
+        resolve_declaration_type, resolve_struct_type,
     },
     themes::ThemeSymbols,
 };
@@ -61,10 +62,11 @@ pub(super) fn lower_components(
     screen_ids: &HashMap<String, nexa_ir::ScreenId>,
     themes: &ThemeSymbols,
     functions: &FunctionSignatures,
+    structs: &StructTypes,
     enum_symbols: &HashMap<String, (Type, bool)>,
     target: Target,
 ) -> Result<(Vec<Component>, ComponentSignatures), CompileError> {
-    let signatures = collect_signatures(&declarations)?;
+    let signatures = collect_signatures(&declarations, structs)?;
     validate_acyclic(&declarations, &signatures)?;
 
     let mut components = Vec::with_capacity(declarations.len());
@@ -76,6 +78,7 @@ pub(super) fn lower_components(
             screen_ids,
             themes,
             functions,
+            structs,
             enum_symbols,
             target,
         );
@@ -86,6 +89,7 @@ pub(super) fn lower_components(
 
 fn collect_signatures(
     declarations: &[ast::ComponentDecl],
+    structs: &StructTypes,
 ) -> Result<ComponentSignatures, CompileError> {
     let mut signatures = HashMap::with_capacity(declarations.len());
     for declaration in declarations {
@@ -117,7 +121,10 @@ fn collect_signatures(
                         ),
                     ));
                 }
-                parameters.push((parameter.name.clone(), parse_type(&parameter.ty)?));
+                parameters.push((
+                    parameter.name.clone(),
+                    resolve_struct_type(&parse_type(&parameter.ty)?, structs),
+                ));
             }
             Ok(ComponentSignature { parameters })
         })()
@@ -133,6 +140,7 @@ fn lower_component(
     screen_ids: &HashMap<String, nexa_ir::ScreenId>,
     themes: &ThemeSymbols,
     functions: &FunctionSignatures,
+    structs: &StructTypes,
     enum_symbols: &HashMap<String, (Type, bool)>,
     target: Target,
 ) -> Result<Component, CompileError> {
@@ -174,7 +182,7 @@ fn lower_component(
                 format!("`{}` is already declared as an app function", state.name),
             ));
         }
-        let ty = resolve_declaration_type(&state, &symbols, functions)?;
+        let ty = resolve_declaration_type(&state, &symbols, functions, structs)?;
         let initial = lower_expr(&state.initial, Some(&ty), &symbols, functions, false)?;
         if state.mutable && references_state(&state.initial) {
             return Err(CompileError::new(

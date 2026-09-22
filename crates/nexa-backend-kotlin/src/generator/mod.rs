@@ -21,6 +21,7 @@ mod network;
 mod refresh;
 mod sheets;
 mod state;
+mod structs;
 mod utils;
 
 pub(super) fn generate(module: &Module) -> String {
@@ -53,6 +54,7 @@ pub(super) fn generate(module: &Module) -> String {
             declaration.cases.join(", ")
         ));
     }
+    structs::render(module, &mut out);
     out.push_str(&format!(
         "@Composable\nfun {}() {{\n",
         nexa_codegen::names::screen_name(&module.app_name)

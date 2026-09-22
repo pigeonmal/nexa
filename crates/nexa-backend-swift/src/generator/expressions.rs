@@ -103,7 +103,15 @@ pub(super) fn expression(expr: &Expr) -> String {
                 (Type::Pair(_, _), "first") | (Type::Triple(_, _, _), "first") => ".0",
                 (Type::Pair(_, _), "second") | (Type::Triple(_, _, _), "second") => ".1",
                 (Type::Triple(_, _, _), "third") => ".2",
-                _ => unreachable!("semantic analysis validates tuple members"),
+                (Type::Struct { .. }, field) => {
+                    return format!(
+                        "{}{}.{}",
+                        expression(base),
+                        if *optional { "?" } else { "" },
+                        nexa_codegen::names::struct_field_name(field)
+                    );
+                }
+                _ => unreachable!("semantic analysis validates member access"),
             };
             format!(
                 "{}{}{}",
@@ -206,7 +214,13 @@ fn binary_operator(operator: BinaryOp) -> &'static str {
 
 pub(super) fn text_expression(expr: &Expr) -> String {
     match expr {
-        Expr::State(_, Type::String) | Expr::String(_) | Expr::Interpolation(_) => expression(expr),
+        Expr::State(_, Type::String)
+        | Expr::Member {
+            field_type: Type::String,
+            ..
+        }
+        | Expr::String(_)
+        | Expr::Interpolation(_) => expression(expr),
         _ => format!("String(describing: {})", expression(expr)),
     }
 }
