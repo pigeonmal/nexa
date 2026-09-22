@@ -45,6 +45,7 @@ pub(super) fn expression(expr: &Expr) -> String {
             if *inclusive { ".." } else { " until " },
             expression(end)
         ),
+        Expr::Member { base, name, .. } => format!("{}.{}", expression(base), name),
         Expr::Array(items) => format!(
             "listOf({})",
             items.iter().map(expression).collect::<Vec<_>>().join(", ")

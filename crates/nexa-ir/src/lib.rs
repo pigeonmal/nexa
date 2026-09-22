@@ -163,6 +163,12 @@ pub enum Expr {
         collection_type: Type,
         element_type: Type,
     },
+    Member {
+        base: Box<Expr>,
+        name: String,
+        base_type: Type,
+        field_type: Type,
+    },
     Range {
         start: Box<Expr>,
         end: Box<Expr>,

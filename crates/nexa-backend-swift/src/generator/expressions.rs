@@ -60,6 +60,20 @@ pub(super) fn expression(expr: &Expr) -> String {
             if *inclusive { "..." } else { "..<" },
             range_bound(end)
         ),
+        Expr::Member {
+            base,
+            name,
+            base_type,
+            ..
+        } => {
+            let field = match (base_type, name.as_str()) {
+                (Type::Pair(_, _), "first") | (Type::Triple(_, _, _), "first") => ".0",
+                (Type::Pair(_, _), "second") | (Type::Triple(_, _, _), "second") => ".1",
+                (Type::Triple(_, _, _), "third") => ".2",
+                _ => unreachable!("semantic analysis validates tuple members"),
+            };
+            format!("{}{}", expression(base), field)
+        }
         Expr::Array(items) => format!(
             "[{}]",
             items.iter().map(expression).collect::<Vec<_>>().join(", ")

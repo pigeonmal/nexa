@@ -994,11 +994,26 @@ impl Parser {
 
     fn primary(&mut self) -> Result<Expr, CompileError> {
         let mut expression = self.primary_atom()?;
-        while self.take(&Kind::LBracket) {
-            let span = expression.span();
-            let index = self.expr()?;
-            self.expect(Kind::RBracket, "expected `]` after collection index")?;
-            expression = Expr::Index(Box::new(expression), Box::new(index), span);
+        loop {
+            if self.take(&Kind::LBracket) {
+                let span = expression.span();
+                let index = self.expr()?;
+                self.expect(Kind::RBracket, "expected `]` after collection index")?;
+                expression = Expr::Index(Box::new(expression), Box::new(index), span);
+            } else if self.take(&Kind::Dot) {
+                let (name, name_span) = self.ident()?;
+                let span = Span {
+                    end: name_span.end,
+                    ..expression.span()
+                };
+                expression = Expr::Member {
+                    base: Box::new(expression),
+                    name,
+                    span,
+                };
+            } else {
+                break;
+            }
         }
         Ok(expression)
     }
@@ -1062,36 +1077,36 @@ impl Parser {
             Kind::Ident(value) if value == "false" => Ok(Expr::Bool(false, token.span)),
             Kind::Ident(value) if value == "null" => Ok(Expr::Null(token.span)),
             Kind::Ident(value) => {
-                if !self.take(&Kind::Dot) {
-                    if value == "await" {
-                        let expression = self.unary()?;
-                        return Ok(Expr::Await(Box::new(expression), token.span));
-                    }
-                    if (value == "Pair" || value == "Triple") && self.check(&Kind::LParen) {
-                        return self.tuple_constructor(value, token.span);
-                    }
-                    if self.check(&Kind::LParen) {
-                        return self.call_expression(value, token.span);
-                    }
-                    return Ok(Expr::Name(value, token.span));
+                if value == "await" {
+                    let expression = self.unary()?;
+                    return Ok(Expr::Await(Box::new(expression), token.span));
                 }
-                let (name, name_span) = self.ident()?;
-                let span = Span {
-                    end: name_span.end,
-                    ..token.span
-                };
-                match value.as_str() {
-                    "Theme" => Ok(Expr::ThemeToken(name, span)),
-                    "Layout" if name == "isRegularWidth" => Ok(Expr::IsRegularWidth(span)),
-                    "Layout" => Err(CompileError::new(
-                        name_span,
-                        format!("unknown layout property `{name}`; expected `isRegularWidth`"),
-                    )),
-                    _ => Err(CompileError::new(
-                        token.span,
-                        "qualified references must use the `Theme` or `Layout` namespace",
-                    )),
+                if (value == "Pair" || value == "Triple") && self.check(&Kind::LParen) {
+                    return self.tuple_constructor(value, token.span);
                 }
+                if self.check(&Kind::LParen) {
+                    return self.call_expression(value, token.span);
+                }
+                if value == "Theme" || value == "Layout" {
+                    if !self.take(&Kind::Dot) {
+                        return Ok(Expr::Name(value, token.span));
+                    }
+                    let (name, name_span) = self.ident()?;
+                    let span = Span {
+                        end: name_span.end,
+                        ..token.span
+                    };
+                    return match value.as_str() {
+                        "Theme" => Ok(Expr::ThemeToken(name, span)),
+                        "Layout" if name == "isRegularWidth" => Ok(Expr::IsRegularWidth(span)),
+                        "Layout" => Err(CompileError::new(
+                            name_span,
+                            format!("unknown layout property `{name}`; expected `isRegularWidth`"),
+                        )),
+                        _ => unreachable!("namespace checked above"),
+                    };
+                }
+                Ok(Expr::Name(value, token.span))
             }
             _ => Err(CompileError::new(
                 token.span,

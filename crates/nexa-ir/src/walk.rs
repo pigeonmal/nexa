@@ -151,6 +151,7 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             walk_expression(start, visit);
             walk_expression(end, visit);
         }
+        Expr::Member { base, .. } => walk_expression(base, visit),
         Expr::Coalesce(left, right) => {
             walk_expression(left, visit);
             walk_expression(right, visit);

@@ -522,6 +522,7 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
             walk_expression(start, names, used);
             walk_expression(end, names, used);
         }
+        ast::Expr::Member { base, .. } => walk_expression(base, names, used),
         ast::Expr::Coalesce(left, right, _) => {
             walk_expression(left, names, used);
             walk_expression(right, names, used);

@@ -69,6 +69,7 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         ast::Expr::Index(collection, index, _) => {
             references_state(collection) || references_state(index)
         }
+        ast::Expr::Member { base, .. } => references_state(base),
         ast::Expr::Range { start, end, .. } => references_state(start) || references_state(end),
         ast::Expr::Coalesce(left, right, _) => references_state(left) || references_state(right),
         ast::Expr::Await(value, _) => references_state(value),
@@ -373,6 +374,28 @@ pub(super) fn lower_expr(
                 element_type: result_type,
             })
         }
+        ast::Expr::Member { base, name, span } => {
+            let Some(base_type) = infer_expr_type(base, symbols, functions) else {
+                return Err(CompileError::new(
+                    *span,
+                    format!("cannot access member `{name}` on an untyped value"),
+                ));
+            };
+            let Some(field_type) = member_field_type(&base_type, name) else {
+                return Err(CompileError::new(
+                    *span,
+                    format!("`{}` has no member `{name}`", type_name(&base_type)),
+                ));
+            };
+            let base = lower_expr(base, Some(&base_type), symbols, functions, allow_await)?;
+            require_expected(expected, &field_type, *span)?;
+            Ok(Expr::Member {
+                base: Box::new(base),
+                name: name.clone(),
+                base_type,
+                field_type,
+            })
+        }
         ast::Expr::Range { span, .. } => Err(CompileError::new(
             *span,
             "ranges are only valid as `for` loop iterables",
@@ -661,6 +684,8 @@ pub(super) fn infer_expr_type(
             Some(Type::Map(_, value_type)) => Some(Type::Optional(value_type)),
             _ => None,
         },
+        ast::Expr::Member { base, name, .. } => infer_expr_type(base, symbols, functions)
+            .and_then(|base_type| member_field_type(&base_type, name)),
         ast::Expr::Range { .. } => None,
         ast::Expr::Null(_) => None,
         ast::Expr::Coalesce(left, right, _) => {
@@ -725,6 +750,17 @@ pub(super) fn infer_expr_type(
 fn as_numeric_type(ty: &Type) -> Option<NumericType> {
     match ty {
         Type::Numeric(numeric_type) => Some(*numeric_type),
+        _ => None,
+    }
+}
+
+fn member_field_type(base_type: &Type, name: &str) -> Option<Type> {
+    match (base_type, name) {
+        (Type::Pair(first, _), "first") => Some((**first).clone()),
+        (Type::Pair(_, second), "second") => Some((**second).clone()),
+        (Type::Triple(first, _, _), "first") => Some((**first).clone()),
+        (Type::Triple(_, second, _), "second") => Some((**second).clone()),
+        (Type::Triple(_, _, third), "third") => Some((**third).clone()),
         _ => None,
     }
 }
