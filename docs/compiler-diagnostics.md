@@ -38,11 +38,12 @@ cargo run -p nexa-cli -- build app.nx --target kotlin --deny-warnings
 entry file. The fingerprint includes the entry source, every imported `.nx`
 file, and a declared plugin's `interfaces.nxid`; a matching target restores the
 generated Swift or Kotlin source without rerunning semantic lowering or native
-generation. Cached warning text is replayed, so `--deny-warnings` has the same
-behavior on a cache hit. Any source or IDL change creates a new key. The cache
-is an optimization only and is ignored by Git; deleting `.nexa` is safe. The
-cache schema is versioned in the CLI and is invalidated when the compiler
-changes that version.
+generation. `nexa check` uses the same graph fingerprint to replay successful
+diagnostics without lowering both targets again. Cached warning text is
+replayed, so `--deny-warnings` has the same behavior on a cache hit. Any source
+or IDL change creates a new key. The cache is an optimization only and is
+ignored by Git; deleting `.nexa` is safe. The cache schema is versioned in the
+CLI and is invalidated when the compiler changes that version.
 
 Loop-binding diagnostics are lexical: a binding is considered used when it appears anywhere in that loop's condition, iterable, or nested action body. The compiler keeps the warning source span at the loop declaration so editors can point to the binding even though the parser currently stores one span for the complete loop statement.
 

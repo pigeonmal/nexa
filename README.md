@@ -130,7 +130,7 @@ Compiler orchestration and semantic analysis are separate modules inside `nexa-c
 
 The compiler also runs a conservative IR optimization pass before backend generation. It folds pure literal conditions, removes statically unreachable UI and event branches, and prunes pure functions that are unreachable from the app. These changes add no runtime machinery and do not alter native component mappings. See [constant-branches.nx](examples/constant-branches.nx).
 
-`nexa build` uses a content-addressed `.nexa/cache` beside the entry file. It fingerprints the entry/import/plugin-IDL graph and restores unchanged generated Swift or Kotlin output, including cached warnings, without repeating semantic lowering. The cache is ignored by Git and can be deleted safely.
+`nexa build` and `nexa check` use a content-addressed `.nexa/cache` beside the entry file. They fingerprint the entry/import/plugin-IDL graph and restore unchanged generated Swift or Kotlin output or diagnostics without repeating semantic lowering. The cache is ignored by Git and can be deleted safely.
 
 Compiler warnings cover unused declarations, function parameters, action-loop bindings, `FastList` row bindings, unused pure functions, unused component parameters, and constant conditions. Read [compiler diagnostics and optimization](docs/compiler-diagnostics.md) for the warning policy, `--deny-warnings`, and the native-code optimization boundaries.
 

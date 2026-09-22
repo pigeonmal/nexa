@@ -18,6 +18,16 @@ pub(super) struct CachedBuild {
     pub(super) warnings: Vec<String>,
 }
 
+pub(super) fn restore_warnings(entry: &Path, key: &str) -> Result<Option<Vec<String>>, String> {
+    let path = cache_directory(entry).join(format!("{key}.warnings"));
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let contents =
+        fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(Some(contents.lines().map(str::to_owned).collect()))
+}
+
 pub(super) fn restore(
     entry: &Path,
     key: &str,
@@ -50,6 +60,17 @@ pub(super) fn store(
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     fs::write(directory.join(format!("{key}.source")), source)
         .map_err(|error| format!("cache source: {error}"))?;
+    fs::write(
+        directory.join(format!("{key}.warnings")),
+        warnings.join("\n"),
+    )
+    .map_err(|error| format!("cache warnings: {error}"))?;
+    Ok(())
+}
+
+pub(super) fn store_warnings(entry: &Path, key: &str, warnings: &[String]) -> Result<(), String> {
+    let directory = cache_directory(entry);
+    fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     fs::write(
         directory.join(format!("{key}.warnings")),
         warnings.join("\n"),

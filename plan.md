@@ -1116,11 +1116,11 @@ native sources, feature-gated dependency declarations, and a
 `nexa.project.json` manifest from one `.nx` entry file. Multi-target generation
 loads and parses the shared source/import graph once before lowering each
 platform independently, avoiding duplicate frontend I/O and parsing work while
-preserving target-specific semantic analysis. `nexa build` now keeps a
-content-addressed `.nexa/cache` keyed by the entry/import/plugin-IDL graph and
-target, restoring generated native source and warning text on exact matches.
-Dependency/plugin package resolution, native release signing, and project-level
-cache-aware rebuilds remain future work.
+preserving target-specific semantic analysis. `nexa build` and `nexa check` now
+keep a content-addressed `.nexa/cache` keyed by the entry/import/plugin-IDL
+graph and target, restoring generated native source or diagnostics on exact
+matches. Dependency/plugin package resolution, native release signing, and
+project-level cache-aware rebuilds remain future work.
 
 Incremental compilation should be a major priority.
 

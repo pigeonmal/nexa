@@ -52,6 +52,19 @@ fn check(args: &[String]) -> Result<(), String> {
         }
     }
     let path = path.ok_or("usage: nexa check <source.nx> [--deny-warnings]")?;
+    let cache_key = cache::key(&path, "check").map_err(|error| format!("check cache: {error}"))?;
+    if let Some(warnings) = cache::restore_warnings(&path, &cache_key)
+        .map_err(|error| format!("check cache: {error}"))?
+    {
+        for warning in &warnings {
+            eprintln!("{warning}");
+        }
+        if deny_warnings && !warnings.is_empty() {
+            return Err(format!("{} warning(s) treated as errors", warnings.len()));
+        }
+        println!("checked {} (cache hit)", path.display());
+        return Ok(());
+    }
     let compilations =
         compile_file_with_warnings_for_targets(&path, &[Target::Swift, Target::Kotlin])
             .map_err(|error| error.to_string())?;
@@ -61,6 +74,10 @@ fn check(args: &[String]) -> Result<(), String> {
         .collect();
     let warnings = deduplicate_warnings(warnings);
     report_warnings(&warnings, deny_warnings)?;
+    let warning_text = warnings.iter().map(ToString::to_string).collect::<Vec<_>>();
+    if let Err(error) = cache::store_warnings(&path, &cache_key, &warning_text) {
+        eprintln!("warning: could not update check cache: {error}");
+    }
     println!("checked {}", path.display());
     Ok(())
 }
