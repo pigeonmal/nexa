@@ -76,6 +76,13 @@ direction, lifecycle, and `Content()` validation therefore cannot drift apart
 when a new nested node slot is added. This is a compiler-only reuse point: it
 does not add a runtime visitor, registry, or generated code.
 
+The CLI scaffolder follows the same boundary: command orchestration and cache
+handling stay in `nexa-cli/src/project.rs`, deterministic Xcode/Gradle and
+manifest templates live in `project/templates.rs`, and optional plugin source
+and configuration emission live in `project/plugins.rs`. These modules only
+write native build outputs; they are not part of the generated application
+runtime.
+
 ## Platform-specific lowering
 
 `platform ios { ... }` and `platform android { ... }` are resolved from the CLI build target. The compiler keeps only the selected block before semantic lowering, reachability analysis, and backend generation. `nexa check` compiles both target variants so both branches remain validated; a target build emits only its native branch.

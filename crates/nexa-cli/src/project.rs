@@ -2,8 +2,9 @@
 //!
 //! This module deliberately owns only project scaffolding. The compiler and
 //! backends continue to own parsing, semantic analysis, and native source
-//! generation. Keeping templates here lets the generated host projects evolve
-//! without adding a runtime or coupling platform build files to the IR.
+//! generation. Command orchestration stays here while deterministic templates
+//! and optional plugin emission live in child modules, so host projects can
+//! evolve without adding a runtime or coupling build files to the IR.
 
 use std::{
     fs,
@@ -15,9 +16,11 @@ use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
 use nexa_compiler::{Target, compile_file_with_warnings_for_targets};
 use nexa_ir::Module;
-use nexa_syntax::ast::ConfigValue;
 
 use crate::{cache, config, config::ProjectConfig};
+
+mod plugins;
+mod templates;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProjectTarget {
@@ -191,7 +194,7 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     write_if_changed(&output.join("nexa.project.json"), &manifest)?;
     write_if_changed(
         &output.join("README.md"),
-        &root_readme(&app_name, &generated_targets),
+        &templates::root_readme(&app_name, &generated_targets),
     )?;
     let warning_text = warnings.iter().map(ToString::to_string).collect::<Vec<_>>();
     if let Err(error) = cache::store_warnings(&input, &cache_key, &warning_text) {
@@ -224,19 +227,19 @@ fn generate_ios(
     )?;
     write_if_changed(
         &directory.join("Info.plist"),
-        &ios_info_plist(app_name, config),
+        &templates::ios_info_plist(app_name, config),
     )?;
     write_if_changed(
         &root
             .join("ios")
             .join(format!("{app_name}.xcodeproj/project.pbxproj")),
-        &ios_project_file(app_name),
+        &templates::ios_project_file(app_name),
     )?;
     write_if_changed(
         &root.join("ios").join(format!(
             "{app_name}.xcodeproj/xcshareddata/xcschemes/{app_name}.xcscheme"
         )),
-        &ios_scheme(app_name),
+        &templates::ios_scheme(app_name),
     )?;
     Ok(())
 }
@@ -253,7 +256,7 @@ fn generate_android(
     fs::create_dir_all(&source_dir)
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
     let (generated, project_features) = KotlinBackend.generate_with_project_features(module);
-    copy_android_plugin_sources(root, module, &package, config)?;
+    plugins::copy_android_plugin_sources(root, module, &package, config)?;
     let screen = nexa_codegen::names::screen_name(app_name);
     let cronet_import = if project_features.uses_network {
         "import com.google.android.gms.net.CronetProviderInstaller\n"
@@ -276,7 +279,7 @@ fn generate_android(
         &source_dir.join("NexaGenerated.kt"),
         &format!(
             "package {package}\n\n{generated}{}",
-            render_kotlin_plugin_config(module, config)
+            plugins::render_kotlin_plugin_config(module, config)
         ),
     )?;
     write_if_changed(
@@ -287,27 +290,27 @@ fn generate_android(
     )?;
     write_if_changed(
         &root.join("android/app/src/main/AndroidManifest.xml"),
-        &android_manifest(app_name, &package, project_features.uses_network, config),
+        &templates::android_manifest(app_name, &package, project_features.uses_network, config),
     )?;
     write_if_changed(
         &root.join("android/settings.gradle.kts"),
-        &android_settings(app_name),
+        &templates::android_settings(app_name),
     )?;
     write_if_changed(
         &root.join("android/build.gradle.kts"),
-        &android_root_gradle(),
+        &templates::android_root_gradle(),
     )?;
     write_if_changed(
         &root.join("android/gradle.properties"),
-        &android_properties(),
+        &templates::android_properties(),
     )?;
     write_if_changed(
         &root.join("android/app/build.gradle.kts"),
-        &android_app_gradle(&package, project_features),
+        &templates::android_app_gradle(&package, project_features),
     )?;
     write_if_changed(
         &root.join("android/app/proguard-rules.pro"),
-        android_proguard_rules(),
+        templates::android_proguard_rules(),
     )?;
     Ok(())
 }
@@ -326,12 +329,12 @@ fn ios_generated_source(module: &Module, config: &ProjectConfig) -> Result<Strin
             declarations.push(line.to_owned());
         }
     }
-    let plugin_config = render_swift_plugin_config(module, config);
+    let plugin_config = plugins::render_swift_plugin_config(module, config);
     if !plugin_config.is_empty() {
         declarations.push(plugin_config);
     }
     for plugin in &module.plugins {
-        for path in native_plugin_sources(plugin, "ios/Sources", "swift")? {
+        for path in plugins::native_plugin_sources(plugin, "ios/Sources", "swift")? {
             let contents = fs::read_to_string(&path)
                 .map_err(|error| format!("{}: {error}", path.display()))?;
             for line in contents.lines() {
@@ -351,259 +354,6 @@ fn ios_generated_source(module: &Module, config: &ProjectConfig) -> Result<Strin
     source.push_str(&declarations.join("\n"));
     source.push('\n');
     Ok(source)
-}
-
-fn copy_android_plugin_sources(
-    root: &Path,
-    module: &Module,
-    app_package: &str,
-    config: &ProjectConfig,
-) -> Result<(), String> {
-    let destination = root.join("android/app/src/main/java");
-    let has_plugin_config = config.plugins().any(|plugin| {
-        !plugin.options.is_empty()
-            && module
-                .plugins
-                .iter()
-                .any(|used| used.namespace == plugin.namespace)
-    });
-    for plugin in &module.plugins {
-        for path in native_plugin_sources(plugin, "android/src/main/kotlin", "kt")? {
-            let plugin_root = Path::new(&plugin.idl_path)
-                .parent()
-                .ok_or_else(|| format!("invalid plugin IDL path `{}`", plugin.idl_path))?;
-            let source_root = plugin_root.join("android/src/main/kotlin");
-            let relative = path.strip_prefix(&source_root).map_err(|_| {
-                format!(
-                    "plugin source is outside its Kotlin source root: {}",
-                    path.display()
-                )
-            })?;
-            let contents = fs::read_to_string(&path)
-                .map_err(|error| format!("{}: {error}", path.display()))?;
-            let contents = if has_plugin_config {
-                kotlin_plugin_config_import(&contents, app_package)
-            } else {
-                contents
-            };
-            write_if_changed(&destination.join(relative), &contents)?;
-        }
-    }
-    Ok(())
-}
-
-fn render_swift_plugin_config(module: &Module, config: &ProjectConfig) -> String {
-    let plugins = config
-        .plugins()
-        .filter(|plugin| {
-            !plugin.options.is_empty()
-                && module
-                    .plugins
-                    .iter()
-                    .any(|used| used.namespace == plugin.namespace)
-        })
-        .collect::<Vec<_>>();
-    if plugins.is_empty() {
-        return String::new();
-    }
-    let mut output = String::from("internal enum NexaPluginConfig {\n");
-    for plugin in plugins {
-        output.push_str(&format!("    internal enum {} {{\n", plugin.namespace));
-        for option in &plugin.options {
-            output.push_str(&format!(
-                "        internal static let {}: {} = {}\n",
-                option.name,
-                swift_config_type(&option.ty),
-                swift_config_value(&option.value)
-            ));
-        }
-        output.push_str("    }\n");
-    }
-    output.push_str("}\n");
-    output
-}
-
-fn render_kotlin_plugin_config(module: &Module, config: &ProjectConfig) -> String {
-    let plugins = config
-        .plugins()
-        .filter(|plugin| {
-            !plugin.options.is_empty()
-                && module
-                    .plugins
-                    .iter()
-                    .any(|used| used.namespace == plugin.namespace)
-        })
-        .collect::<Vec<_>>();
-    if plugins.is_empty() {
-        return String::new();
-    }
-    let mut output = String::from("\ninternal object NexaPluginConfig {\n");
-    for plugin in plugins {
-        output.push_str(&format!("    internal object {} {{\n", plugin.namespace));
-        for option in &plugin.options {
-            let modifier = if option.ty.optional {
-                "val"
-            } else {
-                "const val"
-            };
-            output.push_str(&format!(
-                "        internal {modifier} {}: {} = {}\n",
-                option.name,
-                kotlin_config_type(&option.ty),
-                kotlin_config_value(&option.value, &option.ty)
-            ));
-        }
-        output.push_str("    }\n");
-    }
-    output.push_str("}\n");
-    output
-}
-
-fn swift_config_type(ty: &nexa_plugin_idl::TypeRef) -> String {
-    let name = match ty.name.as_str() {
-        "String" => "String",
-        "Bool" => "Bool",
-        "Int8" => "Int8",
-        "Int16" => "Int16",
-        "Int32" => "Int32",
-        "Int64" => "Int64",
-        "UInt8" => "UInt8",
-        "UInt16" => "UInt16",
-        "UInt32" => "UInt32",
-        "UInt64" => "UInt64",
-        "Float32" => "Float",
-        "Float64" => "Double",
-        _ => "String",
-    };
-    if ty.optional {
-        format!("{name}?")
-    } else {
-        name.to_owned()
-    }
-}
-
-fn kotlin_config_type(ty: &nexa_plugin_idl::TypeRef) -> String {
-    let name = match ty.name.as_str() {
-        "String" => "String",
-        "Bool" => "Boolean",
-        "Int8" => "Byte",
-        "Int16" => "Short",
-        "Int32" => "Int",
-        "Int64" => "Long",
-        "UInt8" => "UByte",
-        "UInt16" => "UShort",
-        "UInt32" => "UInt",
-        "UInt64" => "ULong",
-        "Float32" => "Float",
-        "Float64" => "Double",
-        _ => "String",
-    };
-    if ty.optional {
-        format!("{name}?")
-    } else {
-        name.to_owned()
-    }
-}
-
-fn swift_config_value(value: &ConfigValue) -> String {
-    match value {
-        ConfigValue::String(value) => format!("\"{}\"", swift_string_escape(value)),
-        ConfigValue::Number(value) => value.clone(),
-        ConfigValue::Bool(value) => value.to_string(),
-        ConfigValue::Null => "nil".to_owned(),
-        ConfigValue::Array(_) => "[]".to_owned(),
-    }
-}
-
-fn kotlin_config_value(value: &ConfigValue, ty: &nexa_plugin_idl::TypeRef) -> String {
-    match value {
-        ConfigValue::String(value) => format!("\"{}\"", kotlin_string_escape(value)),
-        ConfigValue::Number(value) => match ty.name.as_str() {
-            "Float32" if !value.ends_with('f') && !value.ends_with('F') => {
-                format!("{value}f")
-            }
-            "UInt8" | "UInt16" | "UInt32" if !value.ends_with('u') && !value.ends_with('U') => {
-                format!("{value}u")
-            }
-            "UInt64" if !value.ends_with("uL") && !value.ends_with("UL") => {
-                format!("{value}uL")
-            }
-            _ => value.clone(),
-        },
-        ConfigValue::Bool(value) => value.to_string(),
-        ConfigValue::Null => "null".to_owned(),
-        ConfigValue::Array(_) => "emptyList()".to_owned(),
-    }
-}
-
-fn swift_string_escape(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
-}
-
-fn kotlin_string_escape(value: &str) -> String {
-    swift_string_escape(value)
-}
-
-fn kotlin_plugin_config_import(contents: &str, app_package: &str) -> String {
-    let import = format!("import {app_package}.NexaPluginConfig");
-    if contents.lines().any(|line| line.trim() == import) {
-        return contents.to_owned();
-    }
-    let mut lines = contents.lines();
-    let Some(package_line) = lines.next() else {
-        return contents.to_owned();
-    };
-    if !package_line.trim_start().starts_with("package ") {
-        return contents.to_owned();
-    }
-    let remainder = lines.collect::<Vec<_>>().join("\n");
-    if remainder.is_empty() {
-        format!("{package_line}\n\n{import}\n")
-    } else {
-        format!("{package_line}\n\n{import}\n{remainder}\n")
-    }
-}
-
-fn native_plugin_sources(
-    plugin: &nexa_ir::Plugin,
-    relative_root: &str,
-    extension: &str,
-) -> Result<Vec<PathBuf>, String> {
-    let plugin_root = Path::new(&plugin.idl_path)
-        .parent()
-        .ok_or_else(|| format!("invalid plugin IDL path `{}`", plugin.idl_path))?;
-    let source_root = plugin_root.join(relative_root);
-    if !source_root.is_dir() {
-        return Ok(Vec::new());
-    }
-    let mut files = Vec::new();
-    collect_files(&source_root, extension, &mut files)?;
-    files.sort();
-    Ok(files)
-}
-
-fn collect_files(
-    directory: &Path,
-    extension: &str,
-    files: &mut Vec<PathBuf>,
-) -> Result<(), String> {
-    for entry in
-        fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?
-    {
-        let entry = entry.map_err(|error| format!("{}: {error}", directory.display()))?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_files(&path, extension, files)?;
-        } else if path.extension().and_then(|value| value.to_str()) == Some(extension) {
-            files.push(path);
-        }
-    }
-    Ok(())
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {
@@ -637,15 +387,6 @@ fn package_name(app_name: &str) -> String {
 }
 fn json_escape(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-fn xml_escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
 }
 
 fn source_app_name(path: &Path) -> Option<String> {
@@ -721,182 +462,4 @@ fn project_cache_is_current(
         }
     }
     true
-}
-
-fn root_readme(app_name: &str, targets: &[&str]) -> String {
-    let mut readme = format!(
-        "# {app_name}\n\nGenerated by Nexa from a single `.nx` entry file. Edit the Nexa source and regenerate; generated native files are build outputs. Edit `nexa.config.nx` to customize compile-time permissions, iOS purpose messages, and declared plugin options.\n\n"
-    );
-    if targets.contains(&"ios") {
-        readme.push_str(&format!("## iOS\n\n`xcodebuild -project ios/{app_name}.xcodeproj -scheme {app_name} -sdk iphonesimulator build`\n\nOpen `ios/{app_name}.xcodeproj` in Xcode to run on a device or simulator.\n\n"));
-    }
-    if targets.contains(&"android") {
-        readme.push_str("## Android\n\n`gradle -p android :app:assembleDebug`\n\nThe generated Gradle project uses Jetpack Compose and Coil 3 with the platform network stack when needed. Release builds enable R8 shrinking, resource shrinking, and the optimized Android ruleset.\n\n");
-    }
-    readme.push_str("Requirements: Rust/Nexa for regeneration, Xcode 27+ for iOS, and Android SDK/Gradle for Android.\n");
-    readme
-}
-
-fn ios_info_plist(app_name: &str, config: &ProjectConfig) -> String {
-    let mut entries = String::new();
-    for (permission, description) in config.permissions() {
-        let keys: &[&str] = match *permission {
-            nexa_ir::Permission::Camera => &["NSCameraUsageDescription"],
-            nexa_ir::Permission::Microphone => &["NSMicrophoneUsageDescription"],
-            nexa_ir::Permission::Photos => &["NSPhotoLibraryUsageDescription"],
-            nexa_ir::Permission::Location => &["NSLocationWhenInUseUsageDescription"],
-            // iOS notification authorization has no Info.plist usage-description key.
-            nexa_ir::Permission::Notifications => &[],
-            nexa_ir::Permission::Contacts => &["NSContactsUsageDescription"],
-            nexa_ir::Permission::Calendar => &["NSCalendarsFullAccessUsageDescription"],
-            nexa_ir::Permission::Bluetooth => &["NSBluetoothAlwaysUsageDescription"],
-        };
-        for key in keys {
-            entries.push_str(&format!(
-                "<key>{key}</key><string>{}</string>",
-                xml_escape(description)
-            ));
-        }
-    }
-    format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{app_name}</string><key>CFBundleIdentifier</key><string>com.nexa.{}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>1.0</string><key>CFBundleVersion</key><string>1</string><key>LSRequiresIPhoneOS</key><true/>{entries}</dict></plist>\n",
-        app_name.to_ascii_lowercase()
-    )
-}
-
-fn ios_project_file(app_name: &str) -> String {
-    let app_file = format!("{app_name}App.swift");
-    format!(
-        "// !$*UTF8*$!\n{{\n\tarchiveVersion = 1;\n\tclasses = {{}};\n\tobjectVersion = 77;\n\tobjects = {{\n\t\tAA0000000000000000000001 = {{ isa = PBXProject; buildConfigurationList = AA0000000000000000000002; compatibilityVersion = \"Xcode 16.0\"; mainGroup = AA0000000000000000000003; productRefGroup = AA0000000000000000000004; targets = ( AA0000000000000000000005 ); }};\n\t\tAA0000000000000000000003 = {{ isa = PBXGroup; children = ( AA0000000000000000000014, AA0000000000000000000004 ); sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000014 = {{ isa = PBXGroup; children = ( AA0000000000000000000010, AA0000000000000000000011, AA0000000000000000000012 ); path = {app_name}; sourceTree = \"<group>\"; }};
-        AA0000000000000000000004 = {{ isa = PBXGroup; children = ( AA0000000000000000000013 ); name = Products; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000010 = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {app_file}; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000011 = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexaGenerated.swift; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000012 = {{ isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000013 = {{ isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = {app_name}.app; sourceTree = BUILT_PRODUCTS_DIR; }};\n\t\tAA0000000000000000000020 = {{ isa = PBXBuildFile; fileRef = AA0000000000000000000010; }};\n\t\tAA0000000000000000000021 = {{ isa = PBXBuildFile; fileRef = AA0000000000000000000011; }};\n\t\tAA0000000000000000000005 = {{ isa = PBXNativeTarget; buildConfigurationList = AA0000000000000000000007; buildPhases = ( AA0000000000000000000008, AA0000000000000000000009, AA000000000000000000000A ); name = {app_name}; productName = {app_name}; productReference = AA0000000000000000000013; productType = \"com.apple.product-type.application\"; }};\n\t\tAA0000000000000000000008 = {{ isa = PBXSourcesBuildPhase; files = ( AA0000000000000000000020, AA0000000000000000000021 ); }};\n\t\tAA0000000000000000000009 = {{ isa = PBXFrameworksBuildPhase; files = (); }};\n\t\tAA000000000000000000000A = {{ isa = PBXResourcesBuildPhase; files = (); }};\n\t\tAA0000000000000000000002 = {{ isa = XCConfigurationList; buildConfigurations = ( AA0000000000000000000022 ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};\n\t\tAA0000000000000000000007 = {{ isa = XCConfigurationList; buildConfigurations = ( AA0000000000000000000023 ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};\n\t\tAA0000000000000000000022 = {{ isa = XCBuildConfiguration; buildSettings = {{ ALWAYS_SEARCH_USER_PATHS = NO; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = \"-O\"; SWIFT_COMPILATION_MODE = wholemodule; GCC_OPTIMIZATION_LEVEL = s; DEAD_CODE_STRIPPING = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; }}; name = Release; }};\n\t\tAA0000000000000000000023 = {{ isa = XCBuildConfiguration; buildSettings = {{ ALWAYS_SEARCH_USER_PATHS = NO; PRODUCT_BUNDLE_IDENTIFIER = com.nexa.{}; PRODUCT_NAME = {app_name}; INFOPLIST_FILE = {app_name}/Info.plist; SUPPORTED_PLATFORMS = \"iphoneos iphonesimulator\"; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = \"-O\"; SWIFT_COMPILATION_MODE = wholemodule; GCC_OPTIMIZATION_LEVEL = s; DEAD_CODE_STRIPPING = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; TARGETED_DEVICE_FAMILY = \"1,2\"; }}; name = Release; }};\n\t}};\n\trootObject = AA0000000000000000000001;\n}}\n",
-        app_name.to_ascii_lowercase()
-    )
-    .replace("compatibilityVersion = \"Xcode 16.0\"", "compatibilityVersion = \"Xcode 27.0\"")
-    .replace("SWIFT_VERSION = 5.0", "SWIFT_VERSION = 6.0")
-    .replace("IPHONEOS_DEPLOYMENT_TARGET = 16.0", "IPHONEOS_DEPLOYMENT_TARGET = 17.0")
-}
-
-fn ios_scheme(app_name: &str) -> String {
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<Scheme LastUpgradeVersion="2700" version="1.7">
-   <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES">
-      <BuildActionEntries>
-         <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
-            <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="AA0000000000000000000005" BuildableName="{app_name}.app" BlueprintName="{app_name}" ReferencedContainer="container:{app_name}.xcodeproj"/>
-         </BuildActionEntry>
-      </BuildActionEntries>
-   </BuildAction>
-   <TestAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES"/>
-   <LaunchAction buildConfiguration="Release" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" debugServiceExtension="internal" allowLocationSimulation="YES">
-      <BuildableProductRunnable runnableDebuggingMode="0">
-         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="AA0000000000000000000005" BuildableName="{app_name}.app" BlueprintName="{app_name}" ReferencedContainer="container:{app_name}.xcodeproj"/>
-      </BuildableProductRunnable>
-   </LaunchAction>
-   <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES">
-      <BuildableProductRunnable runnableDebuggingMode="0">
-         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="AA0000000000000000000005" BuildableName="{app_name}.app" BlueprintName="{app_name}" ReferencedContainer="container:{app_name}.xcodeproj"/>
-      </BuildableProductRunnable>
-   </ProfileAction>
-   <AnalyzeAction buildConfiguration="Release"/>
-   <ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
-</Scheme>
-"#
-    )
-}
-
-fn android_settings(app_name: &str) -> String {
-    format!(
-        "pluginManagement {{ repositories {{ google(); mavenCentral(); gradlePluginPortal() }} }}\ndependencyResolutionManagement {{ repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories {{ google(); mavenCentral() }} }}\nrootProject.name = \"{app_name}\"\ninclude(\":app\")\n"
-    )
-}
-fn android_root_gradle() -> String {
-    "plugins {\n    id(\"com.android.application\") version \"9.2.1\" apply false\n    id(\"org.jetbrains.kotlin.plugin.compose\") version \"2.4.20\" apply false\n}\n".to_owned()
-}
-fn android_properties() -> String {
-    "android.useAndroidX=true\nkotlin.code.style=official\norg.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n".to_owned()
-}
-fn android_manifest(app_name: &str, package: &str, remote: bool, config: &ProjectConfig) -> String {
-    let mut declared = String::new();
-    if remote {
-        declared.push_str("    <uses-permission android:name=\"android.permission.INTERNET\" />\n");
-    }
-    for (permission, _) in config.permissions() {
-        let names: &[&str] = match *permission {
-            nexa_ir::Permission::Camera => &["android.permission.CAMERA"],
-            nexa_ir::Permission::Microphone => &["android.permission.RECORD_AUDIO"],
-            nexa_ir::Permission::Photos => &[
-                "android.permission.READ_MEDIA_IMAGES",
-                "android.permission.READ_EXTERNAL_STORAGE",
-            ],
-            nexa_ir::Permission::Location => &[
-                "android.permission.ACCESS_COARSE_LOCATION",
-                "android.permission.ACCESS_FINE_LOCATION",
-            ],
-            nexa_ir::Permission::Notifications => &["android.permission.POST_NOTIFICATIONS"],
-            nexa_ir::Permission::Contacts => &[
-                "android.permission.READ_CONTACTS",
-                "android.permission.WRITE_CONTACTS",
-            ],
-            nexa_ir::Permission::Calendar => &[
-                "android.permission.READ_CALENDAR",
-                "android.permission.WRITE_CALENDAR",
-            ],
-            nexa_ir::Permission::Bluetooth => &[
-                "android.permission.BLUETOOTH_SCAN",
-                "android.permission.BLUETOOTH_CONNECT",
-            ],
-        };
-        for name in names {
-            declared.push_str(&format!(
-                "    <uses-permission android:name=\"{name}\" />\n"
-            ));
-        }
-    }
-    format!(
-        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{app_name}\" android:theme=\"@android:style/Theme.Material.Light.NoActionBar\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\">\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n        </activity>\n    </application>\n</manifest>\n"
-    )
-}
-
-fn android_app_gradle(
-    package: &str,
-    features: nexa_backend_kotlin::KotlinProjectFeatures,
-) -> String {
-    let mut dependencies = String::from(
-        "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.material3:material3\")\n",
-    );
-    if features.uses_compose_graphics {
-        dependencies.push_str("    implementation(\"androidx.compose.ui:ui-graphics\")\n");
-    }
-    if features.uses_navigation {
-        dependencies
-            .push_str("    implementation(\"androidx.navigation:navigation-compose:2.10.1\")\n");
-    }
-    if features.uses_lifecycle_events {
-        dependencies.push_str(
-            "    implementation(\"androidx.lifecycle:lifecycle-runtime-compose:2.11.0\")\n",
-        );
-    }
-    if features.uses_remote_image {
-        dependencies.push_str(
-            "    implementation(\"io.coil-kt.coil3:coil-compose:3.6.3\")\n    implementation(\"io.coil-kt.coil3:coil-network-core:3.6.3\")\n",
-        );
-    }
-    if features.uses_coroutines {
-        dependencies.push_str(
-            "    implementation(\"org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0\")\n",
-        );
-    }
-    if features.uses_network {
-        dependencies.push_str(
-            "    implementation(\"com.google.android.gms:play-services-cronet:18.0.1\")\n",
-        );
-    }
-    format!(
-        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{package}\"; minSdk = 26; targetSdk = 37; versionCode = 1; versionName = \"1.0\" }}\n    buildFeatures {{ compose = true }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencies {{\n{dependencies}}}\n"
-    )
-}
-
-fn android_proguard_rules() -> &'static str {
-    "# Nexa generated bindings use direct calls and do not require broad keep rules.\n"
 }

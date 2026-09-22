@@ -1211,6 +1211,11 @@ dependency declarations and host initialization are derived from the same
 feature analysis as generated imports and helper fragments; generated source
 text is never scanned to guess which libraries an app needs.
 
+The CLI scaffolder keeps command orchestration/cache handling separate from
+deterministic native templates and optional plugin source/config emission in
+`crates/nexa-cli/src/project/`. This keeps platform host changes isolated from
+compiler semantics and generated application code.
+
 Incremental compilation should be a major priority.
 
 Changing one screen should not require recompiling the entire application when avoidable.
