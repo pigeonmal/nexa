@@ -44,6 +44,7 @@ pub(super) struct Features {
     pub(super) uses_arrangement: bool,
     pub(super) uses_modifier: bool,
     pub(super) uses_background: bool,
+    pub(super) uses_border: bool,
     pub(super) uses_padding: bool,
     pub(super) uses_width: bool,
     pub(super) uses_height: bool,
@@ -340,17 +341,23 @@ impl Features {
         self.uses_width |= style.width.is_some();
         self.uses_height |= style.height.is_some();
         self.uses_background |= style.background.is_some();
+        self.uses_border |= style.border_color.is_some();
         self.uses_corner_radius |= style.corner_radius.is_some();
+        self.uses_corner_radius |= style.border_color.is_some();
         self.uses_opacity |= style.opacity.is_some();
         self.uses_modifier |= style.has_modifiers();
-        self.uses_color |= style.background.is_some();
+        self.uses_color |= style.background.is_some() || style.border_color.is_some();
         self.uses_adaptive_color |= style
             .background
+            .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
+        self.uses_adaptive_color |= style
+            .border_color
             .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
         self.uses_dp |= style.padding.is_some()
             || style.width.is_some()
             || style.height.is_some()
-            || style.corner_radius.is_some();
+            || style.corner_radius.is_some()
+            || style.border_width.is_some();
     }
 }
 

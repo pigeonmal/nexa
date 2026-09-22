@@ -89,6 +89,19 @@ fn append_style(out: &mut String, depth: usize, style: &ViewStyle) {
             ),
         );
     }
+    if let (Some(color), Some(width)) = (style.border_color, style.border_width) {
+        let radius = style.corner_radius.unwrap_or(0.0);
+        append_modifier(
+            out,
+            depth,
+            &format!(
+                "overlay(RoundedRectangle(cornerRadius: {}).stroke({}, lineWidth: {}))",
+                number(radius),
+                colors::expression(color),
+                number(width)
+            ),
+        );
+    }
     if let Some(opacity) = style.opacity {
         append_modifier(out, depth, &format!("opacity({})", number(opacity)));
     }

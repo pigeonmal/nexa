@@ -313,6 +313,8 @@ pub struct ViewStyle {
     pub height: Option<f32>,
     pub background: Option<ColorValue>,
     pub corner_radius: Option<f32>,
+    pub border_color: Option<ColorValue>,
+    pub border_width: Option<f32>,
     pub opacity: Option<f32>,
 }
 
@@ -324,6 +326,8 @@ impl ViewStyle {
             || self.height.is_some()
             || self.background.is_some()
             || self.corner_radius.is_some()
+            || self.border_color.is_some()
+            || self.border_width.is_some()
             || self.opacity.is_some()
     }
 }

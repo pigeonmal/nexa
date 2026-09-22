@@ -22,6 +22,19 @@ pub(super) fn lower_style(
         Some(ast::ThemeTokenKind::Radius),
         themes,
     )?;
+    let border_color_span = style.border_color.as_ref().map(ast::Expr::span);
+    let border_width_span = style.border_width.as_ref().map(ast::Expr::span);
+    let border_color = style
+        .border_color
+        .map(|color| parse_color(color, themes, "borderColor"))
+        .transpose()?;
+    let border_width = optional_dimension(style.border_width, "borderWidth", None, themes)?;
+    if border_color.is_some() != border_width.is_some() {
+        return Err(CompileError::new(
+            border_color_span.or(border_width_span).unwrap_or_default(),
+            "borderColor and borderWidth must be provided together",
+        ));
+    }
     let opacity = match style.opacity {
         Some(expr) => {
             let value = number_value(&expr, "opacity")?;
@@ -47,6 +60,8 @@ pub(super) fn lower_style(
         height,
         background,
         corner_radius,
+        border_color,
+        border_width,
         opacity,
     })
 }

@@ -61,6 +61,7 @@ pub(super) fn render(
         features.uses_background,
         "androidx.compose.foundation.background",
     );
+    add(features.uses_border, "androidx.compose.foundation.border");
     add(
         features.uses_clickable || features.uses_link,
         "androidx.compose.foundation.clickable",

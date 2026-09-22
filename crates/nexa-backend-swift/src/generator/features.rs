@@ -103,10 +103,14 @@ impl Features {
 }
 
 fn node_uses_adaptive_color(node: &Node) -> bool {
-    let color = match node {
-        Node::Layout { style, .. } => style.background,
-        Node::Text { style, .. } => style.color,
-        _ => None,
-    };
-    color.is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }))
+    match node {
+        Node::Layout { style, .. } => [style.background, style.border_color]
+            .into_iter()
+            .flatten()
+            .any(|color| matches!(color, ColorValue::Adaptive { .. })),
+        Node::Text { style, .. } => style
+            .color
+            .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. })),
+        _ => false,
+    }
 }

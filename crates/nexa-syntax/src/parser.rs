@@ -381,6 +381,8 @@ impl Parser {
                         "height",
                         "background",
                         "cornerRadius",
+                        "borderColor",
+                        "borderWidth",
                         "opacity",
                     ])?
                 } else {
@@ -394,6 +396,8 @@ impl Parser {
                     height: args.remove("height"),
                     background: args.remove("background"),
                     corner_radius: args.remove("cornerRadius"),
+                    border_color: args.remove("borderColor"),
+                    border_width: args.remove("borderWidth"),
                     opacity: args.remove("opacity"),
                 };
                 let children = self.block_nodes()?;

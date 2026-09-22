@@ -100,6 +100,16 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut String) {
             colors::expression(color)
         ));
     }
+    if let (Some(color), Some(width)) = (style.border_color, style.border_width) {
+        let radius = style.corner_radius.unwrap_or(0.0);
+        out.push_str(&format!(
+            "\n{}.border(width = {}.dp, color = {}, shape = RoundedCornerShape({}.dp))",
+            spaces(depth),
+            number(width),
+            colors::expression(color),
+            number(radius)
+        ));
+    }
     if let Some(padding) = style.padding {
         out.push_str(&format!(
             "\n{}.padding({}.dp)",

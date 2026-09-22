@@ -614,6 +614,8 @@ Support:
 
 Avoid layout passes that duplicate work already performed by the native platform.
 
+The first border styling slice is implemented: `Column` and `Row` accept paired static `borderColor` and `borderWidth` options. Swift emits a native rounded-rectangle stroke overlay and Compose emits `Modifier.border`; incomplete pairs are compile-time errors. See [borders.nx](examples/borders.nx).
+
 ## Styling system
 
 Create a strongly typed styling system.

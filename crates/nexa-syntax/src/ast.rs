@@ -262,6 +262,8 @@ pub struct LayoutStyle {
     pub height: Option<Expr>,
     pub background: Option<Expr>,
     pub corner_radius: Option<Expr>,
+    pub border_color: Option<Expr>,
+    pub border_width: Option<Expr>,
     pub opacity: Option<Expr>,
 }
 
