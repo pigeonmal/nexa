@@ -107,9 +107,9 @@ Each target backend consumes the same typed IR. Adding another backend should re
 
 Compiler orchestration and semantic analysis are separate modules inside `nexa-compiler`. Native generation lives in backend-local `src/generator/` modules, with component-specific files for controls, inputs, images, layout, navigation, lists, keyboard behavior, expressions, state, networking, and formatting. A shared IR walker keeps structural scans consistent across backends; each backend analyzes a module once and uses that result to emit only the imports and native helpers the generated app needs. This keeps platform concerns out of the shared IR and makes compiler changes easier to review and maintain.
 
-The compiler also runs a conservative IR optimization pass before backend generation. It folds pure literal conditions and removes statically unreachable UI and event branches without adding runtime machinery or changing native component mappings. See [constant-branches.nx](examples/constant-branches.nx).
+The compiler also runs a conservative IR optimization pass before backend generation. It folds pure literal conditions, removes statically unreachable UI and event branches, and prunes pure functions that are unreachable from the app. These changes add no runtime machinery and do not alter native component mappings. See [constant-branches.nx](examples/constant-branches.nx).
 
-Compiler warnings cover unused declarations, unused component parameters, and constant conditions. Read [compiler diagnostics and optimization](docs/compiler-diagnostics.md) for the warning policy, `--deny-warnings`, and the native-code optimization boundaries.
+Compiler warnings cover unused declarations, unused pure functions, unused component parameters, and constant conditions. Read [compiler diagnostics and optimization](docs/compiler-diagnostics.md) for the warning policy, `--deny-warnings`, and the native-code optimization boundaries.
 
 Compile-time platform widgets use `platform ios { ... }` and `platform android { ... }`. The inactive block is removed before semantic lowering and native generation; see [platform-widgets.nx](examples/platform-widgets.nx).
 

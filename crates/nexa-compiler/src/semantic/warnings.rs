@@ -25,6 +25,79 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
         &mut warnings,
     );
 
+    let function_names = app
+        .functions
+        .iter()
+        .map(|function| function.name.clone())
+        .collect::<HashSet<_>>();
+    let mut used_functions = HashSet::new();
+    let mut reachability_warnings = Vec::new();
+    for state in &app.states {
+        walk_expression(&state.initial, &function_names, &mut used_functions);
+    }
+    for node in app
+        .body
+        .iter()
+        .chain(app.screens.iter().flat_map(|screen| screen.body.iter()))
+        .chain(
+            app.components
+                .iter()
+                .flat_map(|component| component.body.iter()),
+        )
+    {
+        walk_node(
+            node,
+            &function_names,
+            &mut used_functions,
+            target,
+            None,
+            &mut reachability_warnings,
+        );
+    }
+    let function_by_name = app
+        .functions
+        .iter()
+        .map(|function| (function.name.as_str(), function))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut pending = used_functions.iter().cloned().collect::<Vec<_>>();
+    let mut expanded_functions = HashSet::new();
+    while let Some(name) = pending.pop() {
+        if !expanded_functions.insert(name.clone()) {
+            continue;
+        }
+        let Some(function) = function_by_name.get(name.as_str()) else {
+            continue;
+        };
+        walk_actions(
+            &function.body,
+            &function_names,
+            &mut used_functions,
+            target,
+            None,
+            &mut reachability_warnings,
+        );
+        pending.extend(
+            used_functions
+                .iter()
+                .filter(|name| !expanded_functions.contains(*name))
+                .cloned(),
+        );
+    }
+    for function in &app.functions {
+        if !used_functions.contains(&function.name) {
+            push_warning(
+                &mut warnings,
+                function.span,
+                format!(
+                    "unused function `{}`{}; it will be removed from generated code",
+                    function.name,
+                    target_suffix(target)
+                ),
+                None,
+            );
+        }
+    }
+
     for function in &app.functions {
         let names = function
             .parameters
@@ -373,7 +446,10 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
             walk_expression(second, names, used);
             walk_expression(third, names, used);
         }
-        ast::Expr::Call(_, arguments, _) => {
+        ast::Expr::Call(name, arguments, _) => {
+            if names.contains(name) {
+                used.insert(name.clone());
+            }
             for argument in arguments {
                 walk_expression(argument, names, used);
             }

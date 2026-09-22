@@ -39,7 +39,119 @@ pub(crate) fn optimize(module: &mut Module) {
                 fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
         }
     }
+    prune_unused_functions(module);
     prune_unused_states(module);
+}
+
+fn prune_unused_functions(module: &mut Module) {
+    let declared = module
+        .functions
+        .iter()
+        .map(|function| function.name.as_str())
+        .collect::<HashSet<_>>();
+    let mut used = HashSet::new();
+    for state in &module.states {
+        collect_expression_function_references(&state.initial, &declared, &mut used);
+    }
+    collect_node_function_references(&module.body, &declared, &mut used);
+    if let Some(actions) = &module.on_appear {
+        collect_action_function_references(actions, &declared, &mut used);
+    }
+    if let Some(actions) = &module.on_disappear {
+        collect_action_function_references(actions, &declared, &mut used);
+    }
+    for screen in &module.screens {
+        collect_node_function_references(&screen.body, &declared, &mut used);
+        if let Some(actions) = &screen.on_appear {
+            collect_action_function_references(actions, &declared, &mut used);
+        }
+        if let Some(actions) = &screen.on_disappear {
+            collect_action_function_references(actions, &declared, &mut used);
+        }
+    }
+    for component in &module.components {
+        collect_node_function_references(&component.body, &declared, &mut used);
+        for state in &component.states {
+            collect_expression_function_references(&state.initial, &declared, &mut used);
+        }
+    }
+
+    let mut expanded = HashSet::new();
+    let mut pending = used.iter().cloned().collect::<Vec<_>>();
+    while let Some(name) = pending.pop() {
+        if !expanded.insert(name.clone()) {
+            continue;
+        }
+        let Some(function) = module
+            .functions
+            .iter()
+            .find(|function| function.name == name)
+        else {
+            continue;
+        };
+        collect_expression_function_references(&function.body, &declared, &mut used);
+        pending.extend(
+            used.iter()
+                .filter(|name| !expanded.contains(*name))
+                .cloned(),
+        );
+    }
+    module
+        .functions
+        .retain(|function| used.contains(function.name.as_str()));
+}
+
+fn collect_node_function_references(
+    nodes: &[Node],
+    declared: &HashSet<&str>,
+    used: &mut HashSet<String>,
+) {
+    nexa_ir::walk::walk_ir(nodes, &mut |_| {}, &mut |expression| {
+        if let Expr::Call { name, .. } = expression {
+            if declared.contains(name.as_str()) {
+                used.insert(name.clone());
+            }
+        }
+    });
+}
+
+fn collect_expression_function_references(
+    expression: &Expr,
+    declared: &HashSet<&str>,
+    used: &mut HashSet<String>,
+) {
+    nexa_ir::walk::walk_expression(expression, &mut |expression| {
+        if let Expr::Call { name, .. } = expression {
+            if declared.contains(name.as_str()) {
+                used.insert(name.clone());
+            }
+        }
+    });
+}
+
+fn collect_action_function_references(
+    actions: &[Action],
+    declared: &HashSet<&str>,
+    used: &mut HashSet<String>,
+) {
+    for action in actions {
+        match action {
+            Action::Assign { value, .. } => {
+                collect_expression_function_references(value, declared, used)
+            }
+            Action::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                collect_expression_function_references(condition, declared, used);
+                collect_action_function_references(then_branch, declared, used);
+                if let Some(else_branch) = else_branch {
+                    collect_action_function_references(else_branch, declared, used);
+                }
+            }
+        }
+    }
 }
 
 fn prune_unused_states(module: &mut Module) {

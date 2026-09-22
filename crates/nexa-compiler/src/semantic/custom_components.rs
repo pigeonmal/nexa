@@ -160,6 +160,12 @@ fn lower_component(
                 ),
             ));
         }
+        if functions.contains_key(&state.name) {
+            return Err(CompileError::new(
+                state.span,
+                format!("`{}` is already declared as an app function", state.name),
+            ));
+        }
         let ty = resolve_declaration_type(&state, &symbols, functions)?;
         let initial = lower_expr(&state.initial, Some(&ty), &symbols, functions)?;
         if state.mutable && references_state(&state.initial) {

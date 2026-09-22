@@ -70,6 +70,12 @@ pub fn lower_with_warnings(
                 format!("`{}` is already declared", declaration.name),
             ));
         }
+        if function_signatures.contains_key(&declaration.name) {
+            return Err(CompileError::new(
+                declaration.span,
+                format!("`{}` is already declared as a function", declaration.name),
+            ));
+        }
         let ty = resolve_declaration_type(&declaration, &symbols, &function_signatures)?;
         let initial = lower_expr(
             &declaration.initial,

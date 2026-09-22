@@ -8,6 +8,7 @@ The compiler reports:
 
 - unused app or component `state` declarations,
 - unused immutable `let` constants,
+- unused pure app functions,
 - unused custom-component parameters,
 - conditions that are provably always `true` or `false`.
 
@@ -36,6 +37,7 @@ The compiler runs a platform-independent IR pass after semantic lowering and bef
 - folds pure boolean, scalar-comparison, and numeric-addition expressions,
 - removes statically unreachable UI and event branches,
 - removes unused app and component state declarations,
+- removes pure functions that are unreachable from app state, UI, actions, and reachable components,
 - preserves dynamic state and environment conditions,
 - keeps Swift and Kotlin component mappings unchanged.
 
