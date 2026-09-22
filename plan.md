@@ -900,7 +900,7 @@ queries the corresponding authorization framework and Android checks the
 declared manifest permission plus `AppOpsManager` without adding a permission
 registry. Android currently exposes `granted`, `denied`, and
 `notDetermined`; `restricted` remains available for platforms that expose it.
-Permission request flows and denial recovery remain future work.
+Typed `await Permissions.request(permission: Camera)` flows now use the native authorization APIs and return the resulting status; denial recovery and app-specific rationale UI remain future work.
 
 Support common permissions such as:
 

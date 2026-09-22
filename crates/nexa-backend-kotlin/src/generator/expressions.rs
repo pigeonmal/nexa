@@ -238,6 +238,10 @@ fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> Str
             "NexaPermissions.status(NexaRuntime.context(), {})",
             argument("permission")
         ),
+        ("Permissions", "request") => format!(
+            "NexaPermissions.request(NexaRuntime.context(), {})",
+            argument("permission")
+        ),
         _ => format!(
             "{}Plugin.instance.{}({})",
             namespace,

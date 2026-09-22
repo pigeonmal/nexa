@@ -314,6 +314,9 @@ fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> Str
         ("Permissions", "status") => {
             format!("NexaPermissions.status({})", argument("permission"))
         }
+        ("Permissions", "request") => {
+            format!("NexaPermissions.request({})", argument("permission"))
+        }
         _ => format!(
             "{}Plugin.shared.{}({})",
             namespace,

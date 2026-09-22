@@ -921,6 +921,11 @@ fn lower_native_call(
                 true,
                 vec![("permission", Type::Enum("Permission".to_owned()), None)],
             ),
+            "Permissions.request" => (
+                Type::Enum("PermissionStatus".to_owned()),
+                true,
+                vec![("permission", Type::Enum("Permission".to_owned()), None)],
+            ),
             _ => {
                 return Err(CompileError::new(
                     span,

@@ -49,6 +49,48 @@ private object NexaPermissions {
         }
     }
 
+    suspend fun request(
+        context: android.content.Context,
+        permission: NexaPermission,
+    ): NexaPermissionStatus {
+        val permissions = when (permission) {
+            NexaPermission.Camera -> arrayOf(android.Manifest.permission.CAMERA)
+            NexaPermission.Microphone -> arrayOf(android.Manifest.permission.RECORD_AUDIO)
+            NexaPermission.Photos -> if (android.os.Build.VERSION.SDK_INT >= 33) {
+                arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES)
+            } else {
+                arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+            NexaPermission.Location -> arrayOf(
+                android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+            )
+            NexaPermission.Notifications -> if (android.os.Build.VERSION.SDK_INT >= 33) {
+                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                emptyArray()
+            }
+            NexaPermission.Contacts -> arrayOf(
+                android.Manifest.permission.READ_CONTACTS,
+                android.Manifest.permission.WRITE_CONTACTS,
+            )
+            NexaPermission.Calendar -> arrayOf(
+                android.Manifest.permission.READ_CALENDAR,
+                android.Manifest.permission.WRITE_CALENDAR,
+            )
+            NexaPermission.Bluetooth -> if (android.os.Build.VERSION.SDK_INT >= 31) {
+                arrayOf(
+                    android.Manifest.permission.BLUETOOTH_SCAN,
+                    android.Manifest.permission.BLUETOOTH_CONNECT,
+                )
+            } else {
+                emptyArray()
+            }
+        }
+        NexaRuntime.requestPermissions(permissions)
+        return status(context, permission)
+    }
+
     private fun statusFor(context: android.content.Context, permission: String): NexaPermissionStatus {
         if (context.checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
             return NexaPermissionStatus.granted

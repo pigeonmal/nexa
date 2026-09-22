@@ -263,6 +263,11 @@ fn generate_android(
     } else {
         ""
     };
+    let permission_callback = if generated.contains("NexaPermissions.request") {
+        "    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {\n        super.onRequestPermissionsResult(requestCode, permissions, grantResults)\n        NexaRuntime.dispatchPermissionResult(requestCode, grantResults)\n    }\n"
+    } else {
+        ""
+    };
     let content_setup = if uses_network {
         format!(
             "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{\n            setContent {{ MaterialTheme {{ {screen}() }} }}\n        }}\n"
@@ -280,7 +285,7 @@ fn generate_android(
     write_if_changed(
         &source_dir.join("MainActivity.kt"),
         &format!(
-            "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{cronet_import}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n        super.onCreate(savedInstanceState)\n{content_setup}    }}\n}}\n"
+            "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{cronet_import}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n        super.onCreate(savedInstanceState)\n{content_setup}    }}\n{permission_callback}}}\n"
         ),
     )?;
     write_if_changed(

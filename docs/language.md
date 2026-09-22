@@ -341,7 +341,7 @@ and returns the typed `PermissionStatus.granted`, `.denied`, `.restricted`, or
 Android checks the declared runtime permission with `AppOpsManager` using the
 application context. Android exposes `granted`, `denied`, and
 `notDetermined`; `restricted` is reserved for platforms that expose that state.
-Request flows and denial recovery remain future work. See
+Typed `await Permissions.request(permission: Camera)` flows use the native authorization APIs and return the resulting status; denial recovery and app-specific rationale UI remain future work. See
 [permissions-status.nx](../examples/permissions-status.nx).
 
 ### Plugin options in the project config

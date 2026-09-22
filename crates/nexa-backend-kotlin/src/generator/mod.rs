@@ -73,7 +73,7 @@ pub(super) fn generate(module: &Module) -> String {
         out.push_str("    val nexaLinkContext = LocalContext.current\n");
     }
     if features.uses_native_library || features.uses_permissions {
-        out.push_str("    NexaRuntime.bind(LocalContext.current.applicationContext)\n");
+        out.push_str("    NexaRuntime.bind(LocalContext.current)\n");
     }
     for state in &module.states {
         let name = nexa_codegen::names::state_name(&state.name);

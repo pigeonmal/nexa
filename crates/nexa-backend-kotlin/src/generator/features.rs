@@ -524,6 +524,6 @@ fn uses_permissions_call(expr: &Expr) -> bool {
     matches!(
         expr,
         Expr::NativeCall { namespace, name, .. }
-            if namespace == "Permissions" && name == "status"
+            if namespace == "Permissions" && matches!(name.as_str(), "status" | "request")
     )
 }
