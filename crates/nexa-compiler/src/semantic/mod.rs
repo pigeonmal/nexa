@@ -357,6 +357,8 @@ fn lower_enum_declarations(
                 | "Map"
                 | "Pair"
                 | "Triple"
+                | "Permission"
+                | "PermissionStatus"
                 | "Theme"
                 | "Layout"
         ) {
@@ -409,6 +411,8 @@ fn lower_struct_declarations(
                     | "Map"
                     | "Pair"
                     | "Triple"
+                    | "Permission"
+                    | "PermissionStatus"
                     | "Theme"
                     | "Layout"
             ) {
@@ -633,7 +637,7 @@ fn validate_type_names(
     span: nexa_diagnostics::Span,
 ) -> Result<(), CompileError> {
     match ty {
-        Type::Enum(name) if !enum_names.contains(name.as_str()) => {
+        Type::Enum(name) if !enum_names.contains(name.as_str()) && !is_builtin_enum_name(name) => {
             Err(CompileError::new(span, format!("unknown type `{name}`")))
         }
         Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) => {
@@ -658,6 +662,10 @@ fn validate_type_names(
         | Type::Plugin { .. }
         | Type::NetworkResponse => Ok(()),
     }
+}
+
+fn is_builtin_enum_name(name: &str) -> bool {
+    matches!(name, "Permission" | "PermissionStatus")
 }
 
 fn lower_functions(

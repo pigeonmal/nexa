@@ -292,14 +292,17 @@ pub(super) fn render(
         "androidx.compose.ui.res.painterResource",
     );
     add(features.uses_image, "coil3.compose.AsyncImage");
-    add(features.uses_native_library, "android.content.Context");
+    add(
+        features.uses_native_library || features.uses_permissions,
+        "android.content.Context",
+    );
     add(features.uses_native_library, "android.net.Uri");
     add(
         features.uses_remote_image,
         "androidx.compose.runtime.remember",
     );
     add(
-        features.uses_native_library,
+        features.uses_native_library || features.uses_permissions,
         "androidx.compose.ui.platform.LocalContext",
     );
     add(features.uses_remote_image, "coil3.ImageLoader");

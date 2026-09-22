@@ -877,6 +877,15 @@ Nexa source and adds no runtime permission registry. Runtime status values,
 request flows, denial handling, and platform-specific permission APIs remain
 future work.
 
+Typed runtime status is now available as the asynchronous native call
+`await Permissions.status(permission: Camera)`, returning
+`PermissionStatus.granted`, `denied`, `restricted`, or `notDetermined`. iOS
+queries the corresponding authorization framework and Android checks the
+declared manifest permission plus its user-decision flags without adding a
+permission registry. Android currently exposes `granted`, `denied`, and
+`notDetermined`; `restricted` remains available for platforms that expose it.
+Permission request flows and denial recovery remain future work.
+
 Support common permissions such as:
 
 - camera,

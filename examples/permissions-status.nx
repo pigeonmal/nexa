@@ -1,0 +1,20 @@
+app PermissionStatusExample {
+    permissions {
+        camera,
+        notifications
+    }
+
+    state cameraStatus: PermissionStatus = PermissionStatus.notDetermined
+    state notificationStatus: PermissionStatus = PermissionStatus.notDetermined
+
+    body {
+        OnAppear async {
+            cameraStatus = await Permissions.status(permission: Camera)
+            notificationStatus = await Permissions.status(permission: Notifications)
+        }
+        Column(spacing: 12, padding: 20) {
+            Text("Camera: $cameraStatus")
+            Text("Notifications: $notificationStatus")
+        }
+    }
+}

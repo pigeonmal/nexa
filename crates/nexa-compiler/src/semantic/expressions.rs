@@ -429,6 +429,18 @@ pub(super) fn lower_expr(
             })
         }
         ast::Expr::Name(name, span) => {
+            if matches!(expected, Some(Type::Enum(enum_name)) if enum_name == "Permission") {
+                if !is_permission_case(name) {
+                    return Err(CompileError::new(
+                        *span,
+                        format!("unknown permission `{name}`"),
+                    ));
+                }
+                return Ok(Expr::EnumValue {
+                    enum_name: "Permission".to_owned(),
+                    case_name: name.clone(),
+                });
+            }
             let Some((ty, _)) = symbols.get(name) else {
                 return Err(CompileError::new(*span, format!("unknown state `{name}`")));
             };
@@ -440,6 +452,34 @@ pub(super) fn lower_expr(
             case_name,
             span,
         } => {
+            if enum_name == "PermissionStatus" {
+                if !is_permission_status_case(case_name) {
+                    return Err(CompileError::new(
+                        *span,
+                        format!("unknown permission status `{enum_name}.{case_name}`"),
+                    ));
+                }
+                let ty = Type::Enum("PermissionStatus".to_owned());
+                require_expected(expected, &ty, *span)?;
+                return Ok(Expr::EnumValue {
+                    enum_name: enum_name.clone(),
+                    case_name: case_name.clone(),
+                });
+            }
+            if enum_name == "Permission" {
+                if !is_permission_case(case_name) {
+                    return Err(CompileError::new(
+                        *span,
+                        format!("unknown permission `{enum_name}.{case_name}`"),
+                    ));
+                }
+                let ty = Type::Enum("Permission".to_owned());
+                require_expected(expected, &ty, *span)?;
+                return Ok(Expr::EnumValue {
+                    enum_name: enum_name.clone(),
+                    case_name: case_name.clone(),
+                });
+            }
             let key = format!("{enum_name}.{case_name}");
             let Some((ty @ Type::Enum(_), _)) = symbols.get(&key) else {
                 return Err(CompileError::new(
@@ -616,6 +656,22 @@ pub(super) fn lower_expr(
         } => {
             if !*optional {
                 if let ast::Expr::Name(enum_name, _) = base.as_ref() {
+                    if enum_name == "PermissionStatus" && is_permission_status_case(name) {
+                        let ty = Type::Enum("PermissionStatus".to_owned());
+                        require_expected(expected, &ty, *span)?;
+                        return Ok(Expr::EnumValue {
+                            enum_name: enum_name.clone(),
+                            case_name: name.clone(),
+                        });
+                    }
+                    if enum_name == "Permission" && is_permission_case(name) {
+                        let ty = Type::Enum("Permission".to_owned());
+                        require_expected(expected, &ty, *span)?;
+                        return Ok(Expr::EnumValue {
+                            enum_name: enum_name.clone(),
+                            case_name: name.clone(),
+                        });
+                    }
                     let key = format!("{enum_name}.{name}");
                     if let Some((ty @ Type::Enum(_), _)) = symbols.get(&key) {
                         require_expected(expected, ty, *span)?;
@@ -860,6 +916,11 @@ fn lower_native_call(
                 ],
             ),
             "File.delete" => (Type::Bool, true, vec![("path", Type::String, None)]),
+            "Permissions.status" => (
+                Type::Enum("PermissionStatus".to_owned()),
+                true,
+                vec![("permission", Type::Enum("Permission".to_owned()), None)],
+            ),
             _ => {
                 return Err(CompileError::new(
                     span,
@@ -922,12 +983,12 @@ fn lower_native_call(
         arguments: lowered,
         return_type,
         is_async,
-        is_throwing: is_async,
+        is_throwing: is_async && namespace != "Permissions",
     })
 }
 
 fn is_core_native_namespace(namespace: &str) -> bool {
-    matches!(namespace, "Network" | "Path" | "File")
+    matches!(namespace, "Network" | "Path" | "File" | "Permissions")
 }
 
 fn lower_plugin_call(
@@ -1226,9 +1287,17 @@ pub(super) fn infer_expr_type(
             enum_name,
             case_name,
             ..
-        } => symbols
-            .get(&format!("{enum_name}.{case_name}"))
-            .map(|(ty, _)| ty.clone()),
+        } => {
+            if enum_name == "PermissionStatus" && is_permission_status_case(case_name) {
+                Some(Type::Enum("PermissionStatus".to_owned()))
+            } else if enum_name == "Permission" && is_permission_case(case_name) {
+                Some(Type::Enum("Permission".to_owned()))
+            } else {
+                symbols
+                    .get(&format!("{enum_name}.{case_name}"))
+                    .map(|(ty, _)| ty.clone())
+            }
+        }
         ast::Expr::Call(name, _, _) => functions
             .get(name)
             .map(|signature| signature.return_type.clone()),
@@ -1246,6 +1315,7 @@ pub(super) fn infer_expr_type(
             | ("Path", "appSupport")
             | ("Path", "join")
             | ("File", "readText") => Some(Type::String),
+            ("Permissions", "status") => Some(Type::Enum("PermissionStatus".to_owned())),
             _ => functions
                 .get(&format!("{namespace}.{name}"))
                 .map(|signature| signature.return_type.clone()),
@@ -1276,6 +1346,12 @@ pub(super) fn infer_expr_type(
         } => {
             if !*optional {
                 if let ast::Expr::Name(enum_name, _) = base.as_ref() {
+                    if enum_name == "PermissionStatus" && is_permission_status_case(name) {
+                        return Some(Type::Enum("PermissionStatus".to_owned()));
+                    }
+                    if enum_name == "Permission" && is_permission_case(name) {
+                        return Some(Type::Enum("Permission".to_owned()));
+                    }
                     if let Some((ty @ Type::Enum(_), _)) =
                         symbols.get(&format!("{enum_name}.{name}"))
                     {
@@ -1585,6 +1661,24 @@ fn parse_named_type(name: &str, _span: Span) -> Result<Type, CompileError> {
         _ => Type::Enum(name.to_owned()),
     };
     Ok(ty)
+}
+
+fn is_permission_case(name: &str) -> bool {
+    matches!(
+        name,
+        "Camera"
+            | "Microphone"
+            | "Photos"
+            | "Location"
+            | "Notifications"
+            | "Contacts"
+            | "Calendar"
+            | "Bluetooth"
+    )
+}
+
+fn is_permission_status_case(name: &str) -> bool {
+    matches!(name, "granted" | "denied" | "restricted" | "notDetermined")
 }
 
 fn validate_number(raw: &str, ty: NumericType, span: Span) -> Result<(), CompileError> {

@@ -49,19 +49,6 @@ private object NexaCronetRuntime {
     }
 }
 
-public object NexaRuntime {
-    @Volatile private var applicationContext: Context? = null
-
-    public fun bind(context: Context) {
-        val application = context.applicationContext
-        if (applicationContext !== application) applicationContext = application
-    }
-
-    public fun context(): Context = requireNotNull(applicationContext) {
-        "NexaRuntime.bind must run before a native network or path call"
-    }
-}
-
 private class NexaUploadProvider(private val payload: ByteArray) : UploadDataProvider() {
     private var offset = 0
 

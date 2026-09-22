@@ -311,6 +311,9 @@ fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> Str
             argument("path")
         ),
         ("File", "delete") => format!("NexaFile.delete({})", argument("path")),
+        ("Permissions", "status") => {
+            format!("NexaPermissions.status({})", argument("permission"))
+        }
         _ => format!(
             "{}Plugin.shared.{}({})",
             namespace,

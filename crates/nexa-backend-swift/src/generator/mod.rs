@@ -20,6 +20,7 @@ mod list_runtime;
 mod lists;
 mod navigation;
 mod network;
+mod permissions;
 mod refresh;
 mod sheets;
 mod structs;
@@ -41,6 +42,9 @@ pub(super) fn generate(module: &Module) -> String {
         out.push_str("import CryptoKit\nimport Foundation\n\n");
     } else if features.uses_link {
         out.push_str("import Foundation\n\n");
+    }
+    if features.uses_permissions {
+        out.push_str("import AVFoundation\nimport Contacts\nimport CoreBluetooth\nimport CoreLocation\nimport EventKit\nimport Photos\nimport UserNotifications\n\n");
     }
     if uses_fast_list {
         out.push_str("\n@available(iOS 16.0, *)\n");
@@ -146,6 +150,9 @@ pub(super) fn generate(module: &Module) -> String {
     }
     if features.uses_native_library {
         network::render(&mut out, features.uses_remote_image);
+    }
+    if features.uses_permissions {
+        permissions::render(&mut out);
     }
     functions::render(module, &mut out);
     out

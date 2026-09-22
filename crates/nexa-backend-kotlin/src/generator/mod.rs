@@ -18,7 +18,9 @@ mod links;
 mod lists;
 mod navigation;
 mod network;
+mod permissions;
 mod refresh;
+mod runtime;
 mod sheets;
 mod state;
 mod structs;
@@ -66,7 +68,7 @@ pub(super) fn generate(module: &Module) -> String {
     if features.app_uses_link {
         out.push_str("    val nexaLinkContext = LocalContext.current\n");
     }
-    if features.uses_native_library {
+    if features.uses_native_library || features.uses_permissions {
         out.push_str("    NexaRuntime.bind(LocalContext.current.applicationContext)\n");
     }
     for state in &module.states {
@@ -135,8 +137,14 @@ pub(super) fn generate(module: &Module) -> String {
     }
     out.push_str("\n}\n");
     custom_components::render(module, &features, &mut out);
+    if features.uses_native_library || features.uses_permissions {
+        runtime::render(&mut out);
+    }
     if features.uses_native_library {
         network::render(&mut out, features.uses_remote_image);
+    }
+    if features.uses_permissions {
+        permissions::render(&mut out);
     }
     functions::render(module, &mut out);
     out

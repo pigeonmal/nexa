@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use nexa_ir::walk::{contains_scrollable, walk_expression, walk_ir};
+use nexa_ir::walk::{contains_scrollable, walk_actions, walk_expression, walk_ir};
 use nexa_ir::{ColorValue, Component, Expr, LayoutKind, Module, Node, State, ViewStyle};
 
 pub(super) fn collect_focus_bindings(nodes: &[Node]) -> BTreeSet<String> {
@@ -31,6 +31,7 @@ pub(super) struct Features {
     pub(super) uses_image: bool,
     pub(super) uses_remote_image: bool,
     pub(super) uses_native_library: bool,
+    pub(super) uses_permissions: bool,
     pub(super) uses_placeholder: bool,
     pub(super) uses_navigation_link: bool,
     pub(super) uses_link: bool,
@@ -105,6 +106,7 @@ impl Features {
         };
         let mut uses_regular_width = false;
         let mut uses_native_library = false;
+        let mut uses_permissions = false;
 
         for state in module.states.iter().chain(
             module
@@ -116,16 +118,19 @@ impl Features {
             walk_expression(&state.initial, &mut |expr| {
                 uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
                 uses_native_library |= uses_core_native_library(expr);
+                uses_permissions |= uses_permissions_call(expr);
             });
         }
         for function in &module.functions {
             for local in &function.locals {
                 walk_expression(&local.initial, &mut |expr| {
                     uses_native_library |= uses_core_native_library(expr);
+                    uses_permissions |= uses_permissions_call(expr);
                 });
             }
             walk_expression(&function.body, &mut |expr| {
                 uses_native_library |= uses_core_native_library(expr);
+                uses_permissions |= uses_permissions_call(expr);
             });
         }
 
@@ -142,6 +147,7 @@ impl Features {
             &mut |expr| {
                 uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
                 uses_native_library |= uses_core_native_library(expr);
+                uses_permissions |= uses_permissions_call(expr);
             },
         );
         for screen in &module.screens {
@@ -154,8 +160,23 @@ impl Features {
                 &mut |expr| {
                     uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
                     uses_native_library |= uses_core_native_library(expr);
+                    uses_permissions |= uses_permissions_call(expr);
                 },
             );
+        }
+        for actions in module.on_appear.iter().chain(module.on_disappear.iter()) {
+            walk_actions(actions, &mut |expr| {
+                uses_native_library |= uses_core_native_library(expr);
+                uses_permissions |= uses_permissions_call(expr);
+            });
+        }
+        for screen in &module.screens {
+            for actions in screen.on_appear.iter().chain(screen.on_disappear.iter()) {
+                walk_actions(actions, &mut |expr| {
+                    uses_native_library |= uses_core_native_library(expr);
+                    uses_permissions |= uses_permissions_call(expr);
+                });
+            }
         }
         for component in &module.components {
             let mut child_calls = Vec::new();
@@ -181,7 +202,11 @@ impl Features {
                         _ => {}
                     }
                 },
-                &mut |expr| uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
+                &mut |expr| {
+                    uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                    uses_native_library |= uses_core_native_library(expr);
+                    uses_permissions |= uses_permissions_call(expr);
+                },
             );
             if uses_theme {
                 direct_theme.insert(component.name.clone());
@@ -198,6 +223,7 @@ impl Features {
         features.app_uses_link = app_uses_link;
         features.uses_regular_width = uses_regular_width;
         features.uses_native_library = uses_native_library || features.uses_remote_image;
+        features.uses_permissions = uses_permissions;
         features
     }
 
@@ -466,5 +492,13 @@ fn uses_core_native_library(expr: &Expr) -> bool {
         expr,
         Expr::NativeCall { namespace, .. }
             if matches!(namespace.as_str(), "Network" | "Path" | "File")
+    )
+}
+
+fn uses_permissions_call(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::NativeCall { namespace, name, .. }
+            if namespace == "Permissions" && name == "status"
     )
 }
