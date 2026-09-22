@@ -16,7 +16,11 @@ pub(super) fn render(
     };
 
     add(features.uses_status_bar, "android.app.Activity");
-    add(features.uses_status_bar, "android.view.View");
+    add(features.uses_status_bar, "androidx.core.view.WindowCompat");
+    add(
+        features.uses_status_bar,
+        "androidx.core.view.WindowInsetsCompat",
+    );
     add(
         has_direction,
         "androidx.compose.runtime.CompositionLocalProvider",
@@ -233,6 +237,7 @@ pub(super) fn render(
     add(true, "androidx.compose.runtime.Composable");
 
     add(features.uses_modifier, "androidx.compose.ui.Modifier");
+    add(features.uses_asset, "androidx.compose.foundation.Image");
     add(
         features.uses_regular_width,
         "androidx.compose.ui.platform.LocalConfiguration",
@@ -250,12 +255,16 @@ pub(super) fn render(
     add(features.uses_corner_radius, "androidx.compose.ui.draw.clip");
     add(features.uses_color, "androidx.compose.ui.graphics.Color");
     add(
-        features.uses_image,
+        features.uses_asset || features.uses_remote_image,
         "androidx.compose.ui.layout.ContentScale",
     );
     add(
         features.uses_pressable || features.uses_accessibility_role,
         "androidx.compose.ui.semantics.Role",
+    );
+    add(
+        features.uses_accessibility_role,
+        "androidx.compose.ui.semantics.role",
     );
     add(
         features.uses_accessibility_heading,
@@ -288,7 +297,19 @@ pub(super) fn render(
     add(features.uses_dp, "androidx.compose.ui.unit.dp");
     add(features.uses_text_sp, "androidx.compose.ui.unit.sp");
     add(
-        features.uses_placeholder,
+        features.uses_asset || features.uses_placeholder,
+        "androidx.compose.ui.graphics.Color",
+    );
+    add(
+        features.uses_asset || features.uses_placeholder,
+        "androidx.compose.ui.graphics.painter.ColorPainter",
+    );
+    add(
+        features.uses_asset || features.uses_placeholder,
+        "androidx.compose.ui.graphics.painter.Painter",
+    );
+    add(
+        features.uses_asset || features.uses_placeholder,
         "androidx.compose.ui.res.painterResource",
     );
     add(features.uses_image, "coil3.compose.AsyncImage");
@@ -298,11 +319,14 @@ pub(super) fn render(
     );
     add(features.uses_native_library, "android.net.Uri");
     add(
-        features.uses_remote_image,
+        features.uses_asset || features.uses_placeholder || features.uses_remote_image,
         "androidx.compose.runtime.remember",
     );
     add(
-        features.uses_native_library || features.uses_permissions,
+        features.uses_asset
+            || features.uses_placeholder
+            || features.uses_native_library
+            || features.uses_permissions,
         "androidx.compose.ui.platform.LocalContext",
     );
     add(features.uses_remote_image, "coil3.ImageLoader");

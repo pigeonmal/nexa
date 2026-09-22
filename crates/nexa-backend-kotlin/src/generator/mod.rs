@@ -1,6 +1,7 @@
 use nexa_ir::{LayoutKind, Module, ViewStyle};
 
 mod accessibility;
+mod assets;
 mod bottom_bar;
 mod colors;
 mod components;
@@ -57,6 +58,9 @@ pub(super) fn generate(module: &Module) -> String {
         ));
     }
     structs::render(module, &mut out);
+    if features.uses_bottom_sheet {
+        out.push_str("@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)\n");
+    }
     out.push_str(&format!(
         "@Composable\nfun {}() {{\n",
         nexa_codegen::names::screen_name(&module.app_name)
@@ -143,6 +147,9 @@ pub(super) fn generate(module: &Module) -> String {
     if features.uses_native_library {
         network::render(&mut out, features.uses_remote_image);
     }
+    if features.uses_asset || features.uses_placeholder {
+        assets::render(&mut out);
+    }
     if features.uses_permissions {
         permissions::render(&mut out);
     }
@@ -220,30 +227,26 @@ pub(super) fn render_status_bar(
     out.push_str(&format!(
         "{nested_indent}val nexaWindow = (nexaStatusBarView.context as? Activity)?.window\n"
     ));
-    out.push_str(
-        &format!(
-            "{nested_indent}nexaWindow?.decorView?.let {{ nexaDecorView ->\n{deeply_nested_indent}var nexaFlags = nexaDecorView.systemUiVisibility\n"
-        ),
-    );
+    out.push_str(&format!(
+        "{nested_indent}nexaWindow?.let {{ nexaWindow ->\n{deeply_nested_indent}val nexaController = WindowCompat.getInsetsController(nexaWindow, nexaStatusBarView)\n"
+    ));
     if config.hidden {
         out.push_str(&format!(
-            "{deeply_nested_indent}nexaFlags = nexaFlags or View.SYSTEM_UI_FLAG_FULLSCREEN\n"
+            "{deeply_nested_indent}nexaController.hide(WindowInsetsCompat.Type.statusBars())\n"
         ));
     } else {
         out.push_str(&format!(
-            "{deeply_nested_indent}nexaFlags = nexaFlags and View.SYSTEM_UI_FLAG_FULLSCREEN.inv()\n"
+            "{deeply_nested_indent}nexaController.show(WindowInsetsCompat.Type.statusBars())\n"
         ));
     }
     match config.style {
         nexa_ir::StatusBarStyle::Light => out.push_str(&format!(
-            "{deeply_nested_indent}nexaFlags = nexaFlags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()\n"
+            "{deeply_nested_indent}nexaController.isAppearanceLightStatusBars = false\n"
         )),
         nexa_ir::StatusBarStyle::Dark => out.push_str(&format!(
-            "{deeply_nested_indent}nexaFlags = nexaFlags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR\n"
+            "{deeply_nested_indent}nexaController.isAppearanceLightStatusBars = true\n"
         )),
         nexa_ir::StatusBarStyle::Default => {}
     }
-    out.push_str(&format!(
-        "{deeply_nested_indent}nexaDecorView.systemUiVisibility = nexaFlags\n{nested_indent}}}\n{indent}}}\n"
-    ));
+    out.push_str(&format!("{nested_indent}}}\n{indent}}}\n"));
 }

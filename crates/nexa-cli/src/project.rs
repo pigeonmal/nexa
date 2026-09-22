@@ -771,10 +771,10 @@ fn android_settings(app_name: &str) -> String {
     )
 }
 fn android_root_gradle() -> String {
-    "plugins {\n    id(\"com.android.application\") version \"8.5.2\" apply false\n    id(\"org.jetbrains.kotlin.android\") version \"2.0.21\" apply false\n    id(\"org.jetbrains.kotlin.plugin.compose\") version \"2.0.21\" apply false\n}\n".to_owned()
+    "plugins {\n    id(\"com.android.application\") version \"9.2.1\" apply false\n    id(\"org.jetbrains.kotlin.plugin.compose\") version \"2.4.10\" apply false\n}\n".to_owned()
 }
 fn android_properties() -> String {
-    "android.useAndroidX=true\nandroid.enableJetifier=true\nkotlin.code.style=official\norg.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n".to_owned()
+    "android.useAndroidX=true\nkotlin.code.style=official\norg.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n".to_owned()
 }
 fn android_manifest(app_name: &str, package: &str, remote: bool, config: &ProjectConfig) -> String {
     let mut declared = String::new();
@@ -825,7 +825,7 @@ fn android_app_gradle(
     navigation: bool,
 ) -> String {
     let mut dependencies = String::from(
-        "    implementation(platform(\"androidx.compose:compose-bom:2024.12.01\"))\n    implementation(\"androidx.activity:activity-compose:1.10.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.ui:ui-graphics\")\n    implementation(\"androidx.compose.ui:ui-tooling-preview\")\n    implementation(\"androidx.compose.material3:material3\")\n    debugImplementation(\"androidx.compose.ui:ui-tooling\")\n",
+        "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.ui:ui-graphics\")\n    implementation(\"androidx.compose.ui:ui-tooling-preview\")\n    implementation(\"androidx.compose.material3:material3\")\n    debugImplementation(\"androidx.compose.ui:ui-tooling\")\n",
     );
     if navigation {
         dependencies
@@ -842,6 +842,6 @@ fn android_app_gradle(
         );
     }
     format!(
-        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.android\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 35\n    defaultConfig {{ applicationId = \"{package}\"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = \"1.0\" }}\n    buildFeatures {{ compose = true }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    kotlinOptions {{ jvmTarget = \"17\" }}\n}}\n\ndependencies {{\n{dependencies}}}\n"
+        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{package}\"; minSdk = 26; targetSdk = 37; versionCode = 1; versionName = \"1.0\" }}\n    buildFeatures {{ compose = true }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencies {{\n{dependencies}}}\n"
     )
 }

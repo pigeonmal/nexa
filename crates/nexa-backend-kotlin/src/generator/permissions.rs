@@ -22,7 +22,7 @@ private enum class NexaPermissionStatus {
 
 private object NexaPermissions {
     fun status(context: android.content.Context, permission: NexaPermission): NexaPermissionStatus {
-        when (permission) {
+        return when (permission) {
             NexaPermission.Camera -> statusFor(context, android.Manifest.permission.CAMERA)
             NexaPermission.Microphone -> statusFor(context, android.Manifest.permission.RECORD_AUDIO)
             NexaPermission.Photos -> if (android.os.Build.VERSION.SDK_INT >= 33) {
@@ -53,19 +53,14 @@ private object NexaPermissions {
         if (context.checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
             return NexaPermissionStatus.granted
         }
-        if (android.os.Build.VERSION.SDK_INT >= 30) {
-            val flags = context.packageManager.getPermissionFlags(
-                permission,
-                context.packageName,
-                android.os.Process.myUserHandle(),
-            )
-            val hasUserDecision = (flags and (
-                android.content.pm.PackageManager.FLAG_PERMISSION_USER_SET or
-                    android.content.pm.PackageManager.FLAG_PERMISSION_USER_FIXED
-            )) != 0
-            if (hasUserDecision) return NexaPermissionStatus.denied
+        val operation = android.app.AppOpsManager.permissionToOp(permission) ?: return NexaPermissionStatus.notDetermined
+        val appOps = context.getSystemService(android.content.Context.APP_OPS_SERVICE) as? android.app.AppOpsManager
+            ?: return NexaPermissionStatus.notDetermined
+        return when (appOps.checkOpNoThrow(operation, android.os.Process.myUid(), context.packageName)) {
+            android.app.AppOpsManager.MODE_IGNORED,
+            android.app.AppOpsManager.MODE_ERRORED -> NexaPermissionStatus.denied
+            else -> NexaPermissionStatus.notDetermined
         }
-        return NexaPermissionStatus.notDetermined
     }
 
     private fun combine(

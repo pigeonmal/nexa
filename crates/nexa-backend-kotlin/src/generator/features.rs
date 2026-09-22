@@ -29,6 +29,7 @@ pub(super) struct Features {
     pub(super) uses_refresh_control: bool,
     pub(super) uses_refresh_scroll: bool,
     pub(super) uses_image: bool,
+    pub(super) uses_asset: bool,
     pub(super) uses_remote_image: bool,
     pub(super) uses_native_library: bool,
     pub(super) uses_permissions: bool,
@@ -316,15 +317,14 @@ impl Features {
                 self.uses_switch = true;
                 self.uses_modifier = true;
             }
-            Node::Image { placeholder, .. } => {
-                self.uses_image = true;
-                self.uses_remote_image |= matches!(
-                    node,
-                    Node::Image {
-                        source: nexa_ir::ImageSource::RemoteUrl(_),
-                        ..
-                    }
-                );
+            Node::Image {
+                source,
+                placeholder,
+                ..
+            } => {
+                self.uses_asset |= matches!(source, nexa_ir::ImageSource::Asset(_));
+                self.uses_remote_image |= matches!(source, nexa_ir::ImageSource::RemoteUrl(_));
+                self.uses_image |= self.uses_remote_image;
                 self.uses_placeholder |= placeholder.is_some();
             }
             Node::Pressable {

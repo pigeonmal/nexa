@@ -14,6 +14,9 @@ pub(super) fn render(module: &Module, features: &Features, out: &mut String) {
 }
 
 fn render_component(component: &Component, module: &Module, features: &Features, out: &mut String) {
+    if features.uses_bottom_sheet {
+        out.push_str("\n@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)");
+    }
     out.push_str(&format!(
         "\n@Composable\nprivate fun {}(",
         nexa_codegen::names::component_name(&component.name)

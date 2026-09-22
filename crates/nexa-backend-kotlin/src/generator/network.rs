@@ -300,6 +300,7 @@ private fun Map<String, List<String>>.toNetworkHeaders(): NetworkHeaders {
     return builder.build()
 }
 
+@OptIn(coil3.annotation.ExperimentalCoilApi::class)
 @Composable
 private fun nexaImageLoader(): ImageLoader {
     val context = LocalContext.current.applicationContext

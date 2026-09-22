@@ -70,6 +70,10 @@ Numeric types should include explicit types such as:
 The current compiler supports the scalar types above, closed app enums, top-level value `struct` declarations, plus nullable `T?` values, `Array<T>`, `Set<T>`, `Map<K, V>`, `Pair<A, B>`, and `Triple<A, B, C>` as contextually typed value declarations and literals. Struct construction is positional and lowers to direct native Swift/Kotlin value types; compile-time member access supports `user.name` and optional `user?.name`. Recursive structs, named constructor arguments, methods, inheritance, and mutation remain roadmap work. Nullable values and `null` lower to native Swift optionals and Kotlin nullable types; `??` lowers to each platform's native fallback operator. Pair and triple field access uses compile-time checked `.first`, `.second`, and `.third` members with direct native tuple/standard-library access, including `?.` optional chaining that returns an optional field. Array indexing with an `Int32` index and map lookup with a declared key type are implemented as direct native subscripting; optional arrays/maps support `?[index]` safe indexing, and map lookup returns `V?`. Set elements and map keys are currently limited to scalar `String`, `Bool`, and numeric types for native hashability. Scalar `value in array`, `value in set`, and `key in map` lower to direct native membership checks. Action `for` loops iterate arrays, sets, Int32 ranges, and destructured maps directly; collection mutation and transformations remain roadmap work.
 
 Generated modules that use remote images or typed native API calls receive a feature-gated native network/file library. iOS uses URLSession with a 16 MiB memory and 64 MiB disk URLCache; Android uses Play Services Cronet with a 64 MiB disk cache, HTTP/2, QUIC, and Brotli, and Coil 3 is wired to that same Cronet client. Generated Android hosts initialize `CronetProviderInstaller` before Compose content starts so the Play Services provider is available before the first image loader is created. The library exposes asynchronous fetch/download options, optional certificate pinning, path directories, and asynchronous file reads/writes without a shared runtime bridge.
+Generated Android hosts use the current compatible Compose toolchain (AGP
+9.2.1 with built-in Kotlin, Compose compiler 2.4.10, and compile/target SDK 37)
+so Coil 3's Compose 1.12 requirements do not force an incompatible dependency
+graph.
 
 Avoid implicit numeric conversions that could create unpredictable behavior or performance costs.
 
@@ -89,7 +93,7 @@ App authors should be able to create reusable UI components in Nexa source files
 
 The first implementation supports typed parameters, private state, nested custom components, relative `.nx` imports, import-cycle diagnostics, and reachability-based output pruning. Callback properties, content slots, navigation links from components, explicit visibility/module namespaces, and shared state bindings remain future work.
 
-The first `StatusBar` slice is implemented as one top-level app declaration with static `style` (`Default`, `Light`, or `Dark`) and `hidden` options. It lowers to SwiftUI status-bar modifiers and direct Android system UI flags; background configuration and animated transitions remain future work.
+The first `StatusBar` slice is implemented as one top-level app declaration with static `style` (`Default`, `Light`, or `Dark`) and `hidden` options. It lowers to SwiftUI status-bar modifiers and AndroidX insets-controller APIs; background configuration and animated transitions remain future work.
 
 Compile-time platform blocks are supported with `platform ios { ... }` and `platform android { ... }`. Target-specific lowering removes the inactive block before semantic analysis and backend generation, so platform selection adds no runtime branch or cross-platform UI wrapper.
 
@@ -400,7 +404,10 @@ Image should support:
 - decoding optimization,
 - memory-efficient image loading.
 
-Remote `Image(url: ...)` accepts a typed `String` expression. Literal URLs are
+Local image assets resolve directly to native platform resources. Android
+performs one remembered drawable lookup per asset and uses a transparent
+fallback until an optional resource is present; local-only apps do not receive
+Coil or Cronet dependencies. Remote `Image(url: ...)` accepts a typed `String` expression. Literal URLs are
 validated as absolute HTTPS URLs during semantic lowering; dynamic values are
 guarded by the generated URLSession/Coil loaders before a request is started.
 
@@ -502,7 +509,7 @@ The goal is performance comparable to highly optimized native lists.
 
 ## StatusBar
 
-The first cross-platform `StatusBar` API slice is implemented. It accepts one app-level static declaration with `style: Default|Light|Dark` and `hidden: true|false`, then lowers directly to SwiftUI status-bar modifiers or Android system UI flags.
+The first cross-platform `StatusBar` API slice is implemented. It accepts one app-level static declaration with `style: Default|Light|Dark` and `hidden: true|false`, then lowers directly to SwiftUI status-bar modifiers or AndroidX insets-controller APIs.
 
 Remaining work:
 
@@ -560,7 +567,7 @@ The current implementation uses native gesture and scrolling behavior and does n
 
 ## BottomSheet
 
-The first native bottom sheet slice is implemented with `BottomSheet(isPresented: mutableBool) { ... }`. Swift lowers to `.sheet(isPresented:)`; Kotlin lowers to Material 3 `ModalBottomSheet` with native dismissal updating the binding.
+The first native bottom sheet slice is implemented with `BottomSheet(isPresented: mutableBool) { ... }`. Swift lowers to `.sheet(isPresented:)`; Kotlin lowers to Material 3 `ModalBottomSheet` with a function-level experimental API opt-in and native dismissal updating the binding.
 
 Remaining work:
 
@@ -891,8 +898,8 @@ Typed runtime status is available as the asynchronous native call
 `await Permissions.status(permission: Camera)`, returning
 `PermissionStatus.granted`, `denied`, `restricted`, or `notDetermined`. iOS
 queries the corresponding authorization framework and Android checks the
-declared manifest permission plus its user-decision flags without adding a
-permission registry. Android currently exposes `granted`, `denied`, and
+declared manifest permission plus `AppOpsManager` without adding a permission
+registry. Android currently exposes `granted`, `denied`, and
 `notDetermined`; `restricted` remains available for platforms that expose it.
 Permission request flows and denial recovery remain future work.
 

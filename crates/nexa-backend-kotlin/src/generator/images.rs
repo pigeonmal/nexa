@@ -18,48 +18,51 @@ pub(super) fn render_image(
         ImageScale::Fit => "ContentScale.Fit",
         ImageScale::Fill => "ContentScale.Crop",
     };
-    let model = match source {
-        ImageSource::Asset(asset) => format!("R.drawable.{asset}"),
+    let description = if description.is_empty() {
+        "null".to_owned()
+    } else {
+        kotlin_string(description)
+    };
+    match source {
+        ImageSource::Asset(asset) => {
+            out.push_str(&format!(
+                "Image(\n{}    painter = nexaDrawablePainter({}),\n{}    contentDescription = {description},\n{}    contentScale = {content_scale}\n{})",
+                "    ".repeat(depth),
+                kotlin_string(asset),
+                "    ".repeat(depth),
+                "    ".repeat(depth),
+                "    ".repeat(depth),
+            ));
+        }
         ImageSource::RemoteUrl(url) => {
-            if matches!(url, nexa_ir::Expr::String(_)) {
+            let model = if matches!(url, nexa_ir::Expr::String(_)) {
                 expression(url)
             } else {
                 format!(
                     "({}).takeIf {{ it.startsWith(\"https://\") }}",
                     expression(url)
                 )
+            };
+            out.push_str(&format!(
+                "AsyncImage(\n{}    model = {model},\n{}    imageLoader = nexaImageLoader(),\n{}    contentDescription = {description},\n",
+                "    ".repeat(depth),
+                "    ".repeat(depth),
+                "    ".repeat(depth),
+            ));
+            if let Some(placeholder) = placeholder {
+                out.push_str(&format!(
+                    "{}    placeholder = nexaDrawablePainter({}),\n{}    error = nexaDrawablePainter({}),\n",
+                    "    ".repeat(depth),
+                    kotlin_string(placeholder),
+                    "    ".repeat(depth),
+                    kotlin_string(placeholder),
+                ));
             }
+            out.push_str(&format!(
+                "{}    contentScale = {content_scale}\n{})",
+                "    ".repeat(depth),
+                "    ".repeat(depth)
+            ));
         }
-    };
-    let description = if description.is_empty() {
-        "null".to_owned()
-    } else {
-        kotlin_string(description)
-    };
-    out.push_str(&format!(
-        "AsyncImage(\n{}    model = {model},\n",
-        "    ".repeat(depth)
-    ));
-    if matches!(source, ImageSource::RemoteUrl(_)) {
-        out.push_str(&format!(
-            "{}    imageLoader = nexaImageLoader(),\n",
-            "    ".repeat(depth)
-        ));
     }
-    out.push_str(&format!(
-        "{}    contentDescription = {description},\n",
-        "    ".repeat(depth)
-    ));
-    if let Some(placeholder) = placeholder {
-        out.push_str(&format!(
-            "{}    placeholder = painterResource(R.drawable.{placeholder}),\n{}    error = painterResource(R.drawable.{placeholder}),\n",
-            "    ".repeat(depth),
-            "    ".repeat(depth)
-        ));
-    }
-    out.push_str(&format!(
-        "{}    contentScale = {content_scale}\n{})",
-        "    ".repeat(depth),
-        "    ".repeat(depth)
-    ));
 }
