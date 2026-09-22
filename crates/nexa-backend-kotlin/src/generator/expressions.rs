@@ -64,6 +64,7 @@ pub(super) fn expression(expr: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        Expr::Await(value) => expression(value),
         Expr::Add(left, right, ty) => {
             let sum = format!("({} + {})", expression(left), expression(right));
             match ty {

@@ -1,0 +1,14 @@
+app AsyncDemo {
+    async fn loadValue() -> Int32 {
+        return 3
+    }
+
+    state value: Int32 = 0
+
+    body {
+        OnAppear async {
+            value = await loadValue()
+        }
+        Text(value)
+    }
+}

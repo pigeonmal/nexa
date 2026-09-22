@@ -69,6 +69,7 @@ pub(super) fn expression(expr: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        Expr::Await(value) => format!("await {}", expression(value)),
         Expr::Add(left, right, ty) => {
             let operator = if matches!(ty, NumericType::Float32 | NumericType::Float64) {
                 "+"

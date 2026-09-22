@@ -167,7 +167,7 @@ fn lower_component(
             ));
         }
         let ty = resolve_declaration_type(&state, &symbols, functions)?;
-        let initial = lower_expr(&state.initial, Some(&ty), &symbols, functions)?;
+        let initial = lower_expr(&state.initial, Some(&ty), &symbols, functions, false)?;
         if state.mutable && references_state(&state.initial) {
             return Err(CompileError::new(
                 state.initial.span(),

@@ -11,12 +11,14 @@ pub struct Module {
     pub status_bar: Option<StatusBarConfig>,
     pub direction: Option<DirectionConfig>,
     pub on_appear: Option<Vec<Action>>,
+    pub on_appear_async: bool,
     pub on_disappear: Option<Vec<Action>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Function {
     pub name: String,
+    pub is_async: bool,
     pub parameters: Vec<FunctionParameter>,
     pub return_type: Type,
     pub body: Expr,
@@ -48,6 +50,7 @@ pub struct Screen {
     pub name: String,
     pub body: Vec<Node>,
     pub on_appear: Option<Vec<Action>>,
+    pub on_appear_async: bool,
     pub on_disappear: Option<Vec<Action>>,
 }
 
@@ -138,7 +141,9 @@ pub enum Expr {
         name: String,
         arguments: Vec<Expr>,
         return_type: Type,
+        is_async: bool,
     },
+    Await(Box<Expr>),
     IsRegularWidth,
 }
 
@@ -170,6 +175,7 @@ pub enum Node {
     },
     OnAppear {
         actions: Vec<Action>,
+        asynchronous: bool,
     },
     OnDisappear {
         actions: Vec<Action>,

@@ -155,8 +155,10 @@ impl Parser {
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             if self.word_is("state") || self.word_is("let") {
                 states.push(self.state_decl()?);
+            } else if self.word_is("async") {
+                functions.push(self.function_decl(true)?);
             } else if self.word_is("fn") {
-                functions.push(self.function_decl()?);
+                functions.push(self.function_decl(false)?);
             } else if self.word_is("screen") {
                 screens.push(self.screen_decl()?);
             } else if self.word_is("theme") {
@@ -172,7 +174,7 @@ impl Parser {
                 body = Some(self.block_nodes()?);
             } else {
                 return self.error_here(
-                    "expected a `state`, `fn`, `screen`, `theme`, or `body` declaration",
+                    "expected a `state`, `fn`, `async fn`, `screen`, `theme`, or `body` declaration",
                 );
             }
         }
@@ -266,8 +268,11 @@ impl Parser {
         })
     }
 
-    fn function_decl(&mut self) -> Result<FunctionDecl, CompileError> {
+    fn function_decl(&mut self, is_async: bool) -> Result<FunctionDecl, CompileError> {
         let keyword = self.advance().span;
+        if is_async {
+            self.expect_word("fn")?;
+        }
         let (name, _) = self.ident()?;
         self.expect(Kind::LParen, "expected `(` after function name")?;
         let mut parameters = Vec::new();
@@ -300,6 +305,7 @@ impl Parser {
         let body = self.function_body()?;
         Ok(FunctionDecl {
             name,
+            is_async,
             parameters,
             return_type,
             body,
@@ -405,10 +411,19 @@ impl Parser {
                 )?;
                 Ok(Node::Direction { value, span })
             }
-            "OnAppear" => Ok(Node::OnAppear {
-                actions: self.block_stmts()?,
-                span,
-            }),
+            "OnAppear" => {
+                let asynchronous = if self.word_is("async") {
+                    self.advance();
+                    true
+                } else {
+                    false
+                };
+                Ok(Node::OnAppear {
+                    actions: self.block_stmts()?,
+                    asynchronous,
+                    span,
+                })
+            }
             "OnDisappear" => Ok(Node::OnDisappear {
                 actions: self.block_stmts()?,
                 span,
@@ -972,6 +987,10 @@ impl Parser {
             Kind::Ident(value) if value == "false" => Ok(Expr::Bool(false, token.span)),
             Kind::Ident(value) => {
                 if !self.take(&Kind::Dot) {
+                    if value == "await" {
+                        let expression = self.unary()?;
+                        return Ok(Expr::Await(Box::new(expression), token.span));
+                    }
                     if (value == "Pair" || value == "Triple") && self.check(&Kind::LParen) {
                         return self.tuple_constructor(value, token.span);
                     }

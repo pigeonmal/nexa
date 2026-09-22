@@ -93,11 +93,16 @@ pub(super) fn lower_node(
         ast::Node::Direction { value, .. } => Ok(Node::Direction {
             config: lower_direction(value)?,
         }),
-        ast::Node::OnAppear { actions, .. } => Ok(Node::OnAppear {
-            actions: lower_actions(actions, symbols, functions)?,
+        ast::Node::OnAppear {
+            actions,
+            asynchronous,
+            ..
+        } => Ok(Node::OnAppear {
+            actions: lower_actions(actions, symbols, functions, asynchronous)?,
+            asynchronous,
         }),
         ast::Node::OnDisappear { actions, .. } => Ok(Node::OnDisappear {
-            actions: lower_actions(actions, symbols, functions)?,
+            actions: lower_actions(actions, symbols, functions, false)?,
         }),
         ast::Node::Layout {
             kind,
@@ -139,7 +144,7 @@ pub(super) fn lower_node(
             selectable,
             ..
         } => {
-            let value = lower_expr(&value, None, symbols, functions)?;
+            let value = lower_expr(&value, None, symbols, functions, false)?;
             let color = optional_color(color, "text color", themes)?;
             let font_size = optional_dimension(
                 font_size,
@@ -172,7 +177,7 @@ pub(super) fn lower_node(
             actions,
             span,
         } => {
-            let label = lower_expr(&label, Some(&Type::String), symbols, functions)?;
+            let label = lower_expr(&label, Some(&Type::String), symbols, functions, false)?;
             if !matches!(
                 label,
                 Expr::String(_) | Expr::Interpolation(_) | Expr::State(_, Type::String)
@@ -180,12 +185,12 @@ pub(super) fn lower_node(
                 return Err(CompileError::new(span, "Button label must be a String"));
             }
             let loading = loading
-                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions))
+                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions, false))
                 .transpose()?;
             let disabled = disabled
-                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions))
+                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions, false))
                 .transpose()?;
-            let lowered = lower_actions(actions, symbols, functions)?;
+            let lowered = lower_actions(actions, symbols, functions, false)?;
             Ok(Node::Button {
                 label,
                 loading,
@@ -276,7 +281,7 @@ pub(super) fn lower_node(
                 multiline,
                 autocorrect,
                 capitalization,
-                actions: lower_actions(actions, symbols, functions)?,
+                actions: lower_actions(actions, symbols, functions, false)?,
             })
         }
         ast::Node::Switch { value, label, span } => {
@@ -362,8 +367,8 @@ pub(super) fn lower_node(
             let lowered_children = lower_nodes(
                 children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
-            let actions = lower_actions(actions, symbols, functions)?;
-            let long_press_actions = lower_actions(long_press_actions, symbols, functions)?;
+            let actions = lower_actions(actions, symbols, functions, false)?;
+            let long_press_actions = lower_actions(long_press_actions, symbols, functions, false)?;
             Ok(Node::Pressable {
                 disabled,
                 children: lowered_children,
@@ -513,7 +518,7 @@ pub(super) fn lower_node(
             Ok(Node::RefreshControl {
                 state,
                 children: lowered_children,
-                actions: lower_actions(actions, symbols, functions)?,
+                actions: lower_actions(actions, symbols, functions, false)?,
             })
         }
         ast::Node::AppBottomBar {
@@ -592,7 +597,7 @@ pub(super) fn lower_node(
                         ));
                     }
                     let count_value =
-                        lower_expr(&count, Some(&row_index_type), symbols, functions)?;
+                        lower_expr(&count, Some(&row_index_type), symbols, functions, false)?;
                     if let ast::Expr::Number(raw, count_span) = &count {
                         if raw.parse::<i32>().is_ok_and(|value| value < 0) {
                             return Err(CompileError::new(
@@ -673,7 +678,7 @@ pub(super) fn lower_node(
             else_body,
             ..
         } => {
-            let condition = lower_expr(&condition, Some(&Type::Bool), symbols, functions)?;
+            let condition = lower_expr(&condition, Some(&Type::Bool), symbols, functions, false)?;
             let lowered_then = lower_nodes(
                 then_body, symbols, screen_ids, themes, components, functions, false, target,
             )?;
@@ -720,7 +725,7 @@ pub(super) fn lower_node(
                 })?;
                 lowered_arguments.push((
                     parameter.clone(),
-                    lower_expr(&argument, Some(ty), symbols, functions)?,
+                    lower_expr(&argument, Some(ty), symbols, functions, false)?,
                 ));
             }
             Ok(Node::ComponentCall {
@@ -873,6 +878,7 @@ fn lower_actions(
     actions: Vec<ast::Stmt>,
     symbols: &HashMap<String, (Type, bool)>,
     functions: &FunctionSignatures,
+    allow_await: bool,
 ) -> Result<Vec<Action>, CompileError> {
     let mut lowered = Vec::with_capacity(actions.len());
     for action in actions {
@@ -887,7 +893,7 @@ fn lower_actions(
                         format!("`{name}` is immutable and cannot be assigned"),
                     ));
                 }
-                let value = lower_expr(&value, Some(ty), symbols, functions)?;
+                let value = lower_expr(&value, Some(ty), symbols, functions, allow_await)?;
                 lowered.push(Action::Assign { name, value });
             }
             ast::Stmt::If {
@@ -896,12 +902,18 @@ fn lower_actions(
                 else_branch,
                 ..
             } => {
-                let condition = lower_expr(&condition, Some(&Type::Bool), symbols, functions)?;
+                let condition = lower_expr(
+                    &condition,
+                    Some(&Type::Bool),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?;
                 lowered.push(Action::If {
                     condition,
-                    then_branch: lower_actions(then_branch, symbols, functions)?,
+                    then_branch: lower_actions(then_branch, symbols, functions, allow_await)?,
                     else_branch: else_branch
-                        .map(|branch| lower_actions(branch, symbols, functions))
+                        .map(|branch| lower_actions(branch, symbols, functions, allow_await))
                         .transpose()?,
                 });
             }

@@ -31,7 +31,7 @@ pub fn walk_ir(
                 walk_actions(actions, visit_expression);
                 walk_ir(children, visit_node, visit_expression);
             }
-            Node::OnAppear { actions } | Node::OnDisappear { actions } => {
+            Node::OnAppear { actions, .. } | Node::OnDisappear { actions } => {
                 walk_actions(actions, visit_expression)
             }
             Node::AppBottomBar { tabs, .. } => {
@@ -121,6 +121,7 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
                 walk_expression(argument, visit);
             }
         }
+        Expr::Await(value) => walk_expression(value, visit),
         Expr::Interpolation(parts) => {
             for part in parts {
                 if let InterpolatedPart::Value(value) = part {

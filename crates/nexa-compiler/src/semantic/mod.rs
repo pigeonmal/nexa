@@ -82,6 +82,7 @@ pub fn lower_with_warnings(
             Some(&ty),
             &symbols,
             &function_signatures,
+            false,
         )?;
         if declaration.mutable && references_state(&declaration.initial) {
             return Err(CompileError::new(
@@ -121,13 +122,15 @@ pub fn lower_with_warnings(
                 "Direction is only allowed at the app body's top level",
             ));
         }
-        let (on_appear, screen_body) = extract_on_appear(screen_body, screen.span, "screen")?;
+        let (on_appear, on_appear_async, screen_body) =
+            extract_on_appear(screen_body, screen.span, "screen")?;
         let (on_disappear, screen_body) = extract_on_disappear(screen_body, screen.span, "screen")?;
         screens.push(Screen {
             id: ScreenId(index),
             name: screen.name,
             body: screen_body,
             on_appear,
+            on_appear_async,
             on_disappear,
         });
     }
@@ -144,7 +147,7 @@ pub fn lower_with_warnings(
     )?;
     let (status_bar, body) = extract_status_bar(body, app.span)?;
     let (direction, body) = extract_direction(body, app.span)?;
-    let (on_appear, body) = extract_on_appear(body, app.span, "app")?;
+    let (on_appear, on_appear_async, body) = extract_on_appear(body, app.span, "app")?;
     let (on_disappear, body) = extract_on_disappear(body, app.span, "app")?;
     let components = retain_reachable(components, &body, &screens);
     let mut module = Module {
@@ -157,6 +160,7 @@ pub fn lower_with_warnings(
         status_bar,
         direction,
         on_appear,
+        on_appear_async,
         on_disappear,
     };
     crate::optimize::optimize(&mut module);
@@ -196,9 +200,16 @@ fn lower_functions(
                 .iter()
                 .map(|(name, ty)| (name.clone(), (ty.clone(), false)))
                 .collect::<HashMap<_, _>>();
-            let body = lower_expr(value, Some(&signature.return_type), &symbols, signatures)?;
+            let body = lower_expr(
+                value,
+                Some(&signature.return_type),
+                &symbols,
+                signatures,
+                signature.is_async,
+            )?;
             Ok(Function {
                 name: declaration.name,
+                is_async: signature.is_async,
                 parameters: signature
                     .parameters
                     .iter()
@@ -387,18 +398,23 @@ fn extract_on_appear(
     nodes: Vec<Node>,
     span: nexa_diagnostics::Span,
     scope: &str,
-) -> Result<(Option<Vec<Action>>, Vec<Node>), CompileError> {
+) -> Result<(Option<Vec<Action>>, bool, Vec<Node>), CompileError> {
     let mut actions = None;
+    let mut asynchronous = false;
     let mut body = Vec::with_capacity(nodes.len());
     for node in nodes {
         match node {
-            Node::OnAppear { actions: value } => {
+            Node::OnAppear {
+                actions: value,
+                asynchronous: value_is_async,
+            } => {
                 if actions.replace(value).is_some() {
                     return Err(CompileError::new(
                         span,
                         format!("a {scope} can declare only one top-level OnAppear"),
                     ));
                 }
+                asynchronous = value_is_async;
             }
             node if contains_on_appear(&node) => {
                 return Err(CompileError::new(
@@ -409,7 +425,7 @@ fn extract_on_appear(
             node => body.push(node),
         }
     }
-    Ok((actions, body))
+    Ok((actions, asynchronous, body))
 }
 
 pub(super) fn contains_on_appear(node: &Node) -> bool {

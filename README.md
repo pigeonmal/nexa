@@ -149,9 +149,9 @@ String interpolation supports `$name` and `\(name)` for declared state and const
 
 `Direction(value: LTR|RTL)` applies a static native layout direction at the app root; see [direction.nx](examples/direction.nx).
 
-`OnAppear { ... }` and `OnDisappear { ... }` are top-level app or named-screen lifecycle callbacks. Their direct state actions run through SwiftUI lifecycle modifiers on iOS and Compose effects on Android; see [lifecycle.nx](examples/lifecycle.nx) and [navigation.nx](examples/navigation.nx). App background events remain future lifecycle slices.
+`OnAppear { ... }` and `OnDisappear { ... }` are top-level app or named-screen lifecycle callbacks. Use `OnAppear async { ... }` to await an app-local `async fn`; Swift lowers it to `.task`, while Android uses `LaunchedEffect(Unit)` for the same native coroutine lifecycle. See [lifecycle.nx](examples/lifecycle.nx), [async.nx](examples/async.nx), and [navigation.nx](examples/navigation.nx). App background events remain future lifecycle slices.
 
-Typed app functions use `fn name(parameters) -> ReturnType { return expression }`. Calls are resolved during compilation and emitted as direct private native functions, with no runtime registry; the current slice supports one return expression and no local variables or async/closure syntax. See [functions.nx](examples/functions.nx).
+Typed app functions use `fn name(parameters) -> ReturnType { return expression }`; `async fn` adds a native async boundary and `await` calls it from `OnAppear async`. Calls are resolved during compilation and emitted as direct private native functions, with no runtime registry. See [functions.nx](examples/functions.nx) and [async.nx](examples/async.nx).
 
 ## License
 

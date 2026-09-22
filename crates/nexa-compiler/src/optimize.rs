@@ -403,8 +403,12 @@ fn optimize_node(node: Node) -> Option<Node> {
         | Node::StatusBar { .. }
         | Node::Direction { .. }
         | Node::NavigationStack { .. }) => Some(node),
-        Node::OnAppear { actions } => Some(Node::OnAppear {
+        Node::OnAppear {
+            actions,
+            asynchronous,
+        } => Some(Node::OnAppear {
             actions: optimize_actions(actions),
+            asynchronous,
         }),
         Node::OnDisappear { actions } => Some(Node::OnDisappear {
             actions: optimize_actions(actions),
@@ -564,11 +568,14 @@ fn fold_expression(expression: Expr) -> Expr {
             name,
             arguments,
             return_type,
+            is_async,
         } => Expr::Call {
             name,
             arguments: arguments.into_iter().map(fold_expression).collect(),
             return_type,
+            is_async,
         },
+        Expr::Await(value) => Expr::Await(Box::new(fold_expression(*value))),
         Expr::Interpolation(parts) => Expr::Interpolation(
             parts
                 .into_iter()

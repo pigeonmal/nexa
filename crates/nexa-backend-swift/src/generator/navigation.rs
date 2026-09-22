@@ -66,7 +66,12 @@ pub(super) fn render_screen_function(
     ));
     render_immutable_state(&module.states, depth + 1, out);
     render_children(&screen.body, module, depth + 1, out);
-    super::render_on_appear_modifier(screen.on_appear.as_deref(), depth + 1, out);
+    super::render_on_appear_modifier(
+        screen.on_appear.as_deref(),
+        screen.on_appear_async,
+        depth + 1,
+        out,
+    );
     super::render_on_disappear_modifier(screen.on_disappear.as_deref(), depth + 1, out);
     out.push('\n');
     indent(out, depth);

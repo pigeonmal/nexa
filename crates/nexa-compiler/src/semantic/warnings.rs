@@ -454,6 +454,7 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
                 walk_expression(argument, names, used);
             }
         }
+        ast::Expr::Await(value, _) => walk_expression(value, names, used),
         ast::Expr::Interpolation(parts, _) => {
             for part in parts {
                 if let ast::StringPart::Name(name) = part {

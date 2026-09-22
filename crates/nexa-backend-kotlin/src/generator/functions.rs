@@ -12,7 +12,11 @@ pub(super) fn render(module: &Module, out: &mut String) {
 }
 
 fn render_function(function: &Function, out: &mut String) {
-    out.push_str("private fun ");
+    if function.is_async {
+        out.push_str("private suspend fun ");
+    } else {
+        out.push_str("private fun ");
+    }
     out.push_str(&nexa_codegen::names::function_name(&function.name));
     out.push('(');
     out.push_str(

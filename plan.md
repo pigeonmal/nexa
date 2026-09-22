@@ -79,7 +79,7 @@ String interpolation is implemented for `$name` and `\(name)` segments. Names ar
 
 For a fast authoring path, `let` and mutable `state` declarations may omit their type when the compiler can infer it from a non-empty initializer. Integer literals default to `Int32` and decimal literals to `Float64`; component parameters remain explicitly typed. Inference is compile-time only and does not add runtime metadata or alter native output for explicitly typed source.
 
-The first pure function slice is implemented inside an app: `fn name(a: Type) -> ReturnType { return expression }`. Parameters and the return type are explicit, calls are checked for arity and exact types, and each function must contain exactly one return expression. The compiler lowers functions to direct private top-level Swift/Kotlin helpers and keeps function calls out of any shared runtime. Local variables, closures, async functions, generic functions, and dynamic dispatch remain future work.
+The first pure function slice is implemented inside an app: `fn name(a: Type) -> ReturnType { return expression }`. Parameters and the return type are explicit, calls are checked for arity and exact types, and each function must contain exactly one return expression. The compiler lowers functions to direct private top-level Swift/Kotlin helpers and keeps function calls out of any shared runtime. `async fn`, direct `await`, and `OnAppear async` are now implemented as the first native async slice: Swift uses `async` helpers and `.task`, while Kotlin uses `suspend` helpers and `LaunchedEffect(Unit)`. Local variables, closures, async network bindings, generic functions, and dynamic dispatch remain future work.
 
 The first native animation slice is implemented as a static layout option: `animation: Spring|EaseIn|EaseOut|EaseInOut|Linear`. Swift uses the matching SwiftUI animation modifier; Compose uses `animateContentSize` with a native spring or tween easing. No shared frame loop or per-frame cross-language callback is introduced. Transforms, transitions, and gesture-driven animation remain future work.
 
@@ -104,7 +104,7 @@ The language should support at minimum:
 - protocols/interfaces,
 - pattern matching,
 - optional/nullability handling,
-- async/await,
+- async/await (the typed lifecycle slice is implemented; broader network/error semantics remain),
 - closures,
 - modules,
 - imports,
@@ -790,7 +790,7 @@ Map lifecycle events directly to native lifecycle systems.
 
 ## Async
 
-Provide first-class async/await support.
+Provide broader first-class async/await support. The initial lifecycle slice is implemented: app-local `async fn` declarations, direct `await` calls, and `OnAppear async` lower to native Swift/Kotlin async constructs without a Nexa scheduler. Extend the same typed boundary to network/file calls and richer cancellation/error semantics.
 
 The implementation must integrate efficiently with:
 

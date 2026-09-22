@@ -29,7 +29,11 @@ fn render_function(function: &Function, out: &mut String) {
             .collect::<Vec<_>>()
             .join(", "),
     );
-    out.push_str(") -> ");
+    if function.is_async {
+        out.push_str(") async -> ");
+    } else {
+        out.push_str(") -> ");
+    }
     out.push_str(&function.return_type.swift());
     out.push_str(" {\n");
     indent(out, 1);

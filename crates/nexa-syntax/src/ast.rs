@@ -47,6 +47,7 @@ pub struct ComponentParameter {
 #[derive(Clone, Debug)]
 pub struct FunctionDecl {
     pub name: String,
+    pub is_async: bool,
     pub parameters: Vec<FunctionParameter>,
     pub return_type: TypeSyntax,
     pub body: Vec<Stmt>,
@@ -143,6 +144,7 @@ pub enum Node {
     },
     OnAppear {
         actions: Vec<Stmt>,
+        asynchronous: bool,
         span: Span,
     },
     OnDisappear {
@@ -320,6 +322,7 @@ pub enum Expr {
     Pair(Box<Expr>, Box<Expr>, Span),
     Triple(Box<Expr>, Box<Expr>, Box<Expr>, Span),
     Call(String, Vec<Expr>, Span),
+    Await(Box<Expr>, Span),
 }
 
 #[derive(Clone, Debug)]
@@ -357,7 +360,8 @@ impl Expr {
             | Self::Map(_, s)
             | Self::Pair(_, _, s)
             | Self::Triple(_, _, _, s)
-            | Self::Call(_, _, s) => *s,
+            | Self::Call(_, _, s)
+            | Self::Await(_, s) => *s,
         }
     }
 }

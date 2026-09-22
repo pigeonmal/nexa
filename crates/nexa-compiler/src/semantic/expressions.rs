@@ -8,6 +8,7 @@ use nexa_syntax::ast;
 pub(super) struct FunctionSignature {
     pub(super) parameters: Vec<(String, Type)>,
     pub(super) return_type: Type,
+    pub(super) is_async: bool,
 }
 
 pub(super) type FunctionSignatures = HashMap<String, FunctionSignature>;
@@ -42,6 +43,7 @@ pub(super) fn collect_function_signatures(
             FunctionSignature {
                 parameters,
                 return_type: parse_type(&declaration.return_type)?,
+                is_async: declaration.is_async,
             },
         );
     }
@@ -64,6 +66,7 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
             references_state(first) || references_state(second) || references_state(third)
         }
         ast::Expr::Call(_, arguments, _) => arguments.iter().any(references_state),
+        ast::Expr::Await(value, _) => references_state(value),
         ast::Expr::Interpolation(parts, _) => parts
             .iter()
             .any(|part| matches!(part, ast::StringPart::Name(_))),
@@ -80,6 +83,7 @@ pub(super) fn lower_expr(
     expected: Option<&Type>,
     symbols: &HashMap<String, (Type, bool)>,
     functions: &FunctionSignatures,
+    allow_await: bool,
 ) -> Result<Expr, CompileError> {
     match expr {
         ast::Expr::String(value, _) => {
@@ -100,6 +104,7 @@ pub(super) fn lower_expr(
                             None,
                             symbols,
                             functions,
+                            allow_await,
                         )?;
                         lowered.push(InterpolatedPart::Value(Box::new(value)));
                     }
@@ -128,7 +133,13 @@ pub(super) fn lower_expr(
             };
             let mut lowered = Vec::with_capacity(items.len());
             for item in items {
-                lowered.push(lower_expr(item, Some(element_type), symbols, functions)?);
+                lowered.push(lower_expr(
+                    item,
+                    Some(element_type),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?);
             }
             if matches!(expected, Some(Type::Set(_))) {
                 Ok(Expr::Set(lowered))
@@ -146,8 +157,8 @@ pub(super) fn lower_expr(
             let mut lowered = Vec::with_capacity(entries.len());
             for (key, value) in entries {
                 lowered.push((
-                    lower_expr(key, Some(key_type), symbols, functions)?,
-                    lower_expr(value, Some(value_type), symbols, functions)?,
+                    lower_expr(key, Some(key_type), symbols, functions, allow_await)?,
+                    lower_expr(value, Some(value_type), symbols, functions, allow_await)?,
                 ));
             }
             Ok(Expr::Map(lowered))
@@ -160,8 +171,20 @@ pub(super) fn lower_expr(
                 ));
             };
             Ok(Expr::Pair(
-                Box::new(lower_expr(first, Some(first_type), symbols, functions)?),
-                Box::new(lower_expr(second, Some(second_type), symbols, functions)?),
+                Box::new(lower_expr(
+                    first,
+                    Some(first_type),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?),
+                Box::new(lower_expr(
+                    second,
+                    Some(second_type),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?),
             ))
         }
         ast::Expr::Triple(first, second, third, span) => {
@@ -172,9 +195,27 @@ pub(super) fn lower_expr(
                 ));
             };
             Ok(Expr::Triple(
-                Box::new(lower_expr(first, Some(first_type), symbols, functions)?),
-                Box::new(lower_expr(second, Some(second_type), symbols, functions)?),
-                Box::new(lower_expr(third, Some(third_type), symbols, functions)?),
+                Box::new(lower_expr(
+                    first,
+                    Some(first_type),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?),
+                Box::new(lower_expr(
+                    second,
+                    Some(second_type),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?),
+                Box::new(lower_expr(
+                    third,
+                    Some(third_type),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?),
             ))
         }
         ast::Expr::Number(raw, span) => {
@@ -231,8 +272,8 @@ pub(super) fn lower_expr(
                     ),
                 ));
             }
-            let left = lower_expr(left, Some(&numeric), symbols, functions)?;
-            let right = lower_expr(right, Some(&numeric), symbols, functions)?;
+            let left = lower_expr(left, Some(&numeric), symbols, functions, allow_await)?;
+            let right = lower_expr(right, Some(&numeric), symbols, functions, allow_await)?;
             if expr_numeric_type(&left) != Some(ty) || expr_numeric_type(&right) != Some(ty) {
                 return Err(CompileError::new(
                     *span,
@@ -242,42 +283,113 @@ pub(super) fn lower_expr(
             Ok(Expr::Add(Box::new(left), Box::new(right), ty))
         }
         ast::Expr::Not(value, _span) => {
-            let value = lower_expr(value, Some(&Type::Bool), symbols, functions)?;
+            let value = lower_expr(value, Some(&Type::Bool), symbols, functions, allow_await)?;
             Ok(Expr::Not(Box::new(value)))
         }
-        ast::Expr::Binary(left, operator, right, span) => {
-            lower_binary(left, *operator, right, *span, expected, symbols, functions)
-        }
-        ast::Expr::Call(name, arguments, span) => {
-            let Some(signature) = functions.get(name) else {
+        ast::Expr::Binary(left, operator, right, span) => lower_binary(
+            left,
+            *operator,
+            right,
+            *span,
+            expected,
+            symbols,
+            functions,
+            allow_await,
+        ),
+        ast::Expr::Call(name, arguments, span) => lower_call(
+            name,
+            arguments,
+            *span,
+            expected,
+            symbols,
+            functions,
+            allow_await,
+            false,
+        ),
+        ast::Expr::Await(value, span) => {
+            if !allow_await {
                 return Err(CompileError::new(
                     *span,
-                    format!("unknown function `{name}`"),
-                ));
-            };
-            if arguments.len() != signature.parameters.len() {
-                return Err(CompileError::new(
-                    *span,
-                    format!(
-                        "function `{name}` expects {} argument(s), found {}",
-                        signature.parameters.len(),
-                        arguments.len()
-                    ),
+                    "`await` is only allowed in an async function or `OnAppear async` block",
                 ));
             }
-            require_expected(expected, &signature.return_type, *span)?;
-            let lowered = arguments
-                .iter()
-                .zip(&signature.parameters)
-                .map(|(argument, (_, ty))| lower_expr(argument, Some(ty), symbols, functions))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(Expr::Call {
-                name: name.clone(),
-                arguments: lowered,
-                return_type: signature.return_type.clone(),
-            })
+            let ast::Expr::Call(name, arguments, call_span) = value.as_ref() else {
+                return Err(CompileError::new(
+                    *span,
+                    "`await` must be applied to an async function call",
+                ));
+            };
+            let call = lower_call(
+                name,
+                arguments,
+                *call_span,
+                expected,
+                symbols,
+                functions,
+                allow_await,
+                true,
+            )?;
+            Ok(Expr::Await(Box::new(call)))
         }
     }
+}
+
+fn lower_call(
+    name: &str,
+    arguments: &[ast::Expr],
+    span: Span,
+    expected: Option<&Type>,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+    awaited: bool,
+) -> Result<Expr, CompileError> {
+    let Some(signature) = functions.get(name) else {
+        return Err(CompileError::new(
+            span,
+            format!("unknown function `{name}`"),
+        ));
+    };
+    if arguments.len() != signature.parameters.len() {
+        return Err(CompileError::new(
+            span,
+            format!(
+                "function `{name}` expects {} argument(s), found {}",
+                signature.parameters.len(),
+                arguments.len()
+            ),
+        ));
+    }
+    if signature.is_async && !awaited {
+        return Err(CompileError::new(
+            span,
+            format!("async function `{name}` must be awaited"),
+        ));
+    }
+    if awaited && !signature.is_async {
+        return Err(CompileError::new(
+            span,
+            format!("function `{name}` is not async and cannot be awaited"),
+        ));
+    }
+    if awaited && !allow_await {
+        return Err(CompileError::new(
+            span,
+            "`await` is only allowed in an async function or `OnAppear async` block",
+        ));
+    }
+    require_expected(expected, &signature.return_type, span)?;
+    let lowered = arguments
+        .iter()
+        .zip(&signature.parameters)
+        .map(|(argument, (_, ty))| lower_expr(argument, Some(ty), symbols, functions, allow_await))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Expr::Call {
+        name: name.to_owned(),
+        arguments: lowered,
+        return_type: signature.return_type.clone(),
+        is_async: signature.is_async,
+    })
 }
 
 fn lower_binary(
@@ -288,6 +400,7 @@ fn lower_binary(
     expected: Option<&Type>,
     symbols: &HashMap<String, (Type, bool)>,
     functions: &FunctionSignatures,
+    allow_await: bool,
 ) -> Result<Expr, CompileError> {
     let ir_operator = match operator {
         ast::BinaryOp::And => BinaryOp::And,
@@ -312,8 +425,8 @@ fn lower_binary(
             return Err(CompileError::new(span, "logical expressions produce Bool"));
         }
         let bool_type = Type::Bool;
-        let left = lower_expr(left, Some(&bool_type), symbols, functions)?;
-        let right = lower_expr(right, Some(&bool_type), symbols, functions)?;
+        let left = lower_expr(left, Some(&bool_type), symbols, functions, allow_await)?;
+        let right = lower_expr(right, Some(&bool_type), symbols, functions, allow_await)?;
         return Ok(Expr::Binary {
             op: ir_operator,
             left: Box::new(left),
@@ -353,8 +466,8 @@ fn lower_binary(
         }
         (Some(ty), None) | (None, Some(ty)) => ty,
         (None, None) => {
-            let left = lower_expr(left, None, symbols, functions)?;
-            let right = lower_expr(right, None, symbols, functions)?;
+            let left = lower_expr(left, None, symbols, functions, allow_await)?;
+            let right = lower_expr(right, None, symbols, functions, allow_await)?;
             let _ = (left, right);
             return Err(CompileError::new(
                 span,
@@ -374,8 +487,8 @@ fn lower_binary(
             "equality is supported for numeric, Bool, and String values",
         ));
     }
-    let left = lower_expr(left, Some(&common_type), symbols, functions)?;
-    let right = lower_expr(right, Some(&common_type), symbols, functions)?;
+    let left = lower_expr(left, Some(&common_type), symbols, functions, allow_await)?;
+    let right = lower_expr(right, Some(&common_type), symbols, functions, allow_await)?;
     Ok(Expr::Binary {
         op: ir_operator,
         left: Box::new(left),
@@ -403,6 +516,7 @@ pub(super) fn infer_expr_type(
         ast::Expr::Call(name, _, _) => functions
             .get(name)
             .map(|signature| signature.return_type.clone()),
+        ast::Expr::Await(value, _) => infer_expr_type(value, symbols, functions),
         ast::Expr::ThemeToken(_, _) => None,
         ast::Expr::Add(left_expr, right_expr, _) => {
             let left_type = infer_expr_type(left_expr, symbols, functions);

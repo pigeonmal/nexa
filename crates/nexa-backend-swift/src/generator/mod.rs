@@ -95,7 +95,12 @@ pub(super) fn generate(module: &Module) -> String {
         );
     }
     render_direction_modifier(module.direction, 2, &mut out);
-    render_on_appear_modifier(module.on_appear.as_deref(), 2, &mut out);
+    render_on_appear_modifier(
+        module.on_appear.as_deref(),
+        module.on_appear_async,
+        2,
+        &mut out,
+    );
     render_on_disappear_modifier(module.on_disappear.as_deref(), 2, &mut out);
     render_status_bar_modifiers(module.status_bar, 2, &mut out);
     out.push_str("\n    }\n");
@@ -135,6 +140,7 @@ fn render_direction_modifier(
 
 pub(super) fn render_on_appear_modifier(
     actions: Option<&[nexa_ir::Action]>,
+    asynchronous: bool,
     depth: usize,
     out: &mut String,
 ) {
@@ -143,7 +149,11 @@ pub(super) fn render_on_appear_modifier(
     };
     out.push('\n');
     utils::indent(out, depth + 1);
-    out.push_str(".onAppear {");
+    out.push_str(if asynchronous {
+        ".task {"
+    } else {
+        ".onAppear {"
+    });
     if actions.is_empty() {
         out.push('}');
         return;
