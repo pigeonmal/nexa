@@ -27,11 +27,7 @@ pub(super) fn copy_android_plugin_sources(
                 .any(|used| used.namespace == plugin.namespace)
     });
     for plugin in &module.plugins {
-        for path in native_plugin_sources(plugin, "android/src/main/kotlin", "kt")? {
-            let plugin_root = Path::new(&plugin.idl_path)
-                .parent()
-                .ok_or_else(|| format!("invalid plugin IDL path `{}`", plugin.idl_path))?;
-            let source_root = plugin_root.join("android/src/main/kotlin");
+        for (path, source_root) in native_plugin_sources(plugin, "android/src/main/kotlin", "kt")? {
             let relative = path.strip_prefix(&source_root).map_err(|_| {
                 format!(
                     "plugin source is outside its Kotlin source root: {}",
@@ -188,7 +184,7 @@ pub(super) fn copy_ios_plugin_sources(
     let marker = root.join("ios").join(app_name).join(".nexa-plugin-sources");
     let mut names = Vec::new();
     for (plugin_index, plugin) in module.plugins.iter().enumerate() {
-        for source in native_plugin_sources(plugin, "ios/Sources", "swift")? {
+        for (source, _) in native_plugin_sources(plugin, "ios/Sources", "swift")? {
             let name = source
                 .file_name()
                 .and_then(|value| value.to_str())
@@ -408,17 +404,60 @@ pub(super) fn native_plugin_sources(
     plugin: &nexa_ir::Plugin,
     relative_root: &str,
     extension: &str,
-) -> Result<Vec<PathBuf>, String> {
+) -> Result<Vec<(PathBuf, PathBuf)>, String> {
     let plugin_root = Path::new(&plugin.idl_path)
         .parent()
         .ok_or_else(|| format!("invalid plugin IDL path `{}`", plugin.idl_path))?;
-    let source_root = plugin_root.join(relative_root);
-    if !source_root.is_dir() {
-        return Ok(Vec::new());
-    }
+    let patterns = if relative_root.starts_with("ios/") {
+        &plugin.ios_sources
+    } else {
+        &plugin.android_sources
+    };
+    let fallback = plugin_root.join(relative_root);
+    let mut roots = if patterns.is_empty() {
+        vec![fallback]
+    } else {
+        patterns.iter().map(PathBuf::from).collect::<Vec<_>>()
+    };
+    roots.sort();
+    roots.dedup();
+
     let mut files = Vec::new();
-    collect_files(&source_root, extension, &mut files)?;
-    files.sort();
+    for pattern in roots {
+        let (root, explicit_file) = if pattern.is_file() {
+            (
+                pattern
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| plugin_root.to_path_buf()),
+                Some(pattern),
+            )
+        } else {
+            let pattern_string = pattern.to_string_lossy();
+            let root = pattern_string
+                .strip_suffix("/**")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| pattern.clone());
+            (root, None)
+        };
+
+        if let Some(file) = explicit_file {
+            if file
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value == extension)
+            {
+                files.push((file, root));
+            }
+        } else if root.is_dir() {
+            let mut matching = Vec::new();
+            collect_files(&root, extension, &mut matching)?;
+            files.extend(matching.into_iter().map(|file| (file, root.clone())));
+        }
+    }
+
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    files.dedup_by(|left, right| left.0 == right.0);
     Ok(files)
 }
 

@@ -27,6 +27,9 @@ pub struct Module {
 pub struct Plugin {
     pub namespace: String,
     pub idl_path: String,
+    /// Absolute source roots/globs declared by `plugin.config.nx`.
+    pub ios_sources: Vec<String>,
+    pub android_sources: Vec<String>,
 }
 
 #[derive(Clone, Debug)]

@@ -362,6 +362,8 @@ impl Parser {
             idl: None,
             pure: false,
             assets_path: None,
+            ios_sources: Vec::new(),
+            android_sources: Vec::new(),
         })
     }
 

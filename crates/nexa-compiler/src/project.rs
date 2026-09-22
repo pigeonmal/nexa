@@ -182,6 +182,12 @@ fn load_file(
                 )?;
                 plugin.pure = true;
                 plugin.path = source.display().to_string();
+                if let Some(manifest) = manifest.as_ref() {
+                    plugin.ios_sources =
+                        resolve_manifest_sources(&declared_path, &manifest.ios.sources);
+                    plugin.android_sources =
+                        resolve_manifest_sources(&declared_path, &manifest.android.sources);
+                }
                 let assets = manifest
                     .as_ref()
                     .and_then(|manifest| manifest.assets.first())
@@ -201,6 +207,10 @@ fn load_file(
                     )
                     .with_file(canonical_path.display().to_string())
                 })?;
+                plugin.ios_sources =
+                    resolve_manifest_sources(&declared_path, &manifest.ios.sources);
+                plugin.android_sources =
+                    resolve_manifest_sources(&declared_path, &manifest.android.sources);
                 let native = manifest.native.ok_or_else(|| {
                     CompileError::new(
                         plugin.span,
@@ -282,6 +292,13 @@ fn load_file(
     active.remove(&canonical_path);
     loaded_paths.insert(canonical_path);
     Ok(())
+}
+
+fn resolve_manifest_sources(root: &Path, patterns: &[String]) -> Vec<String> {
+    patterns
+        .iter()
+        .map(|pattern| root.join(pattern).display().to_string())
+        .collect()
 }
 
 fn file_level_span() -> Span {

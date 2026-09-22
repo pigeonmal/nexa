@@ -378,6 +378,8 @@ pub fn lower_with_warnings(
         .map(|plugin| nexa_ir::Plugin {
             namespace: plugin.namespace.clone(),
             idl_path: plugin.path.clone(),
+            ios_sources: plugin.ios_sources.clone(),
+            android_sources: plugin.android_sources.clone(),
         })
         .collect();
     let plugin_assets = app

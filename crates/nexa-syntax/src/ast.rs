@@ -25,6 +25,11 @@ pub struct PluginDecl {
     pub idl: Option<nexa_plugin_idl::PluginIdl>,
     pub pure: bool,
     pub assets_path: Option<String>,
+    /// Absolute source globs declared by the plugin manifest. Keeping these
+    /// on the resolved declaration lets project generation honor a plugin's
+    /// package layout without rediscovering or guessing conventional folders.
+    pub ios_sources: Vec<String>,
+    pub android_sources: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
