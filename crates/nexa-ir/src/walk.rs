@@ -41,9 +41,11 @@ pub fn walk_ir(
                 walk_actions(actions, visit_expression);
                 walk_ir(children, visit_node, visit_expression);
             }
-            Node::OnAppear { actions, .. } | Node::OnDisappear { actions } => {
-                walk_actions(actions, visit_expression)
-            }
+            Node::OnAppear { actions, .. }
+            | Node::OnDisappear { actions }
+            | Node::OnActive { actions }
+            | Node::OnInactive { actions }
+            | Node::OnBackground { actions } => walk_actions(actions, visit_expression),
             Node::AppBottomBar { tabs, .. } => {
                 for tab in tabs {
                     walk_ir(&tab.children, visit_node, visit_expression);
@@ -285,7 +287,10 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::ComponentCall { .. }
         | Node::Content
         | Node::OnAppear { .. }
-        | Node::OnDisappear { .. } => false,
+        | Node::OnDisappear { .. }
+        | Node::OnActive { .. }
+        | Node::OnInactive { .. }
+        | Node::OnBackground { .. } => false,
     })
 }
 

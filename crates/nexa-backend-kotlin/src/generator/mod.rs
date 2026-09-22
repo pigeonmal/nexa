@@ -48,6 +48,9 @@ pub(super) fn generate(module: &Module) -> String {
                 .screens
                 .iter()
                 .any(|screen| screen.on_disappear.is_some()),
+        module.on_active.is_some()
+            || module.on_inactive.is_some()
+            || module.on_background.is_some(),
         &mut out,
     );
     for declaration in &module.enums {
@@ -162,6 +165,7 @@ pub(super) fn generate(module: &Module) -> String {
     };
     render_on_appear_effect(module.on_appear.as_deref(), body_depth, &mut out);
     render_on_disappear_effect(module.on_disappear.as_deref(), body_depth, &mut out);
+    render_lifecycle_effect(module, body_depth, &mut out);
     if module.body.len() == 1 {
         components::render_node(&module.body[0], module, &features, body_depth, &mut out);
     } else {
@@ -247,6 +251,59 @@ pub(super) fn render_on_disappear_effect(
     out.push_str("}\n");
     utils::indent(out, depth);
     out.push_str("}\n");
+}
+
+fn render_lifecycle_effect(module: &Module, depth: usize, out: &mut String) {
+    if module.on_active.is_none() && module.on_inactive.is_none() && module.on_background.is_none()
+    {
+        return;
+    }
+    let indent = "    ".repeat(depth);
+    let nested = "    ".repeat(depth + 1);
+    let deep = "    ".repeat(depth + 2);
+    out.push_str(&format!(
+        "{indent}val nexaLifecycleOwner = LocalLifecycleOwner.current\n"
+    ));
+    out.push_str(&format!(
+        "{indent}DisposableEffect(nexaLifecycleOwner) {{\n"
+    ));
+    out.push_str(&format!(
+        "{nested}val nexaLifecycleObserver = LifecycleEventObserver {{ _, event ->\n"
+    ));
+    out.push_str(&format!("{deep}when (event) {{\n"));
+    render_lifecycle_case("ON_RESUME", module.on_active.as_deref(), depth + 3, out);
+    render_lifecycle_case("ON_PAUSE", module.on_inactive.as_deref(), depth + 3, out);
+    render_lifecycle_case("ON_STOP", module.on_background.as_deref(), depth + 3, out);
+    out.push_str(&format!("{}else -> Unit\n", "    ".repeat(depth + 3)));
+    out.push_str(&format!("{deep}}}\n"));
+    out.push_str(&format!("{nested}}}\n"));
+    out.push_str(&format!(
+        "{nested}nexaLifecycleOwner.lifecycle.addObserver(nexaLifecycleObserver)\n"
+    ));
+    out.push_str(&format!(
+        "{nested}onDispose {{ nexaLifecycleOwner.lifecycle.removeObserver(nexaLifecycleObserver) }}\n"
+    ));
+    out.push_str(&format!("{indent}}}\n"));
+}
+
+fn render_lifecycle_case(
+    event: &str,
+    actions: Option<&[nexa_ir::Action]>,
+    depth: usize,
+    out: &mut String,
+) {
+    let indent = "    ".repeat(depth);
+    out.push_str(&format!("{indent}Lifecycle.Event.{event} -> {{\n"));
+    if let Some(actions) = actions {
+        if actions.is_empty() {
+            out.push_str(&format!("{}Unit\n", "    ".repeat(depth + 1)));
+        } else {
+            controls::render_actions(actions, depth + 1, out);
+        }
+    } else {
+        out.push_str(&format!("{}Unit\n", "    ".repeat(depth + 1)));
+    }
+    out.push_str(&format!("{indent}}}\n"));
 }
 
 pub(super) fn render_status_bar(

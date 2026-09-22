@@ -232,6 +232,18 @@ pub enum Node {
         actions: Vec<Stmt>,
         span: Span,
     },
+    OnActive {
+        actions: Vec<Stmt>,
+        span: Span,
+    },
+    OnInactive {
+        actions: Vec<Stmt>,
+        span: Span,
+    },
+    OnBackground {
+        actions: Vec<Stmt>,
+        span: Span,
+    },
     Text {
         value: Expr,
         color: Option<Expr>,

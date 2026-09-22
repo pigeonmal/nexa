@@ -19,7 +19,10 @@ pub(super) fn render_node(
         Node::StatusBar { .. }
         | Node::Direction { .. }
         | Node::OnAppear { .. }
-        | Node::OnDisappear { .. } => {}
+        | Node::OnDisappear { .. }
+        | Node::OnActive { .. }
+        | Node::OnInactive { .. }
+        | Node::OnBackground { .. } => {}
         Node::Layout {
             kind,
             spacing,

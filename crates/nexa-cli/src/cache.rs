@@ -13,7 +13,7 @@ use std::{
 
 use nexa_syntax::ast::Program;
 
-const CACHE_VERSION: &str = "build-v38";
+const CACHE_VERSION: &str = "build-v39";
 
 pub(super) struct CachedBuild {
     pub(super) warnings: Vec<String>,

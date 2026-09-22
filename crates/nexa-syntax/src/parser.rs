@@ -780,6 +780,18 @@ impl Parser {
                 actions: self.block_stmts()?,
                 span,
             }),
+            "OnActive" => Ok(Node::OnActive {
+                actions: self.block_stmts()?,
+                span,
+            }),
+            "OnInactive" => Ok(Node::OnInactive {
+                actions: self.block_stmts()?,
+                span,
+            }),
+            "OnBackground" => Ok(Node::OnBackground {
+                actions: self.block_stmts()?,
+                span,
+            }),
             "Column" | "Row" | "Stack" => {
                 let kind = match name.as_str() {
                     "Column" => LayoutKind::Column,

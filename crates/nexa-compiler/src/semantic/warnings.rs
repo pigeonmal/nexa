@@ -306,6 +306,11 @@ fn walk_node(
         ast::Node::OnDisappear { actions, .. } => {
             walk_actions(actions, names, used, target, file, warnings);
         }
+        ast::Node::OnActive { actions, .. }
+        | ast::Node::OnInactive { actions, .. }
+        | ast::Node::OnBackground { actions, .. } => {
+            walk_actions(actions, names, used, target, file, warnings);
+        }
         ast::Node::Button {
             label,
             loading,

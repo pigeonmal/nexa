@@ -802,7 +802,7 @@ Compile dependency relationships statically when possible.
 
 Expose a common lifecycle abstraction.
 
-The first slice is implemented as one top-level `OnAppear { ... }` or `OnDisappear { ... }` callback on the app body or each named screen. Their direct state actions lower to SwiftUI lifecycle modifiers and Compose `LaunchedEffect(Unit)`/`DisposableEffect(Unit)` without a shared lifecycle runtime. See [lifecycle.nx](examples/lifecycle.nx) and [navigation.nx](examples/navigation.nx).
+The first slice is implemented as one top-level `OnAppear { ... }` or `OnDisappear { ... }` callback on the app body or each named screen. App roots additionally accept one `OnActive`, `OnInactive`, and `OnBackground` callback. Their direct state actions lower to SwiftUI lifecycle modifiers, `scenePhase`, and Compose `LifecycleEventObserver` without a shared lifecycle runtime. See [lifecycle.nx](examples/lifecycle.nx) and [navigation.nx](examples/navigation.nx).
 
 Support concepts such as:
 
@@ -812,7 +812,7 @@ Support concepts such as:
 - screen appeared,
 - screen disappeared.
 
-Map lifecycle events directly to native lifecycle systems.
+Map lifecycle events directly to native lifecycle systems. App active-state callbacks are restricted to the app body; screen callbacks remain `OnAppear` and `OnDisappear`.
 
 ## Async
 

@@ -29,6 +29,15 @@ pub(crate) fn optimize(module: &mut Module) {
     if let Some(actions) = &mut module.on_disappear {
         *actions = optimize_actions(std::mem::take(actions));
     }
+    if let Some(actions) = &mut module.on_active {
+        *actions = optimize_actions(std::mem::take(actions));
+    }
+    if let Some(actions) = &mut module.on_inactive {
+        *actions = optimize_actions(std::mem::take(actions));
+    }
+    if let Some(actions) = &mut module.on_background {
+        *actions = optimize_actions(std::mem::take(actions));
+    }
     for screen in &mut module.screens {
         for state in &mut screen.states {
             state.initial =
@@ -256,6 +265,14 @@ fn prune_unused_functions(module: &mut Module) {
     if let Some(actions) = &module.on_disappear {
         collect_action_function_references(actions, &declared, &mut used);
     }
+    for actions in module
+        .on_active
+        .iter()
+        .chain(module.on_inactive.iter())
+        .chain(module.on_background.iter())
+    {
+        collect_action_function_references(actions, &declared, &mut used);
+    }
     for screen in &module.screens {
         for state in &screen.states {
             collect_expression_function_references(&state.initial, &declared, &mut used);
@@ -383,6 +400,14 @@ fn prune_unused_states(module: &mut Module) {
     if let Some(actions) = &module.on_disappear {
         collect_action_state_references(actions, &mut used);
     }
+    for actions in module
+        .on_active
+        .iter()
+        .chain(module.on_inactive.iter())
+        .chain(module.on_background.iter())
+    {
+        collect_action_state_references(actions, &mut used);
+    }
     for screen in &module.screens {
         collect_node_state_references(&screen.body, &mut used);
         if let Some(actions) = &screen.on_appear {
@@ -469,6 +494,14 @@ fn prune_unused_structs(module: &mut Module) {
     if let Some(actions) = &module.on_disappear {
         collect_action_struct_names(actions, &mut used);
     }
+    for actions in module
+        .on_active
+        .iter()
+        .chain(module.on_inactive.iter())
+        .chain(module.on_background.iter())
+    {
+        collect_action_struct_names(actions, &mut used);
+    }
 
     let mut pending = used.iter().cloned().collect::<Vec<_>>();
     let mut expanded = HashSet::new();
@@ -518,6 +551,14 @@ fn prune_unused_plugins(module: &mut Module) {
         collect_action_plugin_references(actions, &mut collect);
     }
     if let Some(actions) = &module.on_disappear {
+        collect_action_plugin_references(actions, &mut collect);
+    }
+    for actions in module
+        .on_active
+        .iter()
+        .chain(module.on_inactive.iter())
+        .chain(module.on_background.iter())
+    {
         collect_action_plugin_references(actions, &mut collect);
     }
     for screen in &module.screens {
@@ -1036,6 +1077,15 @@ fn optimize_node(node: Node) -> Option<Node> {
             asynchronous,
         }),
         Node::OnDisappear { actions } => Some(Node::OnDisappear {
+            actions: optimize_actions(actions),
+        }),
+        Node::OnActive { actions } => Some(Node::OnActive {
+            actions: optimize_actions(actions),
+        }),
+        Node::OnInactive { actions } => Some(Node::OnInactive {
+            actions: optimize_actions(actions),
+        }),
+        Node::OnBackground { actions } => Some(Node::OnBackground {
             actions: optimize_actions(actions),
         }),
         Node::NavigationLink {

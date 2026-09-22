@@ -6,6 +6,7 @@ pub(super) fn render(
     has_direction: bool,
     has_on_appear: bool,
     has_on_disappear: bool,
+    has_lifecycle_events: bool,
     out: &mut String,
 ) {
     let mut imports = Vec::with_capacity(40);
@@ -41,8 +42,17 @@ pub(super) fn render(
         "androidx.compose.runtime.snapshotFlow",
     );
     add(
-        has_on_disappear,
+        has_on_disappear || has_lifecycle_events,
         "androidx.compose.runtime.DisposableEffect",
+    );
+    add(
+        has_lifecycle_events,
+        "androidx.lifecycle.compose.LocalLifecycleOwner",
+    );
+    add(has_lifecycle_events, "androidx.lifecycle.Lifecycle");
+    add(
+        has_lifecycle_events,
+        "androidx.lifecycle.LifecycleEventObserver",
     );
     add(features.uses_link, "android.content.Intent");
     add(features.uses_link, "android.net.Uri");

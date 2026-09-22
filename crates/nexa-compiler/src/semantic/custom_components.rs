@@ -227,6 +227,15 @@ fn lower_component(
             "OnDisappear is only allowed at an app or screen body's top level",
         ));
     }
+    if body.iter().any(super::contains_on_active)
+        || body.iter().any(super::contains_on_inactive)
+        || body.iter().any(super::contains_on_background)
+    {
+        return Err(CompileError::new(
+            declaration.span,
+            "app lifecycle events are only allowed at the app body's top level",
+        ));
+    }
 
     let parameters = signature
         .parameters
@@ -394,7 +403,10 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
         | ast::Node::Content { .. }
         | ast::Node::Direction { .. }
         | ast::Node::OnAppear { .. }
-        | ast::Node::OnDisappear { .. } => {}
+        | ast::Node::OnDisappear { .. }
+        | ast::Node::OnActive { .. }
+        | ast::Node::OnInactive { .. }
+        | ast::Node::OnBackground { .. } => {}
     }
 }
 
@@ -478,7 +490,10 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::NavigationStack { .. }
         | Node::Direction { .. }
         | Node::OnAppear { .. }
-        | Node::OnDisappear { .. } => {}
+        | Node::OnDisappear { .. }
+        | Node::OnActive { .. }
+        | Node::OnInactive { .. }
+        | Node::OnBackground { .. } => {}
     }
 }
 
@@ -549,7 +564,10 @@ fn contains_content_slot(node: &ast::Node) -> bool {
         | ast::Node::NavigationStack { .. }
         | ast::Node::Direction { .. }
         | ast::Node::OnAppear { .. }
-        | ast::Node::OnDisappear { .. } => false,
+        | ast::Node::OnDisappear { .. }
+        | ast::Node::OnActive { .. }
+        | ast::Node::OnInactive { .. }
+        | ast::Node::OnBackground { .. } => false,
     }
 }
 

@@ -258,6 +258,7 @@ fn generate_android(
     let uses_network = generated.contains("NexaNetwork") || generated.contains("org.chromium.net");
     let uses_remote_image =
         generated.contains("coil3.compose.AsyncImage") || generated.contains("coil3.network");
+    let uses_lifecycle_events = generated.contains("LocalLifecycleOwner");
     let cronet_import = if uses_network {
         "import com.google.android.gms.net.CronetProviderInstaller\n"
     } else {
@@ -311,6 +312,7 @@ fn generate_android(
             uses_network,
             uses_remote_image,
             generated.contains("NavHost"),
+            uses_lifecycle_events,
         ),
     )?;
     write_if_changed(
@@ -868,6 +870,7 @@ fn android_app_gradle(
     uses_network: bool,
     uses_remote_image: bool,
     navigation: bool,
+    uses_lifecycle_events: bool,
 ) -> String {
     let mut dependencies = String::from(
         "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.ui:ui-graphics\")\n    implementation(\"androidx.compose.ui:ui-tooling-preview\")\n    implementation(\"androidx.compose.material3:material3\")\n    debugImplementation(\"androidx.compose.ui:ui-tooling\")\n",
@@ -875,6 +878,11 @@ fn android_app_gradle(
     if navigation {
         dependencies
             .push_str("    implementation(\"androidx.navigation:navigation-compose:2.8.5\")\n");
+    }
+    if uses_lifecycle_events {
+        dependencies.push_str(
+            "    implementation(\"androidx.lifecycle:lifecycle-runtime-compose:2.11.0\")\n",
+        );
     }
     if uses_remote_image {
         dependencies.push_str(

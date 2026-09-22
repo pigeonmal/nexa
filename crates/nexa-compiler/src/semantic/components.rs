@@ -111,6 +111,15 @@ pub(super) fn lower_node(
         ast::Node::OnDisappear { actions, .. } => Ok(Node::OnDisappear {
             actions: lower_actions(actions, symbols, functions, false)?,
         }),
+        ast::Node::OnActive { actions, .. } => Ok(Node::OnActive {
+            actions: lower_actions(actions, symbols, functions, false)?,
+        }),
+        ast::Node::OnInactive { actions, .. } => Ok(Node::OnInactive {
+            actions: lower_actions(actions, symbols, functions, false)?,
+        }),
+        ast::Node::OnBackground { actions, .. } => Ok(Node::OnBackground {
+            actions: lower_actions(actions, symbols, functions, false)?,
+        }),
         ast::Node::Layout {
             kind,
             spacing,
@@ -1214,6 +1223,9 @@ pub(super) fn contains_content(node: &Node) -> bool {
         | Node::Direction { .. }
         | Node::OnAppear { .. }
         | Node::OnDisappear { .. }
+        | Node::OnActive { .. }
+        | Node::OnInactive { .. }
+        | Node::OnBackground { .. }
         | Node::TextInput { .. }
         | Node::Switch { .. }
         | Node::Image { .. }

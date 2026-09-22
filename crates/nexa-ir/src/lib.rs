@@ -16,6 +16,9 @@ pub struct Module {
     pub on_appear: Option<Vec<Action>>,
     pub on_appear_async: bool,
     pub on_disappear: Option<Vec<Action>>,
+    pub on_active: Option<Vec<Action>>,
+    pub on_inactive: Option<Vec<Action>>,
+    pub on_background: Option<Vec<Action>>,
 }
 
 #[derive(Clone, Debug)]
@@ -313,6 +316,15 @@ pub enum Node {
         asynchronous: bool,
     },
     OnDisappear {
+        actions: Vec<Action>,
+    },
+    OnActive {
+        actions: Vec<Action>,
+    },
+    OnInactive {
+        actions: Vec<Action>,
+    },
+    OnBackground {
         actions: Vec<Action>,
     },
     Layout {

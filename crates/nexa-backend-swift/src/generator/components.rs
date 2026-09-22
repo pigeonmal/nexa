@@ -12,7 +12,10 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
         Node::StatusBar { .. }
         | Node::Direction { .. }
         | Node::OnAppear { .. }
-        | Node::OnDisappear { .. } => {}
+        | Node::OnDisappear { .. }
+        | Node::OnActive { .. }
+        | Node::OnInactive { .. }
+        | Node::OnBackground { .. } => {}
         Node::Layout {
             kind,
             spacing,

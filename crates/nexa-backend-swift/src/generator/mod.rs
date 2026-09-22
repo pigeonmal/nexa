@@ -121,7 +121,16 @@ pub(super) fn generate(module: &Module) -> String {
         );
         out.push_str("    @Environment(\\.verticalSizeClass) private var nexaVerticalSizeClass\n");
     }
-    if features.app_uses_adaptive_color || features.app_uses_size_class {
+    if module.on_active.is_some() || module.on_inactive.is_some() || module.on_background.is_some()
+    {
+        out.push_str("    @Environment(\\.scenePhase) private var nexaScenePhase\n");
+    }
+    if features.app_uses_adaptive_color
+        || features.app_uses_size_class
+        || module.on_active.is_some()
+        || module.on_inactive.is_some()
+        || module.on_background.is_some()
+    {
         out.push('\n');
     }
     out.push_str("    public init() {}\n\n    public var body: some View {\n");
@@ -149,6 +158,7 @@ pub(super) fn generate(module: &Module) -> String {
         &mut out,
     );
     render_on_disappear_modifier(module.on_disappear.as_deref(), 2, &mut out);
+    render_scene_phase_modifier(module, 2, &mut out);
     render_status_bar_modifiers(module.status_bar, 2, &mut out);
     out.push_str("\n    }\n");
     if !module.screens.is_empty() {
@@ -257,6 +267,45 @@ pub(super) fn render_on_disappear_modifier(
     }
     out.push('\n');
     controls::render_actions(actions, depth + 2, out);
+    utils::indent(out, depth + 1);
+    out.push('}');
+}
+
+fn render_scene_phase_modifier(module: &Module, depth: usize, out: &mut String) {
+    if module.on_active.is_none() && module.on_inactive.is_none() && module.on_background.is_none()
+    {
+        return;
+    }
+    out.push('\n');
+    utils::indent(out, depth + 1);
+    out.push_str(".onChange(of: nexaScenePhase) { phase in\n");
+    utils::indent(out, depth + 2);
+    out.push_str("switch phase {\n");
+    for (phase, actions) in [
+        ("active", module.on_active.as_deref()),
+        ("inactive", module.on_inactive.as_deref()),
+        ("background", module.on_background.as_deref()),
+    ] {
+        utils::indent(out, depth + 3);
+        out.push_str(&format!("case .{phase}:\n"));
+        if let Some(actions) = actions {
+            if actions.is_empty() {
+                utils::indent(out, depth + 4);
+                out.push_str("break\n");
+            } else {
+                controls::render_actions(actions, depth + 4, out);
+            }
+        } else {
+            utils::indent(out, depth + 4);
+            out.push_str("break\n");
+        }
+    }
+    utils::indent(out, depth + 3);
+    out.push_str("@unknown default:\n");
+    utils::indent(out, depth + 4);
+    out.push_str("break\n");
+    utils::indent(out, depth + 2);
+    out.push_str("}\n");
     utils::indent(out, depth + 1);
     out.push('}');
 }

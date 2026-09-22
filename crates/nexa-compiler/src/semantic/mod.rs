@@ -291,6 +291,15 @@ pub fn lower_with_warnings(
                 "Direction is only allowed at the app body's top level",
             ));
         }
+        if screen_body.iter().any(contains_on_active)
+            || screen_body.iter().any(contains_on_inactive)
+            || screen_body.iter().any(contains_on_background)
+        {
+            return Err(CompileError::new(
+                screen.span,
+                "app lifecycle events are only allowed at the app body's top level",
+            ));
+        }
         let (on_appear, on_appear_async, screen_body) =
             extract_on_appear(screen_body, screen.span, "screen")?;
         let (on_disappear, screen_body) = extract_on_disappear(screen_body, screen.span, "screen")?;
@@ -326,6 +335,11 @@ pub fn lower_with_warnings(
     let (direction, body) = extract_direction(body, app.span)?;
     let (on_appear, on_appear_async, body) = extract_on_appear(body, app.span, "app")?;
     let (on_disappear, body) = extract_on_disappear(body, app.span, "app")?;
+    let (on_active, body) = extract_lifecycle_event(body, app.span, "app", LifecycleEvent::Active)?;
+    let (on_inactive, body) =
+        extract_lifecycle_event(body, app.span, "app", LifecycleEvent::Inactive)?;
+    let (on_background, body) =
+        extract_lifecycle_event(body, app.span, "app", LifecycleEvent::Background)?;
     let components = retain_reachable(components, &body, &screens);
     let plugins = app
         .plugins
@@ -350,6 +364,9 @@ pub fn lower_with_warnings(
         on_appear,
         on_appear_async,
         on_disappear,
+        on_active,
+        on_inactive,
+        on_background,
     };
     crate::optimize::optimize(&mut module);
     Ok((module, warnings))
@@ -849,6 +866,9 @@ fn collect_active_nodes<'a>(
             ast::Node::Direction { .. } => {}
             ast::Node::OnAppear { .. } => {}
             ast::Node::OnDisappear { .. } => {}
+            ast::Node::OnActive { .. } => {}
+            ast::Node::OnInactive { .. } => {}
+            ast::Node::OnBackground { .. } => {}
             node => active.push(node),
         }
     }
@@ -946,7 +966,10 @@ pub(super) fn contains_status_bar(node: &Node) -> bool {
         | Node::Content
         | Node::Direction { .. }
         | Node::OnAppear { .. }
-        | Node::OnDisappear { .. } => false,
+        | Node::OnDisappear { .. }
+        | Node::OnActive { .. }
+        | Node::OnInactive { .. }
+        | Node::OnBackground { .. } => false,
     }
 }
 
@@ -1034,7 +1057,10 @@ pub(super) fn contains_direction(node: &Node) -> bool {
         | Node::ComponentCall { .. }
         | Node::Content
         | Node::OnAppear { .. }
-        | Node::OnDisappear { .. } => false,
+        | Node::OnDisappear { .. }
+        | Node::OnActive { .. }
+        | Node::OnInactive { .. }
+        | Node::OnBackground { .. } => false,
     }
 }
 
@@ -1128,7 +1154,10 @@ pub(super) fn contains_on_appear(node: &Node) -> bool {
         | Node::NavigationStack { .. }
         | Node::ComponentCall { .. }
         | Node::Content
-        | Node::OnDisappear { .. } => false,
+        | Node::OnDisappear { .. }
+        | Node::OnActive { .. }
+        | Node::OnInactive { .. }
+        | Node::OnBackground { .. } => false,
     }
 }
 
@@ -1159,6 +1188,157 @@ fn extract_on_disappear(
         }
     }
     Ok((actions, body))
+}
+
+#[derive(Clone, Copy)]
+enum LifecycleEvent {
+    Active,
+    Inactive,
+    Background,
+}
+
+fn extract_lifecycle_event(
+    nodes: Vec<Node>,
+    span: nexa_diagnostics::Span,
+    scope: &str,
+    event: LifecycleEvent,
+) -> Result<(Option<Vec<Action>>, Vec<Node>), CompileError> {
+    let mut actions = None;
+    let mut body = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        let event_actions = match (event, &node) {
+            (LifecycleEvent::Active, Node::OnActive { actions })
+            | (LifecycleEvent::Inactive, Node::OnInactive { actions })
+            | (LifecycleEvent::Background, Node::OnBackground { actions }) => Some(actions.clone()),
+            _ => None,
+        };
+        if let Some(value) = event_actions {
+            if actions.replace(value).is_some() {
+                return Err(CompileError::new(
+                    span,
+                    format!(
+                        "a {scope} can declare only one top-level {} lifecycle callback",
+                        lifecycle_event_name(event)
+                    ),
+                ));
+            }
+        } else if contains_lifecycle_event(&node, event) {
+            return Err(CompileError::new(
+                span,
+                format!(
+                    "{} lifecycle callbacks are only allowed at the {scope} body's top level",
+                    lifecycle_event_name(event)
+                ),
+            ));
+        } else {
+            body.push(node);
+        }
+    }
+    Ok((actions, body))
+}
+
+fn lifecycle_event_name(event: LifecycleEvent) -> &'static str {
+    match event {
+        LifecycleEvent::Active => "OnActive",
+        LifecycleEvent::Inactive => "OnInactive",
+        LifecycleEvent::Background => "OnBackground",
+    }
+}
+
+pub(super) fn contains_on_active(node: &Node) -> bool {
+    contains_lifecycle_event(node, LifecycleEvent::Active)
+}
+
+pub(super) fn contains_on_inactive(node: &Node) -> bool {
+    contains_lifecycle_event(node, LifecycleEvent::Inactive)
+}
+
+pub(super) fn contains_on_background(node: &Node) -> bool {
+    contains_lifecycle_event(node, LifecycleEvent::Background)
+}
+
+fn contains_lifecycle_event(node: &Node, event: LifecycleEvent) -> bool {
+    match (event, node) {
+        (LifecycleEvent::Active, Node::OnActive { .. })
+        | (LifecycleEvent::Inactive, Node::OnInactive { .. })
+        | (LifecycleEvent::Background, Node::OnBackground { .. }) => true,
+        _ => match node {
+            Node::Layout { children, .. }
+            | Node::NavigationLink { children, .. }
+            | Node::Link { children, .. }
+            | Node::Accessibility { children, .. }
+            | Node::KeyboardAware { children, .. }
+            | Node::BottomSheet { children, .. }
+            | Node::RefreshControl { children, .. }
+            | Node::Pressable { children, .. } => children
+                .iter()
+                .any(|child| contains_lifecycle_event(child, event)),
+            Node::FastList {
+                children,
+                sticky_header,
+                section_header,
+                ..
+            } => {
+                children
+                    .iter()
+                    .any(|child| contains_lifecycle_event(child, event))
+                    || sticky_header.as_deref().is_some_and(|header| {
+                        header
+                            .iter()
+                            .any(|child| contains_lifecycle_event(child, event))
+                    })
+                    || section_header.as_deref().is_some_and(|header| {
+                        header
+                            .iter()
+                            .any(|child| contains_lifecycle_event(child, event))
+                    })
+            }
+            Node::AppBottomBar { tabs, .. } => tabs.iter().any(|tab| {
+                tab.children
+                    .iter()
+                    .any(|child| contains_lifecycle_event(child, event))
+            }),
+            Node::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                then_body
+                    .iter()
+                    .any(|child| contains_lifecycle_event(child, event))
+                    || else_body.as_deref().is_some_and(|body| {
+                        body.iter()
+                            .any(|child| contains_lifecycle_event(child, event))
+                    })
+            }
+            Node::When {
+                cases, else_body, ..
+            } => {
+                cases.iter().any(|case| {
+                    case.body
+                        .iter()
+                        .any(|child| contains_lifecycle_event(child, event))
+                }) || else_body
+                    .iter()
+                    .any(|child| contains_lifecycle_event(child, event))
+            }
+            Node::StatusBar { .. }
+            | Node::Direction { .. }
+            | Node::OnAppear { .. }
+            | Node::OnDisappear { .. }
+            | Node::OnActive { .. }
+            | Node::OnInactive { .. }
+            | Node::OnBackground { .. }
+            | Node::Text { .. }
+            | Node::Button { .. }
+            | Node::TextInput { .. }
+            | Node::Switch { .. }
+            | Node::Image { .. }
+            | Node::NavigationStack { .. }
+            | Node::ComponentCall { .. }
+            | Node::Content => false,
+        },
+    }
 }
 
 pub(super) fn contains_on_disappear(node: &Node) -> bool {
@@ -1210,6 +1390,9 @@ pub(super) fn contains_on_disappear(node: &Node) -> bool {
         Node::StatusBar { .. }
         | Node::Direction { .. }
         | Node::OnAppear { .. }
+        | Node::OnActive { .. }
+        | Node::OnInactive { .. }
+        | Node::OnBackground { .. }
         | Node::Text { .. }
         | Node::Button { .. }
         | Node::TextInput { .. }
