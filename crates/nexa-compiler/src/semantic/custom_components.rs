@@ -395,7 +395,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::NavigationLink { children, .. }
         | Node::Link { children, .. }
         | Node::Accessibility { children, .. }
-        | Node::KeyboardAware { children }
+        | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::RefreshControl { children, .. }
         | Node::FastList { children, .. } => {

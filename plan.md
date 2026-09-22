@@ -607,6 +607,12 @@ Integrate directly with native keyboard and window inset APIs.
 
 Keyboard animation synchronization must be native and smooth.
 
+The current `KeyboardAware` slice accepts an optional static `dismiss` mode
+(`Interactive` or `Never`). Swift uses `scrollDismissesKeyboard`, while Compose
+uses `imeNestedScroll` for interactive dismissal and omits that modifier for
+the never-dismiss path. Insets and scrolling remain native, with no keyboard
+event bridge.
+
 ## Layout
 
 Layout must rely primarily on native platform layout systems.

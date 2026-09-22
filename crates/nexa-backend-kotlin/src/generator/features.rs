@@ -45,6 +45,8 @@ pub(super) struct Features {
     pub(super) uses_accessibility_heading: bool,
     pub(super) uses_list: bool,
     pub(super) uses_keyboard_aware: bool,
+    pub(super) uses_keyboard_interactive: bool,
+    pub(super) app_uses_keyboard_interactive: bool,
     pub(super) uses_adaptive_color: bool,
     pub(super) uses_font_weight: bool,
     pub(super) uses_text_sp: bool,
@@ -99,6 +101,7 @@ pub(super) struct Features {
     components_using_navigation: HashSet<String>,
     components_using_link: HashSet<String>,
     components_using_haptic: HashSet<String>,
+    components_using_keyboard_interactive: HashSet<String>,
 }
 
 impl Features {
@@ -155,8 +158,10 @@ impl Features {
         let mut components_using_link = HashSet::new();
         let mut components_using_navigation = HashSet::new();
         let mut components_using_haptic = HashSet::new();
+        let mut components_using_keyboard_interactive = HashSet::new();
         let mut app_uses_link = false;
         let mut app_uses_haptic = false;
+        let mut app_uses_keyboard_interactive = false;
         let mut calls = HashMap::<String, Vec<String>>::with_capacity(module.components.len());
         walk_ir(
             &module.body,
@@ -164,6 +169,7 @@ impl Features {
                 features.record_node(node);
                 app_uses_link |= matches!(node, Node::Link { .. });
                 app_uses_haptic |= node_uses_haptic(node);
+                app_uses_keyboard_interactive |= node_uses_keyboard_interactive(node);
             },
             &mut |expr| {
                 uses_regular_width |= matches!(expr, Expr::IsRegularWidth | Expr::IsCompactWidth);
@@ -178,6 +184,7 @@ impl Features {
                     features.record_node(node);
                     app_uses_link |= matches!(node, Node::Link { .. });
                     app_uses_haptic |= node_uses_haptic(node);
+                    app_uses_keyboard_interactive |= node_uses_keyboard_interactive(node);
                 },
                 &mut |expr| {
                     uses_regular_width |=
@@ -207,6 +214,7 @@ impl Features {
             let mut uses_link = false;
             let mut uses_navigation = false;
             let mut uses_haptic = false;
+            let mut uses_keyboard_interactive = false;
             walk_ir(
                 &component.body,
                 &mut |node| {
@@ -228,6 +236,10 @@ impl Features {
                         Node::Pressable {
                             haptic: Some(_), ..
                         } => uses_haptic = true,
+                        Node::KeyboardAware { dismiss, .. } => {
+                            uses_keyboard_interactive =
+                                matches!(dismiss, nexa_ir::KeyboardDismissMode::Interactive)
+                        }
                         _ => {}
                     }
                 },
@@ -250,6 +262,9 @@ impl Features {
             if uses_haptic {
                 components_using_haptic.insert(component.name.clone());
             }
+            if uses_keyboard_interactive {
+                components_using_keyboard_interactive.insert(component.name.clone());
+            }
             calls.insert(component.name.clone(), child_calls);
         }
 
@@ -262,8 +277,10 @@ impl Features {
         );
         features.components_using_link = components_using_link;
         features.components_using_haptic = components_using_haptic;
+        features.components_using_keyboard_interactive = components_using_keyboard_interactive;
         features.app_uses_link = app_uses_link;
         features.app_uses_haptic = app_uses_haptic;
+        features.app_uses_keyboard_interactive = app_uses_keyboard_interactive;
         features.uses_regular_width = uses_regular_width;
         features.uses_native_library = uses_native_library || features.uses_remote_image;
         features.uses_permissions = uses_permissions;
@@ -280,6 +297,10 @@ impl Features {
 
     pub(super) fn component_uses_haptic(&self, name: &str) -> bool {
         self.components_using_haptic.contains(name)
+    }
+
+    pub(super) fn component_uses_keyboard_interactive(&self, name: &str) -> bool {
+        self.components_using_keyboard_interactive.contains(name)
     }
 
     pub(super) fn component_requires_navigation(&self, name: &str) -> bool {
@@ -427,8 +448,10 @@ impl Features {
                 self.uses_modifier = true;
                 self.record_child_layout(children);
             }
-            Node::KeyboardAware { .. } => {
+            Node::KeyboardAware { dismiss, .. } => {
                 self.uses_keyboard_aware = true;
+                self.uses_keyboard_interactive |=
+                    matches!(dismiss, nexa_ir::KeyboardDismissMode::Interactive);
                 self.uses_column = true;
                 self.uses_modifier = true;
             }
@@ -610,6 +633,16 @@ fn node_uses_haptic(node: &Node) -> bool {
         node,
         Node::Pressable {
             haptic: Some(_),
+            ..
+        }
+    )
+}
+
+fn node_uses_keyboard_interactive(node: &Node) -> bool {
+    matches!(
+        node,
+        Node::KeyboardAware {
+            dismiss: nexa_ir::KeyboardDismissMode::Interactive,
             ..
         }
     )

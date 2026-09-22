@@ -18,6 +18,9 @@ fn render_component(component: &Component, module: &Module, features: &Features,
     if component_uses_bottom_sheet(component) {
         out.push_str("\n@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)");
     }
+    if features.component_uses_keyboard_interactive(&component.name) {
+        out.push_str("\n@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)");
+    }
     out.push_str(&format!(
         "\n@Composable\nprivate fun {}(",
         nexa_codegen::names::component_name(&component.name)

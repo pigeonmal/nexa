@@ -1,8 +1,9 @@
-use nexa_ir::{Module, Node};
+use nexa_ir::{KeyboardDismissMode, Module, Node};
 
 use super::{components::render_children, utils::indent};
 
 pub(super) fn render_keyboard_aware(
+    dismiss: KeyboardDismissMode,
     children: &[Node],
     module: &Module,
     depth: usize,
@@ -13,5 +14,9 @@ pub(super) fn render_keyboard_aware(
     render_children(children, module, depth + 1, out);
     out.push('\n');
     indent(out, depth);
-    out.push_str("}.scrollDismissesKeyboard(.interactively)");
+    let mode = match dismiss {
+        KeyboardDismissMode::Interactive => "interactively",
+        KeyboardDismissMode::Never => "never",
+    };
+    out.push_str(&format!("}}.scrollDismissesKeyboard(.{mode})"));
 }

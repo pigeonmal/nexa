@@ -236,6 +236,8 @@ String interpolation supports `$name` and `\(expression)`. Embedded expressions 
 
 `TextInput` supports optional mutable `focused` and positive literal `maxLength` bindings. Focus maps to SwiftUI focus state and Compose `FocusRequester`/focus callbacks; submit actions remain native `.onSubmit`/`KeyboardActions`; length limits use direct SwiftUI `onChange`/`String.prefix` and Compose `onValueChange`/`take` callbacks. See [text-input-submit.nx](examples/text-input-submit.nx).
 
+`KeyboardAware(dismiss: Interactive|Never) { ... }` adds native IME insets and scrolling. Interactive dismissal maps to SwiftUI `scrollDismissesKeyboard` and Compose `imeNestedScroll`; `Never` keeps the keyboard visible while scrolling.
+
 `Column` and `Row` support paired static `borderColor` and `borderWidth` values, compiled to native SwiftUI and Compose border primitives; see [borders.nx](examples/borders.nx).
 
 `Column` and `Row` also support a static native `animation` spec (`Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`) for content-size changes; see [animations.nx](examples/animations.nx).

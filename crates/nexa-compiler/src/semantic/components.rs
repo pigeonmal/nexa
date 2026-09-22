@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
     AccessibilityRole, Action, BottomBarTab, Capitalization, CollectionMutation, DirectionConfig,
-    DirectionStyle, Expr, FontWeight, HapticStyle, ImageScale, ImageSource, KeyboardType,
-    LayoutKind, ListSource, Node, NumericType, ScreenId, StatusBarConfig, StatusBarStyle,
-    TextStyle, Type, WhenCase,
+    DirectionStyle, Expr, FontWeight, HapticStyle, ImageScale, ImageSource, KeyboardDismissMode,
+    KeyboardType, LayoutKind, ListSource, Node, NumericType, ScreenId, StatusBarConfig,
+    StatusBarStyle, TextStyle, Type, WhenCase,
 };
 use nexa_syntax::ast;
 
@@ -514,11 +514,14 @@ pub(super) fn lower_node(
                 children,
             })
         }
-        ast::Node::KeyboardAware { children, .. } => {
+        ast::Node::KeyboardAware {
+            dismiss, children, ..
+        } => {
             let lowered_children = lower_nodes(
                 children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
             Ok(Node::KeyboardAware {
+                dismiss: lower_keyboard_dismiss(dismiss)?,
                 children: lowered_children,
             })
         }
@@ -900,7 +903,7 @@ pub(super) fn contains_content(node: &Node) -> bool {
         | Node::NavigationLink { children, .. }
         | Node::Link { children, .. }
         | Node::Accessibility { children, .. }
-        | Node::KeyboardAware { children }
+        | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::RefreshControl { children, .. }
         | Node::Pressable { children, .. }
@@ -986,6 +989,26 @@ fn lower_status_bar(
         hidden,
         background,
     })
+}
+
+fn lower_keyboard_dismiss(value: Option<ast::Expr>) -> Result<KeyboardDismissMode, CompileError> {
+    let Some(value) = value else {
+        return Ok(KeyboardDismissMode::Interactive);
+    };
+    let ast::Expr::Name(name, span) = value else {
+        return Err(CompileError::new(
+            value.span(),
+            "KeyboardAware dismiss must be `Interactive` or `Never`",
+        ));
+    };
+    match name.as_str() {
+        "Interactive" => Ok(KeyboardDismissMode::Interactive),
+        "Never" => Ok(KeyboardDismissMode::Never),
+        _ => Err(CompileError::new(
+            span,
+            "KeyboardAware dismiss must be `Interactive` or `Never`",
+        )),
+    }
 }
 
 fn lower_haptic(value: Option<ast::Expr>) -> Result<Option<HapticStyle>, CompileError> {

@@ -156,8 +156,8 @@ pub(super) fn render_node(
         } => accessibility::render_accessibility(
             label, *role, children, module, features, depth, out,
         ),
-        Node::KeyboardAware { children } => {
-            keyboard::render_keyboard_aware(children, module, features, depth, out)
+        Node::KeyboardAware { dismiss, children } => {
+            keyboard::render_keyboard_aware(*dismiss, children, module, features, depth, out)
         }
         Node::BottomSheet { state, children } => {
             sheets::render_bottom_sheet(state, children, module, features, depth, out)

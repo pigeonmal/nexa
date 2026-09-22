@@ -980,7 +980,8 @@ fn optimize_node(node: Node) -> Option<Node> {
             role,
             children: optimize_nodes(children),
         }),
-        Node::KeyboardAware { children } => Some(Node::KeyboardAware {
+        Node::KeyboardAware { dismiss, children } => Some(Node::KeyboardAware {
+            dismiss,
             children: optimize_nodes(children),
         }),
         Node::BottomSheet { state, children } => Some(Node::BottomSheet {

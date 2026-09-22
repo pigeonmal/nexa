@@ -11,7 +11,7 @@ pub fn walk_ir(
         match node {
             Node::Layout { children, .. }
             | Node::NavigationLink { children, .. }
-            | Node::KeyboardAware { children }
+            | Node::KeyboardAware { children, .. }
             | Node::BottomSheet { children, .. } => walk_ir(children, visit_node, visit_expression),
             Node::Pressable {
                 disabled,

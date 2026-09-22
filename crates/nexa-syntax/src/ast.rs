@@ -304,6 +304,7 @@ pub enum Node {
         span: Span,
     },
     KeyboardAware {
+        dismiss: Option<Expr>,
         children: Vec<Node>,
         span: Span,
     },

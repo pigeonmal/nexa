@@ -6,7 +6,7 @@ app NativeControls {
     state taps: Int32 = 0
 
     body {
-        KeyboardAware {
+        KeyboardAware(dismiss: Interactive) {
             Column(spacing: 16, padding: 20, background: "#F4F5F7", cornerRadius: 16) {
                 Image(asset: "nexa_mark", description: "Nexa mark", scale: Fit)
                 Image(

@@ -61,6 +61,9 @@ pub(super) fn generate(module: &Module) -> String {
     if features.uses_bottom_sheet {
         out.push_str("@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)\n");
     }
+    if features.app_uses_keyboard_interactive {
+        out.push_str("@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)\n");
+    }
     out.push_str(&format!(
         "@Composable\nfun {}() {{\n",
         nexa_codegen::names::screen_name(&module.app_name)

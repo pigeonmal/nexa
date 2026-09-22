@@ -991,8 +991,17 @@ impl Parser {
                 })
             }
             "KeyboardAware" => {
+                let mut args = if self.check(&Kind::LParen) {
+                    self.named_args(&["dismiss"])?
+                } else {
+                    BTreeMap::new()
+                };
                 let children = self.block_nodes()?;
-                Ok(Node::KeyboardAware { children, span })
+                Ok(Node::KeyboardAware {
+                    dismiss: args.remove("dismiss"),
+                    children,
+                    span,
+                })
             }
             "BottomSheet" => {
                 let mut args = self.named_args(&["isPresented"])?;

@@ -170,6 +170,10 @@ pub(super) fn render(
         features.uses_keyboard_aware,
         "androidx.compose.foundation.layout.imePadding",
     );
+    add(
+        features.uses_keyboard_interactive,
+        "androidx.compose.foundation.layout.imeNestedScroll",
+    );
 
     add(
         features.uses_corner_radius,

@@ -142,6 +142,12 @@ pub enum HapticStyle {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyboardDismissMode {
+    Interactive,
+    Never,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DirectionConfig {
     pub style: DirectionStyle,
 }
@@ -369,6 +375,7 @@ pub enum Node {
         children: Vec<Node>,
     },
     KeyboardAware {
+        dismiss: KeyboardDismissMode,
         children: Vec<Node>,
     },
     BottomSheet {
