@@ -1,9 +1,14 @@
 use nexa_codegen::names::{function_name, state_name};
-use nexa_ir::{BinaryOp, Expr, InterpolatedPart, NumericType, Type};
+use nexa_ir::{BinaryOp, CollectionTransform, Expr, InterpolatedPart, NumericType, Type};
 
 use super::utils::{kotlin_string, kotlin_string_content};
 
 pub(super) fn expression(expr: &Expr) -> String {
+    expression_with_locals(expr, &[])
+}
+
+fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
+    let render = |value: &Expr| expression_with_locals(value, locals);
     match expr {
         Expr::String(value) => kotlin_string(value),
         Expr::Interpolation(parts) => {
@@ -15,7 +20,7 @@ pub(super) fn expression(expr: &Expr) -> String {
                     }
                     InterpolatedPart::Value(value_expr) => {
                         value.push_str("${");
-                        value.push_str(&expression(value_expr));
+                        value.push_str(&render(value_expr));
                         value.push('}');
                     }
                 }
@@ -26,6 +31,7 @@ pub(super) fn expression(expr: &Expr) -> String {
         Expr::Bool(value) => value.to_string(),
         Expr::IsRegularWidth => "(LocalConfiguration.current.screenWidthDp >= 600)".to_owned(),
         Expr::Number { raw, ty } => kotlin_number(raw, *ty),
+        Expr::State(name, _) if locals.iter().any(|local| local == name) => name.clone(),
         Expr::State(name, _) => state_name(name),
         Expr::EnumValue {
             enum_name,
@@ -35,10 +41,10 @@ pub(super) fn expression(expr: &Expr) -> String {
             nexa_codegen::names::enum_name(enum_name),
             case_name
         ),
-        Expr::Not(value) => format!("(!{})", expression(value)),
+        Expr::Not(value) => format!("(!{})", render(value)),
         Expr::Null(_) => "null".to_owned(),
         Expr::Coalesce(left, right) => {
-            format!("({} ?: {})", expression(left), expression(right))
+            format!("({} ?: {})", render(left), render(right))
         }
         Expr::Index {
             collection,
@@ -47,9 +53,9 @@ pub(super) fn expression(expr: &Expr) -> String {
             ..
         } => {
             if *optional {
-                format!("{}?.get({})", expression(collection), expression(index))
+                format!("{}?.get({})", render(collection), render(index))
             } else {
-                format!("{}[{}]", expression(collection), expression(index))
+                format!("{}[{}]", render(collection), render(index))
             }
         }
         Expr::Range {
@@ -60,12 +66,12 @@ pub(super) fn expression(expr: &Expr) -> String {
         } => {
             let range = format!(
                 "{}{}{}",
-                expression(start),
+                render(start),
                 if *inclusive { ".." } else { " until " },
-                expression(end)
+                render(end)
             );
             match step {
-                Some(step) => format!("({range} step {})", expression(step)),
+                Some(step) => format!("({range} step {})", render(step)),
                 None => range,
             }
         }
@@ -89,35 +95,35 @@ pub(super) fn expression(expr: &Expr) -> String {
             };
             format!(
                 "{}{}{}",
-                expression(base),
+                render(base),
                 if *optional { "?." } else { "." },
                 name
             )
         }
         Expr::Array(items) => format!(
             "listOf({})",
-            items.iter().map(expression).collect::<Vec<_>>().join(", ")
+            items.iter().map(render).collect::<Vec<_>>().join(", ")
         ),
         Expr::Set(items) => format!(
             "setOf({})",
-            items.iter().map(expression).collect::<Vec<_>>().join(", ")
+            items.iter().map(render).collect::<Vec<_>>().join(", ")
         ),
         Expr::Map(entries) => format!(
             "mapOf({})",
             entries
                 .iter()
-                .map(|(key, value)| format!("{} to {}", expression(key), expression(value)))
+                .map(|(key, value)| format!("{} to {}", render(key), render(value)))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
         Expr::Pair(first, second) => {
-            format!("Pair({}, {})", expression(first), expression(second))
+            format!("Pair({}, {})", render(first), render(second))
         }
         Expr::Triple(first, second, third) => format!(
             "Triple({}, {}, {})",
-            expression(first),
-            expression(second),
-            expression(third)
+            render(first),
+            render(second),
+            render(third)
         ),
         Expr::Call {
             name,
@@ -133,22 +139,42 @@ pub(super) fn expression(expr: &Expr) -> String {
             };
             format!(
                 "{callee}({})",
-                arguments
-                    .iter()
-                    .map(expression)
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                arguments.iter().map(render).collect::<Vec<_>>().join(", ")
             )
+        }
+        Expr::CollectionTransform {
+            operation,
+            collection,
+            initial,
+            closure,
+        } => {
+            let collection = render(collection);
+            let closure = render(closure);
+            match operation {
+                CollectionTransform::Map => format!("{collection}.map {closure}"),
+                CollectionTransform::Filter => format!("{collection}.filter {closure}"),
+                CollectionTransform::Reduce => format!(
+                    "{collection}.fold({}, {closure})",
+                    initial
+                        .as_deref()
+                        .map(render)
+                        .unwrap_or_else(|| "0".to_owned())
+                ),
+            }
+        }
+        Expr::Closure { parameters, body } => {
+            let body = expression_with_locals(body, parameters);
+            format!("{{ {} -> {} }}", parameters.join(", "), body)
         }
         Expr::NativeCall {
             namespace,
             name,
             arguments,
             ..
-        } => native_call(namespace, name, arguments),
-        Expr::Await(value) => expression(value),
+        } => native_call(namespace, name, arguments, locals),
+        Expr::Await(value) => render(value),
         Expr::Add(left, right, ty) => {
-            let sum = format!("({} + {})", expression(left), expression(right));
+            let sum = format!("({} + {})", render(left), render(right));
             match ty {
                 NumericType::Int8 => format!("{sum}.toByte()"),
                 NumericType::Int16 => format!("{sum}.toShort()"),
@@ -159,22 +185,27 @@ pub(super) fn expression(expr: &Expr) -> String {
         }
         Expr::Binary { op, left, right } => format!(
             "({} {} {})",
-            expression(left),
+            render(left),
             binary_operator(*op),
-            expression(right)
+            render(right)
         ),
         Expr::Contains {
             value, collection, ..
-        } => format!("({} in {})", expression(value), expression(collection)),
+        } => format!("({} in {})", render(value), render(collection)),
     }
 }
 
-fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> String {
+fn native_call(
+    namespace: &str,
+    name: &str,
+    arguments: &[(String, Expr)],
+    locals: &[String],
+) -> String {
     let argument = |name: &str| {
         arguments
             .iter()
             .find(|(candidate, _)| candidate == name)
-            .map(|(_, value)| expression(value))
+            .map(|(_, value)| expression_with_locals(value, locals))
             .expect("native argument validated by semantic analysis")
     };
     let body = match arguments
@@ -184,9 +215,9 @@ fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> Str
     {
         Some(Expr::Null(_)) => "null".to_owned(),
         Some(value) if is_optional_expression(value) => {
-            format!("{}?.toByteArray()", expression(value))
+            format!("{}?.toByteArray()", expression_with_locals(value, locals))
         }
-        Some(value) => format!("{}.toByteArray()", expression(value)),
+        Some(value) => format!("{}.toByteArray()", expression_with_locals(value, locals)),
         None => "null".to_owned(),
     };
     match (namespace, name) {
@@ -248,7 +279,7 @@ fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> Str
             name,
             arguments
                 .iter()
-                .map(|(_, value)| expression(value))
+                .map(|(_, value)| expression_with_locals(value, locals))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),

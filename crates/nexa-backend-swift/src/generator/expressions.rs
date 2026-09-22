@@ -1,9 +1,14 @@
 use nexa_codegen::names::{function_name, state_name};
-use nexa_ir::{BinaryOp, Expr, InterpolatedPart, NumericType, Type};
+use nexa_ir::{BinaryOp, CollectionTransform, Expr, InterpolatedPart, NumericType, Type};
 
 use super::utils::{swift_string, swift_string_content};
 
 pub(super) fn expression(expr: &Expr) -> String {
+    expression_with_locals(expr, &[])
+}
+
+fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
+    let render = |value: &Expr| expression_with_locals(value, locals);
     match expr {
         Expr::String(value) => swift_string(value),
         Expr::Interpolation(parts) => {
@@ -15,7 +20,7 @@ pub(super) fn expression(expr: &Expr) -> String {
                     }
                     InterpolatedPart::Value(value_expr) => {
                         value.push_str("\\(");
-                        value.push_str(&expression(value_expr));
+                        value.push_str(&render(value_expr));
                         value.push(')');
                     }
                 }
@@ -30,6 +35,7 @@ pub(super) fn expression(expr: &Expr) -> String {
             NumericType::Float64 => format!("Double({raw})"),
             _ => raw.clone(),
         },
+        Expr::State(name, _) if locals.iter().any(|local| local == name) => name.clone(),
         Expr::State(name, _) => state_name(name),
         Expr::EnumValue {
             enum_name,
@@ -39,10 +45,10 @@ pub(super) fn expression(expr: &Expr) -> String {
             nexa_codegen::names::enum_name(enum_name),
             case_name
         ),
-        Expr::Not(value) => format!("(!{})", expression(value)),
+        Expr::Not(value) => format!("(!{})", render(value)),
         Expr::Null(_) => "nil".to_owned(),
         Expr::Coalesce(left, right) => {
-            format!("({} ?? {})", expression(left), expression(right))
+            format!("({} ?? {})", render(left), render(right))
         }
         Expr::Index {
             collection,
@@ -51,7 +57,7 @@ pub(super) fn expression(expr: &Expr) -> String {
             collection_type,
             ..
         } => {
-            let index = expression(index);
+            let index = render(index);
             let is_array = match collection_type {
                 Type::Array(_) => true,
                 Type::Optional(inner) => matches!(inner.as_ref(), Type::Array(_)),
@@ -63,9 +69,9 @@ pub(super) fn expression(expr: &Expr) -> String {
                 index
             };
             if *optional {
-                format!("{}?[{index}]", expression(collection))
+                format!("{}?[{index}]", render(collection))
             } else {
-                format!("{}[{index}]", expression(collection))
+                format!("{}[{index}]", render(collection))
             }
         }
         Expr::Range {
@@ -76,16 +82,16 @@ pub(super) fn expression(expr: &Expr) -> String {
         } => match step {
             Some(step) => format!(
                 "stride(from: {}, {}: {}, by: {})",
-                range_bound(start),
+                range_bound(start, locals),
                 if *inclusive { "through" } else { "to" },
-                range_bound(end),
-                format!("Int({})", range_bound(step))
+                range_bound(end, locals),
+                format!("Int({})", range_bound(step, locals))
             ),
             None => format!(
                 "{}{}{}",
-                range_bound(start),
+                range_bound(start, locals),
                 if *inclusive { "..." } else { "..<" },
-                range_bound(end)
+                range_bound(end, locals)
             ),
         },
         Expr::Member {
@@ -106,7 +112,7 @@ pub(super) fn expression(expr: &Expr) -> String {
                 (Type::Struct { .. }, field) => {
                     return format!(
                         "{}{}.{}",
-                        expression(base),
+                        render(base),
                         if *optional { "?" } else { "" },
                         nexa_codegen::names::struct_field_name(field)
                     );
@@ -119,44 +125,41 @@ pub(super) fn expression(expr: &Expr) -> String {
             if matches!(tuple_type, Type::NetworkResponse) && name == "statusCode" {
                 return format!(
                     "Int32({}{}{})",
-                    expression(base),
+                    render(base),
                     if *optional { "?" } else { "" },
                     field
                 );
             }
             format!(
                 "{}{}{}",
-                expression(base),
+                render(base),
                 if *optional { "?" } else { "" },
                 field
             )
         }
         Expr::Array(items) => format!(
             "[{}]",
-            items.iter().map(expression).collect::<Vec<_>>().join(", ")
+            items.iter().map(render).collect::<Vec<_>>().join(", ")
         ),
         Expr::Set(items) => format!(
             "[{}]",
-            items.iter().map(expression).collect::<Vec<_>>().join(", ")
+            items.iter().map(render).collect::<Vec<_>>().join(", ")
         ),
         Expr::Map(entries) if entries.is_empty() => "[:]".to_owned(),
         Expr::Map(entries) => format!(
             "Dictionary([{}], uniquingKeysWith: {{ _, newValue in newValue }})",
             entries
                 .iter()
-                .map(|(key, value)| format!("({}, {})", expression(key), expression(value)))
+                .map(|(key, value)| format!("({}, {})", render(key), render(value)))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
         Expr::Pair(first, second) => {
-            format!("({}, {})", expression(first), expression(second))
+            format!("({}, {})", render(first), render(second))
         }
-        Expr::Triple(first, second, third) => format!(
-            "({}, {}, {})",
-            expression(first),
-            expression(second),
-            expression(third)
-        ),
+        Expr::Triple(first, second, third) => {
+            format!("({}, {}, {})", render(first), render(second), render(third))
+        }
         Expr::Call {
             name,
             arguments,
@@ -178,32 +181,48 @@ pub(super) fn expression(expr: &Expr) -> String {
                             format!(
                                 "{}: {}",
                                 nexa_codegen::names::struct_field_name(field),
-                                expression(argument)
+                                render(argument)
                             )
                         })
                         .collect::<Vec<_>>()
                         .join(", "),
-                    _ => arguments
-                        .iter()
-                        .map(expression)
-                        .collect::<Vec<_>>()
-                        .join(", "),
+                    _ => arguments.iter().map(render).collect::<Vec<_>>().join(", "),
                 }
             } else {
-                arguments
-                    .iter()
-                    .map(expression)
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                arguments.iter().map(render).collect::<Vec<_>>().join(", ")
             };
             format!("{callee}({arguments})")
+        }
+        Expr::CollectionTransform {
+            operation,
+            collection,
+            initial,
+            closure,
+        } => {
+            let collection = render(collection);
+            let closure = render(closure);
+            match operation {
+                CollectionTransform::Map => format!("{collection}.map {closure}"),
+                CollectionTransform::Filter => format!("{collection}.filter {closure}"),
+                CollectionTransform::Reduce => format!(
+                    "{collection}.reduce({}, {closure})",
+                    initial
+                        .as_deref()
+                        .map(render)
+                        .unwrap_or_else(|| "0".to_owned())
+                ),
+            }
+        }
+        Expr::Closure { parameters, body } => {
+            let body = expression_with_locals(body, parameters);
+            format!("{{ {} in {} }}", parameters.join(", "), body)
         }
         Expr::NativeCall {
             namespace,
             name,
             arguments,
             ..
-        } => native_call(namespace, name, arguments),
+        } => native_call(namespace, name, arguments, locals),
         Expr::Await(value) => match value.as_ref() {
             Expr::NativeCall {
                 return_type,
@@ -211,11 +230,11 @@ pub(super) fn expression(expr: &Expr) -> String {
                 ..
             } if *is_throwing => format!(
                 "(try? await {}) ?? {}",
-                expression(value),
+                render(value),
                 native_failure_default(return_type)
             ),
-            Expr::NativeCall { .. } => format!("await {}", expression(value)),
-            _ => format!("await {}", expression(value)),
+            Expr::NativeCall { .. } => format!("await {}", render(value)),
+            _ => format!("await {}", render(value)),
         },
         Expr::Add(left, right, ty) => {
             let operator = if matches!(ty, NumericType::Float32 | NumericType::Float64) {
@@ -223,36 +242,41 @@ pub(super) fn expression(expr: &Expr) -> String {
             } else {
                 "&+"
             };
-            format!("({} {operator} {})", expression(left), expression(right))
+            format!("({} {operator} {})", render(left), render(right))
         }
         Expr::Binary { op, left, right } => format!(
             "({} {} {})",
-            expression(left),
+            render(left),
             binary_operator(*op),
-            expression(right)
+            render(right)
         ),
         Expr::Contains {
             value,
             collection,
             collection_type,
         } => {
-            let collection = expression(collection);
+            let collection = render(collection);
             let receiver = if matches!(collection_type, Type::Map(_, _)) {
                 format!("{}.keys", collection)
             } else {
                 collection
             };
-            format!("{}.contains({})", receiver, expression(value))
+            format!("{}.contains({})", receiver, render(value))
         }
     }
 }
 
-fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> String {
+fn native_call(
+    namespace: &str,
+    name: &str,
+    arguments: &[(String, Expr)],
+    locals: &[String],
+) -> String {
     let argument = |name: &str| {
         arguments
             .iter()
             .find(|(candidate, _)| candidate == name)
-            .map(|(_, value)| expression(value))
+            .map(|(_, value)| expression_with_locals(value, locals))
             .expect("native argument validated by semantic analysis")
     };
     let body = arguments
@@ -261,9 +285,12 @@ fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> Str
         .map(|(_, value)| match value {
             Expr::Null(_) => "nil".to_owned(),
             _ if is_optional_expression(value) => {
-                format!("{}.map {{ Data($0.utf8) }}", expression(value))
+                format!(
+                    "{}.map {{ Data($0.utf8) }}",
+                    expression_with_locals(value, locals)
+                )
             }
-            _ => format!("Data({}.utf8)", expression(value)),
+            _ => format!("Data({}.utf8)", expression_with_locals(value, locals)),
         })
         .unwrap_or_else(|| "nil".to_owned());
     match (namespace, name) {
@@ -323,7 +350,9 @@ fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> Str
             name,
             arguments
                 .iter()
-                .map(|(argument_name, value)| { format!("{argument_name}: {}", expression(value)) })
+                .map(|(argument_name, value)| {
+                    format!("{argument_name}: {}", expression_with_locals(value, locals))
+                })
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
@@ -357,13 +386,13 @@ fn native_failure_default(ty: &Type) -> String {
     }
 }
 
-fn range_bound(expr: &Expr) -> String {
+fn range_bound(expr: &Expr, locals: &[String]) -> String {
     match expr {
         Expr::Number {
             raw,
             ty: NumericType::Int32,
         } => format!("Int32({raw})"),
-        _ => expression(expr),
+        _ => expression_with_locals(expr, locals),
     }
 }
 

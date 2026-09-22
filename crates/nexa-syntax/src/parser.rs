@@ -1356,12 +1356,32 @@ impl Parser {
                     end: name_span.end,
                     ..expression.span()
                 };
-                expression = Expr::Member {
-                    base: Box::new(expression),
-                    name,
-                    optional: false,
-                    span,
-                };
+                if self.take(&Kind::LParen) {
+                    let mut arguments = self.call_arguments_after_open()?;
+                    if self.check(&Kind::LBrace) {
+                        arguments.push(self.closure_expression()?);
+                    }
+                    expression = Expr::MethodCall {
+                        base: Box::new(expression),
+                        name,
+                        arguments,
+                        span,
+                    };
+                } else if self.check(&Kind::LBrace) {
+                    expression = Expr::MethodCall {
+                        base: Box::new(expression),
+                        name,
+                        arguments: vec![self.closure_expression()?],
+                        span,
+                    };
+                } else {
+                    expression = Expr::Member {
+                        base: Box::new(expression),
+                        name,
+                        optional: false,
+                        span,
+                    };
+                }
             } else if self.take(&Kind::Question) {
                 if self.take(&Kind::LBracket) {
                     let span = expression.span();
@@ -1469,7 +1489,9 @@ impl Parser {
                 if self.check(&Kind::LParen) {
                     return self.call_expression(value, token.span);
                 }
-                if self.check(&Kind::Dot)
+                if (value.chars().next().is_some_and(char::is_uppercase)
+                    || matches!(value.as_str(), "Network" | "Path" | "File" | "Permissions"))
+                    && self.check(&Kind::Dot)
                     && matches!(
                         self.tokens.get(self.cursor + 1).map(|token| &token.kind),
                         Some(Kind::Ident(_))
@@ -1684,6 +1706,11 @@ impl Parser {
 
     fn call_expression(&mut self, name: String, span: Span) -> Result<Expr, CompileError> {
         self.expect(Kind::LParen, "expected `(` after function name")?;
+        let arguments = self.call_arguments_after_open()?;
+        Ok(Expr::Call(name, arguments, span))
+    }
+
+    fn call_arguments_after_open(&mut self) -> Result<Vec<Expr>, CompileError> {
         let mut arguments = Vec::new();
         while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
             arguments.push(self.expr()?);
@@ -1692,7 +1719,27 @@ impl Parser {
             }
         }
         self.expect(Kind::RParen, "expected `)` after function arguments")?;
-        Ok(Expr::Call(name, arguments, span))
+        Ok(arguments)
+    }
+
+    fn closure_expression(&mut self) -> Result<Expr, CompileError> {
+        let span = self.expect(Kind::LBrace, "expected a closure body")?.span;
+        let mut parameters = Vec::new();
+        if !self.check(&Kind::Minus) {
+            parameters.push(self.ident()?.0);
+            while self.take(&Kind::Comma) {
+                parameters.push(self.ident()?.0);
+            }
+        }
+        self.expect(Kind::Minus, "expected an arrow after closure parameters")?;
+        self.expect(Kind::Greater, "expected an arrow after closure parameters")?;
+        let body = self.expr()?;
+        self.expect(Kind::RBrace, "expected a closing brace for closure")?;
+        Ok(Expr::Closure {
+            parameters,
+            body: Box::new(body),
+            span,
+        })
     }
 
     fn qualified_call(

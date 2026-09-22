@@ -212,6 +212,16 @@ pub enum Expr {
         is_async: bool,
         is_constructor: bool,
     },
+    CollectionTransform {
+        operation: CollectionTransform,
+        collection: Box<Expr>,
+        initial: Option<Box<Expr>>,
+        closure: Box<Expr>,
+    },
+    Closure {
+        parameters: Vec<String>,
+        body: Box<Expr>,
+    },
     NativeCall {
         namespace: String,
         name: String,
@@ -244,6 +254,13 @@ pub enum Expr {
     Coalesce(Box<Expr>, Box<Expr>),
     Await(Box<Expr>),
     IsRegularWidth,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CollectionTransform {
+    Map,
+    Filter,
+    Reduce,
 }
 
 #[derive(Clone, Debug)]

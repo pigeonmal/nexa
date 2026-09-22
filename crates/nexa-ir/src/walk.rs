@@ -153,6 +153,19 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
                 walk_expression(argument, visit);
             }
         }
+        Expr::CollectionTransform {
+            collection,
+            initial,
+            closure,
+            ..
+        } => {
+            walk_expression(collection, visit);
+            if let Some(initial) = initial {
+                walk_expression(initial, visit);
+            }
+            walk_expression(closure, visit);
+        }
+        Expr::Closure { body, .. } => walk_expression(body, visit),
         Expr::NativeCall { arguments, .. } => {
             for (_, argument) in arguments {
                 walk_expression(argument, visit);

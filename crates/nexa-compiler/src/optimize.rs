@@ -126,6 +126,27 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
                 collect_expression_state_names(argument, names);
             }
         }
+        Expr::CollectionTransform {
+            collection,
+            initial,
+            closure,
+            ..
+        } => {
+            collect_expression_state_names(collection, names);
+            if let Some(initial) = initial {
+                collect_expression_state_names(initial, names);
+            }
+            collect_expression_state_names(closure, names);
+        }
+        Expr::Closure { parameters, body } => {
+            let mut closure_names = HashSet::new();
+            collect_expression_state_names(body, &mut closure_names);
+            for name in closure_names {
+                if !parameters.iter().any(|parameter| parameter == &name) {
+                    names.insert(name);
+                }
+            }
+        }
         Expr::NativeCall { arguments, .. } => {
             for (_, argument) in arguments {
                 collect_expression_state_names(argument, names);
@@ -154,6 +175,17 @@ fn is_pure_expression(expression: &Expr) -> bool {
             is_async,
             ..
         } => !is_async && arguments.iter().all(is_pure_expression),
+        Expr::CollectionTransform {
+            collection,
+            initial,
+            closure,
+            ..
+        } => {
+            is_pure_expression(collection)
+                && initial.as_deref().is_none_or(is_pure_expression)
+                && is_pure_expression(closure)
+        }
+        Expr::Closure { body, .. } => is_pure_expression(body),
         Expr::NativeCall { .. } => false,
         Expr::Await(_) => false,
         Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
@@ -574,6 +606,7 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         Expr::Contains {
             collection_type, ..
         } => collect_type_struct_names(collection_type, used),
+        Expr::CollectionTransform { .. } | Expr::Closure { .. } => {}
         Expr::String(_)
         | Expr::Interpolation(_)
         | Expr::Bool(_)
@@ -692,7 +725,7 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
             _ => {}
         },
         &mut |expression| {
-            insert_state_reference(expression, used);
+            collect_expression_state_references(expression, used);
         },
     );
     used.extend(bindings);
@@ -766,15 +799,7 @@ fn collect_action_state_references(actions: &[Action], used: &mut HashSet<String
 }
 
 fn collect_expression_state_references(expression: &Expr, used: &mut HashSet<String>) {
-    nexa_ir::walk::walk_expression(expression, &mut |expression| {
-        insert_state_reference(expression, used);
-    });
-}
-
-fn insert_state_reference(expression: &Expr, used: &mut HashSet<String>) {
-    if let Expr::State(name, _) = expression {
-        used.insert(name.clone());
-    }
+    collect_expression_state_names(expression, used);
 }
 
 fn optimize_nodes(nodes: Vec<Node>) -> Vec<Node> {
@@ -1131,6 +1156,21 @@ fn fold_expression(expression: Expr) -> Expr {
             return_type,
             is_async,
             is_constructor,
+        },
+        Expr::CollectionTransform {
+            operation,
+            collection,
+            initial,
+            closure,
+        } => Expr::CollectionTransform {
+            operation,
+            collection: Box::new(fold_expression(*collection)),
+            initial: initial.map(|initial| Box::new(fold_expression(*initial))),
+            closure: Box::new(fold_expression(*closure)),
+        },
+        Expr::Closure { parameters, body } => Expr::Closure {
+            parameters,
+            body: Box::new(fold_expression(*body)),
         },
         Expr::Index {
             collection,

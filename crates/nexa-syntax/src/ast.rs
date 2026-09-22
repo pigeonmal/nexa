@@ -420,6 +420,17 @@ pub enum Expr {
     Pair(Box<Expr>, Box<Expr>, Span),
     Triple(Box<Expr>, Box<Expr>, Box<Expr>, Span),
     Call(String, Vec<Expr>, Span),
+    MethodCall {
+        base: Box<Expr>,
+        name: String,
+        arguments: Vec<Expr>,
+        span: Span,
+    },
+    Closure {
+        parameters: Vec<String>,
+        body: Box<Expr>,
+        span: Span,
+    },
     QualifiedCall {
         namespace: String,
         name: String,
@@ -489,6 +500,8 @@ impl Expr {
             | Self::Pair(_, _, s)
             | Self::Triple(_, _, _, s)
             | Self::Call(_, _, s)
+            | Self::MethodCall { span: s, .. }
+            | Self::Closure { span: s, .. }
             | Self::QualifiedCall { span: s, .. }
             | Self::Index { span: s, .. }
             | Self::Member { span: s, .. }

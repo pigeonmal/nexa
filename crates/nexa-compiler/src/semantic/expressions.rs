@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use nexa_diagnostics::{CompileError, Span};
-use nexa_ir::{BinaryOp, Expr, InterpolatedPart, NumericType, Type};
+use nexa_ir::{BinaryOp, CollectionTransform, Expr, InterpolatedPart, NumericType, Type};
 use nexa_plugin_idl::{PluginIdl, TypeRef};
 use nexa_syntax::ast;
 
@@ -201,6 +201,10 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
             references_state(first) || references_state(second) || references_state(third)
         }
         ast::Expr::Call(_, arguments, _) => arguments.iter().any(references_state),
+        ast::Expr::MethodCall {
+            base, arguments, ..
+        } => references_state(base) || arguments.iter().any(references_state),
+        ast::Expr::Closure { body, .. } => references_state(body),
         ast::Expr::QualifiedCall { arguments, .. } => arguments.values().any(references_state),
         ast::Expr::Index {
             collection, index, ..
@@ -553,6 +557,25 @@ pub(super) fn lower_expr(
             allow_await,
             false,
         ),
+        ast::Expr::MethodCall {
+            base,
+            name,
+            arguments,
+            span,
+        } => lower_collection_transform(
+            base,
+            name,
+            arguments,
+            *span,
+            expected,
+            symbols,
+            functions,
+            allow_await,
+        ),
+        ast::Expr::Closure { span, .. } => Err(CompileError::new(
+            *span,
+            "closures are only valid as collection transformation callbacks",
+        )),
         ast::Expr::QualifiedCall {
             namespace,
             name,
@@ -797,6 +820,215 @@ pub(super) fn lower_expr(
             };
             Ok(Expr::Await(Box::new(call)))
         }
+    }
+}
+
+fn lower_collection_transform(
+    base: &ast::Expr,
+    name: &str,
+    arguments: &[ast::Expr],
+    span: Span,
+    expected: Option<&Type>,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+) -> Result<Expr, CompileError> {
+    let operation = match name {
+        "map" => CollectionTransform::Map,
+        "filter" => CollectionTransform::Filter,
+        "reduce" => CollectionTransform::Reduce,
+        _ => {
+            return Err(CompileError::new(
+                span,
+                format!(
+                    "unknown collection method `{name}`; supported methods are `map`, `filter`, and `reduce`"
+                ),
+            ));
+        }
+    };
+    let Some(base_type) = infer_expr_type(base, symbols, functions) else {
+        return Err(CompileError::new(
+            span,
+            "collection transformation requires a typed Array<T> value",
+        ));
+    };
+    let Type::Array(element_type) = &base_type else {
+        return Err(CompileError::new(
+            span,
+            "collection transformations currently support Array<T> values only",
+        ));
+    };
+    let (initial, closure) = match operation {
+        CollectionTransform::Map | CollectionTransform::Filter => {
+            if arguments.len() != 1 {
+                return Err(CompileError::new(
+                    span,
+                    format!("`{name}` expects exactly one closure argument"),
+                ));
+            }
+            (None, &arguments[0])
+        }
+        CollectionTransform::Reduce => {
+            if arguments.len() != 2 {
+                return Err(CompileError::new(
+                    span,
+                    "`reduce` expects an initial value and one closure argument",
+                ));
+            }
+            (Some(&arguments[0]), &arguments[1])
+        }
+    };
+    let ast::Expr::Closure {
+        parameters,
+        body,
+        span: closure_span,
+    } = closure
+    else {
+        return Err(CompileError::new(
+            closure.span(),
+            "collection transformations require an inline closure such as `{ item -> item }`",
+        ));
+    };
+    let initial_type = initial
+        .map(|value| infer_expr_type(value, symbols, functions))
+        .flatten();
+    let lowered_initial = match initial {
+        Some(value) => Some(Box::new(lower_expr(
+            value,
+            initial_type.as_ref(),
+            symbols,
+            functions,
+            allow_await,
+        )?)),
+        None => None,
+    };
+    let mut parameter_types = vec![element_type.as_ref().clone()];
+    if operation == CollectionTransform::Reduce {
+        parameter_types.insert(
+            0,
+            initial_type.clone().ok_or_else(|| {
+                CompileError::new(
+                    initial.expect("reduce always has an initial value").span(),
+                    "cannot infer the type of the reduce initial value",
+                )
+            })?,
+        );
+    }
+    if parameters.len() != parameter_types.len() {
+        return Err(CompileError::new(
+            *closure_span,
+            format!(
+                "`{name}` closure expects {} parameter(s), found {}",
+                parameter_types.len(),
+                parameters.len()
+            ),
+        ));
+    }
+    let mut scoped_symbols = symbols.clone();
+    let mut names = HashSet::with_capacity(parameters.len());
+    for (parameter, parameter_type) in parameters.iter().zip(parameter_types.iter()) {
+        if !names.insert(parameter) {
+            return Err(CompileError::new(
+                *closure_span,
+                format!("closure parameter `{parameter}` is declared more than once"),
+            ));
+        }
+        scoped_symbols.insert(parameter.clone(), (parameter_type.clone(), false));
+    }
+    let body_expected = match operation {
+        CollectionTransform::Filter => Some(Type::Bool),
+        CollectionTransform::Map => expected.and_then(|ty| match ty {
+            Type::Array(element) => Some(element.as_ref().clone()),
+            _ => None,
+        }),
+        CollectionTransform::Reduce => expected.cloned(),
+    };
+    let inferred_body_type =
+        infer_expr_type(body, &scoped_symbols, functions).or(body_expected.clone());
+    let lowered_body = lower_expr(
+        body,
+        body_expected.as_ref().or(inferred_body_type.as_ref()),
+        &scoped_symbols,
+        functions,
+        false,
+    )?;
+    let Some(body_type) = inferred_body_type else {
+        return Err(CompileError::new(
+            *closure_span,
+            "cannot infer the closure result type; add an explicit collection type",
+        ));
+    };
+    if operation == CollectionTransform::Filter && body_type != Type::Bool {
+        return Err(CompileError::new(
+            *closure_span,
+            "`filter` closures must return Bool",
+        ));
+    }
+    let result_type = match operation {
+        CollectionTransform::Map => Type::Array(Box::new(body_type)),
+        CollectionTransform::Filter => Type::Array(Box::new(element_type.as_ref().clone())),
+        CollectionTransform::Reduce => body_type,
+    };
+    require_expected(expected, &result_type, span)?;
+    let lowered_base = lower_expr(base, Some(&base_type), symbols, functions, allow_await)?;
+    Ok(Expr::CollectionTransform {
+        operation,
+        collection: Box::new(lowered_base),
+        initial: lowered_initial,
+        closure: Box::new(Expr::Closure {
+            parameters: parameters.clone(),
+            body: Box::new(lowered_body),
+        }),
+    })
+}
+
+fn infer_collection_transform_type(
+    base: &ast::Expr,
+    name: &str,
+    arguments: &[ast::Expr],
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+) -> Option<Type> {
+    let operation = match name {
+        "map" => CollectionTransform::Map,
+        "filter" => CollectionTransform::Filter,
+        "reduce" => CollectionTransform::Reduce,
+        _ => return None,
+    };
+    let Type::Array(element_type) = infer_expr_type(base, symbols, functions)? else {
+        return None;
+    };
+    let (initial, closure) = match operation {
+        CollectionTransform::Map | CollectionTransform::Filter if arguments.len() == 1 => {
+            (None, &arguments[0])
+        }
+        CollectionTransform::Reduce if arguments.len() == 2 => (Some(&arguments[0]), &arguments[1]),
+        _ => return None,
+    };
+    let ast::Expr::Closure {
+        parameters, body, ..
+    } = closure
+    else {
+        return None;
+    };
+    let initial_type = initial.and_then(|value| infer_expr_type(value, symbols, functions));
+    let mut parameter_types = vec![element_type.as_ref().clone()];
+    if operation == CollectionTransform::Reduce {
+        parameter_types.insert(0, initial_type?);
+    }
+    if parameters.len() != parameter_types.len() {
+        return None;
+    }
+    let mut scoped_symbols = symbols.clone();
+    for (parameter, parameter_type) in parameters.iter().zip(parameter_types) {
+        scoped_symbols.insert(parameter.clone(), (parameter_type, false));
+    }
+    let body_type = infer_expr_type(body, &scoped_symbols, functions)?;
+    match operation {
+        CollectionTransform::Map => Some(Type::Array(Box::new(body_type))),
+        CollectionTransform::Filter if body_type == Type::Bool => Some(Type::Array(element_type)),
+        CollectionTransform::Reduce => Some(body_type),
+        _ => None,
     }
 }
 
@@ -1333,6 +1565,7 @@ pub(super) fn infer_expr_type(
             | ("Path", "join")
             | ("File", "readText") => Some(Type::String),
             ("Permissions", "status") => Some(Type::Enum("PermissionStatus".to_owned())),
+            ("Permissions", "request") => Some(Type::Enum("PermissionStatus".to_owned())),
             _ => functions
                 .get(&format!("{namespace}.{name}"))
                 .map(|signature| signature.return_type.clone()),
@@ -1387,6 +1620,12 @@ pub(super) fn infer_expr_type(
                 }
             })
         }
+        ast::Expr::MethodCall {
+            base,
+            name,
+            arguments,
+            ..
+        } => infer_collection_transform_type(base, name, arguments, symbols, functions),
         ast::Expr::Range { .. } => None,
         ast::Expr::Null(_) => None,
         ast::Expr::Coalesce(left, right, _) => {
@@ -1402,6 +1641,7 @@ pub(super) fn infer_expr_type(
         }
         ast::Expr::Await(value, _) => infer_expr_type(value, symbols, functions),
         ast::Expr::ThemeToken(_, _) => None,
+        ast::Expr::Closure { .. } => None,
         ast::Expr::Add(left_expr, right_expr, _) => {
             let left_type = infer_expr_type(left_expr, symbols, functions);
             let right_type = infer_expr_type(right_expr, symbols, functions);
