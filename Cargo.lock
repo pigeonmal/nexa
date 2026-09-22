@@ -28,6 +28,7 @@ dependencies = [
  "nexa-compiler",
  "nexa-ir",
  "nexa-plugin-idl",
+ "nexa-syntax",
 ]
 
 [[package]]

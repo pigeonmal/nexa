@@ -8,6 +8,7 @@ use nexa_compiler::{
     compile_file_with_warnings_for_targets,
 };
 
+mod cache;
 mod plugin;
 mod project;
 
@@ -106,12 +107,41 @@ fn build(args: &[String]) -> Result<(), String> {
             ));
         }
     };
+    let output = output.unwrap_or_else(|| input.with_extension(backend.file_extension()));
+    let cache_key =
+        cache::key(&input, backend.name()).map_err(|error| format!("build cache: {error}"))?;
+    if let Some(cached) = cache::restore(&input, &cache_key, &output)
+        .map_err(|error| format!("build cache: {error}"))?
+    {
+        for warning in &cached.warnings {
+            eprintln!("{warning}");
+        }
+        if deny_warnings && !cached.warnings.is_empty() {
+            return Err(format!(
+                "{} warning(s) treated as errors",
+                cached.warnings.len()
+            ));
+        }
+        println!(
+            "generated {} ({}, cache hit)",
+            output.display(),
+            backend.name()
+        );
+        return Ok(());
+    }
     let compilation = compile_file_with_warnings_for_target(&input, compile_target)
         .map_err(|error| error.to_string())?;
     report_warnings(&compilation.warnings, deny_warnings)?;
-    let output = output.unwrap_or_else(|| input.with_extension(backend.file_extension()));
-    fs::write(&output, backend.generate(&compilation.module))
-        .map_err(|error| format!("{}: {error}", output.display()))?;
+    let source = backend.generate(&compilation.module);
+    fs::write(&output, &source).map_err(|error| format!("{}: {error}", output.display()))?;
+    let warning_text = compilation
+        .warnings
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    if let Err(error) = cache::store(&input, &cache_key, &source, &warning_text) {
+        eprintln!("warning: could not update build cache: {error}");
+    }
     println!("generated {} ({})", output.display(), backend.name());
     Ok(())
 }
