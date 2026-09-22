@@ -347,6 +347,40 @@ the application context. Android exposes `granted`, `denied`, and
 Request flows and denial recovery remain future work. See
 [permissions-status.nx](../examples/permissions-status.nx).
 
+### Plugin options in the project config
+
+Plugin authors declare their supported compile-time options in
+`interfaces.nxid`:
+
+```text
+config {
+    compiledOptionCreateByThePluginAuthor: String
+    optionalOption: Bool? = false
+}
+```
+
+The generated project config sets values using the app's plugin namespace:
+
+```nexa
+config {
+    permissions {
+    }
+    plugins {
+        CustomPlugin {
+            compiledOptionCreateByThePluginAuthor: "fast",
+            optionalOption: true
+        }
+    }
+}
+```
+
+Options are validated against the plugin schema at generation time. Required
+options must be supplied, optional options may use `null`, and schema defaults
+are applied when a value is omitted. Supported option values are scalar strings,
+Booleans, integers, and floating-point numbers. Reachable plugins receive
+native `NexaPluginConfig.CustomPlugin` constants; no runtime configuration
+registry or serialization layer is added.
+
 ## Native network and file library
 
 When an app uses a remote image or a typed native API call, the backend emits the small native `NexaNetwork`, `NexaPath`, and `NexaFile` library next to the generated screen. Calls are resolved in the compiler and become direct platform calls without a cross-platform request registry.

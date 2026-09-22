@@ -58,6 +58,49 @@ native project. The plugin author supplies the methods declared by the IDL in
 those sources. The current project integration is local and source based: it
 does not resolve versions, download packages, or add third-party dependencies.
 
+## Compile-time plugin configuration
+
+Plugin authors declare compile-time options in the plugin's
+`interfaces.nxid` file. Options are strongly typed and can be required,
+optional, or given a default:
+
+```text
+config {
+    compiledOptionCreateByThePluginAuthor: String
+    optionalOption: Bool? = false
+    retryCount: Int32 = 3
+}
+```
+
+The supported option types are `String`, `Bool`, the signed and unsigned
+integer types, and `Float32`/`Float64`. An option without a default is required
+unless its type is optional. This keeps plugin setup compile-time checked and
+avoids a runtime dictionary or reflection layer.
+
+Users set options in the generated project's `nexa.config.nx`. The plugin name
+is the namespace used by the app's `.nx` declaration:
+
+```nexa
+config {
+    permissions {
+    }
+    plugins {
+        CustomPlugin {
+            compiledOptionCreateByThePluginAuthor: "fast",
+            optionalOption: true
+        }
+    }
+}
+```
+
+`nexa generate` validates plugin names, unknown options, required values, and
+literal types. It creates a commented starter config when a required option is
+missing, so the user can fill it in and generate again. Defaults and optional
+values are materialized in the generated config. Reachable plugins receive
+native compile-time constants through `NexaPluginConfig.CustomPlugin` in Swift
+and Kotlin. Kotlin plugin source files automatically import the generated app
+configuration object. Unused plugins remain pruned from native output.
+
 ## Typed IDL
 
 Declare value models and native methods in `interfaces.nxid`:

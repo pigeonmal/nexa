@@ -57,6 +57,8 @@ impl Parser {
         self.expect(Kind::LBrace, "expected `{` after config")?;
         let mut permissions = Vec::new();
         let mut has_permissions = false;
+        let mut plugins = Vec::new();
+        let mut has_plugins = false;
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             if self.word_is("permissions") {
                 if has_permissions {
@@ -64,8 +66,14 @@ impl Parser {
                 }
                 has_permissions = true;
                 permissions = self.config_permissions_decl()?;
+            } else if self.word_is("plugins") {
+                if has_plugins {
+                    return self.error_here("a config can declare only one `plugins` block");
+                }
+                has_plugins = true;
+                plugins = self.config_plugins_decl()?;
             } else {
-                return self.error_here("expected a `permissions` block in config");
+                return self.error_here("expected a `permissions` or `plugins` block in config");
             }
         }
         self.expect(Kind::RBrace, "expected `}` to close config")?;
@@ -73,7 +81,11 @@ impl Parser {
         if !self.check(&Kind::Eof) {
             return self.error_here("unexpected content after config");
         }
-        Ok(Config { permissions, span })
+        Ok(Config {
+            permissions,
+            plugins,
+            span,
+        })
     }
 
     fn config_permissions_decl(&mut self) -> Result<Vec<PermissionConfig>, CompileError> {
@@ -121,6 +133,101 @@ impl Parser {
         self.expect(Kind::RBrace, "expected `}` to close config permissions")?;
         self.optional_semicolon();
         Ok(permissions)
+    }
+
+    fn config_plugins_decl(&mut self) -> Result<Vec<PluginConfigDecl>, CompileError> {
+        self.expect_word("plugins")?;
+        self.expect(Kind::LBrace, "expected `{` after `plugins`")?;
+        let mut plugins = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (name, span) = self.ident()?;
+            if plugins
+                .iter()
+                .any(|plugin: &PluginConfigDecl| plugin.name == name)
+            {
+                return Err(CompileError::new(
+                    span,
+                    format!("plugin `{name}` is declared more than once"),
+                ));
+            }
+            self.expect(Kind::LBrace, "expected `{` after plugin name")?;
+            let mut options = Vec::new();
+            while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+                let (option_name, option_span) = self.ident()?;
+                if options
+                    .iter()
+                    .any(|option: &PluginOptionDecl| option.name == option_name)
+                {
+                    return Err(CompileError::new(
+                        option_span,
+                        format!("plugin option `{option_name}` is declared more than once"),
+                    ));
+                }
+                self.expect(Kind::Colon, "expected `:` after plugin option name")?;
+                let value = self.config_value()?;
+                options.push(PluginOptionDecl {
+                    name: option_name,
+                    value,
+                    span: option_span,
+                });
+                if self.take(&Kind::Comma) {
+                    continue;
+                }
+                self.optional_semicolon();
+                if !self.check(&Kind::RBrace) {
+                    return self.error_here("expected `,` or `}` after plugin option");
+                }
+            }
+            self.expect(Kind::RBrace, "expected `}` to close plugin configuration")?;
+            self.optional_semicolon();
+            plugins.push(PluginConfigDecl {
+                name,
+                options,
+                span,
+            });
+        }
+        self.expect(Kind::RBrace, "expected `}` to close config plugins")?;
+        self.optional_semicolon();
+        Ok(plugins)
+    }
+
+    fn config_value(&mut self) -> Result<ConfigValue, CompileError> {
+        let token = self.advance().clone();
+        match token.kind {
+            Kind::String(value) => Ok(ConfigValue::String(value)),
+            Kind::Number(value) => Ok(ConfigValue::Number(value)),
+            Kind::Minus => {
+                let number = self.advance().clone();
+                let Kind::Number(value) = number.kind else {
+                    return Err(CompileError::new(
+                        number.span,
+                        "expected a number after `-` in plugin option",
+                    ));
+                };
+                Ok(ConfigValue::Number(format!("-{value}")))
+            }
+            Kind::Ident(value) if value == "true" => Ok(ConfigValue::Bool(true)),
+            Kind::Ident(value) if value == "false" => Ok(ConfigValue::Bool(false)),
+            Kind::Ident(value) if value == "null" => Ok(ConfigValue::Null),
+            Kind::LBracket => {
+                let mut values = Vec::new();
+                while !self.check(&Kind::RBracket) && !self.check(&Kind::Eof) {
+                    values.push(self.config_value()?);
+                    if self.take(&Kind::Comma) {
+                        continue;
+                    }
+                    if !self.check(&Kind::RBracket) {
+                        return self.error_here("expected `,` or `]` in plugin option array");
+                    }
+                }
+                self.expect(Kind::RBracket, "expected `]` after plugin option array")?;
+                Ok(ConfigValue::Array(values))
+            }
+            _ => Err(CompileError::new(
+                token.span,
+                "plugin option value must be a string, number, Boolean, null, or array",
+            )),
+        }
     }
 
     fn program(mut self) -> Result<Program, CompileError> {

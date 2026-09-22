@@ -123,6 +123,26 @@ config {
 
 The CLI validates the permission names and messages, uses the messages for iOS usage-description keys, and emits only the selected Android manifest permissions. The legacy app-level `permissions { camera, ... }` block remains supported when no generated config exists.
 
+Plugins declare their compile-time option schema in `interfaces.nxid`, and the
+same generated config carries user values:
+
+```nexa
+config {
+    permissions {
+    }
+    plugins {
+        CustomPlugin {
+            compiledOptionCreateByThePluginAuthor: "fast",
+            optionalOption: true
+        }
+    }
+}
+```
+
+`nexa generate` validates required, optional, defaulted, and typed plugin
+options. Reachable plugins receive direct native `NexaPluginConfig` constants;
+unused plugins remain removed from generated output.
+
 ## Workspace layout
 
 | Crate | Responsibility |

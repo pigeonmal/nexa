@@ -98,7 +98,7 @@ fn init(args: &[String]) -> Result<(), String> {
     write_if_absent(
         &output.join("interfaces.nxid"),
         &format!(
-            "// Public typed interface declarations for {type_name}.\n// Use `type Name` for value models and `type Error: Error` for typed failures.\n// Add methods here, then implement the matching native methods in both source trees.\n\ninterface {type_name} {{\n    // async fn method(input: String) -> String\n}}\n"
+            "// Public typed interface declarations for {type_name}.\n// Use `type Name` for value models and `type Error: Error` for typed failures.\n// Add methods here, then implement the matching native methods in both source trees.\n// Add compile-time options in `config`; users set them in generated `nexa.config.nx`.\n\nconfig {{\n    // compiledOption: String\n}}\n\ninterface {type_name} {{\n    // async fn method(input: String) -> String\n}}\n"
         ),
     )?;
     println!("created plugin scaffold {}", output.display());
@@ -320,7 +320,7 @@ fn manifest(
 
 fn readme(id: &str, version: &str, type_name: &str) -> String {
     format!(
-        "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `nexa.plugin.json` declares the package identity, IDL path, and platform source entry points.\n- `interfaces.nxid` contains typed public interface declarations.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nValidate the IDL with `nexa plugin check .`. Generate direct native binding skeletons with `nexa plugin generate . --target swift` or `--target kotlin`. A local `.nx` app can declare `plugin \"path\" as Namespace`; project generation then includes these platform source trees. Package installation, dependency resolution, and generated implementation methods are not included yet.\n"
+        "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `nexa.plugin.json` declares the package identity, IDL path, and platform source entry points.\n- `interfaces.nxid` contains typed public interface declarations and optional compile-time config options.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nValidate the IDL with `nexa plugin check .`. Generate direct native binding skeletons with `nexa plugin generate . --target swift` or `--target kotlin`. A local `.nx` app can declare `plugin \"path\" as Namespace`; project generation then includes these platform source trees. Package installation, dependency resolution, and generated implementation methods are not included yet.\n"
     )
 }
 

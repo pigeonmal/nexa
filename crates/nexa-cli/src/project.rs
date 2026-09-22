@@ -15,8 +15,9 @@ use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
 use nexa_compiler::{Target, compile_file_with_warnings_for_targets};
 use nexa_ir::Module;
+use nexa_syntax::ast::ConfigValue;
 
-use crate::{cache, config::ProjectConfig};
+use crate::{cache, config, config::ProjectConfig};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProjectTarget {
@@ -91,9 +92,13 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         ProjectTarget::All => "project-all",
     };
     let config_path = output.join("nexa.config.nx");
+    let plugin_definitions = config::load_plugin_definitions(&input)?;
     let existing_config = config_path.is_file();
     let project_config = if existing_config {
-        Some(ProjectConfig::parse_file(&config_path)?)
+        Some(ProjectConfig::parse_file(
+            &config_path,
+            &plugin_definitions,
+        )?)
     } else {
         None
     };
@@ -134,13 +139,28 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     let warnings = super::deduplicate_warnings(warnings);
     super::report_warnings(&warnings, deny_warnings)?;
 
-    let project_config = project_config.unwrap_or_else(|| {
-        let permissions = compiled
-            .first()
-            .map(|(_, module)| module.permissions.clone())
-            .unwrap_or_default();
-        ProjectConfig::from_permissions(&permissions)
-    });
+    let project_config = match project_config {
+        Some(config) => config,
+        None => {
+            let permissions = compiled
+                .first()
+                .map(|(_, module)| module.permissions.clone())
+                .unwrap_or_default();
+            match ProjectConfig::from_permissions(&permissions, &plugin_definitions) {
+                Ok(config) => config,
+                Err(error) => {
+                    write_if_changed(
+                        &config_path,
+                        &config::render_template(&permissions, &plugin_definitions),
+                    )?;
+                    return Err(format!(
+                        "{error}; edit {} and run `nexa generate` again",
+                        config_path.display()
+                    ));
+                }
+            }
+        }
+    };
     if !existing_config {
         write_if_changed(&config_path, &project_config.render())?;
         cache_key = cache::key_with_extra(&input, project_target, &[config_path.as_path()])
@@ -203,7 +223,7 @@ fn generate_ios(
     let directory = root.join("ios").join(app_name);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let screen = nexa_codegen::names::screen_name(app_name);
-    let source = ios_generated_source(module)?;
+    let source = ios_generated_source(module, config)?;
     write_if_changed(&directory.join("NexaGenerated.swift"), &source)?;
     write_if_changed(
         &directory.join(format!("{app_name}App.swift")),
@@ -236,7 +256,7 @@ fn generate_android(
     fs::create_dir_all(&source_dir)
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
     let generated = KotlinBackend.generate(module);
-    copy_android_plugin_sources(root, module)?;
+    copy_android_plugin_sources(root, module, &package, config)?;
     let screen = nexa_codegen::names::screen_name(app_name);
     let uses_network = generated.contains("NexaNetwork") || generated.contains("org.chromium.net");
     let uses_remote_image =
@@ -255,7 +275,10 @@ fn generate_android(
     };
     write_if_changed(
         &source_dir.join("NexaGenerated.kt"),
-        &format!("package {package}\n\n{generated}"),
+        &format!(
+            "package {package}\n\n{generated}{}",
+            render_kotlin_plugin_config(module, config)
+        ),
     )?;
     write_if_changed(
         &source_dir.join("MainActivity.kt"),
@@ -291,7 +314,7 @@ fn generate_android(
     Ok(())
 }
 
-fn ios_generated_source(module: &Module) -> Result<String, String> {
+fn ios_generated_source(module: &Module, config: &ProjectConfig) -> Result<String, String> {
     let generated = SwiftBackend.generate(module);
     if module.plugins.is_empty() {
         return Ok(generated);
@@ -304,6 +327,10 @@ fn ios_generated_source(module: &Module) -> Result<String, String> {
         } else {
             declarations.push(line.to_owned());
         }
+    }
+    let plugin_config = render_swift_plugin_config(module, config);
+    if !plugin_config.is_empty() {
+        declarations.push(plugin_config);
     }
     for plugin in &module.plugins {
         for path in native_plugin_sources(plugin, "ios/Sources", "swift")? {
@@ -328,8 +355,20 @@ fn ios_generated_source(module: &Module) -> Result<String, String> {
     Ok(source)
 }
 
-fn copy_android_plugin_sources(root: &Path, module: &Module) -> Result<(), String> {
+fn copy_android_plugin_sources(
+    root: &Path,
+    module: &Module,
+    app_package: &str,
+    config: &ProjectConfig,
+) -> Result<(), String> {
     let destination = root.join("android/app/src/main/java");
+    let has_plugin_config = config.plugins().any(|plugin| {
+        !plugin.options.is_empty()
+            && module
+                .plugins
+                .iter()
+                .any(|used| used.namespace == plugin.namespace)
+    });
     for plugin in &module.plugins {
         for path in native_plugin_sources(plugin, "android/src/main/kotlin", "kt")? {
             let plugin_root = Path::new(&plugin.idl_path)
@@ -342,14 +381,194 @@ fn copy_android_plugin_sources(root: &Path, module: &Module) -> Result<(), Strin
                     path.display()
                 )
             })?;
-            write_if_changed(
-                &destination.join(relative),
-                &fs::read_to_string(&path)
-                    .map_err(|error| format!("{}: {error}", path.display()))?,
-            )?;
+            let contents = fs::read_to_string(&path)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            let contents = if has_plugin_config {
+                kotlin_plugin_config_import(&contents, app_package)
+            } else {
+                contents
+            };
+            write_if_changed(&destination.join(relative), &contents)?;
         }
     }
     Ok(())
+}
+
+fn render_swift_plugin_config(module: &Module, config: &ProjectConfig) -> String {
+    let plugins = config
+        .plugins()
+        .filter(|plugin| {
+            !plugin.options.is_empty()
+                && module
+                    .plugins
+                    .iter()
+                    .any(|used| used.namespace == plugin.namespace)
+        })
+        .collect::<Vec<_>>();
+    if plugins.is_empty() {
+        return String::new();
+    }
+    let mut output = String::from("internal enum NexaPluginConfig {\n");
+    for plugin in plugins {
+        output.push_str(&format!("    internal enum {} {{\n", plugin.namespace));
+        for option in &plugin.options {
+            output.push_str(&format!(
+                "        internal static let {}: {} = {}\n",
+                option.name,
+                swift_config_type(&option.ty),
+                swift_config_value(&option.value)
+            ));
+        }
+        output.push_str("    }\n");
+    }
+    output.push_str("}\n");
+    output
+}
+
+fn render_kotlin_plugin_config(module: &Module, config: &ProjectConfig) -> String {
+    let plugins = config
+        .plugins()
+        .filter(|plugin| {
+            !plugin.options.is_empty()
+                && module
+                    .plugins
+                    .iter()
+                    .any(|used| used.namespace == plugin.namespace)
+        })
+        .collect::<Vec<_>>();
+    if plugins.is_empty() {
+        return String::new();
+    }
+    let mut output = String::from("\ninternal object NexaPluginConfig {\n");
+    for plugin in plugins {
+        output.push_str(&format!("    internal object {} {{\n", plugin.namespace));
+        for option in &plugin.options {
+            let modifier = if option.ty.optional {
+                "val"
+            } else {
+                "const val"
+            };
+            output.push_str(&format!(
+                "        internal {modifier} {}: {} = {}\n",
+                option.name,
+                kotlin_config_type(&option.ty),
+                kotlin_config_value(&option.value, &option.ty)
+            ));
+        }
+        output.push_str("    }\n");
+    }
+    output.push_str("}\n");
+    output
+}
+
+fn swift_config_type(ty: &nexa_plugin_idl::TypeRef) -> String {
+    let name = match ty.name.as_str() {
+        "String" => "String",
+        "Bool" => "Bool",
+        "Int8" => "Int8",
+        "Int16" => "Int16",
+        "Int32" => "Int32",
+        "Int64" => "Int64",
+        "UInt8" => "UInt8",
+        "UInt16" => "UInt16",
+        "UInt32" => "UInt32",
+        "UInt64" => "UInt64",
+        "Float32" => "Float",
+        "Float64" => "Double",
+        _ => "String",
+    };
+    if ty.optional {
+        format!("{name}?")
+    } else {
+        name.to_owned()
+    }
+}
+
+fn kotlin_config_type(ty: &nexa_plugin_idl::TypeRef) -> String {
+    let name = match ty.name.as_str() {
+        "String" => "String",
+        "Bool" => "Boolean",
+        "Int8" => "Byte",
+        "Int16" => "Short",
+        "Int32" => "Int",
+        "Int64" => "Long",
+        "UInt8" => "UByte",
+        "UInt16" => "UShort",
+        "UInt32" => "UInt",
+        "UInt64" => "ULong",
+        "Float32" => "Float",
+        "Float64" => "Double",
+        _ => "String",
+    };
+    if ty.optional {
+        format!("{name}?")
+    } else {
+        name.to_owned()
+    }
+}
+
+fn swift_config_value(value: &ConfigValue) -> String {
+    match value {
+        ConfigValue::String(value) => format!("\"{}\"", swift_string_escape(value)),
+        ConfigValue::Number(value) => value.clone(),
+        ConfigValue::Bool(value) => value.to_string(),
+        ConfigValue::Null => "nil".to_owned(),
+        ConfigValue::Array(_) => "[]".to_owned(),
+    }
+}
+
+fn kotlin_config_value(value: &ConfigValue, ty: &nexa_plugin_idl::TypeRef) -> String {
+    match value {
+        ConfigValue::String(value) => format!("\"{}\"", kotlin_string_escape(value)),
+        ConfigValue::Number(value) => match ty.name.as_str() {
+            "Float32" if !value.ends_with('f') && !value.ends_with('F') => {
+                format!("{value}f")
+            }
+            "UInt8" | "UInt16" | "UInt32" if !value.ends_with('u') && !value.ends_with('U') => {
+                format!("{value}u")
+            }
+            "UInt64" if !value.ends_with("uL") && !value.ends_with("UL") => {
+                format!("{value}uL")
+            }
+            _ => value.clone(),
+        },
+        ConfigValue::Bool(value) => value.to_string(),
+        ConfigValue::Null => "null".to_owned(),
+        ConfigValue::Array(_) => "emptyList()".to_owned(),
+    }
+}
+
+fn swift_string_escape(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
+fn kotlin_string_escape(value: &str) -> String {
+    swift_string_escape(value)
+}
+
+fn kotlin_plugin_config_import(contents: &str, app_package: &str) -> String {
+    let import = format!("import {app_package}.NexaPluginConfig");
+    if contents.lines().any(|line| line.trim() == import) {
+        return contents.to_owned();
+    }
+    let mut lines = contents.lines();
+    let Some(package_line) = lines.next() else {
+        return contents.to_owned();
+    };
+    if !package_line.trim_start().starts_with("package ") {
+        return contents.to_owned();
+    }
+    let remainder = lines.collect::<Vec<_>>().join("\n");
+    if remainder.is_empty() {
+        format!("{package_line}\n\n{import}\n")
+    } else {
+        format!("{package_line}\n\n{import}\n{remainder}\n")
+    }
 }
 
 fn native_plugin_sources(
@@ -507,7 +726,7 @@ fn project_cache_is_current(
 
 fn root_readme(app_name: &str, targets: &[&str]) -> String {
     let mut readme = format!(
-        "# {app_name}\n\nGenerated by Nexa from a single `.nx` entry file. Edit the Nexa source and regenerate; generated native files are build outputs. Edit `nexa.config.nx` to customize compile-time permissions and their iOS purpose messages.\n\n"
+        "# {app_name}\n\nGenerated by Nexa from a single `.nx` entry file. Edit the Nexa source and regenerate; generated native files are build outputs. Edit `nexa.config.nx` to customize compile-time permissions, iOS purpose messages, and declared plugin options.\n\n"
     );
     if targets.contains(&"ios") {
         readme.push_str(&format!("## iOS\n\n`xcodebuild -project ios/{app_name}.xcodeproj -scheme {app_name} -sdk iphonesimulator build`\n\nOpen `ios/{app_name}.xcodeproj` in Xcode to run on a device or simulator.\n\n"));

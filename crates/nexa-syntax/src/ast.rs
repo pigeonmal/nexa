@@ -72,6 +72,7 @@ pub struct Program {
 #[derive(Clone, Debug)]
 pub struct Config {
     pub permissions: Vec<PermissionConfig>,
+    pub plugins: Vec<PluginConfigDecl>,
     pub span: Span,
 }
 
@@ -80,6 +81,29 @@ pub struct PermissionConfig {
     pub name: String,
     pub message: String,
     pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct PluginConfigDecl {
+    pub name: String,
+    pub options: Vec<PluginOptionDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct PluginOptionDecl {
+    pub name: String,
+    pub value: ConfigValue,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub enum ConfigValue {
+    String(String),
+    Number(String),
+    Bool(bool),
+    Null,
+    Array(Vec<ConfigValue>),
 }
 
 #[derive(Clone, Debug)]

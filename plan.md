@@ -985,7 +985,14 @@ and generated projects include the plugin's `ios/Sources` and
 `android/src/main/kotlin` source trees. Dependency resolution, installation,
 version selection, generated implementation methods, and typed error recovery
 remain future work. Unused declared plugins are removed after IR reachability
-analysis so their native source trees do not enter generated projects. See
+analysis so their native source trees do not enter generated projects.
+
+Plugin authors can also declare a typed `config` block in `interfaces.nxid`.
+The generated `nexa.config.nx` accepts values under `plugins { Namespace { ... } }`.
+Required options, optional values, defaults, and scalar literal types are
+validated before native generation. Reachable plugins receive direct generated
+Swift/Kotlin constants, while no runtime plugin configuration registry is
+introduced. See
 [`docs/plugins.md`](docs/plugins.md).
 
 The plugin system should take inspiration from systems such as:
