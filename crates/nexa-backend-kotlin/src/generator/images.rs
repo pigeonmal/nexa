@@ -1,6 +1,9 @@
 use nexa_ir::{ImageScale, ImageSource};
 
-use super::utils::{indent, kotlin_string};
+use super::{
+    expressions::expression,
+    utils::{indent, kotlin_string},
+};
 
 pub(super) fn render_image(
     source: &ImageSource,
@@ -17,7 +20,16 @@ pub(super) fn render_image(
     };
     let model = match source {
         ImageSource::Asset(asset) => format!("R.drawable.{asset}"),
-        ImageSource::RemoteUrl(url) => kotlin_string(url),
+        ImageSource::RemoteUrl(url) => {
+            if matches!(url, nexa_ir::Expr::String(_)) {
+                expression(url)
+            } else {
+                format!(
+                    "({}).takeIf {{ it.startsWith(\"https://\") }}",
+                    expression(url)
+                )
+            }
+        }
     };
     let description = if description.is_empty() {
         "null".to_owned()

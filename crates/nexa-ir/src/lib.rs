@@ -440,7 +440,7 @@ pub enum ImageScale {
 #[derive(Clone, Debug)]
 pub enum ImageSource {
     Asset(String),
-    RemoteUrl(String),
+    RemoteUrl(Expr),
 }
 
 #[derive(Clone, Copy, Debug, Default)]

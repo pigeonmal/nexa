@@ -101,10 +101,14 @@ pub fn walk_ir(
             }
             Node::TextInput { actions, .. } => walk_actions(actions, visit_expression),
             Node::Switch { .. }
-            | Node::Image { .. }
             | Node::StatusBar { .. }
             | Node::Direction { .. }
             | Node::NavigationStack { .. } => {}
+            Node::Image { source, .. } => {
+                if let crate::ImageSource::RemoteUrl(url) = source {
+                    walk_expression(url, visit_expression);
+                }
+            }
         }
     }
 }

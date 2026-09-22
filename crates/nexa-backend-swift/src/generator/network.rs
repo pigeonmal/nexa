@@ -295,6 +295,9 @@ private struct NexaRemoteImage: View {
         }
         .task(id: url) {
             do {
+                guard let parsedURL = URL(string: url), parsedURL.scheme?.lowercased() == "https" else {
+                    throw NexaNetworkError.invalidURL
+                }
                 let response = try await NexaNetwork.fetch(url: url)
                 guard let decoded = UIImage(data: response.body) else {
                     throw NexaNetworkError.invalidResponse

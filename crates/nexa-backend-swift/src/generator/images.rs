@@ -1,6 +1,9 @@
 use nexa_ir::{ImageScale, ImageSource};
 
-use super::utils::{indent, swift_string};
+use super::{
+    expressions::expression,
+    utils::{indent, swift_string},
+};
 
 pub(super) fn render_image(
     source: &ImageSource,
@@ -19,7 +22,7 @@ pub(super) fn render_image(
         ImageSource::RemoteUrl(url) => {
             out.push_str(&format!(
                 "NexaRemoteImage(url: {}, scale: {}, placeholder: {})",
-                swift_string(url),
+                expression(url),
                 match scale {
                     ImageScale::Fit => "NexaImageScale.fit",
                     ImageScale::Fill => "NexaImageScale.fill",

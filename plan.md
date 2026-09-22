@@ -400,6 +400,10 @@ Image should support:
 - decoding optimization,
 - memory-efficient image loading.
 
+Remote `Image(url: ...)` accepts a typed `String` expression. Literal URLs are
+validated as absolute HTTPS URLs during semantic lowering; dynamic values are
+guarded by the generated URLSession/Coil loaders before a request is started.
+
 Use platform-native image pipelines where appropriate.
 
 The abstraction must allow optimized third-party/native image loaders to be plugged in.

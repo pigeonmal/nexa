@@ -315,14 +315,17 @@ pub(super) fn lower_node(
                     ImageSource::Asset(asset)
                 }
                 ast::ImageSource::Url(url) => {
-                    let url = require_string_literal(&url, "Image URL")?;
-                    if !is_https_url(&url) {
-                        return Err(CompileError::new(
-                            span,
-                            "Image URL must be an absolute HTTPS URL",
-                        ));
+                    let lowered_url =
+                        lower_expr(&url, Some(&Type::String), symbols, functions, false)?;
+                    if let ast::Expr::String(value, _) = &url {
+                        if !is_https_url(value) {
+                            return Err(CompileError::new(
+                                span,
+                                "Image URL must be an absolute HTTPS URL",
+                            ));
+                        }
                     }
-                    ImageSource::RemoteUrl(url)
+                    ImageSource::RemoteUrl(lowered_url)
                 }
             };
             let description = require_string_literal(&description, "Image description")?;

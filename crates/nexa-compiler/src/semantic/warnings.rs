@@ -301,7 +301,11 @@ fn walk_node(
             walk_actions(actions, names, used, target, file, warnings);
         }
         ast::Node::Switch { value, .. } => walk_expression(value, names, used),
-        ast::Node::Image { .. } => {}
+        ast::Node::Image { source, .. } => {
+            if let ast::ImageSource::Url(url) = source {
+                walk_expression(url, names, used);
+            }
+        }
         ast::Node::Pressable {
             disabled,
             children,
