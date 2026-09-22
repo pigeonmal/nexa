@@ -27,8 +27,44 @@ mod state;
 mod structs;
 mod utils;
 
+fn project_features_from_analysis(
+    module: &Module,
+    features: &features::Features,
+) -> crate::KotlinProjectFeatures {
+    crate::KotlinProjectFeatures {
+        uses_network: features.uses_network_api,
+        uses_remote_image: features.uses_remote_image,
+        uses_coroutines: features.uses_network_api
+            || features.uses_file_async
+            || features.uses_permission_request,
+        uses_permission_request: features.uses_permission_request,
+        uses_navigation: !module.screens.is_empty(),
+        uses_compose_graphics: features.uses_color
+            || features.uses_asset
+            || features.uses_tab_icon
+            || features.uses_button_icon
+            || features.uses_placeholder,
+        uses_lifecycle_events: module.on_active.is_some()
+            || module.on_inactive.is_some()
+            || module.on_background.is_some(),
+    }
+}
+
 pub(super) fn generate(module: &Module) -> String {
     let features = features::Features::analyze(module);
+    generate_with_analysis(module, &features)
+}
+
+pub(super) fn generate_with_project_features(
+    module: &Module,
+) -> (String, crate::KotlinProjectFeatures) {
+    let features = features::Features::analyze(module);
+    let project_features = project_features_from_analysis(module, &features);
+    let generated = generate_with_analysis(module, &features);
+    (generated, project_features)
+}
+
+fn generate_with_analysis(module: &Module, features: &features::Features) -> String {
     let mut focus_bindings = features::collect_focus_bindings(&module.body);
     for screen in &module.screens {
         focus_bindings.extend(features::collect_focus_bindings(&screen.body));

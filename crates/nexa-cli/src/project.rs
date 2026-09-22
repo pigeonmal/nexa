@@ -252,26 +252,20 @@ fn generate_android(
     let source_dir = root.join("android/app/src/main/java").join(&package_path);
     fs::create_dir_all(&source_dir)
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
-    let generated = KotlinBackend.generate(module);
+    let (generated, project_features) = KotlinBackend.generate_with_project_features(module);
     copy_android_plugin_sources(root, module, &package, config)?;
     let screen = nexa_codegen::names::screen_name(app_name);
-    let uses_network = generated.contains("NexaNetwork") || generated.contains("org.chromium.net");
-    let uses_remote_image =
-        generated.contains("coil3.compose.AsyncImage") || generated.contains("coil3.network");
-    let uses_compose_graphics = generated.contains("androidx.compose.ui.graphics.");
-    let uses_lifecycle_events = generated.contains("LocalLifecycleOwner");
-    let uses_coroutines = generated.contains("kotlinx.coroutines.");
-    let cronet_import = if uses_network {
+    let cronet_import = if project_features.uses_network {
         "import com.google.android.gms.net.CronetProviderInstaller\n"
     } else {
         ""
     };
-    let permission_callback = if generated.contains("NexaPermissions.request") {
+    let permission_callback = if project_features.uses_permission_request {
         "    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {\n        super.onRequestPermissionsResult(requestCode, permissions, grantResults)\n        NexaRuntime.dispatchPermissionResult(requestCode, grantResults)\n    }\n"
     } else {
         ""
     };
-    let content_setup = if uses_network {
+    let content_setup = if project_features.uses_network {
         format!(
             "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{\n            setContent {{ MaterialTheme {{ {screen}() }} }}\n        }}\n"
         )
@@ -293,7 +287,7 @@ fn generate_android(
     )?;
     write_if_changed(
         &root.join("android/app/src/main/AndroidManifest.xml"),
-        &android_manifest(app_name, &package, uses_network, config),
+        &android_manifest(app_name, &package, project_features.uses_network, config),
     )?;
     write_if_changed(
         &root.join("android/settings.gradle.kts"),
@@ -309,15 +303,7 @@ fn generate_android(
     )?;
     write_if_changed(
         &root.join("android/app/build.gradle.kts"),
-        &android_app_gradle(
-            &package,
-            uses_network,
-            uses_remote_image,
-            uses_coroutines,
-            generated.contains("NavHost"),
-            uses_compose_graphics,
-            uses_lifecycle_events,
-        ),
+        &android_app_gradle(&package, project_features),
     )?;
     write_if_changed(
         &root.join("android/app/proguard-rules.pro"),
@@ -871,39 +857,34 @@ fn android_manifest(app_name: &str, package: &str, remote: bool, config: &Projec
 
 fn android_app_gradle(
     package: &str,
-    uses_network: bool,
-    uses_remote_image: bool,
-    uses_coroutines: bool,
-    navigation: bool,
-    uses_compose_graphics: bool,
-    uses_lifecycle_events: bool,
+    features: nexa_backend_kotlin::KotlinProjectFeatures,
 ) -> String {
     let mut dependencies = String::from(
         "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.material3:material3\")\n",
     );
-    if uses_compose_graphics {
+    if features.uses_compose_graphics {
         dependencies.push_str("    implementation(\"androidx.compose.ui:ui-graphics\")\n");
     }
-    if navigation {
+    if features.uses_navigation {
         dependencies
             .push_str("    implementation(\"androidx.navigation:navigation-compose:2.8.5\")\n");
     }
-    if uses_lifecycle_events {
+    if features.uses_lifecycle_events {
         dependencies.push_str(
             "    implementation(\"androidx.lifecycle:lifecycle-runtime-compose:2.11.0\")\n",
         );
     }
-    if uses_remote_image {
+    if features.uses_remote_image {
         dependencies.push_str(
             "    implementation(\"io.coil-kt.coil3:coil-compose:3.6.3\")\n    implementation(\"io.coil-kt.coil3:coil-network-core:3.6.3\")\n",
         );
     }
-    if uses_coroutines {
+    if features.uses_coroutines {
         dependencies.push_str(
             "    implementation(\"org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0\")\n",
         );
     }
-    if uses_network {
+    if features.uses_network {
         dependencies.push_str(
             "    implementation(\"com.google.android.gms:play-services-cronet:18.0.1\")\n",
         );

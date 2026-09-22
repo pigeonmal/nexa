@@ -1191,6 +1191,10 @@ optimized default Android ruleset; the project-specific keep file stays empty
 because generated bindings use direct calls rather than reflection. Generated
 iOS Release targets use whole-module Swift `-O`, dead-code stripping, and
 size-oriented Clang optimization.
+Native backends expose typed project-feature manifests to this scaffolder, so
+dependency declarations and host initialization are derived from the same
+feature analysis as generated imports and helper fragments; generated source
+text is never scanned to guess which libraries an app needs.
 
 Incremental compilation should be a major priority.
 
