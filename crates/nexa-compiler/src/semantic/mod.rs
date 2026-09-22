@@ -370,44 +370,47 @@ fn lower_struct_declarations(
     let mut raw = HashMap::with_capacity(declarations.len());
     let mut names = std::collections::HashSet::with_capacity(declarations.len());
     for declaration in declarations {
-        if matches!(
-            declaration.name.as_str(),
-            "String"
-                | "Bool"
-                | "Int8"
-                | "Int16"
-                | "Int32"
-                | "Int64"
-                | "UInt8"
-                | "UInt16"
-                | "UInt32"
-                | "UInt64"
-                | "Float32"
-                | "Float64"
-                | "Array"
-                | "Set"
-                | "Map"
-                | "Pair"
-                | "Triple"
-                | "Theme"
-                | "Layout"
-        ) {
-            return Err(CompileError::new(
-                declaration.span,
-                format!("struct name `{}` is reserved", declaration.name),
-            ));
-        }
-        if !names.insert(&declaration.name) {
-            return Err(CompileError::new(
-                declaration.span,
-                format!("struct `{}` is declared more than once", declaration.name),
-            ));
-        }
-        let fields = declaration
-            .fields
-            .iter()
-            .map(|field| Ok((field.name.clone(), parse_type(&field.ty)?)))
-            .collect::<Result<Vec<_>, CompileError>>()?;
+        let fields = (|| {
+            if matches!(
+                declaration.name.as_str(),
+                "String"
+                    | "Bool"
+                    | "Int8"
+                    | "Int16"
+                    | "Int32"
+                    | "Int64"
+                    | "UInt8"
+                    | "UInt16"
+                    | "UInt32"
+                    | "UInt64"
+                    | "Float32"
+                    | "Float64"
+                    | "Array"
+                    | "Set"
+                    | "Map"
+                    | "Pair"
+                    | "Triple"
+                    | "Theme"
+                    | "Layout"
+            ) {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!("struct name `{}` is reserved", declaration.name),
+                ));
+            }
+            if !names.insert(&declaration.name) {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!("struct `{}` is declared more than once", declaration.name),
+                ));
+            }
+            declaration
+                .fields
+                .iter()
+                .map(|field| Ok((field.name.clone(), parse_type(&field.ty)?)))
+                .collect::<Result<Vec<_>, CompileError>>()
+        })()
+        .map_err(|error| in_source_file(error, declaration.source_file.as_deref()))?;
         raw.insert(declaration.name.clone(), fields);
     }
 
@@ -419,7 +422,8 @@ fn lower_struct_declarations(
             &mut types,
             &mut Vec::new(),
             declaration.span,
-        )?;
+        )
+        .map_err(|error| in_source_file(error, declaration.source_file.as_deref()))?;
     }
     let lowered = declarations
         .iter()
@@ -516,6 +520,14 @@ fn resolve_struct_members(
     }
 }
 
+fn in_source_file(error: CompileError, source_file: Option<&str>) -> CompileError {
+    if let Some(file) = source_file {
+        error.with_file(file)
+    } else {
+        error
+    }
+}
+
 fn enum_symbols(declarations: &[nexa_ir::EnumDecl]) -> HashMap<String, (nexa_ir::Type, bool)> {
     let mut symbols = HashMap::new();
     for declaration in declarations {
@@ -539,7 +551,8 @@ fn validate_declared_types(
     for declaration in &app.structs {
         for field in &declaration.fields {
             let ty = resolve_struct_type(&parse_type(&field.ty)?, struct_types);
-            validate_type_names(&ty, enum_names, field.ty.span())?;
+            validate_type_names(&ty, enum_names, field.ty.span())
+                .map_err(|error| in_source_file(error, declaration.source_file.as_deref()))?;
         }
     }
     for declaration in &app.states {
