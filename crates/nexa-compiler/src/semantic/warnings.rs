@@ -564,7 +564,9 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
         ast::Expr::Call(_, arguments, _) => arguments
             .iter()
             .any(|argument| expression_references_name(argument, name)),
-        ast::Expr::Index(collection, index, _) => {
+        ast::Expr::Index {
+            collection, index, ..
+        } => {
             expression_references_name(collection, name) || expression_references_name(index, name)
         }
         ast::Expr::Member { base, .. } => expression_references_name(base, name),
@@ -647,7 +649,9 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
                 walk_expression(argument, names, used);
             }
         }
-        ast::Expr::Index(collection, index, _) => {
+        ast::Expr::Index {
+            collection, index, ..
+        } => {
             walk_expression(collection, names, used);
             walk_expression(index, names, used);
         }

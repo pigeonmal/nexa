@@ -33,8 +33,17 @@ pub(super) fn expression(expr: &Expr) -> String {
             format!("({} ?: {})", expression(left), expression(right))
         }
         Expr::Index {
-            collection, index, ..
-        } => format!("{}[{}]", expression(collection), expression(index)),
+            collection,
+            index,
+            optional,
+            ..
+        } => {
+            if *optional {
+                format!("{}?.get({})", expression(collection), expression(index))
+            } else {
+                format!("{}[{}]", expression(collection), expression(index))
+            }
+        }
         Expr::Range {
             start,
             end,

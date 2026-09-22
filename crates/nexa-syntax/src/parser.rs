@@ -999,7 +999,12 @@ impl Parser {
                 let span = expression.span();
                 let index = self.expr()?;
                 self.expect(Kind::RBracket, "expected `]` after collection index")?;
-                expression = Expr::Index(Box::new(expression), Box::new(index), span);
+                expression = Expr::Index {
+                    collection: Box::new(expression),
+                    index: Box::new(index),
+                    optional: false,
+                    span,
+                };
             } else if self.take(&Kind::Dot) {
                 let (name, name_span) = self.ident()?;
                 let span = Span {
@@ -1013,21 +1018,36 @@ impl Parser {
                     span,
                 };
             } else if self.take(&Kind::Question) {
-                self.expect(
-                    Kind::Dot,
-                    "expected `.` after `?` in optional member access",
-                )?;
-                let (name, name_span) = self.ident()?;
-                let span = Span {
-                    end: name_span.end,
-                    ..expression.span()
-                };
-                expression = Expr::Member {
-                    base: Box::new(expression),
-                    name,
-                    optional: true,
-                    span,
-                };
+                if self.take(&Kind::LBracket) {
+                    let span = expression.span();
+                    let index = self.expr()?;
+                    self.expect(
+                        Kind::RBracket,
+                        "expected `]` after optional collection index",
+                    )?;
+                    expression = Expr::Index {
+                        collection: Box::new(expression),
+                        index: Box::new(index),
+                        optional: true,
+                        span,
+                    };
+                } else {
+                    self.expect(
+                        Kind::Dot,
+                        "expected `.` or `[` after `?` in optional access",
+                    )?;
+                    let (name, name_span) = self.ident()?;
+                    let span = Span {
+                        end: name_span.end,
+                        ..expression.span()
+                    };
+                    expression = Expr::Member {
+                        base: Box::new(expression),
+                        name,
+                        optional: true,
+                        span,
+                    };
+                }
             } else {
                 break;
             }

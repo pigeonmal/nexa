@@ -822,11 +822,13 @@ fn fold_expression(expression: Expr) -> Expr {
         Expr::Index {
             collection,
             index,
+            optional,
             collection_type,
             element_type,
         } => Expr::Index {
             collection: Box::new(fold_expression(*collection)),
             index: Box::new(fold_expression(*index)),
+            optional,
             collection_type,
             element_type,
         },

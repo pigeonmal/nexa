@@ -160,6 +160,7 @@ pub enum Expr {
     Index {
         collection: Box<Expr>,
         index: Box<Expr>,
+        optional: bool,
         collection_type: Type,
         element_type: Type,
     },

@@ -337,7 +337,12 @@ pub enum Expr {
     Pair(Box<Expr>, Box<Expr>, Span),
     Triple(Box<Expr>, Box<Expr>, Box<Expr>, Span),
     Call(String, Vec<Expr>, Span),
-    Index(Box<Expr>, Box<Expr>, Span),
+    Index {
+        collection: Box<Expr>,
+        index: Box<Expr>,
+        optional: bool,
+        span: Span,
+    },
     Member {
         base: Box<Expr>,
         name: String,
@@ -394,7 +399,7 @@ impl Expr {
             | Self::Pair(_, _, s)
             | Self::Triple(_, _, _, s)
             | Self::Call(_, _, s)
-            | Self::Index(_, _, s)
+            | Self::Index { span: s, .. }
             | Self::Member { span: s, .. }
             | Self::Range { span: s, .. }
             | Self::Null(s)

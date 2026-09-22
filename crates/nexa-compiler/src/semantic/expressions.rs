@@ -66,9 +66,9 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
             references_state(first) || references_state(second) || references_state(third)
         }
         ast::Expr::Call(_, arguments, _) => arguments.iter().any(references_state),
-        ast::Expr::Index(collection, index, _) => {
-            references_state(collection) || references_state(index)
-        }
+        ast::Expr::Index {
+            collection, index, ..
+        } => references_state(collection) || references_state(index),
         ast::Expr::Member { base, .. } => references_state(base),
         ast::Expr::Range {
             start, end, step, ..
@@ -354,9 +354,26 @@ pub(super) fn lower_expr(
             allow_await,
             false,
         ),
-        ast::Expr::Index(collection, index, span) => {
-            let collection_type = infer_expr_type(collection, symbols, functions);
-            let (index_type, result_type, collection_type) = match collection_type {
+        ast::Expr::Index {
+            collection,
+            index,
+            optional,
+            span,
+        } => {
+            let inferred_collection_type = infer_expr_type(collection, symbols, functions);
+            let (index_type, result_type, collection_type) = match inferred_collection_type {
+                Some(Type::Array(_)) if *optional => {
+                    return Err(CompileError::new(
+                        *span,
+                        "`?[index]` requires an optional Array<T> or Map<K, V> value",
+                    ));
+                }
+                Some(Type::Map(_, _)) if *optional => {
+                    return Err(CompileError::new(
+                        *span,
+                        "`?[index]` requires an optional Array<T> or Map<K, V> value",
+                    ));
+                }
                 Some(Type::Array(element_type)) => (
                     Type::Numeric(NumericType::Int32),
                     (*element_type).clone(),
@@ -367,6 +384,30 @@ pub(super) fn lower_expr(
                     Type::Optional(value_type.clone()),
                     Type::Map(key_type, value_type),
                 ),
+                Some(Type::Optional(inner)) if *optional => match *inner {
+                    Type::Array(element_type) => (
+                        Type::Numeric(NumericType::Int32),
+                        Type::Optional(element_type.clone()),
+                        Type::Optional(Box::new(Type::Array(element_type))),
+                    ),
+                    Type::Map(key_type, value_type) => (
+                        (*key_type).clone(),
+                        Type::Optional(value_type.clone()),
+                        Type::Optional(Box::new(Type::Map(key_type, value_type))),
+                    ),
+                    _ => {
+                        return Err(CompileError::new(
+                            *span,
+                            "optional collection indexing requires an optional Array<T> or Map<K, V> value",
+                        ));
+                    }
+                },
+                Some(Type::Optional(_)) => {
+                    return Err(CompileError::new(
+                        *span,
+                        "optional collections require `?[index]` for safe indexing",
+                    ));
+                }
                 _ => {
                     return Err(CompileError::new(
                         *span,
@@ -387,6 +428,7 @@ pub(super) fn lower_expr(
             Ok(Expr::Index {
                 collection: Box::new(lowered_collection),
                 index: Box::new(lowered_index),
+                optional: *optional,
                 collection_type,
                 element_type: result_type,
             })
@@ -730,10 +772,22 @@ pub(super) fn infer_expr_type(
         ast::Expr::Call(name, _, _) => functions
             .get(name)
             .map(|signature| signature.return_type.clone()),
-        ast::Expr::Index(collection, _, _) => match infer_expr_type(collection, symbols, functions)
-        {
-            Some(Type::Array(element_type)) => Some(*element_type),
+        ast::Expr::Index {
+            collection,
+            optional,
+            ..
+        } => match infer_expr_type(collection, symbols, functions) {
+            Some(Type::Array(element_type)) => Some(if *optional {
+                Type::Optional(element_type)
+            } else {
+                *element_type
+            }),
             Some(Type::Map(_, value_type)) => Some(Type::Optional(value_type)),
+            Some(Type::Optional(inner)) if *optional => match *inner {
+                Type::Array(element_type) => Some(Type::Optional(element_type)),
+                Type::Map(_, value_type) => Some(Type::Optional(value_type)),
+                _ => None,
+            },
             _ => None,
         },
         ast::Expr::Member {

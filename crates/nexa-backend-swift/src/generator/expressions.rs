@@ -39,16 +39,26 @@ pub(super) fn expression(expr: &Expr) -> String {
         Expr::Index {
             collection,
             index,
+            optional,
             collection_type,
             ..
         } => {
             let index = expression(index);
-            let index = if matches!(collection_type, Type::Array(_)) {
+            let is_array = match collection_type {
+                Type::Array(_) => true,
+                Type::Optional(inner) => matches!(inner.as_ref(), Type::Array(_)),
+                _ => false,
+            };
+            let index = if is_array {
                 format!("Int({index})")
             } else {
                 index
             };
-            format!("{}[{index}]", expression(collection))
+            if *optional {
+                format!("{}?[{index}]", expression(collection))
+            } else {
+                format!("{}[{index}]", expression(collection))
+            }
         }
         Expr::Range {
             start,
