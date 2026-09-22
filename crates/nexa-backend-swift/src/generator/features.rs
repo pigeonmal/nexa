@@ -6,6 +6,9 @@ use nexa_ir::{ColorValue, Expr, Module, Node};
 #[derive(Default)]
 pub(super) struct Features {
     pub(super) uses_fast_list: bool,
+    pub(super) uses_vertical_list: bool,
+    pub(super) uses_horizontal_list: bool,
+    pub(super) uses_grid_list: bool,
     pub(super) uses_sticky_header: bool,
     pub(super) uses_scroll_events: bool,
     pub(super) uses_link: bool,
@@ -181,21 +184,23 @@ impl Features {
     }
 
     fn record_list_usage(&mut self, node: &Node) {
-        self.uses_fast_list |= matches!(node, Node::FastList { .. });
-        self.uses_sticky_header |= matches!(
-            node,
-            Node::FastList {
-                sticky_header: Some(_),
-                ..
-            }
-        );
-        self.uses_scroll_events |= matches!(
-            node,
-            Node::FastList {
-                on_scroll: Some(_),
-                ..
-            }
-        );
+        let Node::FastList {
+            axis,
+            sticky_header,
+            on_scroll,
+            ..
+        } = node
+        else {
+            return;
+        };
+        self.uses_fast_list = true;
+        match axis {
+            nexa_ir::ListAxis::Vertical => self.uses_vertical_list = true,
+            nexa_ir::ListAxis::Horizontal => self.uses_horizontal_list = true,
+            nexa_ir::ListAxis::Grid { .. } => self.uses_grid_list = true,
+        }
+        self.uses_sticky_header |= sticky_header.is_some();
+        self.uses_scroll_events |= on_scroll.is_some();
     }
 }
 

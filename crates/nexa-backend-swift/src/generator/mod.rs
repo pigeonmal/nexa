@@ -145,6 +145,9 @@ pub(super) fn generate(module: &Module) -> String {
             &mut out,
             features.uses_sticky_header,
             features.uses_scroll_events,
+            features.uses_vertical_list,
+            features.uses_horizontal_list,
+            features.uses_grid_list,
         );
     }
     if features.uses_native_library {

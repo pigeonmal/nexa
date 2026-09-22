@@ -1,11 +1,13 @@
-pub(super) fn render(out: &mut String, uses_sticky_header: bool, uses_scroll_events: bool) {
+pub(super) fn render(
+    out: &mut String,
+    uses_sticky_header: bool,
+    uses_scroll_events: bool,
+    uses_vertical_list: bool,
+    uses_horizontal_list: bool,
+    uses_grid_list: bool,
+) {
     let mut runtime = String::from(
         r#"
-private let nexaFastListCellReuseIdentifier = "NexaFastListCell"
-// <nexa:sticky-header-identifier:begin>
-private let nexaFastListHeaderReuseIdentifier = "NexaFastListHeader"
-// <nexa:sticky-header-identifier:end>
-
 private final class NexaFastListRefreshController: NSObject {
     let control = UIRefreshControl()
     var action: (() -> Void)?
@@ -51,6 +53,14 @@ private func nexaUpdateRefreshControl(
     controller?.update(isRefreshing: isRefreshing)
 }
 
+// <nexa:list-runtime-vertical-constants:begin>
+private let nexaFastListCellReuseIdentifier = "NexaFastListCell"
+// <nexa:sticky-header-identifier:begin>
+private let nexaFastListHeaderReuseIdentifier = "NexaFastListHeader"
+// <nexa:sticky-header-identifier:end>
+// <nexa:list-runtime-vertical-constants:end>
+
+// <nexa:list-runtime-vertical:begin>
 @available(iOS 16.0, *)
 private struct NexaFastList<RowContent: View>: UIViewRepresentable {
     let rowCount: Int
@@ -332,7 +342,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         }
     }
 }
+// <nexa:list-runtime-vertical:end>
 
+// <nexa:list-runtime-horizontal:begin>
 private let nexaFastHorizontalListCellReuseIdentifier = "NexaFastHorizontalListCell"
 
 @available(iOS 16.0, *)
@@ -571,7 +583,9 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         }
     }
 }
+// <nexa:list-runtime-horizontal:end>
 
+// <nexa:list-runtime-grid:begin>
 private let nexaFastGridListCellReuseIdentifier = "NexaFastGridListCell"
 
 @available(iOS 16.0, *)
@@ -823,6 +837,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         }
     }
 }
+// <nexa:list-runtime-grid:end>
 "#,
     );
     if !uses_sticky_header {
@@ -861,6 +876,18 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
     } else {
         runtime = remove_marked_section(&mut runtime, "scroll-events", "condition-inactive");
     }
+    for (uses_list, section) in [
+        (uses_vertical_list, "vertical"),
+        (uses_horizontal_list, "horizontal"),
+        (uses_grid_list, "grid"),
+    ] {
+        if !uses_list {
+            runtime = remove_marked_section(&mut runtime, "list-runtime", section);
+        }
+    }
+    if !uses_vertical_list {
+        runtime = remove_marked_section(&mut runtime, "list-runtime", "vertical-constants");
+    }
     for section in [
         "identifier",
         "field",
@@ -891,6 +918,9 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         "condition-inactive",
     ] {
         runtime = strip_markers(&mut runtime, "scroll-events", section);
+    }
+    for section in ["vertical", "horizontal", "grid", "vertical-constants"] {
+        runtime = strip_markers(&mut runtime, "list-runtime", section);
     }
     out.push_str(&runtime);
 }
