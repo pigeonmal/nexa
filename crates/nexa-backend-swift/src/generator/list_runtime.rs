@@ -3,11 +3,58 @@ pub(super) fn render(out: &mut String) {
         r#"
 private let nexaFastListCellReuseIdentifier = "NexaFastListCell"
 
+private final class NexaFastListRefreshController: NSObject {
+    let control = UIRefreshControl()
+    var action: (() -> Void)?
+
+    init(action: @escaping () -> Void) {
+        self.action = action
+        super.init()
+        control.addTarget(self, action: #selector(refresh), for: .valueChanged)
+    }
+
+    @objc private func refresh() {
+        action?()
+    }
+
+    func update(isRefreshing: Bool) {
+        if isRefreshing {
+            if !control.isRefreshing {
+                control.beginRefreshing()
+            }
+        } else if control.isRefreshing {
+            control.endRefreshing()
+        }
+    }
+}
+
+private func nexaUpdateRefreshControl(
+    _ scrollView: UIScrollView,
+    controller: inout NexaFastListRefreshController?,
+    isRefreshing: Bool,
+    action: (() -> Void)?
+) {
+    guard let action else {
+        scrollView.refreshControl = nil
+        controller = nil
+        return
+    }
+    if controller == nil {
+        controller = NexaFastListRefreshController(action: action)
+        scrollView.refreshControl = controller?.control
+    } else {
+        controller?.action = action
+    }
+    controller?.update(isRefreshing: isRefreshing)
+}
+
 @available(iOS 16.0, *)
 private struct NexaFastList<RowContent: View>: UIViewRepresentable {
     let rowCount: Int
     let rowHeight: CGFloat?
     let rowKey: ((Int) -> AnyHashable)?
+    let isRefreshing: Bool
+    let onRefresh: (() -> Void)?
     let onEndReached: (() -> Void)?
     let rowContent: (Int) -> RowContent
 
@@ -15,12 +62,16 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         rowCount: Int,
         rowHeight: CGFloat? = nil,
         rowKey: ((Int) -> AnyHashable)? = nil,
+        isRefreshing: Bool = false,
+        onRefresh: (() -> Void)? = nil,
         onEndReached: (() -> Void)? = nil,
         @ViewBuilder rowContent: @escaping (Int) -> RowContent
     ) {
         self.rowCount = max(0, rowCount)
         self.rowHeight = rowHeight
         self.rowKey = rowKey
+        self.isRefreshing = isRefreshing
+        self.onRefresh = onRefresh
         self.onEndReached = onEndReached
         self.rowContent = rowContent
     }
@@ -39,6 +90,12 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         let tableView = UITableView(frame: .zero, style: .plain)
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
+        nexaUpdateRefreshControl(
+            tableView,
+            controller: &context.coordinator.refreshController,
+            isRefreshing: isRefreshing,
+            action: onRefresh
+        )
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: nexaFastListCellReuseIdentifier)
         if let rowHeight {
             tableView.rowHeight = rowHeight
@@ -61,6 +118,12 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         coordinator.rowKey = rowKey
         coordinator.onEndReached = onEndReached
         coordinator.rowContent = rowContent
+        nexaUpdateRefreshControl(
+            tableView,
+            controller: &coordinator.refreshController,
+            isRefreshing: isRefreshing,
+            action: onRefresh
+        )
         if previousRowCount != rowCount {
             coordinator.lastEndReachedRowCount = nil
         }
@@ -81,6 +144,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         var rowCount: Int
         var rowHeight: CGFloat?
         var rowKey: ((Int) -> AnyHashable)?
+        var refreshController: NexaFastListRefreshController?
         var onEndReached: (() -> Void)?
         var lastEndReachedRowCount: Int?
         var rowContent: (Int) -> RowContent
@@ -95,6 +159,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             self.rowCount = rowCount
             self.rowHeight = rowHeight
             self.rowKey = rowKey
+            self.refreshController = nil
             self.onEndReached = onEndReached
             self.lastEndReachedRowCount = nil
             self.rowContent = rowContent
@@ -138,6 +203,8 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
     let rowCount: Int
     let itemExtent: CGFloat?
     let rowKey: ((Int) -> AnyHashable)?
+    let isRefreshing: Bool
+    let onRefresh: (() -> Void)?
     let onEndReached: (() -> Void)?
     let rowContent: (Int) -> RowContent
 
@@ -145,12 +212,16 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         rowCount: Int,
         itemExtent: CGFloat? = nil,
         rowKey: ((Int) -> AnyHashable)? = nil,
+        isRefreshing: Bool = false,
+        onRefresh: (() -> Void)? = nil,
         onEndReached: (() -> Void)? = nil,
         @ViewBuilder rowContent: @escaping (Int) -> RowContent
     ) {
         self.rowCount = max(0, rowCount)
         self.itemExtent = itemExtent
         self.rowKey = rowKey
+        self.isRefreshing = isRefreshing
+        self.onRefresh = onRefresh
         self.onEndReached = onEndReached
         self.rowContent = rowContent
     }
@@ -177,6 +248,12 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.dataSource = context.coordinator
         collectionView.delegate = context.coordinator
+        nexaUpdateRefreshControl(
+            collectionView,
+            controller: &context.coordinator.refreshController,
+            isRefreshing: isRefreshing,
+            action: onRefresh
+        )
         collectionView.register(
             UICollectionViewCell.self,
             forCellWithReuseIdentifier: nexaFastHorizontalListCellReuseIdentifier
@@ -196,6 +273,12 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         coordinator.rowKey = rowKey
         coordinator.onEndReached = onEndReached
         coordinator.rowContent = rowContent
+        nexaUpdateRefreshControl(
+            collectionView,
+            controller: &coordinator.refreshController,
+            isRefreshing: isRefreshing,
+            action: onRefresh
+        )
         if previousRowCount != rowCount {
             coordinator.lastEndReachedRowCount = nil
         }
@@ -214,6 +297,7 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
         var rowCount: Int
         var itemExtent: CGFloat?
         var rowKey: ((Int) -> AnyHashable)?
+        var refreshController: NexaFastListRefreshController?
         var onEndReached: (() -> Void)?
         var lastEndReachedRowCount: Int?
         var rowContent: (Int) -> RowContent
@@ -228,6 +312,7 @@ private struct NexaFastHorizontalList<RowContent: View>: UIViewRepresentable {
             self.rowCount = rowCount
             self.itemExtent = itemExtent
             self.rowKey = rowKey
+            self.refreshController = nil
             self.onEndReached = onEndReached
             self.lastEndReachedRowCount = nil
             self.rowContent = rowContent
@@ -280,6 +365,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
     let columns: Int
     let itemHeight: CGFloat?
     let rowKey: ((Int) -> AnyHashable)?
+    let isRefreshing: Bool
+    let onRefresh: (() -> Void)?
     let onEndReached: (() -> Void)?
     let rowContent: (Int) -> RowContent
 
@@ -288,6 +375,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         columns: Int,
         itemHeight: CGFloat? = nil,
         rowKey: ((Int) -> AnyHashable)? = nil,
+        isRefreshing: Bool = false,
+        onRefresh: (() -> Void)? = nil,
         onEndReached: (() -> Void)? = nil,
         @ViewBuilder rowContent: @escaping (Int) -> RowContent
     ) {
@@ -295,6 +384,8 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         self.columns = max(1, columns)
         self.itemHeight = itemHeight
         self.rowKey = rowKey
+        self.isRefreshing = isRefreshing
+        self.onRefresh = onRefresh
         self.onEndReached = onEndReached
         self.rowContent = rowContent
     }
@@ -331,6 +422,12 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.dataSource = context.coordinator
         collectionView.delegate = context.coordinator
+        nexaUpdateRefreshControl(
+            collectionView,
+            controller: &context.coordinator.refreshController,
+            isRefreshing: isRefreshing,
+            action: onRefresh
+        )
         collectionView.register(
             UICollectionViewCell.self,
             forCellWithReuseIdentifier: nexaFastGridListCellReuseIdentifier
@@ -350,6 +447,12 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         coordinator.rowKey = rowKey
         coordinator.onEndReached = onEndReached
         coordinator.rowContent = rowContent
+        nexaUpdateRefreshControl(
+            collectionView,
+            controller: &coordinator.refreshController,
+            isRefreshing: isRefreshing,
+            action: onRefresh
+        )
         if previousRowCount != rowCount {
             coordinator.lastEndReachedRowCount = nil
         }
@@ -368,6 +471,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         var rowCount: Int
         var itemHeight: CGFloat?
         var rowKey: ((Int) -> AnyHashable)?
+        var refreshController: NexaFastListRefreshController?
         var onEndReached: (() -> Void)?
         var lastEndReachedRowCount: Int?
         var rowContent: (Int) -> RowContent
@@ -382,6 +486,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
             self.rowCount = rowCount
             self.itemHeight = itemHeight
             self.rowKey = rowKey
+            self.refreshController = nil
             self.onEndReached = onEndReached
             self.lastEndReachedRowCount = nil
             self.rowContent = rowContent

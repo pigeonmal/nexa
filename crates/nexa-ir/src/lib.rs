@@ -403,6 +403,7 @@ pub enum Node {
         key: Option<Expr>,
         children: Vec<Node>,
         on_end_reached: Option<Vec<Action>>,
+        refresh: Option<FastListRefresh>,
     },
     If {
         condition: Expr,
@@ -420,6 +421,12 @@ pub enum Node {
         arguments: Vec<(String, Expr)>,
         children: Option<Vec<Node>>,
     },
+}
+
+#[derive(Clone, Debug)]
+pub struct FastListRefresh {
+    pub state: String,
+    pub actions: Vec<Action>,
 }
 
 #[derive(Clone, Debug)]

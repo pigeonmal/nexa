@@ -473,7 +473,7 @@ Create a first-party extremely high-performance virtualized list.
 
 This is a major priority.
 
-The first fixed-size optimization is implemented: `FastList(itemExtent: positiveNumber)` maps to native fixed row or cell dimensions for vertical, horizontal, and grid paths. Omitting `itemExtent` preserves dynamic native sizing; no shared measurement pass is introduced. The first pagination slice is also implemented with a trailing `onEndReached { ... }` action block. UIKit observes the last visible row through its native delegate, Compose observes `LazyListState` or `LazyGridState`, and each source count can trigger the callback only once until more rows are added. See [list-item-extent.nx](examples/list-item-extent.nx) and [list-pagination.nx](examples/list-pagination.nx).
+The first fixed-size optimization is implemented: `FastList(itemExtent: positiveNumber)` maps to native fixed row or cell dimensions for vertical, horizontal, and grid paths. Omitting `itemExtent` preserves dynamic native sizing; no shared measurement pass is introduced. The first pagination slice is also implemented with a trailing `onEndReached { ... }` action block. UIKit observes the last visible row through its native delegate, Compose observes `LazyListState` or `LazyGridState`, and each source count can trigger the callback only once until more rows are added. Direct `RefreshControl` children now attach native UIKit refresh controls to FastList table/collection views and use Compose `PullToRefreshBox` around lazy lists without replacing the virtualized path. See [list-item-extent.nx](examples/list-item-extent.nx), [list-pagination.nx](examples/list-pagination.nx), and [list-refresh.nx](examples/list-refresh.nx).
 
 It must support:
 
@@ -562,7 +562,7 @@ Use native tab/navigation primitives wherever possible.
 
 ## RefreshControl
 
-The first pull-to-refresh slice is implemented as `RefreshControl(isRefreshing: mutableBool) { ... } { ... }`. Swift lowers to `.refreshable`; Kotlin lowers to Material 3 `PullToRefreshBox` with the callback block as its native refresh handler.
+The first pull-to-refresh slice is implemented as `RefreshControl(isRefreshing: mutableBool) { ... } { ... }`. Generic content lowers to SwiftUI `.refreshable`; Kotlin lowers to Material 3 `PullToRefreshBox` with the callback block as its native refresh handler. A direct `FastList` child keeps the native list path: UIKit attaches `UIRefreshControl` to the table or collection view, while Compose emits `PullToRefreshBox` around the lazy list.
 
 Remaining work:
 

@@ -1,5 +1,5 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, Expr, ListAxis, ListSource, Module, Node};
+use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListSource, Module, Node};
 
 use super::{
     components::render_children, controls::render_actions, expressions::expression,
@@ -15,6 +15,7 @@ pub(super) fn render_virtualized_list(
     key: Option<&Expr>,
     children: &[Node],
     on_end_reached: Option<&[Action]>,
+    refresh: Option<&FastListRefresh>,
     module: &Module,
     features: &Features,
     depth: usize,
@@ -31,6 +32,7 @@ pub(super) fn render_virtualized_list(
             key,
             children,
             on_end_reached,
+            refresh,
             module,
             features,
             depth,
@@ -57,7 +59,8 @@ pub(super) fn render_virtualized_list(
     let state_parameter = list_state
         .as_deref()
         .map_or_else(String::new, |state| format!("(state = {state})"));
-    indent(out, depth);
+    let list_depth = render_refresh_open(refresh, depth, out);
+    indent(out, list_depth);
     out.push_str(
         match axis {
             ListAxis::Vertical => format!("LazyColumn{state_parameter} {{\n"),
@@ -66,7 +69,7 @@ pub(super) fn render_virtualized_list(
         }
         .as_str(),
     );
-    indent(out, depth + 1);
+    indent(out, list_depth + 1);
     match source {
         ListSource::Count(count) => {
             let count = list_count
@@ -74,14 +77,14 @@ pub(super) fn render_virtualized_list(
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("({}).coerceAtLeast(0)", expression(count)));
             out.push_str("items(\n");
-            indent(out, depth + 2);
+            indent(out, list_depth + 2);
             out.push_str(&format!("count = {count},\n"));
-            indent(out, depth + 2);
+            indent(out, list_depth + 2);
             let key = key
                 .map(|key| render_key(key, index, item, None, "itemPosition"))
                 .unwrap_or_else(|| "itemPosition".to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
-            indent(out, depth + 1);
+            indent(out, list_depth + 1);
             out.push_str(&format!(") {{ {} ->\n", state_name(index)));
         }
         ListSource::Items {
@@ -95,16 +98,16 @@ pub(super) fn render_virtualized_list(
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("{collection}.size"));
             out.push_str("items(\n");
-            indent(out, depth + 2);
+            indent(out, list_depth + 2);
             out.push_str(&format!("count = {count},\n"));
-            indent(out, depth + 2);
+            indent(out, list_depth + 2);
             let key = key
                 .map(|key| render_key(key, index, Some(item), Some(&collection), "itemPosition"))
                 .unwrap_or_else(|| "itemPosition".to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
-            indent(out, depth + 1);
+            indent(out, list_depth + 1);
             out.push_str(&format!(") {{ {} ->\n", state_name(index)));
-            indent(out, depth + 2);
+            indent(out, list_depth + 2);
             out.push_str(&format!(
                 "val {}: {} = {collection}[{}]\n",
                 state_name(item),
@@ -119,14 +122,15 @@ pub(super) fn render_virtualized_list(
         children,
         module,
         features,
-        depth + 2,
+        list_depth + 2,
         out,
     );
     out.push('\n');
-    indent(out, depth + 1);
+    indent(out, list_depth + 1);
     out.push_str("}\n");
-    indent(out, depth);
+    indent(out, list_depth);
     out.push('}');
+    render_refresh_close(refresh, depth, out);
 }
 
 fn render_grid_list(
@@ -138,6 +142,7 @@ fn render_grid_list(
     key: Option<&Expr>,
     children: &[Node],
     on_end_reached: Option<&[Action]>,
+    refresh: Option<&FastListRefresh>,
     module: &Module,
     features: &Features,
     depth: usize,
@@ -163,11 +168,12 @@ fn render_grid_list(
     let state_parameter = list_state
         .as_deref()
         .map_or_else(String::new, |state| format!("state = {state}, "));
-    indent(out, depth);
+    let list_depth = render_refresh_open(refresh, depth, out);
+    indent(out, list_depth);
     out.push_str(&format!(
         "LazyVerticalGrid({state_parameter}columns = GridCells.Fixed({columns})) {{\n"
     ));
-    indent(out, depth + 1);
+    indent(out, list_depth + 1);
     match source {
         ListSource::Count(count) => {
             let count = list_count
@@ -175,14 +181,14 @@ fn render_grid_list(
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("({}).coerceAtLeast(0)", expression(count)));
             out.push_str("items(\n");
-            indent(out, depth + 2);
+            indent(out, list_depth + 2);
             out.push_str(&format!("count = {count},\n"));
-            indent(out, depth + 2);
+            indent(out, list_depth + 2);
             let key = key
                 .map(|key| render_key(key, index, item, None, "itemPosition"))
                 .unwrap_or_else(|| "itemPosition".to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
-            indent(out, depth + 1);
+            indent(out, list_depth + 1);
             out.push_str(&format!(") {{ {} ->\n", state_name(index)));
         }
         ListSource::Items {
@@ -196,16 +202,16 @@ fn render_grid_list(
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("{collection}.size"));
             out.push_str("items(\n");
-            indent(out, depth + 2);
+            indent(out, list_depth + 2);
             out.push_str(&format!("count = {count},\n"));
-            indent(out, depth + 2);
+            indent(out, list_depth + 2);
             let key = key
                 .map(|key| render_key(key, index, Some(item), Some(&collection), "itemPosition"))
                 .unwrap_or_else(|| "itemPosition".to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
-            indent(out, depth + 1);
+            indent(out, list_depth + 1);
             out.push_str(&format!(") {{ {} ->\n", state_name(index)));
-            indent(out, depth + 2);
+            indent(out, list_depth + 2);
             out.push_str(&format!(
                 "val {}: {} = {collection}[{}]\n",
                 state_name(item),
@@ -220,14 +226,41 @@ fn render_grid_list(
         children,
         module,
         features,
-        depth + 2,
+        list_depth + 2,
         out,
     );
     out.push('\n');
-    indent(out, depth + 1);
+    indent(out, list_depth + 1);
     out.push_str("}\n");
-    indent(out, depth);
+    indent(out, list_depth);
     out.push('}');
+    render_refresh_close(refresh, depth, out);
+}
+
+fn render_refresh_open(refresh: Option<&FastListRefresh>, depth: usize, out: &mut String) -> usize {
+    let Some(refresh) = refresh else {
+        return depth;
+    };
+    indent(out, depth);
+    out.push_str("PullToRefreshBox(\n");
+    indent(out, depth + 1);
+    out.push_str(&format!("isRefreshing = {},\n", state_name(&refresh.state)));
+    indent(out, depth + 1);
+    out.push_str("onRefresh = {\n");
+    render_actions(&refresh.actions, depth + 2, out);
+    indent(out, depth + 1);
+    out.push_str("},\n");
+    indent(out, depth);
+    out.push_str(") {\n");
+    depth + 1
+}
+
+fn render_refresh_close(refresh: Option<&FastListRefresh>, depth: usize, out: &mut String) {
+    if refresh.is_some() {
+        out.push('\n');
+        indent(out, depth);
+        out.push('}');
+    }
 }
 
 fn render_end_reached_setup(

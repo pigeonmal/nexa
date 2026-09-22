@@ -54,6 +54,7 @@ pub fn walk_ir(
                 key,
                 children,
                 on_end_reached,
+                refresh,
                 ..
             } => {
                 walk_list_source(source, visit_expression);
@@ -62,6 +63,9 @@ pub fn walk_ir(
                 }
                 if let Some(actions) = on_end_reached {
                     walk_actions(actions, visit_expression);
+                }
+                if let Some(refresh) = refresh {
+                    walk_actions(&refresh.actions, visit_expression);
                 }
                 walk_ir(children, visit_node, visit_expression);
             }

@@ -1,5 +1,5 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, Expr, ListAxis, ListSource, Module, Node};
+use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListSource, Module, Node};
 
 use super::{
     components::render_children, controls::render_actions, expressions::expression, utils::indent,
@@ -14,6 +14,7 @@ pub(super) fn render_virtualized_list(
     key: Option<&Expr>,
     children: &[Node],
     on_end_reached: Option<&[Action]>,
+    refresh: Option<&FastListRefresh>,
     module: &Module,
     depth: usize,
     out: &mut String,
@@ -35,6 +36,7 @@ pub(super) fn render_virtualized_list(
                 &key,
                 item_extent,
                 on_end_reached,
+                refresh,
                 depth,
                 out,
             );
@@ -64,6 +66,7 @@ pub(super) fn render_virtualized_list(
                 &key,
                 item_extent,
                 on_end_reached,
+                refresh,
                 depth,
                 out,
             );
@@ -116,17 +119,29 @@ fn open_list(
     key: &str,
     item_extent: Option<f32>,
     on_end_reached: Option<&[Action]>,
+    refresh: Option<&FastListRefresh>,
     depth: usize,
     out: &mut String,
 ) {
-    if let Some(actions) = on_end_reached {
+    if on_end_reached.is_some() || refresh.is_some() {
         let mut constructor = list_constructor(axis, row_count, key, item_extent);
         constructor.pop();
         out.push_str(&constructor);
-        out.push_str(", onEndReached: {\n");
-        render_actions(actions, depth + 1, out);
-        indent(out, depth);
-        out.push_str("})");
+        if let Some(refresh) = refresh {
+            out.push_str(", isRefreshing: ");
+            out.push_str(&state_name(&refresh.state));
+            out.push_str(", onRefresh: {\n");
+            render_actions(&refresh.actions, depth + 1, out);
+            indent(out, depth);
+            out.push('}');
+        }
+        if let Some(actions) = on_end_reached {
+            out.push_str(", onEndReached: {\n");
+            render_actions(actions, depth + 1, out);
+            indent(out, depth);
+            out.push('}');
+        }
+        out.push(')');
     } else {
         out.push_str(&list_constructor(axis, row_count, key, item_extent));
     }

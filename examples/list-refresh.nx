@@ -1,0 +1,16 @@
+app FastListRefreshDemo {
+    state refreshing: Bool = false
+    state rows: Array<String> = ["First", "Second"]
+
+    body {
+        RefreshControl(isRefreshing: refreshing) {
+            FastList(items: rows, index: index, item: row, itemExtent: 56, key: row) {
+                Text("\(index): \(row)")
+            }
+        } {
+            refreshing = true
+            rows.append("Refreshed")
+            refreshing = false
+        }
+    }
+}

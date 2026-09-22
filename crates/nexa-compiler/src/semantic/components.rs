@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
     AccessibilityRole, Action, BottomBarTab, Capitalization, CollectionMutation, DirectionConfig,
-    DirectionStyle, Expr, FontWeight, HapticStyle, ImageScale, ImageSource, KeyboardDismissMode,
-    KeyboardType, LayoutKind, ListAxis, ListSource, Node, NumericType, ScreenId, StatusBarConfig,
-    StatusBarStyle, TextStyle, Type, WhenCase,
+    DirectionStyle, Expr, FastListRefresh, FontWeight, HapticStyle, ImageScale, ImageSource,
+    KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis, ListSource, Node, NumericType,
+    ScreenId, StatusBarConfig, StatusBarStyle, TextStyle, Type, WhenCase,
 };
 use nexa_syntax::ast;
 
@@ -562,13 +562,22 @@ pub(super) fn lower_node(
                 span,
                 "RefreshControl",
             )?;
-            let lowered_children = lower_nodes(
+            let mut lowered_children = lower_nodes(
                 children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
+            let actions = lower_actions(actions, symbols, functions, false)?;
+            if lowered_children.len() == 1 {
+                let mut child = lowered_children.pop().expect("one lowered refresh child");
+                if let Node::FastList { refresh, .. } = &mut child {
+                    *refresh = Some(FastListRefresh { state, actions });
+                    return Ok(child);
+                }
+                lowered_children.push(child);
+            }
             Ok(Node::RefreshControl {
                 state,
                 children: lowered_children,
-                actions: lower_actions(actions, symbols, functions, false)?,
+                actions,
             })
         }
         ast::Node::AppBottomBar {
@@ -812,6 +821,7 @@ pub(super) fn lower_node(
                 key,
                 children: lowered_children,
                 on_end_reached,
+                refresh: None,
             })
         }
         ast::Node::If {

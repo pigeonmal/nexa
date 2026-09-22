@@ -520,9 +520,11 @@ impl Features {
                 axis,
                 item_extent,
                 on_end_reached,
+                refresh,
                 children,
                 ..
             } => {
+                self.uses_refresh_control |= refresh.is_some();
                 self.uses_list |= matches!(axis, nexa_ir::ListAxis::Vertical);
                 self.uses_linear_list |= !matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_horizontal_list |= matches!(axis, nexa_ir::ListAxis::Horizontal);
