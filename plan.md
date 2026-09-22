@@ -159,6 +159,13 @@ are declared by the expression module. The generic node renderer dispatches to
 those focused emitters, and repeated imports remain safe because the shared
 collector deduplicates them.
 
+Each backend keeps import regression tests beside the collector. Cover the
+minimal baseline, dependencies shared by multiple features, and gates that
+separate similar output paths (for example local images, remote images, and
+typed network calls). Do not add empty import hooks to features that only use
+the backend's baseline UI module; add a contributor when the feature emits an
+additional platform or library import.
+
 The common IR must be platform-independent.
 
 The IR should make it possible to add other backends later without redesigning the language frontend.

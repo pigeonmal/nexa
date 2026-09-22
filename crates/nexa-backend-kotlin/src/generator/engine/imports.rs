@@ -64,3 +64,62 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
 
     imports.render()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ImportContext, render};
+    use crate::generator::engine::features::Features;
+
+    fn render_features(features: &Features) -> String {
+        render(ImportContext {
+            features,
+            has_navigation: false,
+            has_direction: false,
+            has_on_appear: false,
+            has_on_disappear: false,
+            has_lifecycle_events: false,
+        })
+    }
+
+    #[test]
+    fn minimal_app_imports_only_the_compose_entry_annotation() {
+        assert_eq!(
+            render_features(&Features::default()),
+            "import androidx.compose.runtime.Composable\n\n"
+        );
+    }
+
+    #[test]
+    fn local_images_do_not_pull_remote_image_or_network_imports() {
+        let mut features = Features::default();
+        features.uses_asset = true;
+        let imports = render_features(&features);
+
+        assert!(imports.contains("import androidx.compose.foundation.Image\n"));
+        assert!(!imports.contains("import coil3."));
+        assert!(!imports.contains("import org.chromium.net."));
+    }
+
+    #[test]
+    fn remote_images_use_the_cronet_adapter_without_typed_upload_support() {
+        let mut features = Features::default();
+        features.uses_remote_image = true;
+        let imports = render_features(&features);
+
+        assert!(imports.contains("import coil3.compose.AsyncImage\n"));
+        assert!(imports.contains("import coil3.network.NetworkFetcher\n"));
+        assert!(imports.contains("import org.chromium.net.CronetEngine\n"));
+        assert!(!imports.contains("import org.chromium.net.UploadDataProvider\n"));
+        assert!(!imports.contains("import org.chromium.net.UploadDataSink\n"));
+    }
+
+    #[test]
+    fn expression_module_owns_size_class_import() {
+        let mut features = Features::default();
+        features.uses_size_class = true;
+        assert!(
+            render_features(&features)
+                .contains("import androidx.compose.ui.platform.LocalConfiguration\n")
+        );
+    }
+}

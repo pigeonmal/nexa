@@ -31,7 +31,6 @@ pub(crate) struct Features {
     pub(crate) uses_bottom_sheet_partial: bool,
     pub(crate) uses_refresh_control: bool,
     pub(crate) uses_refresh_scroll: bool,
-    pub(crate) uses_image: bool,
     pub(crate) uses_asset: bool,
     pub(crate) uses_tab_icon: bool,
     pub(crate) uses_tab_badge: bool,
@@ -502,7 +501,6 @@ impl Features {
             } => {
                 self.uses_asset |= matches!(source, nexa_ir::ImageSource::Asset(_));
                 self.uses_remote_image |= matches!(source, nexa_ir::ImageSource::RemoteUrl(_));
-                self.uses_image |= self.uses_remote_image;
                 self.uses_placeholder |= placeholder.is_some();
             }
             Node::Pressable {

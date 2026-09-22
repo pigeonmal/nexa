@@ -128,6 +128,16 @@ implemented after the findings were reviewed.
   handlers, while Compose `Image` is emitted only for local image nodes rather
   than icon-only asset helpers. The cache advances to `build-v64` so these final
   generated imports cannot be restored from the previous schema.
+- Added backend import regression tests. They pin the minimal SwiftUI/Compose
+  baselines, verify that repeated UIKit use is deduplicated, keep Swift network
+  and remote-image imports on their owning API paths, distinguish local from
+  remote Coil imports, ensure image-only Android output does not gain upload
+  support, and verify that the expression generator owns the size-class import.
+  They found and fixed an `AsyncImage` import that was incorrectly gated on all
+  images instead of remote images. A generated asset-only Android app now
+  compiles without Coil or Cronet dependencies. These tests exercise the
+  ownership model without adding empty import hooks to SwiftUI-only components.
+  The cache schema advances to `build-v65` for the corrected generated import.
 
 ## Independent Swift/Kotlin review
 

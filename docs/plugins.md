@@ -87,6 +87,7 @@ from the normal plugin workflow. Swift/Kotlin plugins already compile against
 their native language contracts directly; an optional C++ adapter will be
 introduced later with generated ownership and exception handling.
 
+
 ## Pure Nexa package
 
 A pure package has a manifest with a `sources.nexa` entry:
