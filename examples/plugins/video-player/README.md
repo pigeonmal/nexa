@@ -18,5 +18,7 @@ nexa plugin generate examples/plugins/video-player --target kotlin --package dev
 
 The platform implementations intentionally stay in the plugin package. Nexa
 apps construct two independent players with `VideoPlayer()` and call methods
-on each receiver. The component contract is parsed and generated as a native
-contract; UI lowering will be added in the native component phase.
+on each receiver. `nexa generate` copies the generated Swift/Kotlin contracts
+into the host project automatically; the component contract is parsed and
+generated as a native contract, while UI lowering remains the next native
+component phase.

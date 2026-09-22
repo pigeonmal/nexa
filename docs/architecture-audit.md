@@ -99,6 +99,12 @@ implemented after the findings were reviewed.
   singleton path. Read-only properties, named arguments, and `Void`/async
   action calls also lower directly; mutable writes, deterministic disposal, and
   instance events remain follow-up work.
+- Project generation now emits each used plugin's generated Swift/Kotlin
+  contract automatically. Swift contracts remain separate Xcode source units;
+  Android contracts are placed beside the implementation package and imported
+  by the generated app source. A Kotlin native plugin must currently use one
+  implementation package across its declared source files so this placement is
+  deterministic.
 
 ## Independent Swift/Kotlin review
 

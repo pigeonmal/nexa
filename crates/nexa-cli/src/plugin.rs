@@ -8,6 +8,17 @@ use std::{
 mod bindings;
 use nexa_plugin_idl::{self as idl, manifest::PluginManifest};
 
+/// Render the platform contract used by generated native projects. Keeping
+/// this entry point in the plugin module makes the CLI command and project
+/// scaffolder use the exact same IDL code generator.
+pub(crate) fn render_swift_bindings(contract: &idl::PluginIdl) -> String {
+    bindings::swift(contract)
+}
+
+pub(crate) fn render_kotlin_bindings(contract: &idl::PluginIdl, package: &str) -> String {
+    bindings::kotlin(contract, package)
+}
+
 pub(super) fn run(args: &[String]) -> Result<(), String> {
     let Some(command) = args.first().map(String::as_str) else {
         return Err(usage());

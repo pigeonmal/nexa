@@ -15,10 +15,11 @@ pub(super) fn copy_android_plugin_sources(
     module: &Module,
     app_package: &str,
     config: &ProjectConfig,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     let destination = root.join("android/app/src/main/java");
     let marker = root.join("android/app/.nexa-plugin-sources");
     let mut generated = Vec::new();
+    let mut packages = std::collections::BTreeSet::new();
     let has_plugin_config = config.plugins().any(|plugin| {
         !plugin.options.is_empty()
             && module
@@ -26,7 +27,8 @@ pub(super) fn copy_android_plugin_sources(
                 .iter()
                 .any(|used| used.namespace == plugin.namespace)
     });
-    for plugin in &module.plugins {
+    for (plugin_index, plugin) in module.plugins.iter().enumerate() {
+        let mut plugin_packages = std::collections::BTreeSet::new();
         for (path, source_root) in native_plugin_sources(plugin, "android/src/main/kotlin", "kt")? {
             let relative = path.strip_prefix(&source_root).map_err(|_| {
                 format!(
@@ -36,6 +38,9 @@ pub(super) fn copy_android_plugin_sources(
             })?;
             let contents = fs::read_to_string(&path)
                 .map_err(|error| format!("{}: {error}", path.display()))?;
+            if let Some(package) = kotlin_package(&contents) {
+                plugin_packages.insert(package);
+            }
             let contents = if has_plugin_config {
                 kotlin_plugin_config_import(&contents, app_package)
             } else {
@@ -44,6 +49,35 @@ pub(super) fn copy_android_plugin_sources(
             write_if_changed(&destination.join(relative), &contents)?;
             generated.push(relative.to_string_lossy().into_owned());
         }
+        let package = plugin_packages.iter().next().cloned().ok_or_else(|| {
+            format!(
+                "native Kotlin plugin `{}` must declare a package in its source files",
+                plugin.namespace
+            )
+        })?;
+        if plugin_packages.len() > 1 {
+            return Err(format!(
+                "native Kotlin plugin `{}` uses multiple packages; declare one implementation package before project generation",
+                plugin.namespace
+            ));
+        }
+        let contract = nexa_plugin_idl::parse_file(Path::new(&plugin.idl_path))?;
+        let binding_name = format!("NexaPlugin{plugin_index}_Bindings.kt");
+        let binding_path = destination
+            .join(package.replace('.', "/"))
+            .join(&binding_name);
+        write_if_changed(
+            &binding_path,
+            &crate::plugin::render_kotlin_bindings(&contract, &package),
+        )?;
+        generated.push(
+            binding_path
+                .strip_prefix(&destination)
+                .map_err(|_| format!("generated binding is outside {}", destination.display()))?
+                .to_string_lossy()
+                .into_owned(),
+        );
+        packages.insert(package);
     }
     generated.sort();
     if let Ok(previous) = fs::read_to_string(&marker) {
@@ -65,7 +99,7 @@ pub(super) fn copy_android_plugin_sources(
         fs::write(&marker, generated.join("\n") + "\n")
             .map_err(|error| format!("{}: {error}", marker.display()))?;
     }
-    Ok(())
+    Ok(packages.into_iter().collect())
 }
 
 /// Copies plugin-owned assets into native resource roots and returns whether
@@ -199,6 +233,13 @@ pub(super) fn copy_ios_plugin_sources(
             write_if_changed(&destination.join(&output_name), &contents)?;
             names.push(output_name);
         }
+        let contract = nexa_plugin_idl::parse_file(Path::new(&plugin.idl_path))?;
+        let binding_name = format!("NexaPlugin{plugin_index}_Bindings.swift");
+        write_if_changed(
+            &destination.join(&binding_name),
+            &crate::plugin::render_swift_bindings(&contract),
+        )?;
+        names.push(binding_name);
     }
     names.sort();
     if let Ok(previous) = fs::read_to_string(&marker) {
@@ -221,6 +262,13 @@ pub(super) fn copy_ios_plugin_sources(
             .map_err(|error| format!("{}: {error}", marker.display()))?;
     }
     Ok(names)
+}
+
+fn kotlin_package(contents: &str) -> Option<String> {
+    contents.lines().find_map(|line| {
+        let package = line.trim().strip_prefix("package ")?.trim();
+        (!package.is_empty()).then(|| package.to_owned())
+    })
 }
 
 pub(super) fn render_swift_plugin_config(module: &Module, config: &ProjectConfig) -> String {

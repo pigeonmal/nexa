@@ -421,7 +421,7 @@ fn generate_android(
     fs::create_dir_all(&source_dir)
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
     let (generated, project_features) = KotlinBackend.generate_with_project_features(module);
-    plugins::copy_android_plugin_sources(root, module, &package, config)?;
+    let plugin_packages = plugins::copy_android_plugin_sources(root, module, &package, config)?;
     plugins::copy_plugin_assets(root, app_name, module)?;
     let screen = nexa_codegen::names::screen_name(app_name);
     let cronet_import = if project_features.uses_network {
@@ -437,8 +437,17 @@ fn generate_android(
     } else {
         format!("        setContent {{ MaterialTheme {{ {screen}() }} }}\n")
     };
+    let plugin_imports = plugin_packages
+        .iter()
+        .map(|plugin_package| format!("import {plugin_package}.*"))
+        .collect::<Vec<_>>();
+    let imports = if plugin_imports.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n\n", plugin_imports.join("\n"))
+    };
     let generated_source = format!(
-        "package {package}\n\n{generated}{}",
+        "package {package}\n\n{imports}{generated}{}",
         plugins::render_kotlin_plugin_config(module, config)
     );
     let generated_units = split_generated_units(&generated_source, "kt");

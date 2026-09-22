@@ -8,14 +8,12 @@ public object VideoPlayerHost {
     public lateinit var context: Context
 }
 
-public class VideoPlayerImpl(
-    private val options: PlayerOptions,
-) : VideoPlayerSpec {
+public class VideoPlayerImpl : VideoPlayerSpec {
     public var state: PlayerState = PlayerState.idle
         private set
     public var duration: Double = 0.0
         private set
-    public override var volume: Double = options.volume
+    public override var volume: Double = 1.0
     public var onEnded: (() -> Unit)? = null
 
     private var player: ExoPlayer? = null

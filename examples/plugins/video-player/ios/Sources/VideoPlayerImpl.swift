@@ -8,12 +8,9 @@ public final class VideoPlayerImpl: VideoPlayerSpec {
 
     private var player: AVPlayer?
 
-    public init(options: PlayerOptions) {
-        self.volume = options.volume
+    public init() {
+        self.volume = 1.0
         self.player = nil
-        if options.autoplay {
-            // Playback starts after the asynchronous prepare call.
-        }
     }
 
     public func prepare(url: String) async throws {

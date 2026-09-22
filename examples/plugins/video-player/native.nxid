@@ -19,7 +19,7 @@ error PlayerError {
 }
 
 native class VideoPlayer {
-    init(options: PlayerOptions)
+    init()
 
     readonly property state: PlayerState
     readonly property duration: Float64

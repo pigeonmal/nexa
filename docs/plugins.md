@@ -131,7 +131,10 @@ Generated Swift output contains value types and protocols such as
 `VideoPlayerSpec`; generated Kotlin output contains equivalent data classes,
 enums, and interfaces. A native class contract expects the plugin implementation
 to provide a concrete `{Name}Impl` class; generated bindings alias `{Name}` to
-that implementation so construction stays a direct native call.
+that implementation so construction stays a direct native call. `nexa generate`
+copies those generated contracts into the host project automatically: Swift
+bindings are added as independent Xcode source inputs, while Kotlin bindings
+are emitted in the implementation package and imported by generated app code.
 
 `service` declares stateless APIs. `interface` remains available for a shared
 contract. `native class` represents an independently constructible stateful
