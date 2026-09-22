@@ -106,6 +106,9 @@ surface readable without making every value a verbose named option.
 | API family | Value arguments | Child/action blocks | Ambiguity rule |
 | --- | --- | --- | --- |
 | `Column`, `Row`, `Stack` | Named layout options only | One child block | `Stack` rejects `spacing`; style names are closed and duplicate names fail. |
+| `StatusBar` | Optional named `style:`, `hidden:`, and `background:` | None | Defaults are explicit and the declaration is allowed only once at an app or screen root. |
+| `Direction` | Required named `value: LTR|RTL` | None | The direction value is a closed choice and the declaration is top-level only. |
+| `OnAppear`, `OnDisappear` | `OnAppear` may add the `async` marker; no value arguments | One action block | Each lifecycle callback has one top-level declaration per destination; `await` is restricted to the async form. |
 | `Text`, `Button` | One positional primary value, then named options | Optional action block for `Button` | The first value is always the label/text; all configuration is named. |
 | `TextInput`, `Switch`, `NavigationStack`, `NavigationLink`, `Link`, `Accessibility`, `BottomSheet` | Named options only | A fixed content block where applicable | Required options and unknown names are checked before lowering. |
 | `Image` | Named `asset:` or `url:` source plus named options | None | Exactly one source is required; providing both is an error. |
@@ -113,6 +116,8 @@ surface readable without making every value a verbose named option.
 | `RefreshControl` | Named `isRefreshing:` | Content followed by `.onRefresh { ... }` | The direct `FastList` child is recognized structurally for native refresh integration. |
 | `FastList` | One source plus closed named options | Explicit row block followed by dot modifiers | Source shape fixes row binding arity; see the detailed rules above. |
 | `AppBottomBar` and `Tab` | Named selection/tab options | Tab declarations with one content block each | Tab indexes are static, unique, and non-negative. |
+| `If`, `When`, `Platform` | One condition/value or closed platform target | Explicit branch blocks | `When` requires a typed scalar and `else`; `Platform` removes the inactive branch during target lowering. |
+| `Theme` and `Layout` predicates | Named token/style values or qualified predicate names | Theme has no child block; predicates are expressions | Token kinds, style names, and predicate names are closed; unsupported placement is rejected before generation. |
 | `Content()` and custom components | `Content()` has zero values; custom component properties are named | Optional custom content slot | Custom calls reject missing, unknown, or duplicate properties during semantic analysis. |
 | `Network`, `Path`, `File`, `Permissions` | Qualified calls use named options; `await` is explicit for async calls | None | The native-call specification owns the closed option list and defaults. |
 
