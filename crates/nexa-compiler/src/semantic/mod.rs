@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, CompileWarning};
 use nexa_ir::{
-    Action, DirectionConfig, Function, FunctionLocal, FunctionParameter, Module, Node, Screen,
-    ScreenId, State, StatusBarConfig, Type,
+    Action, DirectionConfig, Function, FunctionLocal, FunctionParameter, Module, Node, Permission,
+    Screen, ScreenId, State, StatusBarConfig, Type,
 };
 use nexa_syntax::ast;
 
@@ -32,6 +32,7 @@ pub fn lower_with_warnings(
     let warnings = warnings::analyze(&app, target);
     let themes = lower_theme(app.theme.as_ref())?;
     let enum_declarations = lower_enum_declarations(&app.enums)?;
+    let permissions = lower_permissions(&app.permissions)?;
     let enum_symbols = enum_symbols(&enum_declarations);
     let enum_names = enum_declarations
         .iter()
@@ -189,6 +190,7 @@ pub fn lower_with_warnings(
     let mut module = Module {
         app_name: app.name,
         enums: enum_declarations,
+        permissions,
         functions,
         states,
         screens,
@@ -202,6 +204,44 @@ pub fn lower_with_warnings(
     };
     crate::optimize::optimize(&mut module);
     Ok((module, warnings))
+}
+
+fn lower_permissions(
+    declarations: &[ast::PermissionDecl],
+) -> Result<Vec<Permission>, CompileError> {
+    let mut permissions = Vec::with_capacity(declarations.len());
+    for declaration in declarations {
+        let permission = match declaration.name.to_ascii_lowercase().as_str() {
+            "camera" => Permission::Camera,
+            "microphone" | "microphoneaudio" => Permission::Microphone,
+            "photos" | "media" => Permission::Photos,
+            "location" | "locationwheninuse" => Permission::Location,
+            "notifications" | "notification" => Permission::Notifications,
+            "contacts" | "contact" => Permission::Contacts,
+            "calendar" => Permission::Calendar,
+            "bluetooth" => Permission::Bluetooth,
+            _ => {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!(
+                        "unknown permission `{}`; expected camera, microphone, photos, location, notifications, contacts, calendar, or bluetooth",
+                        declaration.name
+                    ),
+                ));
+            }
+        };
+        if permissions.contains(&permission) {
+            return Err(CompileError::new(
+                declaration.span,
+                format!(
+                    "permission `{}` is declared more than once",
+                    declaration.name
+                ),
+            ));
+        }
+        permissions.push(permission);
+    }
+    Ok(permissions)
 }
 
 fn lower_enum_declarations(

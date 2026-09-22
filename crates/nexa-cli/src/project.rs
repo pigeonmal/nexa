@@ -156,7 +156,10 @@ fn generate_ios(root: &Path, app_name: &str, module: &Module) -> Result<(), Stri
             "import SwiftUI\n\n@main\nstruct {app_name}App: App {{\n    var body: some Scene {{\n        WindowGroup {{\n            {screen}()\n        }}\n    }}\n}}\n"
         ),
     )?;
-    write_if_changed(&directory.join("Info.plist"), &ios_info_plist(app_name))?;
+    write_if_changed(
+        &directory.join("Info.plist"),
+        &ios_info_plist(app_name, &module.permissions),
+    )?;
     write_if_changed(
         &root
             .join("ios")
@@ -189,7 +192,7 @@ fn generate_android(root: &Path, app_name: &str, module: &Module) -> Result<(), 
         || generated.contains("org.chromium.net");
     write_if_changed(
         &root.join("android/app/src/main/AndroidManifest.xml"),
-        &android_manifest(app_name, &package, remote),
+        &android_manifest(app_name, &package, remote, &module.permissions),
     )?;
     write_if_changed(
         &root.join("android/settings.gradle.kts"),
@@ -257,9 +260,42 @@ fn root_readme(app_name: &str, targets: &[&str]) -> String {
     readme
 }
 
-fn ios_info_plist(app_name: &str) -> String {
+fn ios_info_plist(app_name: &str, permissions: &[nexa_ir::Permission]) -> String {
+    let mut entries = String::new();
+    for permission in permissions {
+        let (key, description) = match permission {
+            nexa_ir::Permission::Camera => {
+                ("NSCameraUsageDescription", "Nexa needs camera access.")
+            }
+            nexa_ir::Permission::Microphone => (
+                "NSMicrophoneUsageDescription",
+                "Nexa needs microphone access.",
+            ),
+            nexa_ir::Permission::Photos => (
+                "NSPhotoLibraryUsageDescription",
+                "Nexa needs photo library access.",
+            ),
+            nexa_ir::Permission::Location => (
+                "NSLocationWhenInUseUsageDescription",
+                "Nexa needs location access while in use.",
+            ),
+            // iOS notification authorization has no Info.plist usage-description key.
+            nexa_ir::Permission::Notifications => continue,
+            nexa_ir::Permission::Contacts => {
+                ("NSContactsUsageDescription", "Nexa needs contacts access.")
+            }
+            nexa_ir::Permission::Calendar => {
+                ("NSCalendarsUsageDescription", "Nexa needs calendar access.")
+            }
+            nexa_ir::Permission::Bluetooth => (
+                "NSBluetoothAlwaysUsageDescription",
+                "Nexa needs Bluetooth access.",
+            ),
+        };
+        entries.push_str(&format!("<key>{key}</key><string>{description}</string>"));
+    }
     format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{app_name}</string><key>CFBundleIdentifier</key><string>com.nexa.{}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>1.0</string><key>CFBundleVersion</key><string>1</string><key>LSRequiresIPhoneOS</key><true/></dict></plist>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{app_name}</string><key>CFBundleIdentifier</key><string>com.nexa.{}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>1.0</string><key>CFBundleVersion</key><string>1</string><key>LSRequiresIPhoneOS</key><true/>{entries}</dict></plist>\n",
         app_name.to_ascii_lowercase()
     )
 }
@@ -284,14 +320,50 @@ fn android_root_gradle() -> String {
 fn android_properties() -> String {
     "android.useAndroidX=true\nandroid.enableJetifier=true\nkotlin.code.style=official\norg.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n".to_owned()
 }
-fn android_manifest(app_name: &str, package: &str, remote: bool) -> String {
-    format!(
-        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{}    <application android:label=\"{app_name}\" android:theme=\"@android:style/Theme.Material.Light.NoActionBar\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\">\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n        </activity>\n    </application>\n</manifest>\n",
-        if remote {
-            "    <uses-permission android:name=\"android.permission.INTERNET\" />\n"
-        } else {
-            ""
+fn android_manifest(
+    app_name: &str,
+    package: &str,
+    remote: bool,
+    permissions: &[nexa_ir::Permission],
+) -> String {
+    let mut declared = String::new();
+    if remote {
+        declared.push_str("    <uses-permission android:name=\"android.permission.INTERNET\" />\n");
+    }
+    for permission in permissions {
+        let names: &[&str] = match permission {
+            nexa_ir::Permission::Camera => &["android.permission.CAMERA"],
+            nexa_ir::Permission::Microphone => &["android.permission.RECORD_AUDIO"],
+            nexa_ir::Permission::Photos => &[
+                "android.permission.READ_MEDIA_IMAGES",
+                "android.permission.READ_EXTERNAL_STORAGE",
+            ],
+            nexa_ir::Permission::Location => &[
+                "android.permission.ACCESS_COARSE_LOCATION",
+                "android.permission.ACCESS_FINE_LOCATION",
+            ],
+            nexa_ir::Permission::Notifications => &["android.permission.POST_NOTIFICATIONS"],
+            nexa_ir::Permission::Contacts => &[
+                "android.permission.READ_CONTACTS",
+                "android.permission.WRITE_CONTACTS",
+            ],
+            nexa_ir::Permission::Calendar => &[
+                "android.permission.READ_CALENDAR",
+                "android.permission.WRITE_CALENDAR",
+            ],
+            nexa_ir::Permission::Bluetooth => &[
+                "android.permission.BLUETOOTH_SCAN",
+                "android.permission.BLUETOOTH_CONNECT",
+            ],
+        };
+        for name in names {
+            declared.push_str(&format!(
+                "    <uses-permission android:name=\"{name}\" />\n"
+            ));
         }
+    }
+    format!(
+        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{app_name}\" android:theme=\"@android:style/Theme.Material.Light.NoActionBar\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\">\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n        </activity>\n    </application>\n</manifest>\n"
     )
 }
 fn android_app_gradle(package: &str, remote: bool, navigation: bool) -> String {

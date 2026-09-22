@@ -41,6 +41,7 @@ cargo run -p nexa-cli -- check examples/app-bottom-bar.nx
 cargo run -p nexa-cli -- check examples/linking.nx
 cargo run -p nexa-cli -- check examples/accessibility.nx
 cargo run -p nexa-cli -- check examples/direction.nx
+cargo run -p nexa-cli -- check examples/permissions.nx
 cargo run -p nexa-cli -- check examples/lifecycle.nx
 cargo run -p nexa-cli -- check examples/text-style.nx
 cargo run -p nexa-cli -- check examples/button-loading.nx

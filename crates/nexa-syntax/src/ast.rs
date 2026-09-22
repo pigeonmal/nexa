@@ -6,12 +6,19 @@ use nexa_diagnostics::Span;
 pub struct App {
     pub name: String,
     pub enums: Vec<EnumDecl>,
+    pub permissions: Vec<PermissionDecl>,
     pub states: Vec<StateDecl>,
     pub functions: Vec<FunctionDecl>,
     pub screens: Vec<ScreenDecl>,
     pub theme: Option<ThemeDecl>,
     pub components: Vec<ComponentDecl>,
     pub body: Vec<Node>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct PermissionDecl {
+    pub name: String,
     pub span: Span,
 }
 

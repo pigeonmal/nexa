@@ -154,6 +154,8 @@ impl Parser {
         let (name, span) = self.ident()?;
         self.expect(Kind::LBrace, "expected `{` after app name")?;
         let mut enums = Vec::new();
+        let mut permissions = Vec::new();
+        let mut has_permissions = false;
         let mut states = Vec::new();
         let mut screens = Vec::new();
         let mut functions = Vec::new();
@@ -164,6 +166,12 @@ impl Parser {
                 let declaration = self.enum_decl()?;
                 self.enum_names.insert(declaration.name.clone());
                 enums.push(declaration);
+            } else if self.word_is("permissions") {
+                if has_permissions {
+                    return self.error_here("an app can declare only one `permissions` block");
+                }
+                has_permissions = true;
+                permissions = self.permissions_decl()?;
             } else if self.word_is("state") || self.word_is("let") {
                 states.push(self.state_decl()?);
             } else if self.word_is("async") {
@@ -185,7 +193,7 @@ impl Parser {
                 body = Some(self.block_nodes()?);
             } else {
                 return self.error_here(
-                    "expected an `enum`, `state`, `fn`, `async fn`, `screen`, `theme`, or `body` declaration",
+                    "expected an `enum`, `permissions`, `state`, `fn`, `async fn`, `screen`, `theme`, or `body` declaration",
                 );
             }
         }
@@ -194,6 +202,7 @@ impl Parser {
         Ok(App {
             name,
             enums,
+            permissions,
             states,
             functions,
             screens,
@@ -202,6 +211,31 @@ impl Parser {
             body,
             span,
         })
+    }
+
+    fn permissions_decl(&mut self) -> Result<Vec<PermissionDecl>, CompileError> {
+        self.expect_word("permissions")?;
+        self.expect(Kind::LBrace, "expected `{` after `permissions`")?;
+        let mut permissions = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (name, span) = self.ident()?;
+            if permissions
+                .iter()
+                .any(|permission: &PermissionDecl| permission.name == name)
+            {
+                return Err(CompileError::new(
+                    span,
+                    format!("permission `{name}` is declared more than once"),
+                ));
+            }
+            permissions.push(PermissionDecl { name, span });
+            if !self.take(&Kind::Comma) {
+                break;
+            }
+        }
+        self.expect(Kind::RBrace, "expected `}` to close `permissions`")?;
+        self.optional_semicolon();
+        Ok(permissions)
     }
 
     fn enum_decl(&mut self) -> Result<EnumDecl, CompileError> {

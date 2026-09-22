@@ -865,6 +865,15 @@ Navigation transitions should remain native.
 
 Provide a typed cross-platform permissions API.
 
+The first static declaration slice is implemented. An app may declare one
+`permissions { camera, microphone, photos, location, notifications, contacts,
+calendar, bluetooth }` block. Semantic lowering validates names and duplicates,
+and `nexa generate` emits only the required iOS `Info.plist` usage descriptions
+and Android manifest permissions. This keeps host-project declarations in the
+Nexa source and adds no runtime permission registry. Runtime status values,
+request flows, denial handling, and platform-specific permission APIs remain
+future work.
+
 Support common permissions such as:
 
 - camera,

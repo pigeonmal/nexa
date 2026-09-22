@@ -4,6 +4,7 @@ pub mod walk;
 pub struct Module {
     pub app_name: String,
     pub enums: Vec<EnumDecl>,
+    pub permissions: Vec<Permission>,
     pub functions: Vec<Function>,
     pub states: Vec<State>,
     pub screens: Vec<Screen>,
@@ -14,6 +15,18 @@ pub struct Module {
     pub on_appear: Option<Vec<Action>>,
     pub on_appear_async: bool,
     pub on_disappear: Option<Vec<Action>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Permission {
+    Camera,
+    Microphone,
+    Photos,
+    Location,
+    Notifications,
+    Contacts,
+    Calendar,
+    Bluetooth,
 }
 
 #[derive(Clone, Debug)]

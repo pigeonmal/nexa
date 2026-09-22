@@ -254,6 +254,31 @@ The selected build target keeps its block and removes the other block before sem
 - `FastList(count: rowCount, index: row) { ... }` creates a virtualized, vertical list of `Int32` row indices. `index` is optional and defaults to `index`; row content is produced for visible rows by iOS `UITableView` or Android Compose `LazyColumn`. The count can be an `Int32` state value; negative runtime counts are treated as zero.
 - `FastList(items: labels, index: row, item: label) { ... }` creates a virtualized list over an `Array<T>` state. Both bindings are optional and default to `index` and `item`; the index is read-only `Int32`, and the item is a read-only value of the array's element type. Rows use their current position as identity, and the collection is indexed directly without building an intermediate row array or row tree. `Set<T>` and `Map<K, V>` are values but are not accepted as list sources. See [collection-list.nx](../examples/collection-list.nx).
 
+## Compile-time permissions
+
+Declare the host permissions an app needs in one compile-time block:
+
+```nexa
+app CameraExample {
+    permissions {
+        camera,
+        microphone,
+        photos,
+        location,
+        notifications,
+        contacts,
+        calendar,
+        bluetooth
+    }
+
+    body {
+        Text("Permission declarations are part of the generated host project")
+    }
+}
+```
+
+Supported names are `camera`, `microphone`, `photos`, `location`, `notifications`, `contacts`, `calendar`, and `bluetooth`. The compiler validates names and duplicates, then stores the result as project metadata. `nexa generate` writes the matching iOS `Info.plist` usage descriptions and Android manifest permissions, so supported apps do not need native edits for declarations. This slice does not request access or expose runtime status yet; typed status/request APIs remain future work. Notification access has no iOS usage-description key, while Android receives `POST_NOTIFICATIONS`. See [permissions.nx](../examples/permissions.nx).
+
 ## Native network and file library
 
 When an app uses a remote image, the backend emits the small native `NexaNetwork`, `NexaPath`, and `NexaFile` library next to the generated screen. The same APIs are available to generated plugin bindings and future async Nexa expressions without a cross-platform request registry.
