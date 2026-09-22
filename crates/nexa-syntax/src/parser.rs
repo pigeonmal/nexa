@@ -1203,9 +1203,38 @@ impl Parser {
                 continue;
             }
             let (name, span) = self.ident()?;
-            self.expect(Kind::Equal, "expected `=` in state assignment")?;
-            let value = self.expr()?;
-            stmts.push(Stmt::Assign { name, value, span });
+            if self.take(&Kind::Equal) {
+                let value = self.expr()?;
+                stmts.push(Stmt::Assign { name, value, span });
+            } else {
+                self.expect(Kind::Dot, "expected `=` or `.` after state name")?;
+                let (method, method_span) = self.ident()?;
+                self.expect(
+                    Kind::LParen,
+                    "expected `(` after collection mutation method",
+                )?;
+                let mut arguments = Vec::new();
+                if !self.check(&Kind::RParen) {
+                    arguments.push(self.expr()?);
+                    while self.take(&Kind::Comma) {
+                        arguments.push(self.expr()?);
+                    }
+                }
+                self.expect(
+                    Kind::RParen,
+                    "expected `)` after collection mutation arguments",
+                )?;
+                let span = Span {
+                    end: method_span.end,
+                    ..span
+                };
+                stmts.push(Stmt::CollectionMutation {
+                    name,
+                    method,
+                    arguments,
+                    span,
+                });
+            }
             self.optional_semicolon();
         }
         self.expect(Kind::RBrace, "expected `}` to close button handler")?;

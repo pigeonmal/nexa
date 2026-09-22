@@ -296,6 +296,11 @@ fn collect_action_function_references(
             Action::Assign { value, .. } => {
                 collect_expression_function_references(value, declared, used)
             }
+            Action::CollectionMutation { arguments, .. } => {
+                for argument in arguments {
+                    collect_expression_function_references(argument, declared, used);
+                }
+            }
             Action::If {
                 condition,
                 then_branch,
@@ -480,6 +485,11 @@ fn collect_action_plugin_references(actions: &[Action], collect: &mut impl FnMut
     for action in actions {
         match action {
             Action::Assign { value, .. } => nexa_ir::walk::walk_expression(value, collect),
+            Action::CollectionMutation { arguments, .. } => {
+                for argument in arguments {
+                    nexa_ir::walk::walk_expression(argument, collect);
+                }
+            }
             Action::If {
                 condition,
                 then_branch,
@@ -594,6 +604,11 @@ fn collect_action_struct_names(actions: &[Action], used: &mut HashSet<String>) {
     for action in actions {
         match action {
             Action::Assign { value, .. } => collect_expression_struct_names(value, used),
+            Action::CollectionMutation { arguments, .. } => {
+                for argument in arguments {
+                    collect_expression_struct_names(argument, used);
+                }
+            }
             Action::If {
                 condition,
                 then_branch,
@@ -687,6 +702,7 @@ fn collect_action_bindings(actions: &[Action], used: &mut Vec<String>) {
     for action in actions {
         match action {
             Action::Assign { name, .. } => used.push(name.clone()),
+            Action::CollectionMutation { name, .. } => used.push(name.clone()),
             Action::If {
                 then_branch,
                 else_branch,
@@ -712,6 +728,14 @@ fn collect_action_state_references(actions: &[Action], used: &mut HashSet<String
             Action::Assign { name, value } => {
                 used.insert(name.clone());
                 collect_expression_state_references(value, used);
+            }
+            Action::CollectionMutation {
+                name, arguments, ..
+            } => {
+                used.insert(name.clone());
+                for argument in arguments {
+                    collect_expression_state_references(argument, used);
+                }
             }
             Action::If {
                 condition,
@@ -977,6 +1001,15 @@ fn optimize_actions(actions: Vec<Action>) -> Vec<Action> {
             Action::Assign { name, value } => optimized.push(Action::Assign {
                 name,
                 value: fold_expression(value),
+            }),
+            Action::CollectionMutation {
+                name,
+                operation,
+                arguments,
+            } => optimized.push(Action::CollectionMutation {
+                name,
+                operation,
+                arguments: arguments.into_iter().map(fold_expression).collect(),
             }),
             Action::If {
                 condition,

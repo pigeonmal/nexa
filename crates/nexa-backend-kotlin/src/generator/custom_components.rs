@@ -74,10 +74,17 @@ fn render_component_states(states: &[nexa_ir::State], depth: usize, out: &mut St
         indent(out, depth);
         let name = nexa_codegen::names::state_name(&state.name);
         if state.mutable {
-            out.push_str(&format!(
-                "var {name} by remember {{ {} }}\n",
-                state::kotlin_state_initializer(state)
-            ));
+            if state::is_mutable_collection(state) {
+                out.push_str(&format!(
+                    "val {name} = remember {{ {} }}\n",
+                    state::kotlin_state_initializer(state)
+                ));
+            } else {
+                out.push_str(&format!(
+                    "var {name} by remember {{ {} }}\n",
+                    state::kotlin_state_initializer(state)
+                ));
+            }
         } else {
             out.push_str(&format!(
                 "val {name}: {} = {}\n",

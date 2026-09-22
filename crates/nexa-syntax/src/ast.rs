@@ -513,6 +513,12 @@ pub enum Stmt {
         value: Expr,
         span: Span,
     },
+    CollectionMutation {
+        name: String,
+        method: String,
+        arguments: Vec<Expr>,
+        span: Span,
+    },
     If {
         condition: Expr,
         then_branch: Vec<Stmt>,

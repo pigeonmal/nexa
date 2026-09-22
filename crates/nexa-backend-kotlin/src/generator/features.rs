@@ -81,6 +81,10 @@ pub(super) struct Features {
     pub(super) uses_color: bool,
     pub(super) uses_dp: bool,
     pub(super) uses_mutable_state: bool,
+    pub(super) uses_mutable_collection: bool,
+    pub(super) uses_mutable_list: bool,
+    pub(super) uses_mutable_set: bool,
+    pub(super) uses_mutable_map: bool,
     pub(super) uses_mutable_int_state: bool,
     pub(super) uses_mutable_long_state: bool,
     pub(super) uses_mutable_float_state: bool,
@@ -244,18 +248,35 @@ impl Features {
         if !state.mutable {
             return;
         }
-        self.uses_mutable_state = true;
         match state.ty {
             nexa_ir::Type::Numeric(nexa_ir::NumericType::Int32) => {
+                self.uses_mutable_state = true;
                 self.uses_mutable_int_state = true;
             }
             nexa_ir::Type::Numeric(nexa_ir::NumericType::Int64) => {
+                self.uses_mutable_state = true;
                 self.uses_mutable_long_state = true;
             }
             nexa_ir::Type::Numeric(nexa_ir::NumericType::Float32) => {
+                self.uses_mutable_state = true;
                 self.uses_mutable_float_state = true;
             }
-            _ => self.uses_mutable_generic_state = true,
+            nexa_ir::Type::Array(_) => {
+                self.uses_mutable_collection = true;
+                self.uses_mutable_list = true;
+            }
+            nexa_ir::Type::Set(_) => {
+                self.uses_mutable_collection = true;
+                self.uses_mutable_set = true;
+            }
+            nexa_ir::Type::Map(_, _) => {
+                self.uses_mutable_collection = true;
+                self.uses_mutable_map = true;
+            }
+            _ => {
+                self.uses_mutable_state = true;
+                self.uses_mutable_generic_state = true;
+            }
         }
     }
 

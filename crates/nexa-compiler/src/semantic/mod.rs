@@ -705,6 +705,7 @@ fn lower_functions(
                         }
                     }
                     ast::Stmt::Assign { span, .. }
+                    | ast::Stmt::CollectionMutation { span, .. }
                     | ast::Stmt::If { span, .. }
                     | ast::Stmt::For { span, .. }
                     | ast::Stmt::ForMap { span, .. }

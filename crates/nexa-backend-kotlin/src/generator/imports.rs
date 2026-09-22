@@ -215,8 +215,20 @@ pub(super) fn render(
         "androidx.compose.runtime.setValue",
     );
     add(
-        features.uses_mutable_state,
+        features.uses_mutable_state || features.uses_mutable_collection,
         "androidx.compose.runtime.remember",
+    );
+    add(
+        features.uses_mutable_list,
+        "androidx.compose.runtime.mutableStateListOf",
+    );
+    add(
+        features.uses_mutable_set,
+        "androidx.compose.runtime.mutableStateSetOf",
+    );
+    add(
+        features.uses_mutable_map,
+        "androidx.compose.runtime.mutableStateMapOf",
     );
     add(
         features.uses_mutable_int_state,

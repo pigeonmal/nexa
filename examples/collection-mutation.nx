@@ -1,0 +1,19 @@
+app CollectionMutation {
+    state items: Array<String> = ["Nexa"]
+    state tags: Set<String> = ["mobile"]
+    state prices: Map<String, Int32> = ["ios": 16]
+
+    body {
+        Column(spacing: 8, padding: 20) {
+            Text("Items: \\(items[0])")
+            Button("Apply collection updates") {
+                items.append("Swift")
+                items.remove(0)
+                tags.insert("native")
+                tags.remove("mobile")
+                prices.set("android", 37)
+                prices.remove("ios")
+            }
+        }
+    }
+}

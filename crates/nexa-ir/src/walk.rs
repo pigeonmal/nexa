@@ -248,6 +248,11 @@ pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
     for action in actions {
         match action {
             Action::Assign { value, .. } => walk_expression(value, visit),
+            Action::CollectionMutation { arguments, .. } => {
+                for argument in arguments {
+                    walk_expression(argument, visit);
+                }
+            }
             Action::If {
                 condition,
                 then_branch,

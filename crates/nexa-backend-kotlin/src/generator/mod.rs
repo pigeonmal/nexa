@@ -78,10 +78,17 @@ pub(super) fn generate(module: &Module) -> String {
     for state in &module.states {
         let name = nexa_codegen::names::state_name(&state.name);
         if state.mutable {
-            out.push_str(&format!(
-                "    var {name} by remember {{ {} }}\n",
-                state::kotlin_state_initializer(state)
-            ));
+            if state::is_mutable_collection(state) {
+                out.push_str(&format!(
+                    "    val {name} = remember {{ {} }}\n",
+                    state::kotlin_state_initializer(state)
+                ));
+            } else {
+                out.push_str(&format!(
+                    "    var {name} by remember {{ {} }}\n",
+                    state::kotlin_state_initializer(state)
+                ));
+            }
         } else {
             out.push_str(&format!(
                 "    val {name}: {} = {}\n",

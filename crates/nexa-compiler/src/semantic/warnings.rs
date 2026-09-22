@@ -489,6 +489,16 @@ fn walk_actions(
                 }
                 walk_expression(value, names, used);
             }
+            ast::Stmt::CollectionMutation {
+                name, arguments, ..
+            } => {
+                if names.contains(name) {
+                    used.insert(name.clone());
+                }
+                for argument in arguments {
+                    walk_expression(argument, names, used);
+                }
+            }
             ast::Stmt::If {
                 condition,
                 then_branch,
@@ -570,6 +580,16 @@ fn actions_reference_name(actions: &[ast::Stmt], name: &str) -> bool {
             expression_references_name(initial, name)
         }
         ast::Stmt::Assign { value, .. } => expression_references_name(value, name),
+        ast::Stmt::CollectionMutation {
+            name: binding,
+            arguments,
+            ..
+        } => {
+            binding == name
+                || arguments
+                    .iter()
+                    .any(|argument| expression_references_name(argument, name))
+        }
         ast::Stmt::If {
             condition,
             then_branch,

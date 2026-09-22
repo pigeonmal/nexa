@@ -1,5 +1,5 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, Module, Node};
+use nexa_ir::{Action, CollectionMutation, Module, Node};
 
 use super::{
     components::render_children,
@@ -118,6 +118,35 @@ pub(super) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
             Action::Assign { name, value } => {
                 indent(out, depth);
                 out.push_str(&format!("{} = {}\n", state_name(name), expression(value)));
+            }
+            Action::CollectionMutation {
+                name,
+                operation,
+                arguments,
+            } => {
+                indent(out, depth);
+                let state = state_name(name);
+                let rendered = arguments.iter().map(expression).collect::<Vec<_>>();
+                match operation {
+                    CollectionMutation::ArrayAppend => {
+                        out.push_str(&format!("{state}.append({})\n", rendered[0]));
+                    }
+                    CollectionMutation::ArrayRemoveAt => {
+                        out.push_str(&format!("{state}.remove(at: Int({}))\n", rendered[0]));
+                    }
+                    CollectionMutation::SetInsert => {
+                        out.push_str(&format!("{state}.insert({})\n", rendered[0]));
+                    }
+                    CollectionMutation::SetRemove => {
+                        out.push_str(&format!("{state}.remove({})\n", rendered[0]));
+                    }
+                    CollectionMutation::MapSet => {
+                        out.push_str(&format!("{state}[{}] = {}\n", rendered[0], rendered[1]));
+                    }
+                    CollectionMutation::MapRemove => {
+                        out.push_str(&format!("{state}.removeValue(forKey: {})\n", rendered[0]));
+                    }
+                }
             }
             Action::If {
                 condition,

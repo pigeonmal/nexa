@@ -2,9 +2,10 @@ use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
-    AccessibilityRole, Action, BottomBarTab, Capitalization, DirectionConfig, DirectionStyle, Expr,
-    FontWeight, ImageScale, ImageSource, KeyboardType, LayoutKind, ListSource, Node, NumericType,
-    ScreenId, StatusBarConfig, StatusBarStyle, TextStyle, Type, WhenCase,
+    AccessibilityRole, Action, BottomBarTab, Capitalization, CollectionMutation, DirectionConfig,
+    DirectionStyle, Expr, FontWeight, ImageScale, ImageSource, KeyboardType, LayoutKind,
+    ListSource, Node, NumericType, ScreenId, StatusBarConfig, StatusBarStyle, TextStyle, Type,
+    WhenCase,
 };
 use nexa_syntax::ast;
 
@@ -990,6 +991,94 @@ fn lower_actions_with_depth(
                 }
                 let value = lower_expr(&value, Some(ty), symbols, functions, allow_await)?;
                 lowered.push(Action::Assign { name, value });
+            }
+            ast::Stmt::CollectionMutation {
+                name,
+                method,
+                arguments,
+                span,
+            } => {
+                let Some((ty, mutable)) = symbols.get(&name) else {
+                    return Err(CompileError::new(span, format!("unknown state `{name}`")));
+                };
+                if !mutable {
+                    return Err(CompileError::new(
+                        span,
+                        format!("`{name}` is immutable and cannot be mutated"),
+                    ));
+                }
+                let (operation, expected_arguments): (CollectionMutation, Vec<&Type>) = match ty {
+                    Type::Array(element) => match method.as_str() {
+                        "append" => (CollectionMutation::ArrayAppend, vec![element.as_ref()]),
+                        "remove" => (
+                            CollectionMutation::ArrayRemoveAt,
+                            vec![&Type::Numeric(NumericType::Int32)],
+                        ),
+                        _ => {
+                            return Err(CompileError::new(
+                                span,
+                                format!(
+                                    "Array state `{name}` supports `append(value)` and `remove(index)`"
+                                ),
+                            ));
+                        }
+                    },
+                    Type::Set(element) => match method.as_str() {
+                        "insert" => (CollectionMutation::SetInsert, vec![element.as_ref()]),
+                        "remove" => (CollectionMutation::SetRemove, vec![element.as_ref()]),
+                        _ => {
+                            return Err(CompileError::new(
+                                span,
+                                format!(
+                                    "Set state `{name}` supports `insert(value)` and `remove(value)`"
+                                ),
+                            ));
+                        }
+                    },
+                    Type::Map(key, value) => match method.as_str() {
+                        "set" => (
+                            CollectionMutation::MapSet,
+                            vec![key.as_ref(), value.as_ref()],
+                        ),
+                        "remove" => (CollectionMutation::MapRemove, vec![key.as_ref()]),
+                        _ => {
+                            return Err(CompileError::new(
+                                span,
+                                format!(
+                                    "Map state `{name}` supports `set(key, value)` and `remove(key)`"
+                                ),
+                            ));
+                        }
+                    },
+                    _ => {
+                        return Err(CompileError::new(
+                            span,
+                            format!("`{name}` is not a mutable collection"),
+                        ));
+                    }
+                };
+                if arguments.len() != expected_arguments.len() {
+                    return Err(CompileError::new(
+                        span,
+                        format!(
+                            "collection method `{method}` expects {} argument(s), got {}",
+                            expected_arguments.len(),
+                            arguments.len()
+                        ),
+                    ));
+                }
+                let arguments = arguments
+                    .iter()
+                    .zip(expected_arguments)
+                    .map(|(argument, expected)| {
+                        lower_expr(argument, Some(expected), symbols, functions, allow_await)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                lowered.push(Action::CollectionMutation {
+                    name,
+                    operation,
+                    arguments,
+                });
             }
             ast::Stmt::If {
                 condition,

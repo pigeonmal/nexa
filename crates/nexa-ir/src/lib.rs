@@ -528,6 +528,11 @@ pub enum Action {
         name: String,
         value: Expr,
     },
+    CollectionMutation {
+        name: String,
+        operation: CollectionMutation,
+        arguments: Vec<Expr>,
+    },
     If {
         condition: Expr,
         then_branch: Vec<Action>,
@@ -550,6 +555,16 @@ pub enum Action {
     },
     Break,
     Continue,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CollectionMutation {
+    ArrayAppend,
+    ArrayRemoveAt,
+    SetInsert,
+    SetRemove,
+    MapSet,
+    MapRemove,
 }
 
 impl NumericType {
