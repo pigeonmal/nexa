@@ -77,7 +77,8 @@ The current compiler supports the scalar types above, closed app enums, top-leve
 
 Generated modules that use remote images or typed native API calls receive only the corresponding feature-gated native helpers. iOS uses URLSession with a 16 MiB memory and 64 MiB disk URLCache; Android uses Play Services Cronet with a 64 MiB disk cache, HTTP/2, QUIC, and Brotli, and Coil 3 is wired to that same Cronet client. Generated Android hosts initialize `CronetProviderInstaller` before Compose content starts so the Play Services provider is available before the first image loader is created. The library exposes asynchronous fetch/download options, optional certificate pinning, path directories, and asynchronous file reads/writes without a shared runtime bridge; path/file-only modules do not emit the network helper or Cronet/URLSession code. Image-only modules emit only a private native image transport and omit the public `Network.fetch`/`download` API and certificate-pinning surface. The Android image-only transport is GET-only and omits request upload providers, file sinks, and the full request-option client; those helpers are emitted only for typed network calls.
 Generated Android hosts use the current compatible Compose toolchain (AGP
-9.2.1 with built-in Kotlin, Compose compiler 2.4.10, and compile/target SDK 37)
+9.2.1 with built-in Kotlin 2.4.20 and Compose compiler plugin 2.4.20, and
+compile/target SDK 37)
 so Coil 3's Compose 1.12 requirements do not force an incompatible dependency
 graph.
 
@@ -900,6 +901,11 @@ Compose `TextButton(enabled:)`; literal guards are folded without a runtime
 guard object. Asynchronous authorization hooks remain future work.
 Collections and nullable route parameters, deep links, and asynchronous guard
 hooks remain future work.
+
+Generated Android hosts opt into `android:enableOnBackInvokedCallback="true"`
+and use Navigation Compose 2.10.1, so the platform and navigation stack provide
+predictive-back transitions without a Nexa back-event runtime. Generated iOS
+hosts target Xcode 27/Swift 6 with an iOS 17 deployment baseline.
 
 ## Permissions
 

@@ -733,7 +733,7 @@ fn root_readme(app_name: &str, targets: &[&str]) -> String {
     if targets.contains(&"android") {
         readme.push_str("## Android\n\n`gradle -p android :app:assembleDebug`\n\nThe generated Gradle project uses Jetpack Compose and Coil 3 with the platform network stack when needed. Release builds enable R8 shrinking, resource shrinking, and the optimized Android ruleset.\n\n");
     }
-    readme.push_str("Requirements: Rust/Nexa for regeneration, Xcode 16+ for iOS, and Android SDK/Gradle for Android.\n");
+    readme.push_str("Requirements: Rust/Nexa for regeneration, Xcode 27+ for iOS, and Android SDK/Gradle for Android.\n");
     readme
 }
 
@@ -771,6 +771,9 @@ fn ios_project_file(app_name: &str) -> String {
         AA0000000000000000000004 = {{ isa = PBXGroup; children = ( AA0000000000000000000013 ); name = Products; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000010 = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {app_file}; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000011 = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexaGenerated.swift; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000012 = {{ isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000013 = {{ isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = {app_name}.app; sourceTree = BUILT_PRODUCTS_DIR; }};\n\t\tAA0000000000000000000020 = {{ isa = PBXBuildFile; fileRef = AA0000000000000000000010; }};\n\t\tAA0000000000000000000021 = {{ isa = PBXBuildFile; fileRef = AA0000000000000000000011; }};\n\t\tAA0000000000000000000005 = {{ isa = PBXNativeTarget; buildConfigurationList = AA0000000000000000000007; buildPhases = ( AA0000000000000000000008, AA0000000000000000000009, AA000000000000000000000A ); name = {app_name}; productName = {app_name}; productReference = AA0000000000000000000013; productType = \"com.apple.product-type.application\"; }};\n\t\tAA0000000000000000000008 = {{ isa = PBXSourcesBuildPhase; files = ( AA0000000000000000000020, AA0000000000000000000021 ); }};\n\t\tAA0000000000000000000009 = {{ isa = PBXFrameworksBuildPhase; files = (); }};\n\t\tAA000000000000000000000A = {{ isa = PBXResourcesBuildPhase; files = (); }};\n\t\tAA0000000000000000000002 = {{ isa = XCConfigurationList; buildConfigurations = ( AA0000000000000000000022 ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};\n\t\tAA0000000000000000000007 = {{ isa = XCConfigurationList; buildConfigurations = ( AA0000000000000000000023 ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};\n\t\tAA0000000000000000000022 = {{ isa = XCBuildConfiguration; buildSettings = {{ ALWAYS_SEARCH_USER_PATHS = NO; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = \"-O\"; SWIFT_COMPILATION_MODE = wholemodule; GCC_OPTIMIZATION_LEVEL = s; DEAD_CODE_STRIPPING = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; }}; name = Release; }};\n\t\tAA0000000000000000000023 = {{ isa = XCBuildConfiguration; buildSettings = {{ ALWAYS_SEARCH_USER_PATHS = NO; PRODUCT_BUNDLE_IDENTIFIER = com.nexa.{}; PRODUCT_NAME = {app_name}; INFOPLIST_FILE = {app_name}/Info.plist; SUPPORTED_PLATFORMS = \"iphoneos iphonesimulator\"; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = \"-O\"; SWIFT_COMPILATION_MODE = wholemodule; GCC_OPTIMIZATION_LEVEL = s; DEAD_CODE_STRIPPING = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; TARGETED_DEVICE_FAMILY = \"1,2\"; }}; name = Release; }};\n\t}};\n\trootObject = AA0000000000000000000001;\n}}\n",
         app_name.to_ascii_lowercase()
     )
+    .replace("compatibilityVersion = \"Xcode 16.0\"", "compatibilityVersion = \"Xcode 27.0\"")
+    .replace("SWIFT_VERSION = 5.0", "SWIFT_VERSION = 6.0")
+    .replace("IPHONEOS_DEPLOYMENT_TARGET = 16.0", "IPHONEOS_DEPLOYMENT_TARGET = 17.0")
 }
 
 fn ios_scheme(app_name: &str) -> String {
@@ -808,7 +811,7 @@ fn android_settings(app_name: &str) -> String {
     )
 }
 fn android_root_gradle() -> String {
-    "plugins {\n    id(\"com.android.application\") version \"9.2.1\" apply false\n    id(\"org.jetbrains.kotlin.plugin.compose\") version \"2.4.10\" apply false\n}\n".to_owned()
+    "plugins {\n    id(\"com.android.application\") version \"9.2.1\" apply false\n    id(\"org.jetbrains.kotlin.plugin.compose\") version \"2.4.20\" apply false\n}\n".to_owned()
 }
 fn android_properties() -> String {
     "android.useAndroidX=true\nkotlin.code.style=official\norg.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n".to_owned()
@@ -851,7 +854,7 @@ fn android_manifest(app_name: &str, package: &str, remote: bool, config: &Projec
         }
     }
     format!(
-        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{app_name}\" android:theme=\"@android:style/Theme.Material.Light.NoActionBar\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\">\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n        </activity>\n    </application>\n</manifest>\n"
+        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{app_name}\" android:theme=\"@android:style/Theme.Material.Light.NoActionBar\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\">\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n        </activity>\n    </application>\n</manifest>\n"
     )
 }
 
@@ -867,7 +870,7 @@ fn android_app_gradle(
     }
     if features.uses_navigation {
         dependencies
-            .push_str("    implementation(\"androidx.navigation:navigation-compose:2.8.5\")\n");
+            .push_str("    implementation(\"androidx.navigation:navigation-compose:2.10.1\")\n");
     }
     if features.uses_lifecycle_events {
         dependencies.push_str(
