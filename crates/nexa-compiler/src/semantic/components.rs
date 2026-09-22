@@ -209,6 +209,7 @@ pub(super) fn lower_node(
             autocorrect,
             capitalization,
             focused,
+            max_length,
             actions,
             span,
         } => {
@@ -281,6 +282,7 @@ pub(super) fn lower_node(
                     require_mutable_binding(&value, &Type::Bool, symbols, span, "TextInput focus")
                 })
                 .transpose()?;
+            let max_length = lower_positive_integer(max_length, "TextInput maxLength")?;
             Ok(Node::TextInput {
                 state,
                 placeholder,
@@ -290,6 +292,7 @@ pub(super) fn lower_node(
                 autocorrect,
                 capitalization,
                 focused,
+                max_length,
                 actions: lower_actions(actions, symbols, functions, false)?,
             })
         }
@@ -1027,6 +1030,31 @@ fn lower_line_limit(value: Option<ast::Expr>) -> Result<Option<i32>, CompileErro
         return Err(CompileError::new(
             span,
             "Text lineLimit must be greater than zero",
+        ));
+    }
+    Ok(Some(limit))
+}
+
+fn lower_positive_integer(
+    value: Option<ast::Expr>,
+    field: &str,
+) -> Result<Option<i32>, CompileError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let ast::Expr::Number(raw, span) = value else {
+        return Err(CompileError::new(
+            value.span(),
+            format!("{field} must be a positive integer literal"),
+        ));
+    };
+    let limit = raw.parse::<i32>().map_err(|_| {
+        CompileError::new(span, format!("{field} must be a positive integer literal"))
+    })?;
+    if limit <= 0 {
+        return Err(CompileError::new(
+            span,
+            format!("{field} must be greater than zero"),
         ));
     }
     Ok(Some(limit))

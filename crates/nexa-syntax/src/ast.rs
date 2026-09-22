@@ -257,6 +257,7 @@ pub enum Node {
         autocorrect: Option<Expr>,
         capitalization: Option<Expr>,
         focused: Option<Expr>,
+        max_length: Option<Expr>,
         actions: Vec<Stmt>,
         span: Span,
     },

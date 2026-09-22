@@ -861,6 +861,7 @@ impl Parser {
                     "autocorrect",
                     "capitalization",
                     "focused",
+                    "maxLength",
                 ])?;
                 let value = self.required_arg(&mut args, "value", "TextInput requires `value`")?;
                 let placeholder = self.required_arg(
@@ -882,6 +883,7 @@ impl Parser {
                     autocorrect: args.remove("autocorrect"),
                     capitalization: args.remove("capitalization"),
                     focused: args.remove("focused"),
+                    max_length: args.remove("maxLength"),
                     actions,
                     span,
                 })

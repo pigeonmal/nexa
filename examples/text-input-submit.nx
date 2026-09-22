@@ -5,7 +5,7 @@ app TextInputSubmit {
 
     body {
         Column(spacing: 12, padding: 20) {
-            TextInput(value: query, placeholder: "Search", keyboard: Text, focused: queryFocused) {
+            TextInput(value: query, placeholder: "Search", keyboard: Text, focused: queryFocused, maxLength: 64) {
                 submitted = true
             }
             Button("Focus search") {

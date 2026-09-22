@@ -94,6 +94,7 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             autocorrect,
             capitalization,
             focused,
+            max_length,
             actions,
         } => input::render_text_input(
             state,
@@ -104,6 +105,7 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             *autocorrect,
             *capitalization,
             focused.as_deref(),
+            *max_length,
             actions,
             depth,
             out,

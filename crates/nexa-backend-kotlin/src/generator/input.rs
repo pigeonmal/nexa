@@ -15,6 +15,7 @@ pub(super) fn render_text_input(
     autocorrect: Option<bool>,
     capitalization: Option<Capitalization>,
     focused: Option<&str>,
+    max_length: Option<i32>,
     actions: &[Action],
     depth: usize,
     out: &mut String,
@@ -25,8 +26,11 @@ pub(super) fn render_text_input(
     out.push_str(&format!("value = {},\n", state_name(state)));
     indent(out, depth + 1);
     out.push_str(&format!(
-        "onValueChange = {{ {} = it }},\n",
-        state_name(state)
+        "onValueChange = {{ value -> {} = {} }},\n",
+        state_name(state),
+        max_length
+            .map(|limit| format!("value.take({limit})"))
+            .unwrap_or_else(|| "value".to_owned())
     ));
     indent(out, depth + 1);
     out.push_str(&format!(

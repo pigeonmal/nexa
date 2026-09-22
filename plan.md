@@ -441,7 +441,7 @@ Support:
 
 Input latency should be equivalent or extremely close to native applications.
 
-The first input interaction slice is implemented: single-line `TextInput` accepts an optional action block that maps to SwiftUI `.onSubmit` and Compose `KeyboardActions` with `ImeAction.Done`, plus an optional mutable `focused` Boolean binding that maps to SwiftUI `@FocusState`/`.focused` and Compose `FocusRequester`/`onFocusChanged`. Fields without submit or focus behavior keep the smaller direct path. Multiline fields reject submit blocks because the native return key inserts newlines. Selection, autofill, password-manager integration, validation, and richer submit actions remain future slices. See [text-input-submit.nx](examples/text-input-submit.nx).
+The first input interaction slice is implemented: single-line `TextInput` accepts an optional action block that maps to SwiftUI `.onSubmit` and Compose `KeyboardActions` with `ImeAction.Done`, plus an optional mutable `focused` Boolean binding that maps to SwiftUI `@FocusState`/`.focused` and Compose `FocusRequester`/`onFocusChanged`. A static positive `maxLength` literal is enforced directly by SwiftUI's `onChange` callback and Compose's `onValueChange` callback. Fields without submit, focus, or length behavior keep the smaller direct path. Multiline fields reject submit blocks because the native return key inserts newlines. Selection, autofill, password-manager integration, richer validation, and richer submit actions remain future slices. See [text-input-submit.nx](examples/text-input-submit.nx).
 
 ## Button
 

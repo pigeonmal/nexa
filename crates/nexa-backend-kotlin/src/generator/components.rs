@@ -90,6 +90,7 @@ pub(super) fn render_node(
             autocorrect,
             capitalization,
             focused,
+            max_length,
             actions,
         } => input::render_text_input(
             state,
@@ -100,6 +101,7 @@ pub(super) fn render_node(
             *autocorrect,
             *capitalization,
             focused.as_deref(),
+            *max_length,
             actions,
             depth,
             out,

@@ -16,6 +16,7 @@ pub(super) fn render_text_input(
     autocorrect: Option<bool>,
     capitalization: Option<Capitalization>,
     focused: Option<&str>,
+    max_length: Option<i32>,
     actions: &[Action],
     depth: usize,
     out: &mut String,
@@ -65,6 +66,22 @@ pub(super) fn render_text_input(
     if !actions.is_empty() {
         out.push_str(&format!("\n{}.onSubmit {{\n", "    ".repeat(depth + 1)));
         render_actions(actions, depth + 2, out);
+        indent(out, depth + 1);
+        out.push('}');
+    }
+    if let Some(max_length) = max_length {
+        out.push_str(&format!(
+            "\n{}.onChange(of: {}) {{ newValue in\n",
+            "    ".repeat(depth + 1),
+            state_name(state)
+        ));
+        indent(out, depth + 2);
+        out.push_str(&format!(
+            "if newValue.count > {} {{ {} = String(newValue.prefix(Int({}))) }}\n",
+            max_length,
+            state_name(state),
+            max_length
+        ));
         indent(out, depth + 1);
         out.push('}');
     }

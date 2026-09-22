@@ -926,6 +926,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             autocorrect,
             capitalization,
             focused,
+            max_length,
             actions,
         } => Some(Node::TextInput {
             state,
@@ -936,6 +937,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             autocorrect,
             capitalization,
             focused,
+            max_length,
             actions: optimize_actions(actions),
         }),
         Node::Content => Some(Node::Content),

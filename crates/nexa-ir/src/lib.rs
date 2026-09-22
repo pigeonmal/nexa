@@ -323,6 +323,7 @@ pub enum Node {
         autocorrect: Option<bool>,
         capitalization: Option<Capitalization>,
         focused: Option<String>,
+        max_length: Option<i32>,
         actions: Vec<Action>,
     },
     Switch {
