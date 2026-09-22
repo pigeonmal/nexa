@@ -115,9 +115,11 @@ interface Camera {
 }
 ```
 
-The parser checks identifiers, duplicate names, parameter types, generic type
-syntax, and the rule that `Result<Success, Failure>` methods are asynchronous.
-Use `nexa plugin check <plugin-directory|interfaces.nxid>` to validate it with
+The parser checks identifiers, duplicate names, reserved built-in collisions,
+declared named-type references, generic type arity, and the rule that
+`Result<Success, Failure>` methods are asynchronous. Unknown types and
+unsupported generic shapes fail before native binding generation. Use
+`nexa plugin check <plugin-directory|interfaces.nxid>` to validate it with
 source locations.
 
 `nexa plugin generate <plugin-directory|interfaces.nxid> --target swift` emits

@@ -451,12 +451,24 @@ impl Parser {
     fn validate_names(&self, idl: &PluginIdl) -> Result<(), String> {
         let mut types = std::collections::HashSet::new();
         for ty in &idl.types {
+            if is_builtin_type_name(&ty.name) {
+                return Err(format!(
+                    "type `{}` uses a reserved built-in type name",
+                    ty.name
+                ));
+            }
             if !types.insert(ty.name.as_str()) {
                 return Err(format!("duplicate type `{}`", ty.name));
             }
         }
         let mut interfaces = std::collections::HashSet::new();
         for interface in &idl.interfaces {
+            if is_builtin_type_name(&interface.name) || types.contains(interface.name.as_str()) {
+                return Err(format!(
+                    "interface `{}` conflicts with a declared type or built-in type",
+                    interface.name
+                ));
+            }
             if !interfaces.insert(interface.name.as_str()) {
                 return Err(format!("duplicate interface `{}`", interface.name));
             }
@@ -490,9 +502,9 @@ impl Parser {
                         method.name
                     ));
                 }
-                validate_type_shape(&method.return_type, &method.name)?;
+                validate_type_ref(&method.return_type, &method.name, &types, true)?;
                 for parameter in &method.parameters {
-                    validate_type_shape(&parameter.ty, &parameter.name)?;
+                    validate_type_ref(&parameter.ty, &parameter.name, &types, false)?;
                 }
             }
         }
@@ -602,7 +614,12 @@ impl Parser {
     }
 }
 
-fn validate_type_shape(ty: &TypeRef, context: &str) -> Result<(), String> {
+fn validate_type_ref(
+    ty: &TypeRef,
+    context: &str,
+    declared_types: &std::collections::HashSet<&str>,
+    allow_result: bool,
+) -> Result<(), String> {
     let expected = match ty.name.as_str() {
         "Array" | "Set" => Some(1),
         "Map" | "Pair" | "Result" => Some(2),
@@ -618,11 +635,59 @@ fn validate_type_shape(ty: &TypeRef, context: &str) -> Result<(), String> {
                 expected
             ));
         }
+        if ty.name == "Result" && !allow_result {
+            return Err(format!(
+                "{context} uses `Result` outside a method return type"
+            ));
+        }
+    } else if is_builtin_type_name(&ty.name) {
+        if !ty.arguments.is_empty() {
+            return Err(format!(
+                "{context} uses built-in `{}` with unexpected type arguments",
+                ty.name
+            ));
+        }
+    } else if !declared_types.contains(ty.name.as_str()) {
+        return Err(format!(
+            "{context} references undeclared plugin type `{}`",
+            ty.name
+        ));
+    } else if !ty.arguments.is_empty() {
+        return Err(format!(
+            "{context} uses declared type `{}` with unsupported type arguments",
+            ty.name
+        ));
     }
     for argument in &ty.arguments {
-        validate_type_shape(argument, context)?;
+        validate_type_ref(argument, context, declared_types, false)?;
     }
     Ok(())
+}
+
+fn is_builtin_type_name(name: &str) -> bool {
+    matches!(
+        name,
+        "Void"
+            | "String"
+            | "Bool"
+            | "Int8"
+            | "Int16"
+            | "Int32"
+            | "Int64"
+            | "UInt8"
+            | "UInt16"
+            | "UInt32"
+            | "UInt64"
+            | "Float32"
+            | "Float64"
+            | "Bytes"
+            | "Array"
+            | "Set"
+            | "Map"
+            | "Pair"
+            | "Triple"
+            | "Result"
+    )
 }
 
 fn validate_config_type(ty: &TypeRef, context: &str) -> Result<(), String> {

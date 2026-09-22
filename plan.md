@@ -986,7 +986,8 @@ deterministic `nexa.plugin.json` manifest with package identity, version, IDL
 path, and isolated iOS/Android implementation paths, plus platform source
 stubs. `interfaces.nxid` supports typed value/error models and interface
 methods with primitive, collection, pair/triple, optional, and generic types.
-The checker validates names, generic syntax, and asynchronous `Result` methods;
+The checker validates names, reserved built-in collisions, declared named-type
+references, generic syntax, and asynchronous `Result` methods;
 the binding generator emits direct Swift protocols or Kotlin interfaces with
 native model declarations. A local `.nx` entry file can declare
 `plugin "path" as Namespace`; the compiler resolves its typed calls statically
