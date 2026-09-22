@@ -1,13 +1,11 @@
-use nexa_ir::{Module, Node};
+use nexa_ir::{Expr, Module, Node};
 
 use super::{
-    components::render_children,
-    features::Features,
-    utils::{indent, kotlin_string},
+    components::render_children, expressions::expression, features::Features, utils::indent,
 };
 
 pub(super) fn render_link(
-    url: &str,
+    url: &Expr,
     children: &[Node],
     module: &Module,
     features: &Features,
@@ -20,7 +18,7 @@ pub(super) fn render_link(
     out.push_str("modifier = Modifier.clickable {\n");
     indent(out, depth + 2);
     out.push_str("val nexaLinkIntent = Intent(Intent.ACTION_VIEW, Uri.parse(");
-    out.push_str(&kotlin_string(url));
+    out.push_str(&expression(url));
     out.push_str("))\n");
     indent(out, depth + 2);
     out.push_str("if (nexaLinkIntent.resolveActivity(nexaLinkContext.packageManager) != null) {\n");

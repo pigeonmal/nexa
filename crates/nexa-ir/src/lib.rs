@@ -331,7 +331,7 @@ pub enum Node {
         children: Vec<Node>,
     },
     Link {
-        url: String,
+        url: Expr,
         children: Vec<Node>,
     },
     Accessibility {

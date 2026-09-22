@@ -424,17 +424,22 @@ pub(super) fn lower_node(
             children,
             span,
         } => {
-            let url = require_string_literal(&url, "Link URL")?;
-            if !is_link_url(&url) {
-                return Err(CompileError::new(
-                    span,
-                    "Link URL must include a valid absolute scheme (for example `https://` or `mailto:`)",
-                ));
+            let lowered_url = lower_expr(&url, Some(&Type::String), symbols, functions, false)?;
+            if let ast::Expr::String(value, _) = &url {
+                if !is_link_url(value) {
+                    return Err(CompileError::new(
+                        span,
+                        "Link URL must include a valid absolute scheme (for example `https://` or `mailto:`)",
+                    ));
+                }
             }
             let children = lower_nodes(
                 children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
-            Ok(Node::Link { url, children })
+            Ok(Node::Link {
+                url: lowered_url,
+                children,
+            })
         }
         ast::Node::Accessibility {
             label,

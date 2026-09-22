@@ -1,6 +1,11 @@
 app LinkingExample {
+    state docsURL = "https://nexa.dev/docs"
+
     body {
         Column(spacing: 12, padding: 20) {
+            Link(url: docsURL) {
+                Text("Open Nexa documentation")
+            }
             Link(url: "https://nexa.dev") {
                 Text("Open Nexa website")
             }

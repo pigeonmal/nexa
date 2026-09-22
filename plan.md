@@ -811,11 +811,10 @@ Link(url: "https://example.com") {
 }
 ```
 
-Static URLs with a valid scheme lower to SwiftUI `Link` on iOS. Android emits an `ACTION_VIEW` intent and checks `resolveActivity` before opening it. This keeps external navigation in the platform handler without a shared runtime or dynamic event registry.
+Literal URLs with a valid scheme lower to SwiftUI `Link` on iOS. A `Link` URL may also be any expression typed as `String`, such as state, interpolation, or a function result. Swift guards dynamic values with `URL(string:)`; Android emits an `ACTION_VIEW` intent from the expression and checks `resolveActivity` before opening it. This keeps external navigation in the platform handler without a shared runtime or dynamic event registry.
 
 Remaining work:
 
-- dynamic URL expressions,
 - universal links,
 - Android app links,
 - deep links,

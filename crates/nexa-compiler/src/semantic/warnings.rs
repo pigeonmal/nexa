@@ -324,7 +324,8 @@ fn walk_node(
                 walk_node(child, names, used, target, file, warnings);
             }
         }
-        ast::Node::Link { children, .. } => {
+        ast::Node::Link { url, children, .. } => {
+            walk_expression(url, names, used);
             for child in children {
                 walk_node(child, names, used, target, file, warnings);
             }
