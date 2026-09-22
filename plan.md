@@ -422,11 +422,13 @@ Support:
 
 Input latency should be equivalent or extremely close to native applications.
 
+The first submit slice is implemented: single-line `TextInput` accepts an optional action block that maps to SwiftUI `.onSubmit` and Compose `KeyboardActions` with `ImeAction.Done`. Fields without a submit block do not receive the extra native callback or imports. Multiline fields reject submit blocks because the native return key inserts newlines. Focus management, selection, autofill, password-manager integration, validation, and richer submit actions remain future slices. See [text-input-submit.nx](examples/text-input-submit.nx).
+
 ## Button
 
 Button must map directly to native button/interaction primitives.
 
-The first loading slice is implemented: `Button(..., loading: Bool)` emits a native `ProgressView` or `CircularProgressIndicator` and disables the button while loading. See [button-loading.nx](examples/button-loading.nx).
+The first loading and disabled slices are implemented: `Button(..., loading: Bool, disabled: Bool)` emits native `ProgressView`/`CircularProgressIndicator` loading content and maps disabled state directly to SwiftUI `.disabled` or Compose `enabled = !disabled`. Loading and disabled conditions are combined into one native expression, and omitted options add no code. See [button-loading.nx](examples/button-loading.nx) and [button-disabled.nx](examples/button-disabled.nx).
 
 Support:
 

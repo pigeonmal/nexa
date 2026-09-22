@@ -11,6 +11,7 @@ use super::{
 pub(super) fn render_button(
     label: &Expr,
     loading: Option<&Expr>,
+    disabled: Option<&Expr>,
     actions: &[Action],
     depth: usize,
     out: &mut String,
@@ -21,15 +22,18 @@ pub(super) fn render_button(
         if actions.is_empty() {
             out.push_str(" }, enabled = !");
             out.push_str(&expression(loading));
-            out.push_str(") {");
         } else {
             out.push('\n');
             render_actions(actions, depth + 1, out);
             indent(out, depth);
             out.push_str("}, enabled = !");
             out.push_str(&expression(loading));
-            out.push_str(") {");
         }
+        if let Some(disabled) = disabled {
+            out.push_str(" && !");
+            out.push_str(&expression(disabled));
+        }
+        out.push_str(") {");
         out.push('\n');
         indent(out, depth + 1);
         out.push_str(&format!("if ({}) {{\n", expression(loading)));
@@ -49,13 +53,18 @@ pub(super) fn render_button(
     indent(out, depth);
     out.push_str("Button(onClick = {");
     if actions.is_empty() {
-        out.push_str(" }) {\n");
+        out.push_str(" }");
     } else {
         out.push('\n');
         render_actions(actions, depth + 1, out);
         indent(out, depth);
-        out.push_str("}) {\n");
+        out.push('}');
     }
+    if let Some(disabled) = disabled {
+        out.push_str(", enabled = !");
+        out.push_str(&expression(disabled));
+    }
+    out.push_str(") {\n");
     indent(out, depth + 1);
     out.push_str(&format!("Text({})\n", expression(label)));
     indent(out, depth);

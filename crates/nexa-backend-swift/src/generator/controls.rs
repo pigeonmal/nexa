@@ -10,6 +10,7 @@ use super::{
 pub(super) fn render_button(
     label: &nexa_ir::Expr,
     loading: Option<&nexa_ir::Expr>,
+    disabled: Option<&nexa_ir::Expr>,
     actions: &[Action],
     depth: usize,
     out: &mut String,
@@ -39,19 +40,28 @@ pub(super) fn render_button(
         out.push('\n');
         indent(out, depth);
         out.push('}');
-        out.push_str(&format!(".disabled({})", expression(loading)));
+        out.push_str(".disabled(");
+        out.push_str(&expression(loading));
+        if let Some(disabled) = disabled {
+            out.push_str(" || ");
+            out.push_str(&expression(disabled));
+        }
+        out.push(')');
         return;
     }
     indent(out, depth);
     out.push_str(&format!("Button({}) {{", expression(label)));
     if actions.is_empty() {
         out.push_str(" }");
-        return;
+    } else {
+        out.push('\n');
+        render_actions(actions, depth + 1, out);
+        indent(out, depth);
+        out.push('}');
     }
-    out.push('\n');
-    render_actions(actions, depth + 1, out);
-    indent(out, depth);
-    out.push('}');
+    if let Some(disabled) = disabled {
+        out.push_str(&format!(".disabled({})", expression(disabled)));
+    }
 }
 
 pub(super) fn render_switch(state: &str, label: &str, depth: usize, out: &mut String) {

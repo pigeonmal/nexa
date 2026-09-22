@@ -164,6 +164,7 @@ pub(super) fn lower_node(
         ast::Node::Button {
             label,
             loading,
+            disabled,
             actions,
             span,
         } => {
@@ -177,10 +178,14 @@ pub(super) fn lower_node(
             let loading = loading
                 .map(|value| lower_expr(&value, Some(&Type::Bool), symbols))
                 .transpose()?;
+            let disabled = disabled
+                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols))
+                .transpose()?;
             let lowered = lower_actions(actions, symbols)?;
             Ok(Node::Button {
                 label,
                 loading,
+                disabled,
                 actions: lowered,
             })
         }
@@ -192,6 +197,7 @@ pub(super) fn lower_node(
             multiline,
             autocorrect,
             capitalization,
+            actions,
             span,
         } => {
             let state = require_mutable_binding(&value, &Type::String, symbols, span, "TextInput")?;
@@ -252,6 +258,12 @@ pub(super) fn lower_node(
                     "TextInput cannot be both secure and multiline",
                 ));
             }
+            if multiline && !actions.is_empty() {
+                return Err(CompileError::new(
+                    span,
+                    "TextInput submit actions require a single-line field",
+                ));
+            }
             Ok(Node::TextInput {
                 state,
                 placeholder,
@@ -260,6 +272,7 @@ pub(super) fn lower_node(
                 multiline,
                 autocorrect,
                 capitalization,
+                actions: lower_actions(actions, symbols)?,
             })
         }
         ast::Node::Switch { value, label, span } => {

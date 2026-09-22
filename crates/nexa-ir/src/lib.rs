@@ -167,6 +167,7 @@ pub enum Node {
     Button {
         label: Expr,
         loading: Option<Expr>,
+        disabled: Option<Expr>,
         actions: Vec<Action>,
     },
     TextInput {
@@ -177,6 +178,7 @@ pub enum Node {
         multiline: bool,
         autocorrect: Option<bool>,
         capitalization: Option<Capitalization>,
+        actions: Vec<Action>,
     },
     Switch {
         state: String,

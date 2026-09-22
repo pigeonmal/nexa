@@ -60,11 +60,15 @@ pub fn walk_ir(
             Node::Button {
                 label,
                 loading,
+                disabled,
                 actions,
             } => {
                 walk_expression(label, visit_expression);
                 if let Some(loading) = loading {
                     walk_expression(loading, visit_expression);
+                }
+                if let Some(disabled) = disabled {
+                    walk_expression(disabled, visit_expression);
                 }
                 walk_actions(actions, visit_expression);
             }
@@ -73,8 +77,8 @@ pub fn walk_ir(
                     walk_expression(argument, visit_expression);
                 }
             }
-            Node::TextInput { .. }
-            | Node::Switch { .. }
+            Node::TextInput { actions, .. } => walk_actions(actions, visit_expression),
+            Node::Switch { .. }
             | Node::Image { .. }
             | Node::StatusBar { .. }
             | Node::Direction { .. }

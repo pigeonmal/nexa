@@ -1,8 +1,11 @@
-use nexa_ir::{Capitalization, KeyboardType};
+use nexa_ir::{Action, Capitalization, KeyboardType};
 
 use nexa_codegen::names::state_name;
 
-use super::utils::{indent, swift_string};
+use super::{
+    controls::render_actions,
+    utils::{indent, swift_string},
+};
 
 pub(super) fn render_text_input(
     state: &str,
@@ -12,6 +15,7 @@ pub(super) fn render_text_input(
     multiline: bool,
     autocorrect: Option<bool>,
     capitalization: Option<Capitalization>,
+    actions: &[Action],
     depth: usize,
     out: &mut String,
 ) {
@@ -32,23 +36,29 @@ pub(super) fn render_text_input(
     }
     if let Some(keyboard) = swift_keyboard(keyboard) {
         out.push_str(&format!(
-            "\n{}  .keyboardType({keyboard})",
-            "    ".repeat(depth)
+            "\n{}.keyboardType({keyboard})",
+            "    ".repeat(depth + 1)
         ));
     }
     if let Some(capitalization) = capitalization {
         out.push_str(&format!(
-            "\n{}  .textInputAutocapitalization({})",
-            "    ".repeat(depth),
+            "\n{}.textInputAutocapitalization({})",
+            "    ".repeat(depth + 1),
             swift_capitalization(capitalization)
         ));
     }
     if let Some(autocorrect) = autocorrect {
         out.push_str(&format!(
-            "\n{}  .autocorrectionDisabled({})",
-            "    ".repeat(depth),
+            "\n{}.autocorrectionDisabled({})",
+            "    ".repeat(depth + 1),
             !autocorrect
         ));
+    }
+    if !actions.is_empty() {
+        out.push_str(&format!("\n{}.onSubmit {{\n", "    ".repeat(depth + 1)));
+        render_actions(actions, depth + 2, out);
+        indent(out, depth + 1);
+        out.push('}');
     }
 }
 

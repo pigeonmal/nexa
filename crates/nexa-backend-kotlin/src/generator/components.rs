@@ -69,9 +69,17 @@ pub(super) fn render_node(
         Node::Button {
             label,
             loading,
+            disabled,
             actions,
         } => {
-            controls::render_button(label, loading.as_ref(), actions, depth, out);
+            controls::render_button(
+                label,
+                loading.as_ref(),
+                disabled.as_ref(),
+                actions,
+                depth,
+                out,
+            );
         }
         Node::TextInput {
             state,
@@ -81,6 +89,7 @@ pub(super) fn render_node(
             multiline,
             autocorrect,
             capitalization,
+            actions,
         } => input::render_text_input(
             state,
             placeholder,
@@ -89,6 +98,7 @@ pub(super) fn render_node(
             *multiline,
             *autocorrect,
             *capitalization,
+            actions,
             depth,
             out,
         ),

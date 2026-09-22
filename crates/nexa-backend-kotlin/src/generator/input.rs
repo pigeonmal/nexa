@@ -1,7 +1,10 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Capitalization, KeyboardType};
+use nexa_ir::{Action, Capitalization, KeyboardType};
 
-use super::utils::{indent, kotlin_string};
+use super::{
+    controls::render_actions,
+    utils::{indent, kotlin_string},
+};
 
 pub(super) fn render_text_input(
     state: &str,
@@ -11,6 +14,7 @@ pub(super) fn render_text_input(
     multiline: bool,
     autocorrect: Option<bool>,
     capitalization: Option<Capitalization>,
+    actions: &[Action],
     depth: usize,
     out: &mut String,
 ) {
@@ -45,12 +49,28 @@ pub(super) fn render_text_input(
         indent(out, depth + 2);
         out.push_str(&format!("autoCorrectEnabled = {autocorrect},\n"));
     }
+    if !actions.is_empty() {
+        indent(out, depth + 2);
+        out.push_str("imeAction = ImeAction.Done,\n");
+    }
     indent(out, depth + 1);
     out.push_str("),");
     if secure {
         out.push('\n');
         indent(out, depth + 1);
         out.push_str("visualTransformation = PasswordVisualTransformation(),");
+    }
+    if !actions.is_empty() {
+        out.push('\n');
+        indent(out, depth + 1);
+        out.push_str("keyboardActions = KeyboardActions(\n");
+        indent(out, depth + 2);
+        out.push_str("onDone = {\n");
+        render_actions(actions, depth + 3, out);
+        indent(out, depth + 2);
+        out.push_str("},\n");
+        indent(out, depth + 1);
+        out.push_str("),");
     }
     out.push('\n');
     indent(out, depth);

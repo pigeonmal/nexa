@@ -146,6 +146,7 @@ pub enum Node {
     Button {
         label: Expr,
         loading: Option<Expr>,
+        disabled: Option<Expr>,
         actions: Vec<Stmt>,
         span: Span,
     },
@@ -157,6 +158,7 @@ pub enum Node {
         multiline: Option<Expr>,
         autocorrect: Option<Expr>,
         capitalization: Option<Expr>,
+        actions: Vec<Stmt>,
         span: Span,
     },
     Switch {

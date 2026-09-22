@@ -104,8 +104,11 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
                 collect_action_bindings(actions, &mut bindings);
                 bindings.push(state.clone());
             }
-            Node::TextInput { state, .. }
-            | Node::Switch { state, .. }
+            Node::TextInput { state, actions, .. } => {
+                collect_action_bindings(actions, &mut bindings);
+                bindings.push(state.clone());
+            }
+            Node::Switch { state, .. }
             | Node::BottomSheet { state, .. }
             | Node::AppBottomBar { state, .. } => {
                 bindings.push(state.clone());
@@ -202,12 +205,16 @@ fn optimize_node(node: Node) -> Option<Node> {
         Node::Button {
             label,
             loading,
+            disabled,
             actions,
         } => Some(Node::Button {
             label: fold_expression(label),
             loading: loading
                 .map(fold_expression)
                 .filter(|loading| !matches!(loading, Expr::Bool(false))),
+            disabled: disabled
+                .map(fold_expression)
+                .filter(|disabled| !matches!(disabled, Expr::Bool(false))),
             actions: optimize_actions(actions),
         }),
         Node::Pressable {
@@ -257,8 +264,26 @@ fn optimize_node(node: Node) -> Option<Node> {
                 .map(|(name, value)| (name, fold_expression(value)))
                 .collect(),
         }),
-        node @ (Node::TextInput { .. }
-        | Node::Switch { .. }
+        Node::TextInput {
+            state,
+            placeholder,
+            keyboard,
+            secure,
+            multiline,
+            autocorrect,
+            capitalization,
+            actions,
+        } => Some(Node::TextInput {
+            state,
+            placeholder,
+            keyboard,
+            secure,
+            multiline,
+            autocorrect,
+            capitalization,
+            actions: optimize_actions(actions),
+        }),
+        node @ (Node::Switch { .. }
         | Node::Image { .. }
         | Node::StatusBar { .. }
         | Node::Direction { .. }

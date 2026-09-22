@@ -438,7 +438,7 @@ impl Parser {
                 self.expect(Kind::LParen, "expected `(` after Button")?;
                 let label = self.expr()?;
                 let options = if self.take(&Kind::Comma) {
-                    self.named_args_contents(&["loading"])?
+                    self.named_args_contents(&["loading", "disabled"])?
                 } else {
                     BTreeMap::new()
                 };
@@ -451,6 +451,7 @@ impl Parser {
                 Ok(Node::Button {
                     label,
                     loading: options.get("loading").cloned(),
+                    disabled: options.get("disabled").cloned(),
                     actions,
                     span,
                 })
@@ -471,6 +472,11 @@ impl Parser {
                     "placeholder",
                     "TextInput requires `placeholder`",
                 )?;
+                let actions = if self.check(&Kind::LBrace) {
+                    self.block_stmts()?
+                } else {
+                    Vec::new()
+                };
                 Ok(Node::TextInput {
                     value,
                     placeholder,
@@ -479,6 +485,7 @@ impl Parser {
                     multiline: args.remove("multiline"),
                     autocorrect: args.remove("autocorrect"),
                     capitalization: args.remove("capitalization"),
+                    actions,
                     span,
                 })
             }

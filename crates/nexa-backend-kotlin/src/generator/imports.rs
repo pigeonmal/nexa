@@ -131,6 +131,10 @@ pub(super) fn render(
         features.uses_text_input,
         "androidx.compose.foundation.text.KeyboardOptions",
     );
+    add(
+        features.uses_text_input_submit,
+        "androidx.compose.foundation.text.KeyboardActions",
+    );
     add(features.uses_button, "androidx.compose.material3.Button");
     add(
         features.uses_button_loading,
@@ -225,6 +229,10 @@ pub(super) fn render(
     add(
         features.uses_text_input,
         "androidx.compose.ui.text.input.KeyboardType as NativeKeyboardType",
+    );
+    add(
+        features.uses_text_input_submit,
+        "androidx.compose.ui.text.input.ImeAction",
     );
     add(
         features.uses_secure_text_input,

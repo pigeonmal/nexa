@@ -1,0 +1,15 @@
+app ButtonDisabled {
+    state disabled: Bool = true
+
+    body {
+        Column(spacing: 12, padding: 20) {
+            Text("The button starts disabled")
+            Button("Save", disabled: disabled) {
+                disabled = true
+            }
+            Button("Enable save") {
+                disabled = false
+            }
+        }
+    }
+}

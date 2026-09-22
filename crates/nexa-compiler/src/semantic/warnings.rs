@@ -149,6 +149,7 @@ fn walk_node(
         ast::Node::Button {
             label,
             loading,
+            disabled,
             actions,
             ..
         } => {
@@ -156,11 +157,16 @@ fn walk_node(
             if let Some(loading) = loading {
                 walk_expression(loading, names, used);
             }
+            if let Some(disabled) = disabled {
+                walk_expression(disabled, names, used);
+            }
             walk_actions(actions, names, used, target, file, warnings);
         }
-        ast::Node::TextInput { value, .. } | ast::Node::Switch { value, .. } => {
-            walk_expression(value, names, used)
+        ast::Node::TextInput { value, actions, .. } => {
+            walk_expression(value, names, used);
+            walk_actions(actions, names, used, target, file, warnings);
         }
+        ast::Node::Switch { value, .. } => walk_expression(value, names, used),
         ast::Node::Image { .. } => {}
         ast::Node::Pressable {
             disabled,
