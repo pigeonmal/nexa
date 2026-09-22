@@ -13,7 +13,9 @@ use std::{
 
 use nexa_syntax::ast::Program;
 
-const CACHE_VERSION: &str = "build-v58";
+// Bump when compiler or backend semantics change without a source-graph change.
+// This prevents old generated native units from surviving a generator update.
+const CACHE_VERSION: &str = "build-v59";
 
 pub(super) struct CachedBuild {
     pub(super) warnings: Vec<String>,

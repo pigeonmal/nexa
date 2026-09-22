@@ -88,6 +88,11 @@ implemented after the findings were reviewed.
   their own emitted code; the backend import module only collects, deduplicates,
   orders, and renders those contributions. Adding or replacing one native
   component therefore stays local to its feature module.
+- Bumped the CLI native-source cache schema after the backend/import refactor.
+  The cache fingerprints source and plugin graphs, so generator-only semantic
+  changes must advance `CACHE_VERSION` to prevent stale Swift/Kotlin units from
+  being restored. This keeps cache hits deterministic while preserving the
+  existing source-graph cache behavior.
 - Added native class constructor and instance-method lowering. A `native class`
   constructor now creates a typed object expression, and calls such as
   `player.prepare()` lower to direct receiver calls instead of the service
