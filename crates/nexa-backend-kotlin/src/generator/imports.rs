@@ -285,7 +285,7 @@ pub(super) fn render(
         "androidx.compose.material3.BadgedBox",
     );
     add(
-        features.uses_regular_width,
+        features.uses_size_class,
         "androidx.compose.ui.platform.LocalConfiguration",
     );
     add(

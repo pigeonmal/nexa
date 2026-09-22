@@ -97,13 +97,13 @@ pub(super) fn generate(module: &Module) -> String {
     if features.app_uses_adaptive_color {
         out.push_str("    @Environment(\\.colorScheme) private var nexaColorScheme\n");
     }
-    if features.app_uses_regular_width {
+    if features.app_uses_size_class {
         out.push_str(
             "    @Environment(\\.horizontalSizeClass) private var nexaHorizontalSizeClass\n",
         );
         out.push_str("    @Environment(\\.verticalSizeClass) private var nexaVerticalSizeClass\n");
     }
-    if features.app_uses_adaptive_color || features.app_uses_regular_width {
+    if features.app_uses_adaptive_color || features.app_uses_size_class {
         out.push('\n');
     }
     out.push_str("    public init() {}\n\n    public var body: some View {\n");

@@ -71,7 +71,7 @@ pub(super) struct Features {
     pub(super) uses_row: bool,
     pub(super) uses_box: bool,
     pub(super) uses_alignment: bool,
-    pub(super) uses_regular_width: bool,
+    pub(super) uses_size_class: bool,
     pub(super) uses_arrangement: bool,
     pub(super) uses_modifier: bool,
     pub(super) uses_background: bool,
@@ -127,7 +127,7 @@ impl Features {
                     .any(|component| component.body.len() > 1),
             ..Self::default()
         };
-        let mut uses_regular_width = false;
+        let mut uses_size_class = false;
         let mut uses_native_library = false;
         let mut uses_permissions = false;
 
@@ -139,7 +139,7 @@ impl Features {
         ) {
             features.record_state(state);
             walk_expression(&state.initial, &mut |expr| {
-                uses_regular_width |= matches!(
+                uses_size_class |= matches!(
                     expr,
                     Expr::IsRegularWidth
                         | Expr::IsCompactWidth
@@ -181,7 +181,7 @@ impl Features {
                 app_uses_keyboard_interactive |= node_uses_keyboard_interactive(node);
             },
             &mut |expr| {
-                uses_regular_width |= matches!(
+                uses_size_class |= matches!(
                     expr,
                     Expr::IsRegularWidth
                         | Expr::IsCompactWidth
@@ -202,7 +202,7 @@ impl Features {
                     app_uses_keyboard_interactive |= node_uses_keyboard_interactive(node);
                 },
                 &mut |expr| {
-                    uses_regular_width |= matches!(
+                    uses_size_class |= matches!(
                         expr,
                         Expr::IsRegularWidth
                             | Expr::IsCompactWidth
@@ -264,7 +264,7 @@ impl Features {
                     }
                 },
                 &mut |expr| {
-                    uses_regular_width |= matches!(
+                    uses_size_class |= matches!(
                         expr,
                         Expr::IsRegularWidth
                             | Expr::IsCompactWidth
@@ -306,7 +306,7 @@ impl Features {
         features.app_uses_link = app_uses_link;
         features.app_uses_haptic = app_uses_haptic;
         features.app_uses_keyboard_interactive = app_uses_keyboard_interactive;
-        features.uses_regular_width = uses_regular_width;
+        features.uses_size_class = uses_size_class;
         features.uses_native_library = uses_native_library || features.uses_remote_image;
         features.uses_permissions = uses_permissions;
         features

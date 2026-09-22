@@ -12,21 +12,21 @@ pub(super) struct Features {
     pub(super) uses_permissions: bool,
     pub(super) uses_haptic: bool,
     pub(super) app_uses_adaptive_color: bool,
-    pub(super) app_uses_regular_width: bool,
+    pub(super) app_uses_size_class: bool,
     components_using_adaptive_color: HashSet<String>,
-    components_using_regular_width: HashSet<String>,
+    components_using_size_class: HashSet<String>,
 }
 
 impl Features {
     pub(super) fn analyze(module: &Module) -> Self {
         let mut features = Self::default();
-        let mut app_uses_regular_width = false;
+        let mut app_uses_size_class = false;
         let mut uses_native_library = false;
         let mut uses_permissions = false;
 
         for state in &module.states {
             walk_expression(&state.initial, &mut |expr| {
-                app_uses_regular_width |= matches!(
+                app_uses_size_class |= matches!(
                     expr,
                     Expr::IsRegularWidth
                         | Expr::IsCompactWidth
@@ -53,7 +53,7 @@ impl Features {
             &module.body,
             &mut |node| features.record_app_node(node),
             &mut |expr| {
-                app_uses_regular_width |= matches!(
+                app_uses_size_class |= matches!(
                     expr,
                     Expr::IsRegularWidth
                         | Expr::IsCompactWidth
@@ -69,7 +69,7 @@ impl Features {
                 &screen.body,
                 &mut |node| features.record_app_node(node),
                 &mut |expr| {
-                    app_uses_regular_width |= matches!(
+                    app_uses_size_class |= matches!(
                         expr,
                         Expr::IsRegularWidth
                             | Expr::IsCompactWidth
@@ -95,14 +95,14 @@ impl Features {
                 });
             }
         }
-        features.app_uses_regular_width = app_uses_regular_width;
+        features.app_uses_size_class = app_uses_size_class;
 
         for component in &module.components {
             let mut uses_adaptive_color = false;
-            let mut uses_regular_width = false;
+            let mut uses_size_class = false;
             for state in &component.states {
                 walk_expression(&state.initial, &mut |expr| {
-                    uses_regular_width |= matches!(
+                    uses_size_class |= matches!(
                         expr,
                         Expr::IsRegularWidth
                             | Expr::IsCompactWidth
@@ -129,7 +129,7 @@ impl Features {
                     uses_adaptive_color |= node_uses_adaptive_color(node);
                 },
                 &mut |expr| {
-                    uses_regular_width |= matches!(
+                    uses_size_class |= matches!(
                         expr,
                         Expr::IsRegularWidth
                             | Expr::IsCompactWidth
@@ -145,9 +145,9 @@ impl Features {
                     .components_using_adaptive_color
                     .insert(component.name.clone());
             }
-            if uses_regular_width {
+            if uses_size_class {
                 features
-                    .components_using_regular_width
+                    .components_using_size_class
                     .insert(component.name.clone());
             }
         }
@@ -160,8 +160,8 @@ impl Features {
         self.components_using_adaptive_color.contains(name)
     }
 
-    pub(super) fn component_uses_regular_width(&self, name: &str) -> bool {
-        self.components_using_regular_width.contains(name)
+    pub(super) fn component_uses_size_class(&self, name: &str) -> bool {
+        self.components_using_size_class.contains(name)
     }
 
     fn record_app_node(&mut self, node: &Node) {

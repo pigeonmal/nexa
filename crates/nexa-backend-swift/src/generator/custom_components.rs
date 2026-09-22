@@ -55,11 +55,11 @@ fn render_component(component: &Component, module: &Module, features: &Features,
         ));
     }
     let uses_adaptive_color = features.component_uses_adaptive_color(&component.name);
-    let uses_regular_width = features.component_uses_regular_width(&component.name);
+    let uses_size_class = features.component_uses_size_class(&component.name);
     if uses_adaptive_color {
         out.push_str("    @Environment(\\.colorScheme) private var nexaColorScheme\n");
     }
-    if uses_regular_width {
+    if uses_size_class {
         out.push_str(
             "    @Environment(\\.horizontalSizeClass) private var nexaHorizontalSizeClass\n",
         );
@@ -70,7 +70,7 @@ fn render_component(component: &Component, module: &Module, features: &Features,
         || !component.states.is_empty()
         || has_content_slot
         || uses_adaptive_color
-        || uses_regular_width
+        || uses_size_class
     {
         out.push('\n');
     }
