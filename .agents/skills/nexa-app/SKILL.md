@@ -12,7 +12,7 @@ Nexa is alpha software with one current language surface. Use documented current
 ## Work within today's language
 
 - Read `README.md`, `docs/language.md`, and the examples relevant to the request before writing `.nx` syntax. The language and compiler are an early prototype; check actual parser/backend support instead of assuming the roadmap is implemented.
-- Use core components already supported by Nexa, such as Column, Row, Text, Button, TextInput, Switch, Image, navigation, keyboard-aware layout, and FastList when available in the current compiler.
+- Use core components already supported by Nexa, such as Column, Row, Stack, Text, Button, TextInput, Switch, Image, navigation, keyboard-aware layout, and FastList when available in the current compiler.
 - Use `if`/`else`, `&&`, `||`, `!`, scalar `==`/`!=`, and numeric comparisons for supported conditional UI and button/press actions. Keep compared numeric types equal; Nexa does not implicitly convert values.
 - Use `$name` or `\(expression)` inside strings when a label or message includes dynamic values. Embedded expressions use the normal Nexa type checker and compile directly to native Swift/Kotlin string interpolation without a template runtime.
 - Pure literal conditions are folded by the compiler, so unreachable UI and event branches are removed from generated native source. Conditions that read state or platform environment remain native runtime branches.
