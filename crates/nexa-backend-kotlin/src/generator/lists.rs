@@ -8,6 +8,7 @@ use super::{
 pub(super) fn render_virtualized_list(
     source: &ListSource,
     axis: ListAxis,
+    item_extent: Option<f32>,
     index: &str,
     item: Option<&str>,
     key: Option<&Expr>,
@@ -19,7 +20,17 @@ pub(super) fn render_virtualized_list(
 ) {
     if let ListAxis::Grid { columns } = axis {
         return render_grid_list(
-            columns, source, index, item, key, children, module, features, depth, out,
+            columns,
+            source,
+            item_extent,
+            index,
+            item,
+            key,
+            children,
+            module,
+            features,
+            depth,
+            out,
         );
     }
     indent(out, depth);
@@ -70,7 +81,15 @@ pub(super) fn render_virtualized_list(
             ));
         }
     }
-    render_children(children, module, features, depth + 2, out);
+    render_row_content(
+        item_extent,
+        axis,
+        children,
+        module,
+        features,
+        depth + 2,
+        out,
+    );
     out.push('\n');
     indent(out, depth + 1);
     out.push_str("}\n");
@@ -81,6 +100,7 @@ pub(super) fn render_virtualized_list(
 fn render_grid_list(
     columns: u32,
     source: &ListSource,
+    item_extent: Option<f32>,
     index: &str,
     item: Option<&str>,
     key: Option<&Expr>,
@@ -136,12 +156,57 @@ fn render_grid_list(
             ));
         }
     }
-    render_children(children, module, features, depth + 2, out);
+    render_row_content(
+        item_extent,
+        ListAxis::Grid { columns },
+        children,
+        module,
+        features,
+        depth + 2,
+        out,
+    );
     out.push('\n');
     indent(out, depth + 1);
     out.push_str("}\n");
     indent(out, depth);
     out.push('}');
+}
+
+fn render_row_content(
+    item_extent: Option<f32>,
+    axis: ListAxis,
+    children: &[Node],
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut String,
+) {
+    let Some(item_extent) = item_extent else {
+        render_children(children, module, features, depth, out);
+        return;
+    };
+    let extent = format_float(item_extent);
+    let modifier = match axis {
+        ListAxis::Horizontal => format!("Modifier.width({extent}.dp).height({extent}.dp)"),
+        ListAxis::Vertical | ListAxis::Grid { .. } => format!("Modifier.height({extent}.dp)"),
+    };
+    indent(out, depth);
+    out.push_str(&format!("Box(modifier = {modifier}) {{\n"));
+    render_children(children, module, features, depth + 1, out);
+    out.push('\n');
+    indent(out, depth);
+    out.push('}');
+}
+
+fn format_float(value: f32) -> String {
+    let mut formatted = format!("{value:.6}");
+    while formatted.ends_with('0') {
+        formatted.pop();
+    }
+    if formatted.ends_with('.') {
+        formatted.pop();
+    }
+    formatted
 }
 
 fn render_key(

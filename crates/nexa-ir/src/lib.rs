@@ -397,6 +397,7 @@ pub enum Node {
     FastList {
         source: ListSource,
         axis: ListAxis,
+        item_extent: Option<f32>,
         index: String,
         item: Option<String>,
         key: Option<Expr>,

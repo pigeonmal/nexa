@@ -6,6 +6,7 @@ use super::{components::render_children, expressions::expression, utils::indent}
 pub(super) fn render_virtualized_list(
     source: &ListSource,
     axis: ListAxis,
+    item_extent: Option<f32>,
     index: &str,
     item: Option<&str>,
     key: Option<&Expr>,
@@ -27,7 +28,12 @@ pub(super) fn render_virtualized_list(
                 .unwrap_or_default();
             out.push_str(&format!(
                 "{} {{ listPosition in\n",
-                list_constructor(axis, format!("max(0, Int({}))", expression(count)), &key)
+                list_constructor(
+                    axis,
+                    format!("max(0, Int({}))", expression(count)),
+                    &key,
+                    item_extent,
+                )
             ));
             indent(out, depth + 1);
             out.push_str(&format!(
@@ -51,7 +57,7 @@ pub(super) fn render_virtualized_list(
                 .unwrap_or_default();
             out.push_str(&format!(
                 "{} {{ listPosition in\n",
-                list_constructor(axis, format!("{collection}.count"), &key)
+                list_constructor(axis, format!("{collection}.count"), &key, item_extent)
             ));
             indent(out, depth + 1);
             out.push_str(&format!(
@@ -72,14 +78,39 @@ pub(super) fn render_virtualized_list(
     out.push('}');
 }
 
-fn list_constructor(axis: ListAxis, row_count: String, key: &str) -> String {
+fn list_constructor(
+    axis: ListAxis,
+    row_count: String,
+    key: &str,
+    item_extent: Option<f32>,
+) -> String {
+    let extent = item_extent
+        .map(format_float)
+        .unwrap_or_else(|| "nil".to_owned());
     match axis {
-        ListAxis::Vertical => format!("NexaFastList(rowCount: {row_count}{key})"),
-        ListAxis::Horizontal => format!("NexaFastHorizontalList(rowCount: {row_count}{key})"),
+        ListAxis::Vertical => {
+            format!("NexaFastList(rowCount: {row_count}, rowHeight: {extent}{key})")
+        }
+        ListAxis::Horizontal => {
+            format!("NexaFastHorizontalList(rowCount: {row_count}, itemExtent: {extent}{key})")
+        }
         ListAxis::Grid { columns } => {
-            format!("NexaFastGridList(rowCount: {row_count}, columns: {columns}{key})")
+            format!(
+                "NexaFastGridList(rowCount: {row_count}, columns: {columns}, itemHeight: {extent}{key})"
+            )
         }
     }
+}
+
+fn format_float(value: f32) -> String {
+    let mut formatted = format!("{value:.6}");
+    while formatted.ends_with('0') {
+        formatted.pop();
+    }
+    if formatted.ends_with('.') {
+        formatted.pop();
+    }
+    formatted
 }
 
 fn render_key(

@@ -644,6 +644,7 @@ pub(super) fn lower_node(
         ast::Node::FastList {
             source,
             axis,
+            item_extent,
             index,
             item,
             key,
@@ -694,6 +695,13 @@ pub(super) fn lower_node(
                     ));
                 }
             };
+            let item_extent = optional_dimension(item_extent, "FastList itemExtent", None, themes)?;
+            if item_extent.is_some_and(|value| value <= 0.0) {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `itemExtent` must be greater than zero",
+                ));
+            }
             let row_index_type = Type::Numeric(NumericType::Int32);
             let index = binding_name(index, "index", "FastList index")?;
             let (source, item, item_type) = match source {
@@ -794,6 +802,7 @@ pub(super) fn lower_node(
             Ok(Node::FastList {
                 source,
                 axis,
+                item_extent,
                 index,
                 item,
                 key,

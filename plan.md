@@ -473,6 +473,8 @@ Create a first-party extremely high-performance virtualized list.
 
 This is a major priority.
 
+The first fixed-size optimization is implemented: `FastList(itemExtent: positiveNumber)` maps to native fixed row or cell dimensions for vertical, horizontal, and grid paths. Omitting `itemExtent` preserves dynamic native sizing; no shared measurement pass is introduced. See [list-item-extent.nx](examples/list-item-extent.nx).
+
 It must support:
 
 - very large datasets,

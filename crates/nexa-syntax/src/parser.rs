@@ -1055,8 +1055,15 @@ impl Parser {
                 })
             }
             "FastList" => {
-                let mut args =
-                    self.named_args(&["count", "items", "axis", "index", "item", "key"])?;
+                let mut args = self.named_args(&[
+                    "count",
+                    "items",
+                    "axis",
+                    "itemExtent",
+                    "index",
+                    "item",
+                    "key",
+                ])?;
                 let count = args.remove("count");
                 let items = args.remove("items");
                 let source = match (count, items) {
@@ -1073,6 +1080,7 @@ impl Parser {
                     }
                 };
                 let axis = args.remove("axis");
+                let item_extent = args.remove("itemExtent");
                 let index = args.remove("index");
                 let item = args.remove("item");
                 let key = args.remove("key");
@@ -1080,6 +1088,7 @@ impl Parser {
                 Ok(Node::FastList {
                     source,
                     axis,
+                    item_extent,
                     index,
                     item,
                     key,

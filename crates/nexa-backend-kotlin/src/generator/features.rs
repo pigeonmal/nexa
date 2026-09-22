@@ -512,10 +512,22 @@ impl Features {
                 }
                 self.record_child_layout(children);
             }
-            Node::FastList { axis, children, .. } => {
+            Node::FastList {
+                axis,
+                item_extent,
+                children,
+                ..
+            } => {
                 self.uses_list = true;
                 self.uses_horizontal_list |= matches!(axis, nexa_ir::ListAxis::Horizontal);
                 self.uses_grid_list |= matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                if item_extent.is_some() {
+                    self.uses_box = true;
+                    self.uses_modifier = true;
+                    self.uses_dp = true;
+                    self.uses_height = true;
+                    self.uses_width |= matches!(axis, nexa_ir::ListAxis::Horizontal);
+                }
                 self.record_child_layout(children);
             }
             Node::If {

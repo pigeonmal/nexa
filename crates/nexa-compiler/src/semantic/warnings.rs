@@ -375,6 +375,7 @@ fn walk_node(
         ast::Node::FastList {
             source,
             axis: _,
+            item_extent,
             index,
             item,
             key,
@@ -385,6 +386,9 @@ fn walk_node(
                 ast::ListSource::Count(count) | ast::ListSource::Items(count) => {
                     walk_expression(count, names, used)
                 }
+            }
+            if let Some(item_extent) = item_extent {
+                walk_expression(item_extent, names, used);
             }
             let mut row_names = names.clone();
             let index_name = index

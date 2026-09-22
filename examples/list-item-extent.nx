@@ -1,0 +1,19 @@
+app ListItemExtentDemo {
+    state rows: Array<String> = ["First", "Second", "Third"]
+
+    body {
+        Column {
+            FastList(items: rows, item: row, itemExtent: 56, key: row) {
+                Text(row)
+            }
+
+            FastList(count: 8, axis: Horizontal, index: card, itemExtent: 96) {
+                Text("Card")
+            }
+
+            FastList(count: 12, axis: Grid(3), index: tile, itemExtent: 72) {
+                Text("Tile")
+            }
+        }
+    }
+}
