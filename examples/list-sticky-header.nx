@@ -2,9 +2,9 @@ app FastListStickyHeaderDemo {
     state rows: Array<String> = ["First", "Second", "Third", "Fourth"]
 
     body {
-        FastList(items: rows, index: index, item: row, axis: Vertical, itemExtent: 52, key: row) {
+        FastList(rows, axis: Vertical, key: .self, rowHeight: 52) { row, index in
             Text("\(index): \(row)")
-        } stickyHeader {
+        }.stickyHeader {
             Text("Items")
         }
     }

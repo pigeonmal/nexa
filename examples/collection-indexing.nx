@@ -8,7 +8,7 @@ app CollectionIndexingDemo {
         Column {
             Text(labels[selected])
             Text(release)
-            FastList(items: labels, index: position, item: label) {
+            FastList(labels) { label, position in
                 Row(spacing: 8, alignment: Center) {
                     Text(position)
                     Text(label)

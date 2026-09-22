@@ -332,7 +332,7 @@ pub enum Node {
         section: Option<Expr>,
         index: Option<Expr>,
         item: Option<Expr>,
-        key: Option<Expr>,
+        key: Option<ListKey>,
         scroll_position: Option<Expr>,
         children: Vec<Node>,
         on_end_reached: Option<Vec<Stmt>>,
@@ -362,6 +362,12 @@ pub enum Node {
         children: Option<Vec<Node>>,
         span: Span,
     },
+}
+
+#[derive(Clone, Debug)]
+pub enum ListKey {
+    SelfValue(Span),
+    Member { name: String, span: Span },
 }
 
 #[derive(Clone, Debug)]

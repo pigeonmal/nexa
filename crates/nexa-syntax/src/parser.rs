@@ -1055,79 +1055,71 @@ impl Parser {
                 })
             }
             "FastList" => {
-                let mut args = self.named_args(&[
-                    "count",
-                    "items",
-                    "sections",
-                    "axis",
-                    "itemExtent",
-                    "section",
-                    "index",
-                    "item",
-                    "key",
-                    "scrollPosition",
-                ])?;
-                let count = args.remove("count");
-                let items = args.remove("items");
-                let sections = args.remove("sections");
-                let source = match (count, items, sections) {
-                    (Some(count), None, None) => ListSource::Count(count),
-                    (None, Some(items), None) => ListSource::Items(items),
-                    (None, None, Some(sections)) => ListSource::Sections(sections),
-                    (None, None, None) => {
-                        return self
-                            .error_here("FastList requires `count`, `items`, or `sections`");
-                    }
-                    _ => {
-                        return Err(CompileError::new(
-                            span,
-                            "FastList accepts exactly one of `count`, `items`, or `sections`",
-                        ));
-                    }
-                };
+                let (source, mut args, key) = self.list_source_and_args(span)?;
                 let axis = args.remove("axis");
-                let item_extent = args.remove("itemExtent");
-                let section = args.remove("section");
-                let index = args.remove("index");
-                let item = args.remove("item");
-                let key = args.remove("key");
+                let item_extent = args.remove("rowHeight");
                 let scroll_position = args.remove("scrollPosition");
-                let children = self.block_nodes()?;
+                let (item, index, section, children) = self.list_row_block(&source, span)?;
                 let mut on_end_reached = None;
                 let mut on_scroll = None;
                 let mut sticky_header = None;
                 let mut section_header = None;
-                loop {
-                    if self.word_is("onEndReached") {
-                        if on_end_reached.is_some() {
-                            return self
-                                .error_here("FastList accepts only one `onEndReached` block");
+                while self.take(&Kind::Dot) {
+                    let (modifier, modifier_span) = self.ident()?;
+                    match modifier.as_str() {
+                        "onEndReached" => {
+                            if on_end_reached.is_some() {
+                                return Err(CompileError::new(
+                                    modifier_span,
+                                    "FastList accepts only one `.onEndReached` modifier",
+                                ));
+                            }
+                            on_end_reached = Some(self.block_stmts()?);
                         }
-                        self.advance();
-                        on_end_reached = Some(self.block_stmts()?);
-                    } else if self.word_is("onScroll") {
-                        if on_scroll.is_some() {
-                            return self.error_here("FastList accepts only one `onScroll` block");
+                        "onScroll" => {
+                            if on_scroll.is_some() {
+                                return Err(CompileError::new(
+                                    modifier_span,
+                                    "FastList accepts only one `.onScroll` modifier",
+                                ));
+                            }
+                            on_scroll = Some(self.block_stmts()?);
                         }
-                        self.advance();
-                        on_scroll = Some(self.block_stmts()?);
-                    } else if self.word_is("stickyHeader") {
-                        if sticky_header.is_some() {
-                            return self
-                                .error_here("FastList accepts only one `stickyHeader` block");
+                        "stickyHeader" => {
+                            if sticky_header.is_some() {
+                                return Err(CompileError::new(
+                                    modifier_span,
+                                    "FastList accepts only one `.stickyHeader` modifier",
+                                ));
+                            }
+                            sticky_header = Some(self.block_nodes()?);
                         }
-                        self.advance();
-                        sticky_header = Some(self.block_nodes()?);
-                    } else if self.word_is("sectionHeader") {
-                        if section_header.is_some() {
-                            return self
-                                .error_here("FastList accepts only one `sectionHeader` block");
+                        "sectionHeader" => {
+                            if section_header.is_some() {
+                                return Err(CompileError::new(
+                                    modifier_span,
+                                    "FastList accepts only one `.sectionHeader` modifier",
+                                ));
+                            }
+                            section_header = Some(self.block_nodes()?);
                         }
-                        self.advance();
-                        section_header = Some(self.block_nodes()?);
-                    } else {
-                        break;
+                        _ => {
+                            return Err(CompileError::new(
+                                modifier_span,
+                                format!(
+                                    "unknown FastList modifier `.{modifier}`; expected `.onEndReached`, `.onScroll`, `.stickyHeader`, or `.sectionHeader`"
+                                ),
+                            ));
+                        }
                     }
+                }
+                if ["onEndReached", "onScroll", "stickyHeader", "sectionHeader"]
+                    .iter()
+                    .any(|modifier| self.word_is(modifier))
+                {
+                    return self.error_here(
+                        "FastList modifiers must use dot syntax, for example `.onEndReached { ... }`",
+                    );
                 }
                 Ok(Node::FastList {
                     source,
@@ -1186,6 +1178,183 @@ impl Parser {
         Ok(args)
     }
 
+    fn list_source_and_args(
+        &mut self,
+        span: Span,
+    ) -> Result<(ListSource, BTreeMap<String, Expr>, Option<ListKey>), CompileError> {
+        self.expect(Kind::LParen, "expected `(` after FastList")?;
+        let (source, args, key) = if self.next_is_named_argument() {
+            let mut args = BTreeMap::new();
+            let mut key = None;
+            self.list_named_arguments(
+                &mut args,
+                &mut key,
+                &[
+                    "count",
+                    "sections",
+                    "axis",
+                    "rowHeight",
+                    "scrollPosition",
+                    "key",
+                ],
+            )?;
+            let count = args.remove("count");
+            let sections = args.remove("sections");
+            let source = match (count, sections) {
+                (Some(count), None) => ListSource::Count(count),
+                (None, Some(sections)) => ListSource::Sections(sections),
+                (None, None) => {
+                    return self.error_here(
+                        "FastList requires a positional collection, `count:`, or `sections:`",
+                    );
+                }
+                (Some(_), Some(_)) => {
+                    return Err(CompileError::new(
+                        span,
+                        "FastList accepts exactly one source: a positional collection, `count:`, or `sections:`",
+                    ));
+                }
+            };
+            (source, args, key)
+        } else {
+            let collection = self.expr()?;
+            let mut args = BTreeMap::new();
+            let mut key = None;
+            if self.take(&Kind::Comma) {
+                self.list_named_arguments(
+                    &mut args,
+                    &mut key,
+                    &["axis", "rowHeight", "scrollPosition", "key"],
+                )?;
+            }
+            (ListSource::Items(collection), args, key)
+        };
+        self.expect(Kind::RParen, "expected `)` after FastList options")?;
+        Ok((source, args, key))
+    }
+
+    fn list_named_arguments(
+        &mut self,
+        args: &mut BTreeMap<String, Expr>,
+        key: &mut Option<ListKey>,
+        allowed: &[&str],
+    ) -> Result<(), CompileError> {
+        while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            let (name, name_span) = self.ident()?;
+            if !allowed.contains(&name.as_str()) {
+                return Err(CompileError::new(
+                    name_span,
+                    format!(
+                        "unknown FastList option `{name}`; use a positional collection and explicit row bindings"
+                    ),
+                ));
+            }
+            self.expect(Kind::Colon, "expected `:` after FastList option name")?;
+            if name == "key" {
+                if key.is_some() {
+                    return Err(CompileError::new(
+                        name_span,
+                        "FastList option `key` was provided more than once",
+                    ));
+                }
+                *key = Some(self.parse_list_key()?);
+            } else {
+                if args.contains_key(&name) {
+                    return Err(CompileError::new(
+                        name_span,
+                        format!("FastList option `{name}` was provided more than once"),
+                    ));
+                }
+                args.insert(name, self.expr()?);
+            }
+            if !self.take(&Kind::Comma) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_list_key(&mut self) -> Result<ListKey, CompileError> {
+        let dot = self.expect(
+            Kind::Dot,
+            "FastList `key` must be `.self` or a member key path such as `.id`",
+        )?;
+        let (name, name_span) = self.ident()?;
+        let span = Span {
+            end: name_span.end,
+            ..dot.span
+        };
+        if name == "self" {
+            Ok(ListKey::SelfValue(span))
+        } else {
+            Ok(ListKey::Member { name, span })
+        }
+    }
+
+    fn list_row_block(
+        &mut self,
+        source: &ListSource,
+        span: Span,
+    ) -> Result<(Option<Expr>, Option<Expr>, Option<Expr>, Vec<Node>), CompileError> {
+        self.expect(Kind::LBrace, "expected `{` before FastList row bindings")?;
+        let mut bindings = Vec::new();
+        while !self.word_is("in") {
+            let (name, name_span) = self.ident()?;
+            if bindings.iter().any(|(existing, _)| existing == &name) {
+                return Err(CompileError::new(
+                    name_span,
+                    format!("FastList row binding `{name}` is declared more than once"),
+                ));
+            }
+            bindings.push((name, name_span));
+            if !self.take(&Kind::Comma) {
+                break;
+            }
+        }
+        self.expect_word("in")?;
+        let mut children = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            children.push(self.node()?);
+            self.optional_semicolon();
+        }
+        self.expect(Kind::RBrace, "expected `}` after FastList row body")?;
+        let expected = match source {
+            ListSource::Count(_) => 1,
+            ListSource::Items(_) => 2,
+            ListSource::Sections(_) => 3,
+        };
+        if bindings.len() != expected {
+            return Err(CompileError::new(
+                span,
+                format!(
+                    "FastList row closure requires {expected} bindings for this source; use `{}`",
+                    match source {
+                        ListSource::Count(_) => "index in",
+                        ListSource::Items(_) => "item, index in",
+                        ListSource::Sections(_) => "item, index, section in",
+                    }
+                ),
+            ));
+        }
+        let binding = |position: usize| {
+            let (name, span) = &bindings[position];
+            Some(Expr::Name(name.clone(), *span))
+        };
+        Ok(match source {
+            ListSource::Count(_) => (None, binding(0), None, children),
+            ListSource::Items(_) => (binding(0), binding(1), None, children),
+            ListSource::Sections(_) => (binding(0), binding(1), binding(2), children),
+        })
+    }
+
+    fn next_is_named_argument(&self) -> bool {
+        matches!(&self.peek().kind, Kind::Ident(_))
+            && matches!(
+                self.tokens.get(self.cursor + 1).map(|token| &token.kind),
+                Some(Kind::Colon)
+            )
+    }
+
     fn named_args_any(&mut self) -> Result<BTreeMap<String, Expr>, CompileError> {
         self.expect(Kind::LParen, "expected `(` before component arguments")?;
         let args = self.parse_argument_contents(None)?;
@@ -1206,6 +1375,11 @@ impl Parser {
     ) -> Result<BTreeMap<String, Expr>, CompileError> {
         let mut args = BTreeMap::new();
         while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            if !self.next_is_named_argument() {
+                return self.error_here(
+                    "component options must use `name: value` syntax; positional values are only allowed in the documented primary-value position",
+                );
+            }
             let (name, span) = self.ident()?;
             if allowed.is_some_and(|allowed| !allowed.contains(&name.as_str())) {
                 return Err(CompileError::new(span, format!("unknown option `{name}`")));

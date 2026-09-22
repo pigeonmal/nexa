@@ -3,9 +3,9 @@ app FastListScrollEventsDemo {
     state scrollEvents: Int32 = 0
 
     body {
-        FastList(items: rows, index: index, item: row, itemExtent: 52, key: row) {
+        FastList(rows, key: .self, rowHeight: 52) { row, index in
             Text("\(index): \(row)")
-        } onScroll {
+        }.onScroll {
             scrollEvents = scrollEvents + 1
         }
         Text("Scroll events: \(scrollEvents)")

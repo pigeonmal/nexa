@@ -3,7 +3,7 @@ app FastListScrollDemo {
     state rows: Array<String> = ["First", "Second", "Third", "Fourth"]
 
     body {
-        FastList(items: rows, index: index, item: row, scrollPosition: scrollPosition, itemExtent: 56, key: row) {
+        FastList(rows, key: .self, scrollPosition: scrollPosition, rowHeight: 56) { row, index in
             Text("\(index): \(row)")
         }
         Button("Jump to third") {

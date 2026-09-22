@@ -4,7 +4,7 @@ app FastListRefreshDemo {
 
     body {
         RefreshControl(isRefreshing: refreshing) {
-            FastList(items: rows, index: index, item: row, itemExtent: 56, key: row) {
+            FastList(rows, key: .self, rowHeight: 56) { row, index in
                 Text("\(index): \(row)")
             }
         } {

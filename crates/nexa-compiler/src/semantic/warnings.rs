@@ -443,13 +443,7 @@ fn walk_node(
             if let Some(item_name) = item_name.filter(|name| *name != "_") {
                 row_names.insert(item_name.to_owned());
             }
-            let key_uses_index = key
-                .as_ref()
-                .is_some_and(|key| expression_references_name(key, index_name));
-            if index_name != "_"
-                && !key_uses_index
-                && !nodes_reference_name(children, index_name, target)
-            {
+            if index_name != "_" && !nodes_reference_name(children, index_name, target) {
                 push_warning(
                     warnings,
                     *span,
@@ -461,9 +455,7 @@ fn walk_node(
                 );
             }
             if let Some(item_name) = item_name
-                && !key
-                    .as_ref()
-                    .is_some_and(|key| expression_references_name(key, item_name))
+                && key.is_none()
                 && !nodes_reference_name(children, item_name, target)
             {
                 push_warning(
@@ -476,12 +468,8 @@ fn walk_node(
                     file,
                 );
             }
-            let key_uses_section = key
-                .as_ref()
-                .is_some_and(|key| expression_references_name(key, section_name));
             if section_name != "_"
                 && is_sections
-                && !key_uses_section
                 && !nodes_reference_name(children, section_name, target)
                 && !section_header
                     .as_deref()

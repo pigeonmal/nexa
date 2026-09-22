@@ -2,13 +2,7 @@ app HorizontalListDemo {
     let products: Array<String> = ["Nexa", "SwiftUI", "Compose"]
 
     body {
-        FastList(
-            items: products,
-            axis: Horizontal,
-            index: position,
-            item: product,
-            key: product
-        ) {
+        FastList(products, axis: Horizontal, key: .self, rowHeight: 96) { product, position in
             Stack(minWidth: 140, minHeight: 72, padding: 12, background: "#F3F4F6") {
                 Text(position)
                 Text(product)

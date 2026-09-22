@@ -749,11 +749,11 @@ pub(super) fn lower_node(
                     "FastList `sections` does not yet support scrollPosition, onEndReached, or onScroll",
                 ));
             }
-            let item_extent = optional_dimension(item_extent, "FastList itemExtent", None, themes)?;
+            let item_extent = optional_dimension(item_extent, "FastList rowHeight", None, themes)?;
             if item_extent.is_some_and(|value| value <= 0.0) {
                 return Err(CompileError::new(
                     span,
-                    "FastList `itemExtent` must be greater than zero",
+                    "FastList `rowHeight` must be greater than zero",
                 ));
             }
             let row_index_type = Type::Numeric(NumericType::Int32);
@@ -777,7 +777,7 @@ pub(super) fn lower_node(
                     if item.is_some() || has_section_binding {
                         return Err(CompileError::new(
                             span,
-                            "FastList item and section bindings are only available with an `items` or `sections` source",
+                            "FastList item and section bindings are only available with an array or `sections` source",
                         ));
                     }
                     let count_value =
@@ -802,7 +802,7 @@ pub(super) fn lower_node(
                     let ast::Expr::Name(name, name_span) = collection else {
                         return Err(CompileError::new(
                             collection.span(),
-                            "FastList `items` must be an Array<T> binding",
+                            "FastList positional source must be an Array<T> binding",
                         ));
                     };
                     let Some((ty, _)) = symbols.get(&name) else {
@@ -814,7 +814,7 @@ pub(super) fn lower_node(
                     let Type::Array(element_type) = ty else {
                         return Err(CompileError::new(
                             name_span,
-                            format!("FastList items `{name}` must have type Array<T>"),
+                            format!("FastList collection `{name}` must have type Array<T>"),
                         ));
                     };
                     let item_name = binding_name(item, "item", "FastList item")?;
@@ -887,12 +887,38 @@ pub(super) fn lower_node(
             }
             let key = key
                 .map(|key| {
+                    let item_name = item.as_deref().ok_or_else(|| {
+                        CompileError::new(
+                            span,
+                            "FastList `key` requires a collection source with an item binding",
+                        )
+                    })?;
+                    item_type.as_ref().ok_or_else(|| {
+                        CompileError::new(
+                            span,
+                            "FastList `key` requires a collection source with an item binding",
+                        )
+                    })?;
+                    let key = match key {
+                        ast::ListKey::SelfValue(id_span) => {
+                            ast::Expr::Name(item_name.to_owned(), id_span)
+                        }
+                        ast::ListKey::Member {
+                            name,
+                            span: id_span,
+                        } => ast::Expr::Member {
+                            base: Box::new(ast::Expr::Name(item_name.to_owned(), id_span)),
+                            name,
+                            optional: false,
+                            span: id_span,
+                        },
+                    };
                     let key_type =
                         super::expressions::infer_expr_type(&key, &row_symbols, functions)
                             .ok_or_else(|| {
                                 CompileError::new(
                                     key.span(),
-                                    "FastList `key` must have a statically known scalar type",
+                                    "FastList `key` must resolve to a statically known scalar type",
                                 )
                             })?;
                     super::expressions::require_hashable_key(
