@@ -1147,7 +1147,8 @@ Create a project/build system that handles:
 - code generation.
 
 The first project-generation slice is available as `nexa generate`. It writes
-deterministic iOS Xcode and Android Gradle/Compose host projects, generated
+deterministic iOS Xcode projects with shared schemes and explicit simulator/device
+platform settings, Android Gradle/Compose host projects, generated
 native sources, feature-gated dependency declarations, and a
 `nexa.project.json` manifest plus a generated `nexa.config.nx` host configuration
 from one `.nx` entry file. Multi-target generation

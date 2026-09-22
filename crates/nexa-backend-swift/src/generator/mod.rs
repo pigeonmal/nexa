@@ -76,14 +76,8 @@ pub(super) fn generate(module: &Module) -> String {
         ));
     }
     for binding in &focus_bindings {
-        let initial = module
-            .states
-            .iter()
-            .find(|state| state.name == *binding)
-            .map(|state| expressions::expression(&state.initial))
-            .unwrap_or_else(|| "false".to_owned());
         out.push_str(&format!(
-            "    @FocusState private var {}: Bool = {initial}\n",
+            "    @FocusState private var {}: Bool\n",
             nexa_codegen::names::state_name(binding),
         ));
     }

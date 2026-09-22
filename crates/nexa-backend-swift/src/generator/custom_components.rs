@@ -45,14 +45,8 @@ fn render_component(
         }
     }
     for binding in &focus_bindings {
-        let initial = component
-            .states
-            .iter()
-            .find(|state| state.name == *binding)
-            .map(|state| super::expressions::expression(&state.initial))
-            .unwrap_or_else(|| "false".to_owned());
         out.push_str(&format!(
-            "    @FocusState private var {}: Bool = {initial}\n",
+            "    @FocusState private var {}: Bool\n",
             nexa_codegen::names::state_name(binding),
         ));
     }

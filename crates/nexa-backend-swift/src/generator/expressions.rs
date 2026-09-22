@@ -79,7 +79,7 @@ pub(super) fn expression(expr: &Expr) -> String {
                 range_bound(start),
                 if *inclusive { "through" } else { "to" },
                 range_bound(end),
-                range_bound(step)
+                format!("Int({})", range_bound(step))
             ),
             None => format!(
                 "{}{}{}",
