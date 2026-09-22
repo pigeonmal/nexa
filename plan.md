@@ -950,13 +950,17 @@ The framework must preserve the accessibility advantages of native controls.
 
 Create a strongly typed plugin system using a common IDL.
 
-The first project-structure slice is available as `nexa plugin init`. It
-creates a deterministic `nexa.plugin.json` manifest with package identity,
-version, and isolated iOS/Android implementation paths, plus platform source
-stubs. The manifest intentionally starts with an empty `interfaces` array so
-the scaffold does not imply that typed bindings or dependency installation
-already work. IDL parsing, typed `.nx` calls, binding generation, dependency
-resolution, and installation remain future work.
+The first project and typed-IDL slice is available as `nexa plugin init`,
+`nexa plugin check`, and `nexa plugin generate`. The scaffold creates a
+deterministic `nexa.plugin.json` manifest with package identity, version, IDL
+path, and isolated iOS/Android implementation paths, plus platform source
+stubs. `interfaces.nxid` supports typed value/error models and interface
+methods with primitive, collection, pair/triple, optional, and generic types.
+The checker validates names, generic syntax, and asynchronous `Result` methods;
+the binding generator emits direct Swift protocols or Kotlin interfaces with
+native model declarations. Typed `.nx` call sites, dependency resolution,
+installation, and generated implementation wiring remain future work. See
+[`docs/plugins.md`](docs/plugins.md).
 
 The plugin system should take inspiration from systems such as:
 

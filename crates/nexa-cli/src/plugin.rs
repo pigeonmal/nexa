@@ -1,13 +1,12 @@
-//! Optional plugin scaffolding.
-//!
-//! This module only creates the stable package shape that a future typed IDL
-//! and binding generator will consume. It deliberately does not modify the
-//! core Nexa compiler or add plugin dependencies to generated applications.
+//! Optional plugin scaffolding, IDL validation, and native binding generation.
 
 use std::{
     fs,
     path::{Path, PathBuf},
 };
+
+mod bindings;
+mod idl;
 
 pub(super) fn run(args: &[String]) -> Result<(), String> {
     let Some(command) = args.first().map(String::as_str) else {
@@ -15,6 +14,8 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     };
     match command {
         "init" => init(&args[1..]),
+        "check" => check(&args[1..]),
+        "generate" => generate(&args[1..]),
         _ => Err(format!("unknown plugin command `{command}`\n\n{}", usage())),
     }
 }
@@ -77,7 +78,13 @@ fn init(args: &[String]) -> Result<(), String> {
     );
     write_if_absent(
         &output.join("nexa.plugin.json"),
-        &manifest(&id, &version, &ios_source, &android_source),
+        &manifest(
+            &id,
+            &version,
+            &ios_source,
+            &android_source,
+            "interfaces.nxid",
+        ),
     )?;
     write_if_absent(
         &output.join("README.md"),
@@ -88,12 +95,140 @@ fn init(args: &[String]) -> Result<(), String> {
         &output.join(&android_source),
         &android_stub(&package, &type_name),
     )?;
+    write_if_absent(
+        &output.join("interfaces.nxid"),
+        &format!(
+            "// Public typed interface declarations for {type_name}.\n// Use `type Name` for value models and `type Error: Error` for typed failures.\n\ninterface {type_name} {{\n    // async fn method(input: String) -> Void\n}}\n"
+        ),
+    )?;
     println!("created plugin scaffold {}", output.display());
     Ok(())
 }
 
+fn check(args: &[String]) -> Result<(), String> {
+    let path = idl_path(args, "check")?;
+    let parsed = idl::parse_file(&path)?;
+    let methods = parsed
+        .interfaces
+        .iter()
+        .map(|interface| interface.methods.len())
+        .sum::<usize>();
+    println!(
+        "checked {} ({} type(s), {} interface(s), {} method(s))",
+        path.display(),
+        parsed.types.len(),
+        parsed.interfaces.len(),
+        methods
+    );
+    Ok(())
+}
+
+fn generate(args: &[String]) -> Result<(), String> {
+    let mut path = None;
+    let mut target = None;
+    let mut output = None;
+    let mut package = "com.nexa.plugin.generated".to_owned();
+    let mut cursor = 0;
+    while cursor < args.len() {
+        match args[cursor].as_str() {
+            "--target" | "-t" => {
+                cursor += 1;
+                target = Some(
+                    args.get(cursor)
+                        .ok_or("`--target` requires `swift` or `kotlin`")?
+                        .as_str(),
+                );
+            }
+            "--out" | "--output" | "-o" => {
+                cursor += 1;
+                output = Some(PathBuf::from(
+                    args.get(cursor).ok_or("`--out` requires a file path")?,
+                ));
+            }
+            "--package" => {
+                cursor += 1;
+                package = args
+                    .get(cursor)
+                    .ok_or("`--package` requires a Kotlin package name")?
+                    .clone();
+                validate_package(&package)?;
+            }
+            option if option.starts_with('-') => return Err(format!("unknown option `{option}`")),
+            value if path.is_none() => path = Some(PathBuf::from(value)),
+            value => return Err(format!("unexpected argument `{value}`")),
+        }
+        cursor += 1;
+    }
+    let path = idl_path_from(path.ok_or_else(|| usage_for("generate"))?)?;
+    let target =
+        target.ok_or("`nexa plugin generate` requires `--target swift` or `--target kotlin`")?;
+    let parsed = idl::parse_file(&path)?;
+    let source = match target {
+        "swift" => bindings::swift(&parsed),
+        "kotlin" => bindings::kotlin(&parsed, &package),
+        _ => {
+            return Err(format!(
+                "unknown target `{target}`; expected `swift` or `kotlin`"
+            ));
+        }
+    };
+    let output = output.unwrap_or_else(|| {
+        path.with_file_name(if target == "swift" {
+            "NexaPluginBindings.swift"
+        } else {
+            "NexaPluginBindings.kt"
+        })
+    });
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+    }
+    fs::write(&output, source).map_err(|error| format!("{}: {error}", output.display()))?;
+    println!("generated {} ({target})", output.display());
+    Ok(())
+}
+
+fn idl_path(args: &[String], command: &str) -> Result<PathBuf, String> {
+    let mut path = None;
+    for argument in args {
+        if argument.starts_with('-') {
+            return Err(format!("unknown option `{argument}`"));
+        }
+        if path.is_some() {
+            return Err(format!("unexpected argument `{argument}`"));
+        }
+        path = Some(PathBuf::from(argument));
+    }
+    idl_path_from(path.ok_or_else(|| usage_for(command))?)
+}
+
+fn idl_path_from(path: PathBuf) -> Result<PathBuf, String> {
+    let path = if path.is_dir() {
+        path.join("interfaces.nxid")
+    } else {
+        path
+    };
+    if !path.is_file() {
+        return Err(format!("plugin IDL does not exist: {}", path.display()));
+    }
+    Ok(path)
+}
+
 fn usage() -> String {
-    "usage: nexa plugin init <plugin.id> [--out <directory>] [--name <TypeName>] [--version <version>]".to_owned()
+    format!(
+        "{}\n{}\n{}",
+        usage_for("init"),
+        usage_for("check"),
+        usage_for("generate")
+    )
+}
+
+fn usage_for(command: &str) -> String {
+    match command {
+        "init" => "usage: nexa plugin init <plugin.id> [--out <directory>] [--name <TypeName>] [--version <version>]".to_owned(),
+        "check" => "usage: nexa plugin check <plugin-directory|interfaces.nxid>".to_owned(),
+        "generate" => "usage: nexa plugin generate <plugin-directory|interfaces.nxid> --target <swift|kotlin> [--package <kotlin.package>] [--out <file>]".to_owned(),
+        _ => "usage: nexa plugin <init|check|generate> ...".to_owned(),
+    }
 }
 
 fn validate_id(id: &str) -> Result<(), String> {
@@ -115,6 +250,21 @@ fn validate_id(id: &str) -> Result<(), String> {
 fn validate_version(version: &str) -> Result<(), String> {
     if version.is_empty() || version.chars().any(char::is_whitespace) {
         return Err("plugin version must be a non-empty value without whitespace".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_package(package: &str) -> Result<(), String> {
+    if package.is_empty()
+        || package.split('.').any(|part| {
+            part.is_empty()
+                || !part
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '_')
+                || part.starts_with(|character: char| character.is_ascii_digit())
+        })
+    {
+        return Err(format!("invalid Kotlin package `{package}`"));
     }
     Ok(())
 }
@@ -151,11 +301,18 @@ fn json_escape(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-fn manifest(id: &str, version: &str, ios_source: &str, android_source: &str) -> String {
+fn manifest(
+    id: &str,
+    version: &str,
+    ios_source: &str,
+    android_source: &str,
+    idl_source: &str,
+) -> String {
     format!(
-        "{{\n  \"format\": 1,\n  \"id\": \"{}\",\n  \"version\": \"{}\",\n  \"interfaces\": [],\n  \"implementations\": {{\n    \"ios\": {{ \"source\": \"{}\" }},\n    \"android\": {{ \"source\": \"{}\" }}\n  }}\n}}\n",
+        "{{\n  \"format\": 1,\n  \"id\": \"{}\",\n  \"version\": \"{}\",\n  \"idl\": \"{}\",\n  \"interfaces\": [],\n  \"implementations\": {{\n    \"ios\": {{ \"source\": \"{}\" }},\n    \"android\": {{ \"source\": \"{}\" }}\n  }}\n}}\n",
         json_escape(id),
         json_escape(version),
+        json_escape(idl_source),
         json_escape(ios_source),
         json_escape(android_source),
     )
@@ -163,7 +320,7 @@ fn manifest(id: &str, version: &str, ios_source: &str, android_source: &str) -> 
 
 fn readme(id: &str, version: &str, type_name: &str) -> String {
     format!(
-        "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `nexa.plugin.json` declares the package identity and platform source entry points.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nThe manifest is a stable scaffold for the upcoming typed plugin IDL and binding generator. Add typed interface declarations only when that IDL is available; this scaffold does not install dependencies or connect a plugin to `.nx` code yet.\n"
+        "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `nexa.plugin.json` declares the package identity, IDL path, and platform source entry points.\n- `interfaces.nxid` contains typed public interface declarations.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nValidate the IDL with `nexa plugin check .`. Generate direct native binding skeletons with `nexa plugin generate . --target swift` or `--target kotlin`. The current slice does not install dependencies or connect a plugin to `.nx` calls yet.\n"
     )
 }
 

@@ -54,6 +54,9 @@ cargo run -p nexa-cli -- check examples/counter.nx --deny-warnings
 cargo run -p nexa-cli -- check examples/platform-widgets.nx
 cargo run -p nexa-cli -- check examples/network-image.nx
 cargo run -p nexa-cli -- plugin init com.example.camera --out CameraPlugin --name Camera
+cargo run -p nexa-cli -- plugin check CameraPlugin
+cargo run -p nexa-cli -- plugin generate CameraPlugin --target swift --out /tmp/CameraBindings.swift
+cargo run -p nexa-cli -- plugin generate CameraPlugin --target kotlin --package com.example.camera --out /tmp/CameraBindings.kt
 cargo run -p nexa-cli -- build examples/themed-app.nx --target swift --out /tmp/ThemedApp.swift
 cargo run -p nexa-cli -- build examples/themed-app.nx --target kotlin --out /tmp/ThemedApp.kt
 cargo run -p nexa-cli -- build examples/custom-components.nx --target swift --out /tmp/CustomComponents.swift
