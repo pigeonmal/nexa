@@ -17,7 +17,6 @@ pub enum Kind {
     Dot,
     DotDot,
     DotDotLess,
-    DotDotDot,
     Semicolon,
     Comma,
     Equal,
@@ -140,9 +139,6 @@ impl Lexer<'_> {
                         if self.peek() == Some('<') {
                             self.bump();
                             Kind::DotDotLess
-                        } else if self.peek() == Some('.') {
-                            self.bump();
-                            Kind::DotDotDot
                         } else {
                             Kind::DotDot
                         }

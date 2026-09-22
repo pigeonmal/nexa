@@ -1093,8 +1093,8 @@ fn lower_haptic(value: Option<ast::Expr>) -> Result<Option<HapticStyle>, Compile
 fn lower_direction(value: ast::Expr) -> Result<DirectionConfig, CompileError> {
     let style = match value {
         ast::Expr::Name(name, name_span) => match name.as_str() {
-            "LTR" | "Ltr" => DirectionStyle::Ltr,
-            "RTL" | "Rtl" => DirectionStyle::Rtl,
+            "LTR" => DirectionStyle::Ltr,
+            "RTL" => DirectionStyle::Rtl,
             _ => {
                 return Err(CompileError::new(
                     name_span,
@@ -1123,9 +1123,9 @@ fn lower_font_weight(value: Option<ast::Expr>) -> Result<Option<FontWeight>, Com
         ));
     };
     let weight = match name.as_str() {
-        "Normal" | "Regular" => FontWeight::Normal,
+        "Normal" => FontWeight::Normal,
         "Medium" => FontWeight::Medium,
-        "Semibold" | "SemiBold" => FontWeight::Semibold,
+        "Semibold" => FontWeight::Semibold,
         "Bold" => FontWeight::Bold,
         _ => {
             return Err(CompileError::new(

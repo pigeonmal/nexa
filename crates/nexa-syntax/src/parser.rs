@@ -1949,11 +1949,14 @@ impl Parser {
         let (name, _) = self.ident()?;
         self.expect_word("in")?;
         let start = self.expr()?;
-        let iterable = if self.take(&Kind::DotDot)
-            || self.take(&Kind::DotDotDot)
-            || self.take(&Kind::DotDotLess)
-        {
-            let operator = self.tokens[self.cursor - 1].kind.clone();
+        let inclusive = if self.take(&Kind::DotDot) {
+            Some(true)
+        } else if self.take(&Kind::DotDotLess) {
+            Some(false)
+        } else {
+            None
+        };
+        let iterable = if let Some(inclusive) = inclusive {
             let end = self.expr()?;
             let step = if self.word_is("step") {
                 self.advance();
@@ -1970,7 +1973,7 @@ impl Parser {
             Expr::Range {
                 start: Box::new(start),
                 end: Box::new(end),
-                inclusive: !matches!(operator, Kind::DotDotLess),
+                inclusive,
                 step,
                 span: range_span,
             }
