@@ -74,7 +74,7 @@ pub(super) fn render_switch(state: &str, label: &str, depth: usize, out: &mut St
 }
 
 pub(super) fn render_pressable(
-    disabled: bool,
+    disabled: &nexa_ir::Expr,
     children: &[Node],
     actions: &[Action],
     long_press_actions: &[Action],
@@ -97,11 +97,13 @@ pub(super) fn render_pressable(
     out.push('\n');
     indent(out, depth);
     out.push('}');
-    if disabled {
-        out.push_str(".disabled(true)");
+    if !matches!(disabled, nexa_ir::Expr::Bool(false)) {
+        out.push_str(".disabled(");
+        out.push_str(&expression(disabled));
+        out.push(')');
     }
     out.push_str(".buttonStyle(.plain)");
-    if !disabled && !long_press_actions.is_empty() {
+    if !matches!(disabled, nexa_ir::Expr::Bool(true)) && !long_press_actions.is_empty() {
         out.push_str(".onLongPressGesture {");
         out.push('\n');
         render_actions(long_press_actions, depth + 1, out);

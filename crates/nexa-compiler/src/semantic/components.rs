@@ -363,7 +363,10 @@ pub(super) fn lower_node(
             long_press_actions,
             ..
         } => {
-            let disabled = optional_bool(disabled, false, "disabled")?;
+            let disabled = disabled
+                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions, false))
+                .transpose()?
+                .unwrap_or(Expr::Bool(false));
             let lowered_children = lower_nodes(
                 children, symbols, screen_ids, themes, components, functions, false, target,
             )?;

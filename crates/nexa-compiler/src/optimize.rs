@@ -439,7 +439,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             actions,
             long_press_actions,
         } => Some(Node::Pressable {
-            disabled,
+            disabled: fold_expression(disabled),
             children: optimize_nodes(children),
             actions: optimize_actions(actions),
             long_press_actions: optimize_actions(long_press_actions),

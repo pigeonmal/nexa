@@ -126,7 +126,7 @@ pub(super) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             actions,
             long_press_actions,
         } => controls::render_pressable(
-            *disabled,
+            disabled,
             children,
             actions,
             long_press_actions,

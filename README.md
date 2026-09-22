@@ -138,7 +138,7 @@ String interpolation supports `$name` and `\(name)` for declared state and const
 
 `StatusBar(style: Default|Light|Dark, hidden: true|false)` is a single top-level app configuration that lowers to native status-bar APIs; see [status-bar.nx](examples/status-bar.nx).
 
-`Pressable` supports a tap action block and an optional third long-press action block. Long press maps to native SwiftUI and Compose gestures without a shared gesture runtime; see [pressable-long-press.nx](examples/pressable-long-press.nx).
+`Pressable` supports a tap action block, an optional third long-press action block, and a Boolean `disabled` expression. Long press and disabled state map to native SwiftUI and Compose gestures without a shared runtime; see [pressable-long-press.nx](examples/pressable-long-press.nx).
 
 `Button` supports optional `loading` and `disabled` Boolean expressions. The compiler emits native loading indicators and combines both conditions into one platform-native enabled/disabled expression; see [button-loading.nx](examples/button-loading.nx) and [button-disabled.nx](examples/button-disabled.nx).
 

@@ -16,11 +16,13 @@ pub fn walk_ir(
             | Node::KeyboardAware { children }
             | Node::BottomSheet { children, .. } => walk_ir(children, visit_node, visit_expression),
             Node::Pressable {
+                disabled,
                 children,
                 actions,
                 long_press_actions,
                 ..
             } => {
+                walk_expression(disabled, visit_expression);
                 walk_actions(actions, visit_expression);
                 walk_actions(long_press_actions, visit_expression);
                 walk_ir(children, visit_node, visit_expression);

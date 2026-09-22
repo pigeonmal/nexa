@@ -1,15 +1,19 @@
 app PressableLongPress {
     state taps: Int32 = 0
     state longPresses: Int32 = 0
+    state isDisabled: Bool = false
 
     body {
         Column(spacing: 12, padding: 20) {
-            Pressable() {
+            Pressable(disabled: isDisabled) {
                 Text("Press or hold")
             } {
                 taps = taps + 1
             } {
                 longPresses = longPresses + 1
+            }
+            Button("Toggle pressable") {
+                isDisabled = !isDisabled
             }
             Text("Taps: \(taps)")
             Text("Long presses: \(longPresses)")

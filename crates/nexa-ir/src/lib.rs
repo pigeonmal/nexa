@@ -225,7 +225,7 @@ pub enum Node {
         placeholder: Option<String>,
     },
     Pressable {
-        disabled: bool,
+        disabled: Expr,
         children: Vec<Node>,
         actions: Vec<Action>,
         long_press_actions: Vec<Action>,

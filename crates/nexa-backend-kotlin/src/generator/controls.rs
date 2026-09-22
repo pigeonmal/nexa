@@ -82,7 +82,7 @@ pub(super) fn render_switch(state: &str, label: &str, depth: usize, out: &mut St
 }
 
 pub(super) fn render_pressable(
-    disabled: bool,
+    disabled: &Expr,
     children: &[Node],
     actions: &[Action],
     long_press_actions: &[Action],
@@ -103,7 +103,7 @@ pub(super) fn render_pressable(
         "    ".repeat(depth),
         modifier,
         "    ".repeat(depth),
-        !disabled,
+        format!("!({})", expression(disabled)),
         "    ".repeat(depth),
         "    ".repeat(depth)
     ));
