@@ -743,11 +743,17 @@ fn fold_expression(expression: Expr) -> Expr {
             value,
             collection,
             collection_type,
-        } => Expr::Contains {
-            value: Box::new(fold_expression(*value)),
-            collection: Box::new(fold_expression(*collection)),
-            collection_type,
-        },
+        } => {
+            let value = fold_expression(*value);
+            let collection = fold_expression(*collection);
+            evaluate_contains(&value, &collection, &collection_type).unwrap_or_else(|| {
+                Expr::Contains {
+                    value: Box::new(value),
+                    collection: Box::new(collection),
+                    collection_type,
+                }
+            })
+        }
         Expr::Add(left, right, ty) => {
             let left = fold_expression(*left);
             let right = fold_expression(*right);
@@ -966,6 +972,55 @@ fn evaluate_binary(op: BinaryOp, left: &Expr, right: &Expr) -> Option<Expr> {
             Some(Expr::Bool(value))
         }
         _ => None,
+    }
+}
+
+fn evaluate_contains(
+    value: &Expr,
+    collection: &Expr,
+    collection_type: &nexa_ir::Type,
+) -> Option<Expr> {
+    let matches = match (collection_type, collection) {
+        (
+            nexa_ir::Type::Array(_) | nexa_ir::Type::Set(_),
+            Expr::Array(items) | Expr::Set(items),
+        ) => items.iter().any(|item| scalar_equal(value, item)),
+        (nexa_ir::Type::Map(_, _), Expr::Map(entries)) => {
+            entries.iter().any(|(key, _)| scalar_equal(value, key))
+        }
+        _ => return None,
+    };
+    Some(Expr::Bool(matches))
+}
+
+fn scalar_equal(left: &Expr, right: &Expr) -> bool {
+    match (left, right) {
+        (Expr::String(left), Expr::String(right)) => left == right,
+        (Expr::Bool(left), Expr::Bool(right)) => left == right,
+        (
+            Expr::Number {
+                raw: left_raw,
+                ty: left_ty,
+            },
+            Expr::Number {
+                raw: right_raw,
+                ty: right_ty,
+            },
+        ) if left_ty == right_ty => match left_ty {
+            NumericType::Int8 | NumericType::Int16 | NumericType::Int32 | NumericType::Int64 => {
+                left_raw.parse::<i128>().ok() == right_raw.parse::<i128>().ok()
+            }
+            NumericType::UInt8
+            | NumericType::UInt16
+            | NumericType::UInt32
+            | NumericType::UInt64 => {
+                left_raw.parse::<u128>().ok() == right_raw.parse::<u128>().ok()
+            }
+            NumericType::Float32 | NumericType::Float64 => {
+                left_raw.parse::<f64>().ok() == right_raw.parse::<f64>().ok()
+            }
+        },
+        _ => false,
     }
 }
 

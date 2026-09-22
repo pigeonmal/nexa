@@ -35,7 +35,7 @@ This follows the same separation used by Rust lint levels: diagnostics are warni
 
 The compiler runs a platform-independent IR pass after semantic lowering and before either backend. It currently:
 
-- folds pure boolean, scalar-comparison, and numeric-addition expressions,
+- folds pure boolean, scalar-comparison, numeric-addition, and literal-membership expressions,
 - removes statically unreachable UI and event branches,
 - removes unused app and component state declarations,
 - removes unused pure function-local constants while preserving locals whose initializers contain async work,
