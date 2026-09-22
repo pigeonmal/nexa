@@ -100,13 +100,20 @@ pub(super) fn key(entry: &Path, target: &str) -> Result<String, String> {
     hasher.write(CACHE_VERSION.as_bytes());
     hasher.write(target.as_bytes());
     let mut visited = HashSet::new();
-    fingerprint_file(entry, true, &mut visited, &mut hasher)?;
+    fingerprint_file(
+        entry,
+        true,
+        target.starts_with("project"),
+        &mut visited,
+        &mut hasher,
+    )?;
     Ok(format!("{target}-{:016x}", hasher.finish()))
 }
 
 fn fingerprint_file(
     path: &Path,
     is_entry: bool,
+    include_plugin_sources: bool,
     visited: &mut HashSet<PathBuf>,
     hasher: &mut Fnv64,
 ) -> Result<(), String> {
@@ -132,10 +139,16 @@ fn fingerprint_file(
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join(&import.path);
-        fingerprint_file(&imported, false, visited, hasher)?;
+        fingerprint_file(&imported, false, include_plugin_sources, visited, hasher)?;
     }
     if is_entry {
-        fingerprint_plugins(&canonical, &program, visited, hasher)?;
+        fingerprint_plugins(
+            &canonical,
+            &program,
+            include_plugin_sources,
+            visited,
+            hasher,
+        )?;
     }
     Ok(())
 }
@@ -143,6 +156,7 @@ fn fingerprint_file(
 fn fingerprint_plugins(
     entry: &Path,
     program: &Program,
+    include_plugin_sources: bool,
     visited: &mut HashSet<PathBuf>,
     hasher: &mut Fnv64,
 ) -> Result<(), String> {
@@ -156,7 +170,49 @@ fn fingerprint_plugins(
         } else {
             declared
         };
-        fingerprint_file(&idl, false, visited, hasher)?;
+        fingerprint_file(&idl, false, include_plugin_sources, visited, hasher)?;
+        if include_plugin_sources {
+            let plugin_root = idl
+                .parent()
+                .ok_or_else(|| format!("invalid plugin IDL path `{}`", idl.display()))?;
+            fingerprint_directory(
+                &plugin_root.join("ios/Sources"),
+                include_plugin_sources,
+                visited,
+                hasher,
+            )?;
+            fingerprint_directory(
+                &plugin_root.join("android/src/main/kotlin"),
+                include_plugin_sources,
+                visited,
+                hasher,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn fingerprint_directory(
+    directory: &Path,
+    include_plugin_sources: bool,
+    visited: &mut HashSet<PathBuf>,
+    hasher: &mut Fnv64,
+) -> Result<(), String> {
+    if !directory.is_dir() {
+        return Ok(());
+    }
+    let mut entries = fs::read_dir(directory)
+        .map_err(|error| format!("cannot fingerprint {}: {error}", directory.display()))?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("cannot fingerprint {}: {error}", directory.display()))?;
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            fingerprint_directory(&path, include_plugin_sources, visited, hasher)?;
+        } else {
+            fingerprint_file(&path, false, include_plugin_sources, visited, hasher)?;
+        }
     }
     Ok(())
 }

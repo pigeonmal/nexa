@@ -16,6 +16,8 @@ use nexa_codegen::Backend;
 use nexa_compiler::{Target, compile_file_with_warnings_for_targets};
 use nexa_ir::Module;
 
+use crate::cache;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProjectTarget {
     Ios,
@@ -77,6 +79,34 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         input.with_file_name(format!("{stem}-project"))
     });
 
+    let inferred_name = source_app_name(&input).unwrap_or_else(|| "NexaApp".to_owned());
+    let requested_name = name.as_deref().unwrap_or(&inferred_name);
+    let app_name = type_name(requested_name);
+    if app_name.is_empty() {
+        return Err("`--name` must contain at least one letter or digit".to_owned());
+    }
+    let project_target = match target {
+        ProjectTarget::Ios => "project-ios",
+        ProjectTarget::Android => "project-android",
+        ProjectTarget::All => "project-all",
+    };
+    let cache_key =
+        cache::key(&input, project_target).map_err(|error| format!("project cache: {error}"))?;
+    if project_cache_is_current(&output, &app_name, target, &cache_key) {
+        if let Some(warnings) = cache::restore_warnings(&input, &cache_key)
+            .map_err(|error| format!("project cache: {error}"))?
+        {
+            for warning in &warnings {
+                eprintln!("{warning}");
+            }
+            if deny_warnings && !warnings.is_empty() {
+                return Err(format!("{} warning(s) treated as errors", warnings.len()));
+            }
+            println!("generated {} (cache hit)", output.display());
+            return Ok(());
+        }
+    }
+
     let targets: &[Target] = match target {
         ProjectTarget::Ios => &[Target::Swift],
         ProjectTarget::Android => &[Target::Kotlin],
@@ -97,15 +127,6 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     let warnings = super::deduplicate_warnings(warnings);
     super::report_warnings(&warnings, deny_warnings)?;
 
-    let inferred_name = compiled
-        .first()
-        .map(|(_, module)| module.app_name.as_str())
-        .unwrap_or("NexaApp");
-    let app_name = name.as_deref().unwrap_or(inferred_name);
-    let app_name = type_name(app_name);
-    if app_name.is_empty() {
-        return Err("`--name` must contain at least one letter or digit".to_owned());
-    }
     fs::create_dir_all(&output).map_err(|error| format!("{}: {error}", output.display()))?;
 
     let mut generated_targets = Vec::new();
@@ -126,7 +147,7 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
 
     let entry = input.canonicalize().unwrap_or(input.clone());
     let manifest = format!(
-        "{{\n  \"format\": 1,\n  \"entry\": \"{}\",\n  \"name\": \"{}\",\n  \"targets\": [{}]\n}}\n",
+        "{{\n  \"format\": 1,\n  \"entry\": \"{}\",\n  \"name\": \"{}\",\n  \"targets\": [{}],\n  \"cacheKey\": \"{}\"\n}}\n",
         json_escape(&entry.display().to_string()),
         json_escape(&app_name),
         generated_targets
@@ -134,12 +155,17 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
             .map(|target| format!("\"{target}\""))
             .collect::<Vec<_>>()
             .join(", "),
+        cache_key,
     );
     write_if_changed(&output.join("nexa.project.json"), &manifest)?;
     write_if_changed(
         &output.join("README.md"),
         &root_readme(&app_name, &generated_targets),
     )?;
+    let warning_text = warnings.iter().map(ToString::to_string).collect::<Vec<_>>();
+    if let Err(error) = cache::store_warnings(&input, &cache_key, &warning_text) {
+        eprintln!("warning: could not update project cache: {error}");
+    }
     println!(
         "generated {} ({})",
         output.display(),
@@ -364,6 +390,77 @@ fn package_name(app_name: &str) -> String {
 }
 fn json_escape(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn source_app_name(path: &Path) -> Option<String> {
+    let source = fs::read_to_string(path).ok()?;
+    nexa_syntax::parse_program(&source)
+        .ok()?
+        .app
+        .map(|app| app.name)
+}
+
+fn project_cache_is_current(
+    output: &Path,
+    app_name: &str,
+    target: ProjectTarget,
+    cache_key: &str,
+) -> bool {
+    let Ok(manifest) = fs::read_to_string(output.join("nexa.project.json")) else {
+        return false;
+    };
+    if !manifest.contains(&format!("\"cacheKey\": \"{cache_key}\"")) {
+        return false;
+    }
+    if !output.join("README.md").is_file() {
+        return false;
+    }
+    let needs_ios = matches!(target, ProjectTarget::Ios | ProjectTarget::All);
+    let needs_android = matches!(target, ProjectTarget::Android | ProjectTarget::All);
+    if needs_ios {
+        for path in [
+            output
+                .join("ios")
+                .join(app_name)
+                .join("NexaGenerated.swift"),
+            output
+                .join("ios")
+                .join(app_name)
+                .join(format!("{app_name}App.swift")),
+            output.join("ios").join(app_name).join("Info.plist"),
+            output
+                .join("ios")
+                .join(format!("{app_name}.xcodeproj/project.pbxproj")),
+        ] {
+            if !path.is_file() {
+                return false;
+            }
+        }
+    }
+    if needs_android {
+        let package = package_name(app_name);
+        let package_path = package.replace('.', "/");
+        for path in [
+            output
+                .join("android/app/src/main/java")
+                .join(&package_path)
+                .join("NexaGenerated.kt"),
+            output
+                .join("android/app/src/main/java")
+                .join(&package_path)
+                .join("MainActivity.kt"),
+            output.join("android/app/build.gradle.kts"),
+            output.join("android/build.gradle.kts"),
+            output.join("android/settings.gradle.kts"),
+            output.join("android/gradle.properties"),
+            output.join("android/app/src/main/AndroidManifest.xml"),
+        ] {
+            if !path.is_file() {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn root_readme(app_name: &str, targets: &[&str]) -> String {
