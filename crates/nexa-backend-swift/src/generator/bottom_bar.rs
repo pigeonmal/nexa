@@ -21,7 +21,15 @@ pub(super) fn render_app_bottom_bar(
         indent(out, depth + 1);
         out.push_str(".tabItem {\n");
         indent(out, depth + 2);
-        out.push_str(&format!("Text({})\n", swift_string(&tab.label)));
+        if let Some(icon) = &tab.icon {
+            out.push_str(&format!(
+                "Label({}, systemImage: {})\n",
+                swift_string(&tab.label),
+                swift_string(icon)
+            ));
+        } else {
+            out.push_str(&format!("Text({})\n", swift_string(&tab.label)));
+        }
         indent(out, depth + 1);
         out.push('}');
         out.push_str(&format!(

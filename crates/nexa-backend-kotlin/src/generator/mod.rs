@@ -154,7 +154,7 @@ pub(super) fn generate(module: &Module) -> String {
     if features.uses_native_library {
         network::render(&mut out, features.uses_remote_image);
     }
-    if features.uses_asset || features.uses_placeholder {
+    if features.uses_asset || features.uses_tab_icon || features.uses_placeholder {
         assets::render(&mut out);
     }
     if features.uses_permissions {

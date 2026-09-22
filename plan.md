@@ -526,10 +526,10 @@ The first native `AppBottomBar` slice is implemented as:
 state selected: Int32 = 0
 
 AppBottomBar(selected: selected) {
-    Tab(index: 0, label: "Home") {
+    Tab(index: 0, label: "Home", icon: "house") {
         Text("Home")
     }
-    Tab(index: 1, label: "Settings") {
+    Tab(index: 1, label: "Settings", icon: "gear") {
         Text("Settings")
     }
 }
@@ -542,11 +542,11 @@ The current syntax supports:
 - tabs,
 - selected state,
 - labels,
+- optional static icon names (SF Symbols on iOS and drawable resources on Android),
 - native safe area handling through the target tab/navigation primitive.
 
 Remaining work:
 
-- icons,
 - badges,
 - native transition customization,
 - platform-specific customization.

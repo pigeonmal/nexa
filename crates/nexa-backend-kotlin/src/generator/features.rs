@@ -30,6 +30,7 @@ pub(super) struct Features {
     pub(super) uses_refresh_scroll: bool,
     pub(super) uses_image: bool,
     pub(super) uses_asset: bool,
+    pub(super) uses_tab_icon: bool,
     pub(super) uses_remote_image: bool,
     pub(super) uses_native_library: bool,
     pub(super) uses_permissions: bool,
@@ -414,6 +415,7 @@ impl Features {
                 self.uses_modifier = true;
                 self.uses_padding = true;
                 for tab in tabs {
+                    self.uses_tab_icon |= tab.icon.is_some();
                     self.record_child_layout(&tab.children);
                 }
             }

@@ -401,6 +401,7 @@ pub enum Node {
 pub struct BottomBarTab {
     pub index: i32,
     pub label: String,
+    pub icon: Option<String>,
     pub children: Vec<Node>,
 }
 

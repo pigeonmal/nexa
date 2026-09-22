@@ -24,11 +24,21 @@ pub(super) fn render_app_bottom_bar(
     for tab in tabs {
         indent(out, depth + 3);
         out.push_str(&format!(
-            "NavigationBarItem(selected = {} == {}, onClick = {{ {} = {} }}, icon = {{}}, label = {{ Text({}) }})\n",
+            "NavigationBarItem(selected = {} == {}, onClick = {{ {} = {} }}, icon = {{",
             state_name(state),
             tab.index,
             state_name(state),
-            tab.index,
+            tab.index
+        ));
+        if let Some(icon) = &tab.icon {
+            out.push_str(&format!(
+                " Icon(painter = nexaDrawablePainter({}), contentDescription = {}) ",
+                kotlin_string(icon),
+                kotlin_string(&tab.label)
+            ));
+        }
+        out.push_str(&format!(
+            "}}, label = {{ Text({}) }})\n",
             kotlin_string(&tab.label)
         ));
     }

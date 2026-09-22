@@ -580,6 +580,11 @@ pub(super) fn lower_node(
                     ));
                 }
                 let label = require_string_literal(&tab.label, "Tab label")?;
+                let icon = tab
+                    .icon
+                    .as_ref()
+                    .map(|icon| require_string_literal(icon, "Tab icon"))
+                    .transpose()?;
                 let children = lower_nodes(
                     tab.children,
                     symbols,
@@ -593,6 +598,7 @@ pub(super) fn lower_node(
                 lowered_tabs.push(BottomBarTab {
                     index,
                     label,
+                    icon,
                     children,
                 });
             }

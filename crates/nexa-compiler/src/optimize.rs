@@ -994,6 +994,7 @@ fn optimize_node(node: Node) -> Option<Node> {
                 .map(|tab| nexa_ir::BottomBarTab {
                     index: tab.index,
                     label: tab.label,
+                    icon: tab.icon,
                     children: optimize_nodes(tab.children),
                 })
                 .collect(),

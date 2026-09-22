@@ -669,16 +669,18 @@ impl Parser {
             if name != "Tab" {
                 return Err(CompileError::new(
                     span,
-                    "AppBottomBar accepts only `Tab(index: ..., label: ...)` entries",
+                    "AppBottomBar accepts only `Tab(index: ..., label: ..., icon: ...)` entries",
                 ));
             }
-            let mut args = self.named_args(&["index", "label"])?;
+            let mut args = self.named_args(&["index", "label", "icon"])?;
             let index = self.required_arg(&mut args, "index", "Tab requires `index`")?;
             let label = self.required_arg(&mut args, "label", "Tab requires `label`")?;
+            let icon = args.remove("icon");
             let children = self.block_nodes()?;
             tabs.push(TabDecl {
                 index,
                 label,
+                icon,
                 children,
                 span,
             });

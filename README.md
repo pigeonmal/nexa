@@ -238,7 +238,7 @@ String interpolation supports `$name` and `\(expression)`. Embedded expressions 
 
 `Column` and `Row` also support a static native `animation` spec (`Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`) for content-size changes; see [animations.nx](examples/animations.nx).
 
-`AppBottomBar(selected: ...)` provides static labeled tabs with native `TabView` and Material 3 `NavigationBar` output; see [app-bottom-bar.nx](examples/app-bottom-bar.nx).
+`AppBottomBar(selected: ...)` provides static tabs with native `TabView` and Material 3 `NavigationBar` output. Optional icon names map to SF Symbols on iOS and drawable resources on Android; see [app-bottom-bar.nx](examples/app-bottom-bar.nx).
 
 `Direction(value: LTR|RTL)` applies a static native layout direction at the app root; see [direction.nx](examples/direction.nx).
 

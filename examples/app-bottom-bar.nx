@@ -3,7 +3,7 @@ app AppBottomBarExample {
 
     body {
         AppBottomBar(selected: selected) {
-            Tab(index: 0, label: "Home") {
+            Tab(index: 0, label: "Home", icon: "house") {
                 Column(spacing: 8) {
                     Text("Home")
                     Button("Refresh") {
@@ -11,7 +11,7 @@ app AppBottomBarExample {
                     }
                 }
             }
-            Tab(index: 1, label: "Settings") {
+            Tab(index: 1, label: "Settings", icon: "gear") {
                 Text("Settings")
             }
         }
