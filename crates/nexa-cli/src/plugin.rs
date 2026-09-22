@@ -6,7 +6,7 @@ use std::{
 };
 
 mod bindings;
-use nexa_plugin_idl as idl;
+use nexa_plugin_idl::{self as idl, manifest::PluginManifest};
 
 pub(super) fn run(args: &[String]) -> Result<(), String> {
     let Some(command) = args.first().map(String::as_str) else {
@@ -90,15 +90,8 @@ fn init(args: &[String]) -> Result<(), String> {
         type_name
     );
     write_if_absent(
-        &output.join("nexa.plugin.json"),
-        &manifest(
-            &id,
-            &version,
-            kind,
-            &ios_source,
-            &android_source,
-            "interfaces.nxid",
-        ),
+        &output.join("plugin.config.nx"),
+        &manifest(&id, &version, kind),
     )?;
     write_if_absent(
         &output.join("README.md"),
@@ -114,17 +107,13 @@ fn init(args: &[String]) -> Result<(), String> {
         fs::create_dir_all(output.join("assets"))
             .map_err(|error| format!("{}: {error}", output.display()))?;
     } else {
-        write_if_absent(
-            &output.join("abi.nxabi"),
-            &nexa_plugin_idl::abi::AbiContract::default().render(),
-        )?;
         write_if_absent(&output.join(&ios_source), &ios_stub(&type_name))?;
         write_if_absent(
             &output.join(&android_source),
             &android_stub(&package, &type_name),
         )?;
         write_if_absent(
-            &output.join("interfaces.nxid"),
+            &output.join("native.nxid"),
             &format!(
                 "// Public typed interface declarations for {type_name}.\n// Use `type Name` for value models and `type Error: Error` for typed failures.\n// Add methods here, then implement the matching native methods in both source trees.\n// Add compile-time options in `config`; users set them in generated `nexa.config.nx`.\n\nconfig {{\n    // compiledOption: String\n}}\n\ninterface {type_name} {{\n    // async fn method(input: String) -> String\n}}\n"
             ),
@@ -135,8 +124,15 @@ fn init(args: &[String]) -> Result<(), String> {
 }
 
 fn check(args: &[String]) -> Result<(), String> {
-    let path = idl_path(args, "check")?;
-    let abi = validate_abi(&path)?;
+    let package = plugin_package(args, "check")?;
+    let Some(path) = package.native_path else {
+        println!(
+            "checked {} (pure Nexa package, manifest schema {})",
+            package.root.display(),
+            package.manifest.schema
+        );
+        return Ok(());
+    };
     let parsed = idl::parse_file(&path)?;
     let methods = parsed
         .interfaces
@@ -144,10 +140,9 @@ fn check(args: &[String]) -> Result<(), String> {
         .map(|interface| interface.methods.len())
         .sum::<usize>();
     println!(
-        "checked {} (ABI schema {}, zero-copy bytes: {}, {} type(s), {} interface(s), {} method(s))",
+        "checked {} (manifest schema {}, {} type(s), {} interface(s), {} method(s))",
         path.display(),
-        abi.schema,
-        abi.zero_copy_bytes(),
+        package.manifest.schema,
         parsed.types.len(),
         parsed.interfaces.len(),
         methods
@@ -159,7 +154,7 @@ fn generate(args: &[String]) -> Result<(), String> {
     let mut path = None;
     let mut target = None;
     let mut output = None;
-    let mut package = "com.nexa.plugin.generated".to_owned();
+    let mut kotlin_package = "com.nexa.plugin.generated".to_owned();
     let mut cursor = 0;
     while cursor < args.len() {
         match args[cursor].as_str() {
@@ -167,7 +162,7 @@ fn generate(args: &[String]) -> Result<(), String> {
                 cursor += 1;
                 target = Some(
                     args.get(cursor)
-                        .ok_or("`--target` requires `swift`, `kotlin`, or `c`")?
+                        .ok_or("`--target` requires `swift` or `kotlin`")?
                         .as_str(),
                 );
             }
@@ -179,11 +174,11 @@ fn generate(args: &[String]) -> Result<(), String> {
             }
             "--package" => {
                 cursor += 1;
-                package = args
+                kotlin_package = args
                     .get(cursor)
                     .ok_or("`--package` requires a Kotlin package name")?
                     .clone();
-                validate_package(&package)?;
+                validate_package(&kotlin_package)?;
             }
             option if option.starts_with('-') => return Err(format!("unknown option `{option}`")),
             value if path.is_none() => path = Some(PathBuf::from(value)),
@@ -191,19 +186,22 @@ fn generate(args: &[String]) -> Result<(), String> {
         }
         cursor += 1;
     }
-    let path = idl_path_from(path.ok_or_else(|| usage_for("generate"))?)?;
-    let abi = validate_abi(&path)?;
-    let target = target.ok_or(
-        "`nexa plugin generate` requires `--target swift`, `--target kotlin`, or `--target c`",
-    )?;
+    let package = plugin_package_from(path.ok_or_else(|| usage_for("generate"))?)?;
+    let path = package.native_path.clone().ok_or_else(|| {
+        format!(
+            "plugin package `{}` has no native.nxid contract",
+            package.root.display()
+        )
+    })?;
+    let target =
+        target.ok_or("`nexa plugin generate` requires `--target swift` or `--target kotlin`")?;
     let parsed = idl::parse_file(&path)?;
     let source = match target {
         "swift" => bindings::swift(&parsed),
-        "kotlin" => bindings::kotlin(&parsed, &package),
-        "c" => bindings::c_header(&parsed, &abi)?,
+        "kotlin" => bindings::kotlin(&parsed, &kotlin_package),
         _ => {
             return Err(format!(
-                "unknown target `{target}`; expected `swift`, `kotlin`, or `c`"
+                "unknown target `{target}`; expected `swift` or `kotlin`"
             ));
         }
     };
@@ -211,7 +209,7 @@ fn generate(args: &[String]) -> Result<(), String> {
         path.with_file_name(match target {
             "swift" => "NexaPluginBindings.swift",
             "kotlin" => "NexaPluginBindings.kt",
-            _ => "NexaPluginBindings.h",
+            _ => "NexaPluginBindings.swift",
         })
     });
     if let Some(parent) = output.parent() {
@@ -222,7 +220,7 @@ fn generate(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn idl_path(args: &[String], command: &str) -> Result<PathBuf, String> {
+fn plugin_package(args: &[String], command: &str) -> Result<PluginPackage, String> {
     let mut path = None;
     for argument in args {
         if argument.starts_with('-') {
@@ -233,33 +231,39 @@ fn idl_path(args: &[String], command: &str) -> Result<PathBuf, String> {
         }
         path = Some(PathBuf::from(argument));
     }
-    idl_path_from(path.ok_or_else(|| usage_for(command))?)
+    plugin_package_from(path.ok_or_else(|| usage_for(command))?)
 }
 
-fn idl_path_from(path: PathBuf) -> Result<PathBuf, String> {
-    let path = if path.is_dir() {
-        path.join("interfaces.nxid")
-    } else {
+struct PluginPackage {
+    root: PathBuf,
+    manifest: PluginManifest,
+    native_path: Option<PathBuf>,
+}
+
+fn plugin_package_from(path: PathBuf) -> Result<PluginPackage, String> {
+    let root = if path.is_dir() {
         path
+    } else {
+        path.parent()
+            .ok_or_else(|| format!("plugin path has no package directory: {}", path.display()))?
+            .to_path_buf()
     };
-    if !path.is_file() {
-        return Err(format!("plugin IDL does not exist: {}", path.display()));
+    let manifest_path = root.join("plugin.config.nx");
+    let manifest = idl::manifest::parse_file(&manifest_path)?;
+    let native_path = manifest.native.as_ref().map(|relative| root.join(relative));
+    if let Some(native_path) = &native_path {
+        if !native_path.is_file() {
+            return Err(format!(
+                "plugin native contract does not exist: {}",
+                native_path.display()
+            ));
+        }
     }
-    Ok(path)
-}
-
-fn validate_abi(idl_path: &Path) -> Result<nexa_plugin_idl::abi::AbiContract, String> {
-    let abi_path = idl_path
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("abi.nxabi");
-    if !abi_path.is_file() {
-        return Err(format!(
-            "native plugin is missing its versioned ABI contract: {}",
-            abi_path.display()
-        ));
-    }
-    nexa_plugin_idl::abi::parse_file(&abi_path)
+    Ok(PluginPackage {
+        root,
+        manifest,
+        native_path,
+    })
 }
 
 fn usage() -> String {
@@ -274,8 +278,8 @@ fn usage() -> String {
 fn usage_for(command: &str) -> String {
     match command {
         "init" => "usage: nexa plugin init <plugin.id> [--kind <pure|native>] [--out <directory>] [--name <TypeName>] [--version <version>]".to_owned(),
-        "check" => "usage: nexa plugin check <plugin-directory|interfaces.nxid>".to_owned(),
-        "generate" => "usage: nexa plugin generate <plugin-directory|interfaces.nxid> --target <swift|kotlin|c> [--package <kotlin.package>] [--out <file>]".to_owned(),
+        "check" => "usage: nexa plugin check <plugin-directory|native.nxid>".to_owned(),
+        "generate" => "usage: nexa plugin generate <plugin-directory|native.nxid> --target <swift|kotlin> [--package <kotlin.package>] [--out <file>]".to_owned(),
         _ => "usage: nexa plugin <init|check|generate> ...".to_owned(),
     }
 }
@@ -346,33 +350,14 @@ fn package_name(id: &str) -> String {
     )
 }
 
-fn json_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-fn manifest(
-    id: &str,
-    version: &str,
-    kind: &str,
-    ios_source: &str,
-    android_source: &str,
-    idl_source: &str,
-) -> String {
+fn manifest(id: &str, version: &str, kind: &str) -> String {
     if kind == "pure" {
         return format!(
-            "{{\n  \"format\": 1,\n  \"id\": \"{}\",\n  \"version\": \"{}\",\n  \"kind\": \"pure\",\n  \"source\": \"plugin.nx\",\n  \"assets\": \"assets\"\n}}\n",
-            json_escape(id),
-            json_escape(version),
+            "plugin {{\n    schema: 2\n    id: \"{id}\"\n    version: \"{version}\"\n    sources {{\n        nexa: \"plugin.nx\"\n    }}\n    assets: [\"assets/**\"]\n}}\n"
         );
     }
     format!(
-        "{{\n  \"format\": 1,\n  \"id\": \"{}\",\n  \"version\": \"{}\",\n  \"kind\": \"{}\",\n  \"idl\": \"{}\",\n  \"abi\": \"abi.nxabi\",\n  \"interfaces\": [],\n  \"implementations\": {{\n    \"ios\": {{ \"source\": \"{}\" }},\n    \"android\": {{ \"source\": \"{}\" }}\n  }}\n}}\n",
-        json_escape(id),
-        json_escape(version),
-        json_escape(kind),
-        json_escape(idl_source),
-        json_escape(ios_source),
-        json_escape(android_source),
+        "plugin {{\n    schema: 2\n    id: \"{id}\"\n    version: \"{version}\"\n    sources {{\n        native: \"native.nxid\"\n    }}\n    ios {{\n        minVersion: \"17.0\"\n        sources: [\"ios/Sources/**\"]\n    }}\n    android {{\n        minSdk: 26\n        sources: [\"android/src/main/kotlin/**\"]\n    }}\n}}\n",
     )
 }
 
@@ -383,7 +368,7 @@ fn readme(id: &str, version: &str, type_name: &str, kind: &str) -> String {
         );
     }
     format!(
-        "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `nexa.plugin.json` declares the package identity, IDL path, ABI contract, and platform source entry points.\n- `interfaces.nxid` contains typed public interface declarations and optional compile-time config options.\n- `abi.nxabi` fixes the C ABI version, buffer ownership, and lifetime rules before zero-copy bindings are allowed.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nValidate the IDL and ABI with `nexa plugin check .`. Generate direct native binding skeletons with `nexa plugin generate . --target swift`, `--target kotlin`, or `--target c`. A local `.nx` app can declare `plugin \"path\" as Namespace`; project generation then includes these platform source trees. Package installation, dependency resolution, and generated implementation methods are not included yet.\n"
+        "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `plugin.config.nx` is the package manifest and source of truth for identity and platform source roots.\n- `native.nxid` contains typed native contracts and compile-time config options.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nValidate the manifest and native contract with `nexa plugin check .`. Generate direct native contract skeletons with `nexa plugin generate . --target swift` or `--target kotlin`. A local `.nx` app can declare `plugin \"path\" as Namespace`; project generation then includes these platform source trees. Package installation, dependency resolution, and generated implementation methods are not included yet.\n"
     )
 }
 

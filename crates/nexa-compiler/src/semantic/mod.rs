@@ -384,17 +384,15 @@ pub fn lower_with_warnings(
         .plugins
         .iter()
         .filter_map(|plugin| {
-            if !plugin.pure {
-                return None;
-            }
             let assets_path = plugin.assets_path.clone()?;
             let plugin_root = Path::new(&plugin.path).parent()?;
-            let is_reachable = components.iter().any(|component| {
-                component
-                    .source_file
-                    .as_deref()
-                    .is_some_and(|source| Path::new(source).starts_with(plugin_root))
-            });
+            let is_reachable = !plugin.pure
+                || components.iter().any(|component| {
+                    component
+                        .source_file
+                        .as_deref()
+                        .is_some_and(|source| Path::new(source).starts_with(plugin_root))
+                });
             is_reachable.then_some(nexa_ir::PluginAsset { root: assets_path })
         })
         .collect();

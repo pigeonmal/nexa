@@ -6,7 +6,7 @@
 
 use std::{fs, path::Path};
 
-pub mod abi;
+pub mod manifest;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginIdl {
@@ -19,12 +19,60 @@ pub struct PluginIdl {
 pub struct NamedType {
     pub name: String,
     pub is_error: bool,
+    pub kind: NamedTypeKind,
+    pub fields: Vec<Field>,
+    pub cases: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NamedTypeKind {
+    Struct,
+    Enum,
+    Error,
+    Opaque,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Field {
+    pub name: String,
+    pub ty: TypeRef,
+    pub default: Option<Literal>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Interface {
     pub name: String,
+    pub kind: InterfaceKind,
+    pub constructors: Vec<Constructor>,
     pub methods: Vec<Method>,
+    pub properties: Vec<Property>,
+    pub events: Vec<Event>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InterfaceKind {
+    Interface,
+    Service,
+    NativeClass,
+    NativeComponent,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Constructor {
+    pub parameters: Vec<Parameter>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Property {
+    pub name: String,
+    pub ty: TypeRef,
+    pub mutable: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Event {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,6 +81,7 @@ pub struct Method {
     pub is_async: bool,
     pub parameters: Vec<Parameter>,
     pub return_type: TypeRef,
+    pub throws: Option<TypeRef>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -289,8 +338,13 @@ impl Parser {
         let mut has_config = false;
         while !self.at_end() {
             match self.peek_identifier().as_deref() {
-                Some("type") => result.types.push(self.parse_named_type()?),
+                Some("struct") => result.types.push(self.parse_struct_type()?),
+                Some("enum") => result.types.push(self.parse_enum_type()?),
+                Some("error") => result.types.push(self.parse_error_type()?),
+                Some("type") => result.types.push(self.parse_opaque_type()?),
                 Some("interface") => result.interfaces.push(self.parse_interface()?),
+                Some("service") => result.interfaces.push(self.parse_service()?),
+                Some("native") => result.interfaces.push(self.parse_native_declaration()?),
                 Some("config") => {
                     if has_config {
                         return self.error("plugin IDL can declare only one `config` block");
@@ -298,38 +352,219 @@ impl Parser {
                     has_config = true;
                     result.config = self.parse_config()?;
                 }
-                _ => return self.error("expected `type`, `interface`, or `config`"),
+                _ => return self.error(
+                    "expected `struct`, `enum`, `error`, `interface`, `service`, `native`, or `config`",
+                ),
             }
         }
         self.validate_names(&result)?;
         Ok(result)
     }
 
-    fn parse_named_type(&mut self) -> Result<NamedType, String> {
+    fn parse_opaque_type(&mut self) -> Result<NamedType, String> {
         self.expect_identifier("type")?;
         let name = self.expect_name("type name")?;
-        let is_error = if self.consume(TokenKind::Colon) {
-            self.expect_identifier("Error")?;
-            true
-        } else {
-            false
-        };
         self.consume(TokenKind::Semicolon);
-        Ok(NamedType { name, is_error })
+        Ok(NamedType {
+            name,
+            is_error: false,
+            kind: NamedTypeKind::Opaque,
+            fields: Vec::new(),
+            cases: Vec::new(),
+        })
+    }
+
+    fn parse_struct_type(&mut self) -> Result<NamedType, String> {
+        self.expect_identifier("struct")?;
+        let name = self.expect_name("struct name")?;
+        let fields = self.parse_fields()?;
+        Ok(NamedType {
+            name,
+            is_error: false,
+            kind: NamedTypeKind::Struct,
+            fields,
+            cases: Vec::new(),
+        })
+    }
+
+    fn parse_enum_type(&mut self) -> Result<NamedType, String> {
+        self.expect_identifier("enum")?;
+        let name = self.expect_name("enum name")?;
+        let cases = self.parse_cases()?;
+        Ok(NamedType {
+            name,
+            is_error: false,
+            kind: NamedTypeKind::Enum,
+            fields: Vec::new(),
+            cases,
+        })
+    }
+
+    fn parse_error_type(&mut self) -> Result<NamedType, String> {
+        self.expect_identifier("error")?;
+        let name = self.expect_name("error name")?;
+        let cases = if self.peek_kind(TokenKind::LeftBrace) {
+            self.parse_cases()?
+        } else {
+            self.consume(TokenKind::Semicolon);
+            Vec::new()
+        };
+        Ok(NamedType {
+            name,
+            is_error: true,
+            kind: NamedTypeKind::Error,
+            fields: Vec::new(),
+            cases,
+        })
+    }
+
+    fn parse_fields(&mut self) -> Result<Vec<Field>, String> {
+        self.expect(TokenKind::LeftBrace, "`{`")?;
+        let mut fields = Vec::new();
+        while !self.consume(TokenKind::RightBrace) {
+            let name = self.expect_name("field name")?;
+            self.expect(TokenKind::Colon, "`:`")?;
+            let ty = self.parse_type()?;
+            let default = self
+                .consume(TokenKind::Equal)
+                .then(|| self.parse_literal())
+                .transpose()?;
+            if !self.consume(TokenKind::Comma) && !self.consume(TokenKind::Semicolon) {
+                if !self.peek_kind(TokenKind::RightBrace) && !self.peek_is_identifier() {
+                    return self.error("expected `,`, `;`, or `}` after field");
+                }
+            }
+            fields.push(Field { name, ty, default });
+        }
+        Ok(fields)
+    }
+
+    fn parse_cases(&mut self) -> Result<Vec<String>, String> {
+        self.expect(TokenKind::LeftBrace, "`{`")?;
+        let mut cases = Vec::new();
+        while !self.consume(TokenKind::RightBrace) {
+            cases.push(self.expect_name("case name")?);
+            if !self.consume(TokenKind::Comma) && !self.consume(TokenKind::Semicolon) {
+                if !self.peek_kind(TokenKind::RightBrace) && !self.peek_is_identifier() {
+                    return self.error("expected `,`, `;`, or `}` after case");
+                }
+            }
+        }
+        Ok(cases)
     }
 
     fn parse_interface(&mut self) -> Result<Interface, String> {
         self.expect_identifier("interface")?;
         let name = self.expect_name("interface name")?;
+        self.parse_interface_body(name, InterfaceKind::Interface)
+    }
+
+    fn parse_service(&mut self) -> Result<Interface, String> {
+        self.expect_identifier("service")?;
+        let name = self.expect_name("service name")?;
+        self.parse_interface_body(name, InterfaceKind::Service)
+    }
+
+    fn parse_native_declaration(&mut self) -> Result<Interface, String> {
+        self.expect_identifier("native")?;
+        let kind = match self.peek_identifier().as_deref() {
+            Some("class") => {
+                self.cursor += 1;
+                InterfaceKind::NativeClass
+            }
+            Some("component") => {
+                self.cursor += 1;
+                InterfaceKind::NativeComponent
+            }
+            _ => return self.error("expected `class` or `component` after `native`"),
+        };
+        let name = self.expect_name("native declaration name")?;
+        self.parse_interface_body(name, kind)
+    }
+
+    fn parse_interface_body(
+        &mut self,
+        name: String,
+        kind: InterfaceKind,
+    ) -> Result<Interface, String> {
         self.expect(TokenKind::LeftBrace, "`{`")?;
+        let mut constructors = Vec::new();
         let mut methods = Vec::new();
+        let mut properties = Vec::new();
+        let mut events = Vec::new();
         while !self.consume(TokenKind::RightBrace) {
             if self.at_end() {
-                return self.error("expected `}` to close interface");
+                return self.error("expected `}` to close native declaration");
             }
-            methods.push(self.parse_method()?);
+            match self.peek_identifier().as_deref() {
+                Some("init") => constructors.push(self.parse_constructor()?),
+                Some("readonly") | Some("property") | Some("prop") => {
+                    properties.push(self.parse_property()?)
+                }
+                Some("event") => events.push(self.parse_event()?),
+                _ => methods.push(self.parse_method()?),
+            }
         }
-        Ok(Interface { name, methods })
+        Ok(Interface {
+            name,
+            kind,
+            constructors,
+            methods,
+            properties,
+            events,
+        })
+    }
+
+    fn parse_constructor(&mut self) -> Result<Constructor, String> {
+        self.expect_identifier("init")?;
+        let parameters = self.parse_parameters()?;
+        self.consume(TokenKind::Semicolon);
+        Ok(Constructor { parameters })
+    }
+
+    fn parse_property(&mut self) -> Result<Property, String> {
+        let mutable = if self.consume_identifier("readonly") {
+            self.expect_identifier("property")?;
+            false
+        } else {
+            if !self.consume_identifier("property") && !self.consume_identifier("prop") {
+                return self.error("expected `property` or `prop`");
+            }
+            true
+        };
+        let name = self.expect_name("property name")?;
+        self.expect(TokenKind::Colon, "`:`")?;
+        let ty = self.parse_type()?;
+        self.consume(TokenKind::Semicolon);
+        Ok(Property { name, ty, mutable })
+    }
+
+    fn parse_event(&mut self) -> Result<Event, String> {
+        self.expect_identifier("event")?;
+        let name = self.expect_name("event name")?;
+        let parameters = self.parse_parameters()?;
+        self.consume(TokenKind::Semicolon);
+        Ok(Event { name, parameters })
+    }
+
+    fn parse_parameters(&mut self) -> Result<Vec<Parameter>, String> {
+        self.expect(TokenKind::LeftParen, "`(`")?;
+        let mut parameters = Vec::new();
+        if !self.consume(TokenKind::RightParen) {
+            loop {
+                let name = self.expect_name("parameter name")?;
+                self.expect(TokenKind::Colon, "`:`")?;
+                parameters.push(Parameter {
+                    name,
+                    ty: self.parse_type()?,
+                });
+                if self.consume(TokenKind::RightParen) {
+                    break;
+                }
+                self.expect(TokenKind::Comma, "`,` or `)`")?;
+            }
+        }
+        Ok(parameters)
     }
 
     fn parse_config(&mut self) -> Result<Vec<ConfigOption>, String> {
@@ -401,26 +636,19 @@ impl Parser {
         let is_async = self.consume_identifier("async");
         self.expect_identifier("fn")?;
         let name = self.expect_name("method name")?;
-        self.expect(TokenKind::LeftParen, "`(`")?;
-        let mut parameters = Vec::new();
-        if !self.consume(TokenKind::RightParen) {
-            loop {
-                let parameter_name = self.expect_name("parameter name")?;
-                self.expect(TokenKind::Colon, "`:`")?;
-                parameters.push(Parameter {
-                    name: parameter_name,
-                    ty: self.parse_type()?,
-                });
-                if self.consume(TokenKind::RightParen) {
-                    break;
-                }
-                self.expect(TokenKind::Comma, "`,` or `)`")?;
-            }
-        }
-        self.expect(TokenKind::Arrow, "`->`")?;
-        let return_type = self.parse_type()?;
+        let parameters = self.parse_parameters()?;
+        let return_type = if self.consume(TokenKind::Arrow) {
+            self.parse_type()?
+        } else {
+            TypeRef::named("Void".to_owned())
+        };
+        let throws = if self.consume_identifier("throws") {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
         self.consume(TokenKind::Semicolon);
-        if return_type.name == "Result" && !is_async {
+        if (return_type.name == "Result" || throws.is_some()) && !is_async {
             return self.error("`Result<Success, Failure>` methods must be async");
         }
         Ok(Method {
@@ -428,6 +656,7 @@ impl Parser {
             is_async,
             parameters,
             return_type,
+            throws,
         })
     }
 
@@ -462,6 +691,21 @@ impl Parser {
             if !types.insert(ty.name.as_str()) {
                 return Err(format!("duplicate type `{}`", ty.name));
             }
+            let mut names = std::collections::HashSet::new();
+            for field in &ty.fields {
+                if !names.insert(field.name.as_str()) {
+                    return Err(format!(
+                        "duplicate field `{}` in type `{}`",
+                        field.name, ty.name
+                    ));
+                }
+            }
+            let mut cases = std::collections::HashSet::new();
+            for case in &ty.cases {
+                if !cases.insert(case.as_str()) {
+                    return Err(format!("duplicate case `{case}` in type `{}`", ty.name));
+                }
+            }
         }
         let mut interfaces = std::collections::HashSet::new();
         for interface in &idl.interfaces {
@@ -473,6 +717,34 @@ impl Parser {
             }
             if !interfaces.insert(interface.name.as_str()) {
                 return Err(format!("duplicate interface `{}`", interface.name));
+            }
+            let mut properties = std::collections::HashSet::new();
+            for property in &interface.properties {
+                if !properties.insert(property.name.as_str()) {
+                    return Err(format!(
+                        "duplicate property `{}` in interface `{}`",
+                        property.name, interface.name
+                    ));
+                }
+                validate_type_ref(&property.ty, &property.name, &types, &interfaces, false)?;
+            }
+            let mut events = std::collections::HashSet::new();
+            for event in &interface.events {
+                if !events.insert(event.name.as_str()) {
+                    return Err(format!(
+                        "duplicate event `{}` in interface `{}`",
+                        event.name, interface.name
+                    ));
+                }
+                validate_parameters(&event.parameters, &event.name, &types, &interfaces)?;
+            }
+            for constructor in &interface.constructors {
+                validate_parameters(
+                    &constructor.parameters,
+                    &interface.name,
+                    &types,
+                    &interfaces,
+                )?;
             }
             let mut methods = std::collections::HashSet::new();
             for method in &interface.methods {
@@ -504,9 +776,12 @@ impl Parser {
                         method.name
                     ));
                 }
-                validate_type_ref(&method.return_type, &method.name, &types, true)?;
+                validate_type_ref(&method.return_type, &method.name, &types, &interfaces, true)?;
                 for parameter in &method.parameters {
-                    validate_type_ref(&parameter.ty, &parameter.name, &types, false)?;
+                    validate_type_ref(&parameter.ty, &parameter.name, &types, &interfaces, false)?;
+                }
+                if let Some(error) = &method.throws {
+                    validate_type_ref(error, &method.name, &types, &interfaces, false)?;
                 }
             }
         }
@@ -620,6 +895,7 @@ fn validate_type_ref(
     ty: &TypeRef,
     context: &str,
     declared_types: &std::collections::HashSet<&str>,
+    declared_interfaces: &std::collections::HashSet<&str>,
     allow_result: bool,
 ) -> Result<(), String> {
     let expected = match ty.name.as_str() {
@@ -649,7 +925,9 @@ fn validate_type_ref(
                 ty.name
             ));
         }
-    } else if !declared_types.contains(ty.name.as_str()) {
+    } else if !declared_types.contains(ty.name.as_str())
+        && !declared_interfaces.contains(ty.name.as_str())
+    {
         return Err(format!(
             "{context} references undeclared plugin type `{}`",
             ty.name
@@ -661,7 +939,38 @@ fn validate_type_ref(
         ));
     }
     for argument in &ty.arguments {
-        validate_type_ref(argument, context, declared_types, false)?;
+        validate_type_ref(
+            argument,
+            context,
+            declared_types,
+            declared_interfaces,
+            false,
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_parameters(
+    parameters: &[Parameter],
+    context: &str,
+    declared_types: &std::collections::HashSet<&str>,
+    declared_interfaces: &std::collections::HashSet<&str>,
+) -> Result<(), String> {
+    let mut names = std::collections::HashSet::new();
+    for parameter in parameters {
+        if !names.insert(parameter.name.as_str()) {
+            return Err(format!(
+                "duplicate parameter `{}` in `{context}`",
+                parameter.name
+            ));
+        }
+        validate_type_ref(
+            &parameter.ty,
+            &parameter.name,
+            declared_types,
+            declared_interfaces,
+            false,
+        )?;
     }
     Ok(())
 }
@@ -749,5 +1058,50 @@ fn integer_value_fits(value: &str, name: &str) -> bool {
         "UInt32" => value.parse::<u32>().is_ok(),
         "UInt64" => value.parse::<u64>().is_ok(),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{InterfaceKind, NamedTypeKind, parse};
+
+    #[test]
+    fn parses_structs_services_classes_and_components() {
+        let idl = parse(
+            r#"
+            struct PlayerOptions {
+                quality: Float64,
+                saveToGallery: Bool = false
+            }
+            enum PlayerState { idle, ready, ended }
+            error PlayerError { invalidUrl, decodingFailed }
+            service Clipboard {
+                fn copy(text: String)
+            }
+            native class VideoPlayer {
+                init(options: PlayerOptions)
+                readonly property state: PlayerState
+                property volume: Float64
+                async fn prepare(url: String) throws PlayerError
+                fn play()
+                event ended()
+            }
+            native component VideoView {
+                prop player: VideoPlayer
+                prop controls: Bool
+                event tapped()
+            }
+            "#,
+        )
+        .expect("native IDL should parse");
+
+        assert_eq!(idl.types[0].kind, NamedTypeKind::Struct);
+        assert_eq!(idl.types[0].fields.len(), 2);
+        assert_eq!(idl.interfaces[0].kind, InterfaceKind::Service);
+        assert_eq!(idl.interfaces[1].kind, InterfaceKind::NativeClass);
+        assert_eq!(idl.interfaces[1].constructors.len(), 1);
+        assert_eq!(idl.interfaces[1].properties.len(), 2);
+        assert_eq!(idl.interfaces[1].events.len(), 1);
+        assert_eq!(idl.interfaces[2].kind, InterfaceKind::NativeComponent);
     }
 }

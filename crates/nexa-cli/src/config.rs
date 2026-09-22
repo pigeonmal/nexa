@@ -133,11 +133,33 @@ pub(super) fn load_plugin_definitions(entry: &Path) -> Result<Vec<PluginDefiniti
     let mut definitions = Vec::with_capacity(program.plugins.len());
     for plugin in program.plugins {
         let declared_path = base.join(&plugin.path);
-        if declared_path.is_dir() && declared_path.join("plugin.nx").is_file() {
+        if declared_path.is_dir()
+            && nexa_plugin_idl::manifest::parse_file(&declared_path.join("plugin.config.nx"))
+                .map(|manifest| manifest.nexa.is_some())
+                .unwrap_or(false)
+        {
             continue;
         }
         let idl_path = if declared_path.is_dir() {
-            declared_path.join("interfaces.nxid")
+            let manifest_path = declared_path.join("plugin.config.nx");
+            let manifest =
+                nexa_plugin_idl::manifest::parse_file(&manifest_path).map_err(|error| {
+                    format!(
+                        "{}:{}:{}: {error}",
+                        entry.display(),
+                        plugin.span.line,
+                        plugin.span.column
+                    )
+                })?;
+            let native = manifest.native.ok_or_else(|| {
+                format!(
+                    "{}:{}:{}: plugin manifest does not declare `sources.native`",
+                    entry.display(),
+                    plugin.span.line,
+                    plugin.span.column
+                )
+            })?;
+            declared_path.join(native)
         } else {
             declared_path
         };

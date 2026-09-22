@@ -12,7 +12,7 @@ implemented after the findings were reviewed.
 
 ### P0: plugin model and backend capability ownership
 
-- Plugins were limited to a local `interfaces.nxid` plus native source trees.
+- Plugins were limited to a local `native.nxid` plus native source trees.
   Pure Nexa packages, package-owned assets, and source-graph loading were not
   represented.
 - Swift and Kotlin each independently scanned the IR for Network, Path, File,
@@ -60,10 +60,15 @@ implemented after the findings were reviewed.
 - Added iOS remote-image response limits and ImageIO downsampling.
 - Removed avoidable UITableView visible-row mapping and animation closure work
   in FastList updates; table scroll position now uses UIKit's sorted first row.
-- Added a versioned `abi.nxabi` contract to native plugin scaffolds. The
-  contract validates C calling convention, buffer ownership, and lifetimes
-  before binding generation and explicitly identifies call-scoped borrowed
-  bytes as the only zero-copy-safe shape currently available.
+- Replaced the JSON plugin manifest with a validated `plugin.config.nx`
+  manifest. It owns package identity, source declarations, platform metadata,
+  and asset paths; compiler discovery, CLI checks, and cache fingerprints now
+  resolve package contents from that manifest.
+- Replaced `interfaces.nxid` with `native.nxid` and removed the normal C header
+  and hand-authored `abi.nxabi` workflow. The typed parser now accepts structs,
+  enums, errors, services, native classes/components, properties, events,
+  constructors, and throwing async methods. Swift/Kotlin binding generation
+  emits direct native contracts and value models.
 - Added `nexa audit`, which emits a machine-readable report of optimized IR
   capabilities, generated source bytes, and target dependencies. Project
   generation now emits `nexa.sources.json`, an explicit list of generated
@@ -96,9 +101,12 @@ ABI or measured binary-size reduction without release builds.
 
 ## Remaining architectural work
 
-1. Generate C++/Rust adapters from `abi.nxabi`. The schema and validation are
-   now present, but adapter emission and native model layout are still pending.
-2. Extend `nexa audit` with Android R8/resource-shrink results and Swift
+1. Generate native implementation conformance checks, factories, independent
+   stateful object instances, disposal, instance-scoped events, and native
+   visual component lowering from `native.nxid`.
+2. Add SPM/Maven dependency declarations and honor manifest source globs and
+   platform minimums during project generation.
+3. Extend `nexa audit` with Android R8/resource-shrink results and Swift
    release binary/resource sizes when native release toolchains are available.
-3. Define certificate pinning as one representation on both platforms (the
+4. Define certificate pinning as one representation on both platforms (the
    current Swift leaf-certificate and Android public-key semantics differ).

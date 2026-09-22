@@ -5,7 +5,9 @@ use std::{
 };
 
 use nexa_diagnostics::{CompileError, Span};
-use nexa_plugin_idl::parse_file as parse_plugin_idl;
+use nexa_plugin_idl::{
+    manifest::parse_file as parse_plugin_manifest, parse_file as parse_plugin_idl,
+};
 use nexa_syntax::ast::{App, ComponentDecl, ImportDecl, StructDecl};
 
 use crate::{Target, semantic};
@@ -147,12 +149,25 @@ fn load_file(
                 .parent()
                 .unwrap_or_else(|| Path::new("."))
                 .join(&plugin.path);
-            let pure_source = if declared_path.is_dir() {
-                let source = declared_path.join("plugin.nx");
-                source.is_file().then_some(source)
+            let manifest_path = if declared_path.is_dir() {
+                Some(declared_path.join("plugin.config.nx"))
             } else {
                 None
             };
+            let manifest = manifest_path
+                .as_ref()
+                .map(|path| {
+                    parse_plugin_manifest(path).map_err(|error| {
+                        CompileError::new(plugin.span, error)
+                            .with_file(canonical_path.display().to_string())
+                    })
+                })
+                .transpose()?;
+            let pure_source = manifest
+                .as_ref()
+                .and_then(|manifest| manifest.nexa.as_ref())
+                .map(|source| declared_path.join(source))
+                .filter(|source| source.is_file());
             if let Some(source) = pure_source {
                 // Pure Nexa plugins are ordinary source modules. Loading them
                 // through the existing project graph keeps component/function
@@ -167,14 +182,39 @@ fn load_file(
                 )?;
                 plugin.pure = true;
                 plugin.path = source.display().to_string();
-                let assets = source.parent().map(|parent| parent.join("assets"));
+                let assets = manifest
+                    .as_ref()
+                    .and_then(|manifest| manifest.assets.first())
+                    .and_then(|asset| asset.strip_suffix("/**"))
+                    .map(|asset| declared_path.join(asset))
+                    .or_else(|| source.parent().map(|parent| parent.join("assets")));
                 plugin.assets_path = assets
                     .filter(|path| path.is_dir())
                     .map(|path| path.display().to_string());
                 continue;
             }
             let idl_path = if declared_path.is_dir() {
-                declared_path.join("interfaces.nxid")
+                let manifest = manifest.ok_or_else(|| {
+                    CompileError::new(
+                        plugin.span,
+                        "plugin directory is missing `plugin.config.nx`",
+                    )
+                    .with_file(canonical_path.display().to_string())
+                })?;
+                let native = manifest.native.ok_or_else(|| {
+                    CompileError::new(
+                        plugin.span,
+                        "plugin manifest does not declare `sources.native`",
+                    )
+                    .with_file(canonical_path.display().to_string())
+                })?;
+                let path = declared_path.join(native);
+                plugin.assets_path = manifest
+                    .assets
+                    .first()
+                    .and_then(|asset| asset.strip_suffix("/**"))
+                    .map(|asset| declared_path.join(asset).display().to_string());
+                path
             } else {
                 declared_path
             };

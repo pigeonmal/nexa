@@ -1027,62 +1027,61 @@ The framework must preserve the accessibility advantages of native controls.
 
 Create a strongly typed plugin system using a common IDL.
 
-The first project and typed-IDL slice is available as `nexa plugin init`,
+The first package and typed-IDL slice is available as `nexa plugin init`,
 `nexa plugin check`, and `nexa plugin generate`. The scaffold creates a
-deterministic `nexa.plugin.json` manifest with package identity, version, IDL
-path, and isolated iOS/Android implementation paths, plus platform source
-stubs. `interfaces.nxid` supports typed value/error models and interface
-methods with primitive, collection, pair/triple, optional, and generic types.
-The checker validates names, reserved built-in collisions, declared named-type
-references, generic syntax, and asynchronous `Result` methods;
-the binding generator emits direct Swift protocols or Kotlin interfaces with
-native model declarations. A local `.nx` entry file can declare
+validated `plugin.config.nx` manifest with package identity, version, source
+roots, platform metadata, and assets. Native contracts live in `native.nxid`;
+pure packages may provide `plugin.nx` instead. The parser validates structs,
+enums, errors, interfaces, services, native classes/components, constructors,
+properties, events, method types, generic arity, compile-time options, and
+async throwing boundaries. Binding generation emits direct Swift protocols/types
+and Kotlin interfaces/types. A local `.nx` entry file can declare
 `plugin "path" as Namespace`; the compiler resolves its typed calls statically
-and generated projects include the plugin's `ios/Sources` and
-`android/src/main/kotlin` source trees. Dependency resolution, installation,
-version selection, generated implementation methods, and typed error recovery
+and generated projects include reachable plugin source trees and assets.
+Dependency resolution, installation, version selection, generated
+implementation conformance, stateful object lifetime, and typed error recovery
 remain future work. Unused declared plugins are removed after IR reachability
 analysis so their native source trees do not enter generated projects.
 
-Plugin authors can also declare a typed `config` block in `interfaces.nxid`.
-The generated `nexa.config.nx` accepts values under `plugins { Namespace { ... } }`.
-Required options, optional values, defaults, and scalar literal types are
-validated before native generation. Reachable plugins receive direct generated
-Swift/Kotlin constants, while no runtime plugin configuration registry is
-introduced. See
+Plugin authors declare scalar compile-time options in `native.nxid`. The
+generated `nexa.config.nx` accepts values under
+`plugins { Namespace { ... } }`. Required options, optional values, defaults,
+and scalar literal types are validated before native generation. Reachable
+plugins receive direct generated Swift/Kotlin constants, while no runtime
+plugin configuration registry is introduced. See
 [`docs/plugins.md`](docs/plugins.md).
 
-Native plugin scaffolds also include a validated `abi.nxabi` contract. Version
-1 fixes the C calling convention, string/byte ownership, returned-buffer
-ownership, and lifetime rules; call-scoped borrowed read-only bytes are the
-only zero-copy-safe shape currently declared. C++/Rust adapter emission still
-requires generated ownership wrappers and native layout declarations.
+The normal plugin path does not require `abi.nxabi`, a C header, or a C/Rust
+bridge. Swift and Kotlin implementations compile against generated native
+contracts directly. Optional C++ support will be added later with generated
+ownership, exception, and platform adapters.
 
 The plugin system should take inspiration from systems such as:
 
 - Nitro
 - UniFFI
 
-Plugins must expose typed interfaces.
+Plugins must expose typed interfaces and must support multiple native object
+instances where the declaration is a `native class`.
 
 Example:
 
-interface Camera {
-async takePhoto(options: CameraOptions): Result<Photo, CameraError>
+```text
+native class VideoPlayer {
+    init(options: PlayerOptions)
+    async fn prepare(url: String) throws PlayerError
+    fn play()
+    fn pause()
 }
+```
 
 The framework compiler/code generator should automatically generate:
 
-- shared language bindings,
-- Swift interfaces and bindings,
-- Kotlin interfaces and bindings,
-- Rust/C bindings when needed.
-
-`nexa plugin generate --target c` now emits a C header for the validated ABI
-subset. It uses borrowed read-only string/byte views for inputs and
-caller-owned views for returns; async, Result, nullable, and generic layouts
-are rejected until their contracts are defined. Full generated C++/Rust
-adapters remain future work.
+- shared language contracts,
+- Swift protocols and value types,
+- Kotlin interfaces and value types,
+- direct native component contracts,
+- later, optional generated C++ adapters.
 
 Avoid:
 

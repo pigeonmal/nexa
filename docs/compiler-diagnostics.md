@@ -37,7 +37,7 @@ cargo run -p nexa-cli -- build app.nx --target kotlin --deny-warnings
 `nexa build`, `nexa check`, and `nexa generate` keep content-addressed cache
 entries under `.nexa/cache` next to the entry file. The fingerprint includes
 the entry source, every imported `.nx` file, and a declared plugin's
-`interfaces.nxid`; project generation also fingerprints the plugin's iOS and
+`native.nxid`; project generation also fingerprints the plugin's iOS and
 Android implementation source trees and `nexa.config.nx`. A matching target restores generated
 Swift/Kotlin source or a complete existing native project without rerunning
 semantic lowering or native generation. Cached warning text is replayed, so

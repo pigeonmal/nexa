@@ -1,122 +1,8 @@
 //! Direct native binding skeletons generated from the plugin IDL.
 
-use nexa_plugin_idl::{Method, NamedType, PluginIdl, TypeRef, abi::AbiContract};
-
-pub(crate) fn c_header(idl: &PluginIdl, abi: &AbiContract) -> Result<String, String> {
-    abi.validate()?;
-    let mut out = String::from(
-        "#ifndef NEXA_PLUGIN_BINDINGS_H\n#define NEXA_PLUGIN_BINDINGS_H\n\n#include <stdbool.h>\n#include <stddef.h>\n#include <stdint.h>\n\n/* Nexa ABI schema 1: call-scoped borrowed inputs, caller-owned returns. */\ntypedef struct { const char *data; size_t length; } NexaBorrowedString;\ntypedef struct { const uint8_t *data; size_t length; } NexaBorrowedBytes;\ntypedef struct { char *data; size_t length; } NexaOwnedString;\ntypedef struct { uint8_t *data; size_t length; } NexaOwnedBytes;\n\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n\n",
-    );
-    for interface in &idl.interfaces {
-        for method in &interface.methods {
-            if method.is_async {
-                return Err(format!(
-                    "C ABI generation does not support async method `{}`; add a native callback contract first",
-                    method.name
-                ));
-            }
-            if method.return_type.name == "Result" {
-                return Err(format!(
-                    "C ABI generation does not support Result method `{}` until error transport is versioned",
-                    method.name
-                ));
-            }
-            let return_type = c_type(&method.return_type, true, abi)?;
-            let parameters = method
-                .parameters
-                .iter()
-                .map(|parameter| {
-                    if parameter.ty.name == "Void" {
-                        return Err(format!(
-                            "C ABI generation does not support a Void parameter `{}`",
-                            parameter.name
-                        ));
-                    }
-                    Ok(format!(
-                        "{} {}",
-                        c_type(&parameter.ty, false, abi)?,
-                        parameter.name
-                    ))
-                })
-                .collect::<Result<Vec<_>, String>>()?
-                .join(", ");
-            let parameters = if parameters.is_empty() {
-                "void".to_owned()
-            } else {
-                parameters
-            };
-            out.push_str(&format!(
-                "{} {}_{}({});\n",
-                return_type, interface.name, method.name, parameters
-            ));
-        }
-    }
-    out.push_str("\n#ifdef __cplusplus\n}\n#endif\n\n#endif /* NEXA_PLUGIN_BINDINGS_H */\n");
-    Ok(out)
-}
-
-fn c_type(ty: &TypeRef, return_position: bool, abi: &AbiContract) -> Result<&'static str, String> {
-    if ty.optional {
-        return Err(format!(
-            "C ABI generation does not support optional `{}` until nullable layout is declared",
-            ty.name
-        ));
-    }
-    match ty.name.as_str() {
-        "Void" => Ok("void"),
-        "Bool" => Ok("bool"),
-        "Int8" => Ok("int8_t"),
-        "Int16" => Ok("int16_t"),
-        "Int32" => Ok("int32_t"),
-        "Int64" => Ok("int64_t"),
-        "UInt8" => Ok("uint8_t"),
-        "UInt16" => Ok("uint16_t"),
-        "UInt32" => Ok("uint32_t"),
-        "UInt64" => Ok("uint64_t"),
-        "Float32" => Ok("float"),
-        "Float64" => Ok("double"),
-        "String" => {
-            if return_position {
-                if abi.returned_buffers != nexa_plugin_idl::abi::ReturnOwnership::CallerOwned {
-                    return Err(
-                        "C ABI generation currently requires caller-owned returned strings"
-                            .to_owned(),
-                    );
-                }
-                Ok("NexaOwnedString")
-            } else {
-                Ok(match abi.strings {
-                    nexa_plugin_idl::abi::BufferOwnership::BorrowedReadOnly => "NexaBorrowedString",
-                    nexa_plugin_idl::abi::BufferOwnership::Owned => "NexaOwnedString",
-                })
-            }
-        }
-        "Bytes" => {
-            if return_position {
-                if abi.returned_buffers != nexa_plugin_idl::abi::ReturnOwnership::CallerOwned {
-                    return Err(
-                        "C ABI generation currently requires caller-owned returned bytes"
-                            .to_owned(),
-                    );
-                }
-                Ok("NexaOwnedBytes")
-            } else {
-                Ok(match abi.bytes {
-                    nexa_plugin_idl::abi::BufferOwnership::BorrowedReadOnly => "NexaBorrowedBytes",
-                    nexa_plugin_idl::abi::BufferOwnership::Owned => "NexaOwnedBytes",
-                })
-            }
-        }
-        "Array" | "Set" | "Map" | "Pair" | "Triple" => Err(format!(
-            "C ABI generation does not support generic collection `{}` until its native layout is fixed",
-            ty.name
-        )),
-        _ => Err(format!(
-            "C ABI generation does not support named type `{}` until its native layout is fixed",
-            ty.name
-        )),
-    }
-}
+use nexa_plugin_idl::{
+    Event, Interface, InterfaceKind, Method, NamedType, NamedTypeKind, PluginIdl, Property, TypeRef,
+};
 
 pub(crate) fn swift(idl: &PluginIdl) -> String {
     let mut out = String::from("import Foundation\n\n");
@@ -125,13 +11,45 @@ pub(crate) fn swift(idl: &PluginIdl) -> String {
         out.push('\n');
     }
     for interface in &idl.interfaces {
-        out.push_str(&format!("public protocol {} {{\n", interface.name));
+        let contract_name = swift_contract_name(interface);
+        let inheritance = if matches!(
+            interface.kind,
+            InterfaceKind::NativeClass | InterfaceKind::NativeComponent
+        ) {
+            ": AnyObject"
+        } else {
+            ""
+        };
+        out.push_str(&format!(
+            "public protocol {contract_name}{inheritance} {{\n"
+        ));
+        for constructor in &interface.constructors {
+            out.push_str("    init(");
+            out.push_str(&swift_parameters(&constructor.parameters));
+            out.push_str(")\n");
+        }
+        for property in &interface.properties {
+            out.push_str("    ");
+            out.push_str(&swift_property(property));
+            out.push('\n');
+        }
         for method in &interface.methods {
             out.push_str("    ");
             out.push_str(&swift_method(method));
             out.push('\n');
         }
+        for event in &interface.events {
+            out.push_str("    ");
+            out.push_str(&swift_event(event));
+            out.push('\n');
+        }
         out.push_str("}\n\n");
+        if interface.kind == InterfaceKind::NativeClass {
+            out.push_str(&format!(
+                "public typealias {} = {}\n\n",
+                interface.name, contract_name
+            ));
+        }
     }
     out
 }
@@ -143,58 +61,149 @@ pub(crate) fn kotlin(idl: &PluginIdl, package: &str) -> String {
         out.push('\n');
     }
     for interface in &idl.interfaces {
-        out.push_str(&format!("public interface {} {{\n", interface.name));
+        out.push_str(&format!(
+            "public interface {} {{\n",
+            kotlin_contract_name(interface)
+        ));
+        for constructor in &interface.constructors {
+            out.push_str("    fun create(");
+            out.push_str(&kotlin_parameters(&constructor.parameters));
+            out.push_str("): ");
+            out.push_str(&interface.name);
+            out.push('\n');
+        }
+        for property in &interface.properties {
+            out.push_str("    ");
+            out.push_str(&kotlin_property(property));
+            out.push('\n');
+        }
         for method in &interface.methods {
             out.push_str("    ");
             out.push_str(&kotlin_method(method));
             out.push('\n');
         }
+        for event in &interface.events {
+            out.push_str("    ");
+            out.push_str(&kotlin_event(event));
+            out.push('\n');
+        }
         out.push_str("}\n\n");
+        if interface.kind == InterfaceKind::NativeClass {
+            out.push_str(&format!(
+                "public typealias {} = {}\n\n",
+                interface.name,
+                kotlin_contract_name(interface)
+            ));
+        }
     }
     out
 }
 
 fn swift_named_type(ty: &NamedType) -> String {
-    if ty.is_error {
-        format!("public struct {}: Error {{}}", ty.name)
-    } else {
-        format!("public struct {} {{}}", ty.name)
+    match ty.kind {
+        NamedTypeKind::Enum => format!(
+            "public enum {} {{\n{}\n}}",
+            ty.name,
+            ty.cases
+                .iter()
+                .map(|case_name| format!("    case {case_name}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+        NamedTypeKind::Error => {
+            let cases = if ty.cases.is_empty() {
+                String::new()
+            } else {
+                ty.cases
+                    .iter()
+                    .map(|case_name| format!("    case {case_name}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            format!("public enum {}: Error {{\n{}\n}}", ty.name, cases)
+        }
+        NamedTypeKind::Struct => {
+            let fields = ty
+                .fields
+                .iter()
+                .map(|field| format!("    public let {}: {}", field.name, swift_type(&field.ty)))
+                .collect::<Vec<_>>();
+            let parameters = ty
+                .fields
+                .iter()
+                .map(|field| format!("{}: {}", field.name, swift_type(&field.ty)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let assignments = ty
+                .fields
+                .iter()
+                .map(|field| format!("        self.{} = {}", field.name, field.name))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!(
+                "public struct {} {{\n{}\n\n    public init({}) {{\n{}\n    }}\n}}",
+                ty.name,
+                fields.join("\n"),
+                parameters,
+                assignments
+            )
+        }
+        NamedTypeKind::Opaque => {
+            if ty.is_error {
+                format!("public struct {}: Error {{}}", ty.name)
+            } else {
+                format!("public struct {} {{}}", ty.name)
+            }
+        }
     }
 }
 
 fn kotlin_named_type(ty: &NamedType) -> String {
-    if ty.is_error {
-        format!("public class {} : Exception()", ty.name)
-    } else {
-        format!("public class {}", ty.name)
+    match ty.kind {
+        NamedTypeKind::Enum => format!(
+            "public enum class {} {{ {} }}",
+            ty.name,
+            ty.cases.join(", ")
+        ),
+        NamedTypeKind::Error => format!("public open class {} : Exception()", ty.name),
+        NamedTypeKind::Struct => {
+            let fields = ty
+                .fields
+                .iter()
+                .map(|field| format!("val {}: {}", field.name, kotlin_type(&field.ty)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("public data class {}({})", ty.name, fields)
+        }
+        NamedTypeKind::Opaque => {
+            if ty.is_error {
+                format!("public open class {} : Exception()", ty.name)
+            } else {
+                format!("public class {}", ty.name)
+            }
+        }
     }
 }
 
 fn swift_method(method: &Method) -> String {
-    let parameters = method
-        .parameters
-        .iter()
-        .map(|parameter| format!("{}: {}", parameter.name, swift_type(&parameter.ty)))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let (return_type, throws) = result_return(&method.return_type);
+    let parameters = swift_parameters(&method.parameters);
+    let (return_type, result_throws) = result_return(&method.return_type);
     format!(
         "func {}({}){}{} -> {}",
         method.name,
         parameters,
         if method.is_async { " async" } else { "" },
-        if throws { " throws" } else { "" },
+        if result_throws || method.throws.is_some() {
+            " throws"
+        } else {
+            ""
+        },
         swift_type(return_type)
     )
 }
 
 fn kotlin_method(method: &Method) -> String {
-    let parameters = method
-        .parameters
-        .iter()
-        .map(|parameter| format!("{}: {}", parameter.name, kotlin_type(&parameter.ty)))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let parameters = kotlin_parameters(&method.parameters);
     let (return_type, _) = result_return(&method.return_type);
     format!(
         "{}fun {}({}): {}",
@@ -203,6 +212,108 @@ fn kotlin_method(method: &Method) -> String {
         parameters,
         kotlin_type(return_type)
     )
+}
+
+fn swift_contract_name(interface: &Interface) -> String {
+    match interface.kind {
+        InterfaceKind::NativeClass => format!("{}Spec", interface.name),
+        InterfaceKind::NativeComponent => format!("{}ComponentSpec", interface.name),
+        InterfaceKind::Interface | InterfaceKind::Service => interface.name.clone(),
+    }
+}
+
+fn kotlin_contract_name(interface: &Interface) -> String {
+    match interface.kind {
+        InterfaceKind::NativeClass => format!("{}Spec", interface.name),
+        InterfaceKind::NativeComponent => format!("{}ComponentSpec", interface.name),
+        InterfaceKind::Interface | InterfaceKind::Service => interface.name.clone(),
+    }
+}
+
+fn swift_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
+    parameters
+        .iter()
+        .map(|parameter| format!("{}: {}", parameter.name, swift_type(&parameter.ty)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn kotlin_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
+    parameters
+        .iter()
+        .map(|parameter| format!("{}: {}", parameter.name, kotlin_type(&parameter.ty)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn swift_property(property: &Property) -> String {
+    format!(
+        "var {}: {} {{ get{} }}",
+        property.name,
+        swift_type(&property.ty),
+        if property.mutable { " set" } else { "" }
+    )
+}
+
+fn kotlin_property(property: &Property) -> String {
+    format!(
+        "{} {}: {}",
+        if property.mutable { "var" } else { "val" },
+        property.name,
+        kotlin_type(&property.ty)
+    )
+}
+
+fn swift_event(event: &Event) -> String {
+    let parameters = event
+        .parameters
+        .iter()
+        .map(|parameter| swift_type(&parameter.ty))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let callback = if parameters.is_empty() {
+        "() -> Void".to_owned()
+    } else {
+        format!("({parameters}) -> Void")
+    };
+    format!(
+        "var on{}: ({})? {{ get set }}",
+        type_name(&event.name),
+        callback
+    )
+}
+
+fn kotlin_event(event: &Event) -> String {
+    let parameters = event
+        .parameters
+        .iter()
+        .map(|parameter| kotlin_type(&parameter.ty))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let callback = if parameters.is_empty() {
+        "() -> Unit".to_owned()
+    } else {
+        format!("({parameters}) -> Unit")
+    };
+    format!("var on{}: ({})?", type_name(&event.name), callback)
+}
+
+fn type_name(value: &str) -> String {
+    let mut output = String::new();
+    let mut uppercase = true;
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() {
+            if uppercase {
+                output.extend(character.to_uppercase());
+                uppercase = false;
+            } else {
+                output.push(character);
+            }
+        } else {
+            uppercase = true;
+        }
+    }
+    output
 }
 
 fn result_return(ty: &TypeRef) -> (&TypeRef, bool) {

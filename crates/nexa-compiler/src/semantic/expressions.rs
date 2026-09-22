@@ -73,7 +73,7 @@ pub(super) fn collect_plugin_signatures(
                     parameters,
                     return_type,
                     is_async: method.is_async,
-                    is_throwing: method.return_type.name == "Result",
+                    is_throwing: method.return_type.name == "Result" || method.throws.is_some(),
                 },
             );
         }

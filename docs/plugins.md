@@ -1,63 +1,80 @@
 # Nexa plugins
 
-Nexa keeps optional integrations outside the core compiler and default native
-component set. The current tool can create an isolated plugin scaffold:
+Nexa plugins are compile-time packages. A package may contain pure Nexa source,
+native Swift/Kotlin contracts, platform implementation files, and assets. The
+compiler resolves the package from the app's `plugin "path" as Namespace`
+declaration; generated code uses direct native calls and does not include a
+runtime registry, reflection, JSON bridge, or RPC layer.
 
-```sh
-cargo run -p nexa-cli -- plugin init com.example.camera \
-    --out CameraPlugin --name Camera --version 0.1.0
-```
+## Package manifest
 
-The scaffold contains:
-
-- `nexa.plugin.json` with a stable format version, package id, version, IDL
-  path, and iOS/Android implementation source paths;
-- `interfaces.nxid`, a small typed plugin IDL kept outside the application
-  `.nx` grammar;
-- `abi.nxabi`, a versioned C ABI contract describing string/byte ownership and
-  buffer lifetimes;
-- `ios/Sources/Camera.swift` as the iOS implementation boundary;
-- `android/src/main/kotlin/.../Camera.kt` as the Android implementation
-  boundary;
-- a README that records the package shape and current limitations.
-
-The command is deterministic and idempotent: unchanged files are preserved and
-existing edits are not overwritten when their contents differ.
-
-### Native plugin ABI contracts
-
-Native scaffolds include `abi.nxabi`:
+Every package starts with `plugin.config.nx`:
 
 ```text
-schema 1
-calling_convention c
-strings borrowed_readonly
-bytes borrowed_readonly
-returned_buffers caller_owned
-lifetime call
+plugin {
+    schema: 2
+    id: "dev.example.video"
+    version: "1.0.0"
+    sources {
+        nexa: "plugin.nx"       // optional
+        native: "native.nxid"   // optional
+    }
+    ios {
+        minVersion: "17.0"
+        sources: ["ios/Sources/**"]
+    }
+    android {
+        minSdk: 26
+        sources: ["android/src/main/kotlin/**"]
+    }
+    assets: ["assets/**"]
+}
 ```
 
-`nexa plugin check` validates this contract before accepting the IDL. A
-call-scoped borrowed byte buffer is the current zero-copy-safe boundary. The
-compiler does not claim zero-copy C++/Rust adapters until a future generator
-emits the matching ownership wrappers and native layout declarations.
+The manifest is the package source of truth. Paths are relative to the package
+root and cannot escape it. A package must declare at least Nexa source, a native
+contract, or assets. Swift Package Manager/Maven dependency declarations and
+custom source glob copying are planned next; the current project generator
+uses the conventional platform source roots shown above.
 
-## Pure Nexa plugins
-
-Use `--kind pure` for a package that only contributes Nexa source:
+Create a package with:
 
 ```sh
-nexa plugin init com.example.design --kind pure \
-    --out DesignPlugin --name Design
+nexa plugin init dev.example.video --out VideoPlugin --name VideoPlayer
 ```
 
-This creates:
+The command is deterministic and preserves existing files. `--kind pure`
+creates `plugin.nx` and `assets/`; the default native package creates
+`native.nxid`, Swift/Kotlin source roots, and `plugin.config.nx`.
 
-- `plugin.nx`, containing reusable component and logic declarations;
-- `assets/`, for package-owned images and other resources;
-- `nexa.plugin.json`, which records the package kind and source convention.
+Validate a package and generate direct bindings with:
 
-Declare the directory in an app with the existing top-level form:
+```sh
+nexa plugin check VideoPlugin
+nexa plugin generate VideoPlugin --target swift
+nexa plugin generate VideoPlugin --target kotlin --package dev.example.video
+```
+
+The C header generator and manually authored `abi.nxabi` contract were removed
+from the normal plugin workflow. Swift/Kotlin plugins already compile against
+their native language contracts directly; an optional C++ adapter will be
+introduced later with generated ownership and exception handling.
+
+## Pure Nexa package
+
+A pure package has a manifest with a `sources.nexa` entry:
+
+```text
+plugin {
+    schema: 2
+    id: "dev.example.design"
+    version: "1.0.0"
+    sources { nexa: "plugin.nx" }
+    assets: ["assets/**"]
+}
+```
+
+Declare it from an app:
 
 ```nexa
 plugin "../DesignPlugin" as Design
@@ -69,159 +86,92 @@ app Example {
 }
 ```
 
-The compiler loads `plugin.nx` through the same import graph as local `.nx`
-files. Components that are not reachable from the app are removed during IR
-lowering, so a pure plugin does not add a runtime registry or native dependency.
-Adding or changing a pure component only changes plugin source; it does not
-require a Rust compiler change.
+`plugin.nx` is loaded through the normal source graph. Unreachable components
+are removed by IR reachability analysis, so a pure plugin adds no registry or
+native dependency. Reachable assets are copied to Android `drawable-nodpi` and
+to an iOS asset catalog with deterministic names.
 
-Assets in a reachable plugin's `assets/` directory are copied automatically by
-`nexa generate`: Android receives deterministic files under
-`drawable-nodpi`, and iOS receives an `Assets.xcassets` catalog. Native asset
-lookup remains the same as for app assets. Keep names stable because Android
-resource identifiers are normalized to lowercase-safe names.
+## Native contract (`native.nxid`)
 
-## Use a local plugin from `.nx`
+The contract is separate from the `.nx` application grammar. It supports typed
+models and platform contracts:
 
-An application can declare a local plugin directory (or its `interfaces.nxid`
-file) at the top level of the entry file:
+```text
+struct PlayerOptions {
+    quality: Float64
+    saveToGallery: Bool = false
+}
 
-```nexa
-plugin "../CameraPlugin" as Camera
+enum PlayerState { idle, ready, ended }
+error PlayerError { invalidUrl, decodingFailed }
 
-app CameraPreview {
-    state status: String = "idle"
+native class VideoPlayer {
+    init(options: PlayerOptions)
+    readonly property state: PlayerState
+    property volume: Float64
 
-    body {
-        Text(status)
-        OnAppear async {
-            status = await Camera.ping(value: "ready")
-        }
-    }
+    async fn prepare(url: String) throws PlayerError
+    fn play()
+    fn pause()
+    event ended()
+}
+
+native component VideoView {
+    prop player: VideoPlayer
+    prop controls: Bool
+    event tapped()
 }
 ```
 
-The compiler resolves the path relative to the entry `.nx` file, validates the
-IDL, and adds the declared interface methods to the same typed call checker as
-app functions. Calls use the namespace from the declaration, require `await`
-for asynchronous methods, and lower directly to the platform implementation:
-`CameraPlugin.shared.method(...)` on iOS and `CameraPlugin.instance.method(...)`
-on Android. There is no runtime registry, reflection, JSON/RPC layer, or boxed
-plugin call object. A plugin-only module also does not emit the core
-Network/Path/File helper library or Android Cronet dependencies; those helpers
-are feature-gated to calls in the corresponding core namespaces.
+The parser validates duplicate names, type references, generic arity,
+constructor/property/event parameters, and asynchronous throwing methods.
+Generated Swift output contains value types and protocols such as
+`VideoPlayerSpec`; generated Kotlin output contains equivalent data classes,
+enums, and interfaces. A native class also gets a type alias named after the
+Nexa class so component properties remain typed as `VideoPlayer`.
 
-`nexa generate` also copies plugin implementation sources from
-`ios/Sources/**/*.swift` and `android/src/main/kotlin/**/*.kt` into the generated
-native project. Each Swift source remains a separate Xcode build input so
-`private` declarations keep their file scope and incremental compilation stays
-effective; Kotlin sources keep their package paths. The plugin author supplies
-the methods declared by the IDL in those sources. The current project
-integration is local and source based: it does not resolve versions, download
-packages, or add third-party dependencies.
+`service` declares stateless APIs. `interface` remains available for a shared
+contract. `native class` represents an independently constructible stateful
+object, and `native component` represents a platform visual contract. Native
+object lifetime, events, platform implementations, and generated factories are
+being implemented in the next plugin phases; the current compiler still
+accepts direct interface method calls only.
 
-## Compile-time plugin configuration
+## Compile-time options
 
-Plugin authors declare compile-time options in the plugin's
-`interfaces.nxid` file. Options are strongly typed and can be required,
-optional, or given a default:
+Native contracts may declare scalar build options:
 
 ```text
 config {
-    compiledOptionCreateByThePluginAuthor: String
-    optionalOption: Bool? = false
-    retryCount: Int32 = 3
+    cacheSizeMiB: Int32 = 64
+    enableLogging: Bool = false
 }
 ```
 
-The supported option types are `String`, `Bool`, the signed and unsigned
-integer types, and `Float32`/`Float64`. An option without a default is required
-unless its type is optional. This keeps plugin setup compile-time checked and
-avoids a runtime dictionary or reflection layer.
+App values remain in the generated `nexa.config.nx` file:
 
-Users set options in the generated project's `nexa.config.nx`. The plugin name
-is the namespace used by the app's `.nx` declaration:
-
-```nexa
+```text
 config {
-    permissions {
-    }
+    permissions {}
     plugins {
-        CustomPlugin {
-            compiledOptionCreateByThePluginAuthor: "fast",
-            optionalOption: true
+        VideoPlugin {
+            cacheSizeMiB: 64
+            enableLogging: false
         }
     }
 }
 ```
 
-`nexa generate` validates plugin names, unknown options, required values, and
-literal types. It creates a commented starter config when a required option is
-missing, so the user can fill it in and generate again. Defaults and optional
-values are materialized in the generated config. Reachable plugins receive
-native compile-time constants through `NexaPluginConfig.CustomPlugin` in Swift
-and Kotlin. Kotlin plugin source files automatically import the generated app
-configuration object. Unused plugins remain pruned from native output.
+The CLI validates required values, defaults, optional values, unknown options,
+and scalar literal types before native generation. Reachable plugins receive
+direct generated Swift/Kotlin constants; no runtime option map is emitted.
 
-## Typed IDL
+## Current boundary and next phases
 
-Declare value models and native methods in `interfaces.nxid`:
-
-```text
-type CameraOptions
-type Photo
-type CameraError: Error
-
-interface Camera {
-    async fn takePhoto(options: CameraOptions) -> Result<Photo, CameraError>
-}
-```
-
-The parser checks identifiers, duplicate names, reserved built-in collisions,
-declared named-type references, generic type arity, and the rule that
-`Result<Success, Failure>` methods are asynchronous. Unknown types and
-unsupported generic shapes fail before native binding generation. Use
-`nexa plugin check <plugin-directory|interfaces.nxid>` to validate it with
-source locations.
-
-`nexa plugin generate <plugin-directory|interfaces.nxid> --target swift` emits
-a direct Swift protocol and value/error model declarations. The Kotlin target
-emits a direct interface and Kotlin model/error declarations; asynchronous
-`Result<Success, Failure>` methods use native `async throws` on Swift and
-`suspend` on Kotlin. Pass `--package com.example.plugin` for a Kotlin package
-other than the default generated package. Primitive and collection types map directly to native
-types, including `Array`, `Set`, `Map`, `Pair`, and `Triple`.
-
-Use `--target c` to emit `NexaPluginBindings.h` for the versioned native ABI.
-The C header uses borrowed read-only string/byte views for inputs and
-caller-owned views for returns. Async methods, `Result`, nullable values, and
-generic collections are rejected until their callback, error, nullable, and
-layout contracts are defined; rejecting them keeps the generated FFI safe and
-zero-copy where it is supported.
-
-This is the first typed binding boundary. IDL checking and direct local `.nx`
-calls are integrated without adding optional dependencies to applications that
-do not declare a plugin. The generated native bindings support named models;
-the current `.nx` call surface is limited to scalar, optional, collection,
-pair, and triple values, so native model construction remains in the plugin
-implementation. Package installation, version resolution, generated
-implementation methods, typed error values in `.nx`, and Rust/C bindings remain
-roadmap work. In particular, the current IDL boundary does not claim a
-zero-copy C++/Rust adapters until a future generator emits matching ownership
-wrappers, alignment checks, native layouts, and error transport. The current
-versioned contract is `abi.nxabi`.
-
-## Capability and size pruning
-
-The compiler computes core capabilities once from the optimized shared IR. Swift
-and Kotlin backends consume the same result for Network, Path, File, and remote
-image support, preventing target-specific feature scans from drifting. A
-project that never uses network calls or remote images therefore does not receive
-Cronet, Coil, URLSession helpers, or their host initialization. A project that
-uses only a pure plugin receives no plugin native sources or dependencies.
-
-Use `nexa audit app.nx --target all --out audit.json` to record optimized
-capabilities, generated source byte counts, selected dependencies, and compiler
-warnings. Native binary sizes remain `null` until an Android release build or
-Xcode archive is supplied; source size is never presented as a binary-size
-measurement.
+Local package discovery, pure-source loading, typed native parsing, direct
+Swift/Kotlin contract generation, asset reachability, and compile-time options
+are implemented. Package installation/version resolution, native implementation
+conformance checks, stateful object lowering, typed error recovery in `.nx`,
+instance-scoped events, native visual component lowering, SPM/Maven dependency
+injection, and optional generated C++ adapters remain planned work. See
+`plugin-plan.md` for the full migration and test matrix.

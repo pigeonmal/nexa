@@ -178,24 +178,57 @@ fn fingerprint_plugins(
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join(&plugin.path);
-        if declared.is_dir() && declared.join("plugin.nx").is_file() {
-            let source = declared.join("plugin.nx");
-            fingerprint_file(&source, false, include_plugin_sources, visited, hasher)?;
-            if include_plugin_sources {
-                fingerprint_directory(
-                    &declared.join("assets"),
+        if declared.is_dir() {
+            let manifest_path = declared.join("plugin.config.nx");
+            fingerprint_file(
+                &manifest_path,
+                false,
+                include_plugin_sources,
+                visited,
+                hasher,
+            )?;
+            let manifest = nexa_plugin_idl::manifest::parse_file(&manifest_path)?;
+            if let Some(source) = manifest.nexa {
+                fingerprint_file(
+                    &declared.join(source),
+                    false,
                     include_plugin_sources,
                     visited,
                     hasher,
                 )?;
             }
+            if include_plugin_sources {
+                for asset in manifest.assets {
+                    let asset = asset.strip_suffix("/**").unwrap_or(&asset);
+                    fingerprint_directory(
+                        &declared.join(asset),
+                        include_plugin_sources,
+                        visited,
+                        hasher,
+                    )?;
+                }
+            }
+            if let Some(native) = manifest.native {
+                let idl = declared.join(native);
+                fingerprint_file(&idl, false, include_plugin_sources, visited, hasher)?;
+                if include_plugin_sources {
+                    fingerprint_directory(
+                        &declared.join("ios/Sources"),
+                        include_plugin_sources,
+                        visited,
+                        hasher,
+                    )?;
+                    fingerprint_directory(
+                        &declared.join("android/src/main/kotlin"),
+                        include_plugin_sources,
+                        visited,
+                        hasher,
+                    )?;
+                }
+            }
             continue;
         }
-        let idl = if declared.is_dir() {
-            declared.join("interfaces.nxid")
-        } else {
-            declared
-        };
+        let idl = declared;
         fingerprint_file(&idl, false, include_plugin_sources, visited, hasher)?;
         if include_plugin_sources {
             let plugin_root = idl
