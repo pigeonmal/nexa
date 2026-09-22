@@ -1178,7 +1178,9 @@ generated native source, diagnostics, or complete host projects. Dependency/plug
 package resolution and native release signing remain future work. Generated
 Android release variants enable R8 code shrinking, resource shrinking, and the
 optimized default Android ruleset; the project-specific keep file stays empty
-because generated bindings use direct calls rather than reflection.
+because generated bindings use direct calls rather than reflection. Generated
+iOS Release targets use whole-module Swift `-O`, dead-code stripping, and
+size-oriented Clang optimization.
 
 Incremental compilation should be a major priority.
 
