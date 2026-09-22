@@ -411,6 +411,10 @@ pub(super) fn render(
         features.uses_navigation_link,
         "androidx.compose.material3.TextButton",
     );
+    add(
+        features.uses_navigation_link,
+        "androidx.navigation.NavHostController",
+    );
     add(has_navigation, "androidx.navigation.compose.NavHost");
     add(has_navigation, "androidx.navigation.compose.composable");
     add(

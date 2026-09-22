@@ -254,6 +254,9 @@ pub(super) fn render_node(
             if features.component_requires_system_theme(name) {
                 rendered_arguments.push("nexaIsDarkTheme".to_owned());
             }
+            if features.component_requires_navigation(name) {
+                rendered_arguments.push("navController".to_owned());
+            }
             out.push_str(&format!(
                 "{}({})",
                 nexa_codegen::names::component_name(name),

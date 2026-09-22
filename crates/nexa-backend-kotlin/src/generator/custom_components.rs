@@ -37,14 +37,21 @@ fn render_component(component: &Component, module: &Module, features: &Features,
             .join(", "),
     );
     let needs_system_theme = features.component_requires_system_theme(&component.name);
+    let needs_navigation = features.component_requires_navigation(&component.name);
     if needs_system_theme && !component.parameters.is_empty() {
         out.push_str(", ");
     }
     if needs_system_theme {
         out.push_str("nexaIsDarkTheme: Boolean");
     }
-    if component_has_content_slot(component) {
+    if needs_navigation {
         if needs_system_theme || !component.parameters.is_empty() {
+            out.push_str(", ");
+        }
+        out.push_str("navController: NavHostController");
+    }
+    if component_has_content_slot(component) {
+        if needs_system_theme || needs_navigation || !component.parameters.is_empty() {
             out.push_str(", ");
         }
         out.push_str("nexaContent: @Composable () -> Unit");

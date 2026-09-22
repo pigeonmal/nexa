@@ -60,6 +60,16 @@ pub(super) fn generate(module: &Module) -> String {
         out.push_str("}\n\n");
     }
     structs::render(module, &mut out);
+    if !module.screens.is_empty() {
+        out.push_str("private enum NexaNavigationRoute: Hashable {\n");
+        for screen in &module.screens {
+            out.push_str(&format!(
+                "    case {}\n",
+                nexa_codegen::names::navigation_case_name(screen.id)
+            ));
+        }
+        out.push_str("}\n\n");
+    }
     out.push_str(&format!(
         "public struct {}: View {{\n",
         nexa_codegen::names::screen_name(&module.app_name)
@@ -80,16 +90,6 @@ pub(super) fn generate(module: &Module) -> String {
             "    @FocusState private var {}: Bool\n",
             nexa_codegen::names::state_name(binding),
         ));
-    }
-    if !module.screens.is_empty() {
-        out.push_str("\n    private enum NexaNavigationRoute: Hashable {\n");
-        for screen in &module.screens {
-            out.push_str(&format!(
-                "        case {}\n",
-                nexa_codegen::names::navigation_case_name(screen.id)
-            ));
-        }
-        out.push_str("    }\n");
     }
     if !module.states.is_empty() {
         out.push('\n');

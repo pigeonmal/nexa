@@ -90,6 +90,7 @@ pub(super) struct Features {
     pub(super) uses_mutable_float_state: bool,
     pub(super) uses_mutable_generic_state: bool,
     component_theme: HashSet<String>,
+    components_using_navigation: HashSet<String>,
     components_using_link: HashSet<String>,
 }
 
@@ -145,6 +146,7 @@ impl Features {
 
         let mut direct_theme = HashSet::new();
         let mut components_using_link = HashSet::new();
+        let mut components_using_navigation = HashSet::new();
         let mut app_uses_link = false;
         let mut calls = HashMap::<String, Vec<String>>::with_capacity(module.components.len());
         walk_ir(
@@ -191,6 +193,7 @@ impl Features {
             let mut child_calls = Vec::new();
             let mut uses_theme = false;
             let mut uses_link = false;
+            let mut uses_navigation = false;
             walk_ir(
                 &component.body,
                 &mut |node| {
@@ -208,6 +211,7 @@ impl Features {
                                 .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
                         }
                         Node::Link { .. } => uses_link = true,
+                        Node::NavigationLink { .. } => uses_navigation = true,
                         _ => {}
                     }
                 },
@@ -223,11 +227,19 @@ impl Features {
             if uses_link {
                 components_using_link.insert(component.name.clone());
             }
+            if uses_navigation {
+                components_using_navigation.insert(component.name.clone());
+            }
             calls.insert(component.name.clone(), child_calls);
         }
 
         features.component_theme =
             components_requiring_theme(&module.components, &direct_theme, &calls);
+        features.components_using_navigation = components_requiring_navigation(
+            &module.components,
+            &components_using_navigation,
+            &calls,
+        );
         features.components_using_link = components_using_link;
         features.app_uses_link = app_uses_link;
         features.uses_regular_width = uses_regular_width;
@@ -242,6 +254,10 @@ impl Features {
 
     pub(super) fn component_uses_link(&self, name: &str) -> bool {
         self.components_using_link.contains(name)
+    }
+
+    pub(super) fn component_requires_navigation(&self, name: &str) -> bool {
+        self.components_using_navigation.contains(name)
     }
 
     fn record_state(&mut self, state: &State) {
@@ -490,6 +506,48 @@ fn components_requiring_theme(
         );
     }
     required
+}
+
+fn components_requiring_navigation(
+    components: &[Component],
+    direct_navigation: &HashSet<String>,
+    calls: &HashMap<String, Vec<String>>,
+) -> HashSet<String> {
+    let mut required = HashSet::with_capacity(direct_navigation.len());
+    let mut completed = HashSet::with_capacity(components.len());
+    for component in components {
+        component_requires_navigation(
+            &component.name,
+            direct_navigation,
+            calls,
+            &mut required,
+            &mut completed,
+        );
+    }
+    required
+}
+
+fn component_requires_navigation(
+    name: &str,
+    direct_navigation: &HashSet<String>,
+    calls: &HashMap<String, Vec<String>>,
+    required: &mut HashSet<String>,
+    completed: &mut HashSet<String>,
+) -> bool {
+    if completed.contains(name) {
+        return required.contains(name);
+    }
+    completed.insert(name.to_owned());
+    let needs_navigation = direct_navigation.contains(name)
+        || calls.get(name).is_some_and(|children| {
+            children.iter().any(|child| {
+                component_requires_navigation(child, direct_navigation, calls, required, completed)
+            })
+        });
+    if needs_navigation {
+        required.insert(name.to_owned());
+    }
+    needs_navigation
 }
 
 fn component_requires_theme(

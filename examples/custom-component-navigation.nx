@@ -1,0 +1,26 @@
+component ProfileLink() {
+    body {
+        NavigationLink(destination: Profile) {
+            Text("Open profile")
+        }
+    }
+}
+
+app CustomComponentNavigation {
+    screen Home {
+        Column {
+            Text("Home")
+            ProfileLink()
+        }
+    }
+
+    screen Profile {
+        Column {
+            Text("Profile")
+        }
+    }
+
+    body {
+        NavigationStack(root: Home)
+    }
+}

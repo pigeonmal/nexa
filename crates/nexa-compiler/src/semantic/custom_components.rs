@@ -148,16 +148,6 @@ fn lower_component(
     enum_symbols: &HashMap<String, (Type, bool)>,
     target: Target,
 ) -> Result<Component, CompileError> {
-    if declaration
-        .body
-        .iter()
-        .any(|node| contains_navigation_link(node, target))
-    {
-        return Err(CompileError::new(
-            declaration.span,
-            "`NavigationLink` inside a custom component is not supported yet",
-        ));
-    }
     let signature = &signatures[&declaration.name];
     let mut symbols = HashMap::with_capacity(signature.parameters.len() + declaration.states.len());
     symbols.extend(
@@ -387,84 +377,6 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
         | ast::Node::OnAppear { .. }
         | ast::Node::OnDisappear { .. } => {}
     }
-}
-
-fn contains_navigation_link(node: &ast::Node, target: Target) -> bool {
-    match node {
-        ast::Node::NavigationLink { .. } => true,
-        ast::Node::Platform {
-            target: platform,
-            children,
-            ..
-        } => {
-            (target == Target::All || platform_matches(*platform, target))
-                && children
-                    .iter()
-                    .any(|child| contains_navigation_link(child, target))
-        }
-        ast::Node::Layout { children, .. }
-        | ast::Node::Pressable { children, .. }
-        | ast::Node::KeyboardAware { children, .. }
-        | ast::Node::BottomSheet { children, .. }
-        | ast::Node::Link { children, .. }
-        | ast::Node::Accessibility { children, .. }
-        | ast::Node::RefreshControl { children, .. }
-        | ast::Node::FastList { children, .. } => children
-            .iter()
-            .any(|child| contains_navigation_link(child, target)),
-        ast::Node::AppBottomBar { tabs, .. } => tabs.iter().any(|tab| {
-            tab.children
-                .iter()
-                .any(|child| contains_navigation_link(child, target))
-        }),
-        ast::Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            then_body
-                .iter()
-                .any(|child| contains_navigation_link(child, target))
-                || else_body.as_ref().is_some_and(|body| {
-                    body.iter()
-                        .any(|child| contains_navigation_link(child, target))
-                })
-        }
-        ast::Node::When {
-            cases, else_body, ..
-        } => {
-            cases.iter().any(|case| {
-                case.body
-                    .iter()
-                    .any(|child| contains_navigation_link(child, target))
-            }) || else_body
-                .iter()
-                .any(|child| contains_navigation_link(child, target))
-        }
-        ast::Node::StatusBar { .. } => false,
-        ast::Node::ComponentCall { children, .. } => children.as_ref().is_some_and(|children| {
-            children
-                .iter()
-                .any(|child| contains_navigation_link(child, target))
-        }),
-        ast::Node::Text { .. }
-        | ast::Node::Button { .. }
-        | ast::Node::TextInput { .. }
-        | ast::Node::Switch { .. }
-        | ast::Node::Image { .. }
-        | ast::Node::NavigationStack { .. }
-        | ast::Node::Content { .. }
-        | ast::Node::Direction { .. }
-        | ast::Node::OnAppear { .. }
-        | ast::Node::OnDisappear { .. } => false,
-    }
-}
-
-fn platform_matches(platform: ast::PlatformTarget, target: Target) -> bool {
-    matches!(
-        (platform, target),
-        (ast::PlatformTarget::Ios, Target::Swift) | (ast::PlatformTarget::Android, Target::Kotlin)
-    )
 }
 
 fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
