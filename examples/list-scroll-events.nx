@@ -1,0 +1,13 @@
+app FastListScrollEventsDemo {
+    state rows: Array<String> = ["First", "Second", "Third", "Fourth"]
+    state scrollEvents: Int32 = 0
+
+    body {
+        FastList(items: rows, index: index, item: row, itemExtent: 52, key: row) {
+            Text("\(index): \(row)")
+        } onScroll {
+            scrollEvents = scrollEvents + 1
+        }
+        Text("Scroll events: \(scrollEvents)")
+    }
+}

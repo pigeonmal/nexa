@@ -335,6 +335,7 @@ pub enum Node {
         scroll_position: Option<Expr>,
         children: Vec<Node>,
         on_end_reached: Option<Vec<Stmt>>,
+        on_scroll: Option<Vec<Stmt>>,
         sticky_header: Option<Vec<Node>>,
         span: Span,
     },

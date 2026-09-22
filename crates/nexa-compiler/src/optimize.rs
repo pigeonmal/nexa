@@ -733,6 +733,7 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
             }
             Node::FastList {
                 on_end_reached,
+                on_scroll,
                 refresh,
                 scroll_position,
                 ..
@@ -741,6 +742,9 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
                     bindings.push(scroll_position.clone());
                 }
                 if let Some(actions) = on_end_reached {
+                    collect_action_bindings(actions, &mut bindings);
+                }
+                if let Some(actions) = on_scroll {
                     collect_action_bindings(actions, &mut bindings);
                 }
                 if let Some(refresh) = refresh {
@@ -895,6 +899,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             key,
             children,
             on_end_reached,
+            on_scroll,
             sticky_header,
             refresh,
             scroll_position,
@@ -907,6 +912,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             key: key.map(fold_expression),
             children: optimize_nodes(children),
             on_end_reached: on_end_reached.map(optimize_actions),
+            on_scroll: on_scroll.map(optimize_actions),
             sticky_header: sticky_header.map(optimize_nodes),
             scroll_position,
             refresh: refresh.map(|refresh| nexa_ir::FastListRefresh {

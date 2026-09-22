@@ -15,6 +15,7 @@ pub(super) fn render_virtualized_list(
     key: Option<&Expr>,
     children: &[Node],
     on_end_reached: Option<&[Action]>,
+    on_scroll: Option<&[Action]>,
     scroll_position: Option<&str>,
     sticky_header: Option<&[Node]>,
     refresh: Option<&FastListRefresh>,
@@ -34,6 +35,7 @@ pub(super) fn render_virtualized_list(
             key,
             children,
             on_end_reached,
+            on_scroll,
             scroll_position,
             sticky_header,
             refresh,
@@ -44,7 +46,7 @@ pub(super) fn render_virtualized_list(
             out,
         );
     }
-    let list_state = (on_end_reached.is_some() || scroll_position.is_some())
+    let list_state = (on_end_reached.is_some() || on_scroll.is_some() || scroll_position.is_some())
         .then(|| format!("nexaListState{list_id}"));
     let list_count = on_end_reached.map(|_| format!("nexaListCount{list_id}"));
     if let Some(list_state) = &list_state {
@@ -57,6 +59,7 @@ pub(super) fn render_virtualized_list(
             marker.as_deref(),
             on_end_reached,
             scroll_position,
+            on_scroll,
             depth,
             out,
         );
@@ -156,6 +159,7 @@ fn render_grid_list(
     key: Option<&Expr>,
     children: &[Node],
     on_end_reached: Option<&[Action]>,
+    on_scroll: Option<&[Action]>,
     scroll_position: Option<&str>,
     _sticky_header: Option<&[Node]>,
     refresh: Option<&FastListRefresh>,
@@ -165,7 +169,7 @@ fn render_grid_list(
     list_id: usize,
     out: &mut String,
 ) {
-    let list_state = (on_end_reached.is_some() || scroll_position.is_some())
+    let list_state = (on_end_reached.is_some() || on_scroll.is_some() || scroll_position.is_some())
         .then(|| format!("nexaGridState{list_id}"));
     let list_count = on_end_reached.map(|_| format!("nexaGridCount{list_id}"));
     if let Some(list_state) = &list_state {
@@ -178,6 +182,7 @@ fn render_grid_list(
             marker.as_deref(),
             on_end_reached,
             scroll_position,
+            on_scroll,
             depth,
             out,
         );
@@ -288,6 +293,7 @@ fn render_list_observers(
     marker: Option<&str>,
     end_actions: Option<&[Action]>,
     scroll_position: Option<&str>,
+    scroll_actions: Option<&[Action]>,
     depth: usize,
     out: &mut String,
 ) {
@@ -335,7 +341,14 @@ fn render_list_observers(
         indent(out, depth);
         out.push_str("}\n");
     }
-    if let Some(scroll_position) = scroll_position.as_deref() {
+    if scroll_position.is_some() || scroll_actions.is_some() {
+        let scroll_marker = scroll_actions.map(|_| format!("nexaScrollEvent{list_state}"));
+        if let Some(scroll_marker) = scroll_marker.as_deref() {
+            indent(out, depth);
+            out.push_str(&format!(
+                "var {scroll_marker} by remember {{ mutableIntStateOf(-1) }}\n"
+            ));
+        }
         indent(out, depth);
         out.push_str(&format!("LaunchedEffect({list_state}) {{\n"));
         indent(out, depth + 1);
@@ -343,25 +356,39 @@ fn render_list_observers(
             "snapshotFlow {{ {list_state}.firstVisibleItemIndex }}.collect {{ firstVisible ->\n"
         ));
         indent(out, depth + 2);
-        out.push_str(&format!(
-            "if (firstVisible != {scroll_position}) {scroll_position} = firstVisible\n"
-        ));
+        if let Some(scroll_position) = scroll_position.as_deref() {
+            out.push_str(&format!(
+                "if (firstVisible != {scroll_position}) {scroll_position} = firstVisible\n"
+            ));
+        }
+        if let (Some(scroll_marker), Some(scroll_actions)) =
+            (scroll_marker.as_deref(), scroll_actions)
+        {
+            out.push_str(&format!("if (firstVisible != {scroll_marker}) {{\n"));
+            indent(out, depth + 3);
+            out.push_str(&format!("{scroll_marker} = firstVisible\n"));
+            render_actions(scroll_actions, depth + 3, out);
+            indent(out, depth + 2);
+            out.push_str("}\n");
+        }
         indent(out, depth + 1);
         out.push_str("}\n");
         indent(out, depth);
         out.push_str("}\n");
-        indent(out, depth);
-        out.push_str(&format!("LaunchedEffect({scroll_position}) {{\n"));
-        indent(out, depth + 1);
-        out.push_str(&format!(
-            "val target = {scroll_position}.coerceAtLeast(0)\n"
-        ));
-        indent(out, depth + 1);
-        out.push_str(&format!(
-            "if (target != {list_state}.firstVisibleItemIndex) {list_state}.scrollToItem(target)\n"
-        ));
-        indent(out, depth);
-        out.push_str("}\n");
+        if let Some(scroll_position) = scroll_position.as_deref() {
+            indent(out, depth);
+            out.push_str(&format!("LaunchedEffect({scroll_position}) {{\n"));
+            indent(out, depth + 1);
+            out.push_str(&format!(
+                "val target = {scroll_position}.coerceAtLeast(0)\n"
+            ));
+            indent(out, depth + 1);
+            out.push_str(&format!(
+                "if (target != {list_state}.firstVisibleItemIndex) {list_state}.scrollToItem(target)\n"
+            ));
+            indent(out, depth);
+            out.push_str("}\n");
+        }
     }
 }
 

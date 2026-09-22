@@ -1088,6 +1088,7 @@ impl Parser {
                 let scroll_position = args.remove("scrollPosition");
                 let children = self.block_nodes()?;
                 let mut on_end_reached = None;
+                let mut on_scroll = None;
                 let mut sticky_header = None;
                 loop {
                     if self.word_is("onEndReached") {
@@ -1097,6 +1098,12 @@ impl Parser {
                         }
                         self.advance();
                         on_end_reached = Some(self.block_stmts()?);
+                    } else if self.word_is("onScroll") {
+                        if on_scroll.is_some() {
+                            return self.error_here("FastList accepts only one `onScroll` block");
+                        }
+                        self.advance();
+                        on_scroll = Some(self.block_stmts()?);
                     } else if self.word_is("stickyHeader") {
                         if sticky_header.is_some() {
                             return self
@@ -1118,6 +1125,7 @@ impl Parser {
                     scroll_position,
                     children,
                     on_end_reached,
+                    on_scroll,
                     sticky_header,
                     span,
                 })

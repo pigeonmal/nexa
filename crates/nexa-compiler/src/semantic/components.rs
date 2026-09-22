@@ -660,6 +660,7 @@ pub(super) fn lower_node(
             scroll_position,
             children,
             on_end_reached,
+            on_scroll,
             sticky_header,
             span,
         } => {
@@ -837,6 +838,9 @@ pub(super) fn lower_node(
             let on_end_reached = on_end_reached
                 .map(|actions| lower_actions(actions, symbols, functions, false))
                 .transpose()?;
+            let on_scroll = on_scroll
+                .map(|actions| lower_actions(actions, symbols, functions, false))
+                .transpose()?;
             let sticky_header = sticky_header
                 .map(|header| {
                     lower_nodes(
@@ -854,6 +858,7 @@ pub(super) fn lower_node(
                 scroll_position,
                 children: lowered_children,
                 on_end_reached,
+                on_scroll,
                 sticky_header,
                 refresh: None,
             })

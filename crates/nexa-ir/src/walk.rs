@@ -54,6 +54,7 @@ pub fn walk_ir(
                 key,
                 children,
                 on_end_reached,
+                on_scroll,
                 sticky_header,
                 refresh,
                 ..
@@ -63,6 +64,9 @@ pub fn walk_ir(
                     walk_expression(key, visit_expression);
                 }
                 if let Some(actions) = on_end_reached {
+                    walk_actions(actions, visit_expression);
+                }
+                if let Some(actions) = on_scroll {
                     walk_actions(actions, visit_expression);
                 }
                 if let Some(refresh) = refresh {

@@ -54,6 +54,9 @@ pub(super) struct Features {
     pub(super) uses_list_scroll_position: bool,
     pub(super) uses_linear_list_scroll_position: bool,
     pub(super) uses_grid_scroll_position: bool,
+    pub(super) uses_list_scroll_events: bool,
+    pub(super) uses_linear_list_scroll_events: bool,
+    pub(super) uses_grid_scroll_events: bool,
     pub(super) uses_sticky_header: bool,
     pub(super) uses_keyboard_aware: bool,
     pub(super) uses_keyboard_interactive: bool,
@@ -524,6 +527,7 @@ impl Features {
                 axis,
                 item_extent,
                 on_end_reached,
+                on_scroll,
                 refresh,
                 scroll_position,
                 sticky_header,
@@ -537,6 +541,11 @@ impl Features {
                     scroll_position.is_some() && !matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_grid_scroll_position |=
                     scroll_position.is_some() && matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                self.uses_list_scroll_events |= on_scroll.is_some();
+                self.uses_linear_list_scroll_events |=
+                    on_scroll.is_some() && !matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                self.uses_grid_scroll_events |=
+                    on_scroll.is_some() && matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_list |= matches!(axis, nexa_ir::ListAxis::Vertical);
                 self.uses_linear_list |= !matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_horizontal_list |= matches!(axis, nexa_ir::ListAxis::Horizontal);
@@ -548,6 +557,8 @@ impl Features {
                     on_end_reached.is_some() && matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_mutable_state |= on_end_reached.is_some();
                 self.uses_mutable_int_state |= on_end_reached.is_some();
+                self.uses_mutable_state |= on_scroll.is_some();
+                self.uses_mutable_int_state |= on_scroll.is_some();
                 if item_extent.is_some() {
                     self.uses_box = true;
                     self.uses_modifier = true;

@@ -382,6 +382,7 @@ fn walk_node(
             scroll_position,
             children,
             on_end_reached,
+            on_scroll,
             sticky_header,
             span,
         } => {
@@ -397,6 +398,9 @@ fn walk_node(
                 walk_expression(scroll_position, names, used);
             }
             if let Some(actions) = on_end_reached {
+                walk_actions(actions, names, used, target, file, warnings);
+            }
+            if let Some(actions) = on_scroll {
                 walk_actions(actions, names, used, target, file, warnings);
             }
             if let Some(sticky_header) = sticky_header {

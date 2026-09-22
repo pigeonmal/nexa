@@ -14,6 +14,7 @@ pub(super) fn render_virtualized_list(
     key: Option<&Expr>,
     children: &[Node],
     on_end_reached: Option<&[Action]>,
+    on_scroll: Option<&[Action]>,
     scroll_position: Option<&str>,
     sticky_header: Option<&[Node]>,
     refresh: Option<&FastListRefresh>,
@@ -38,6 +39,7 @@ pub(super) fn render_virtualized_list(
                 &key,
                 item_extent,
                 on_end_reached,
+                on_scroll,
                 scroll_position,
                 sticky_header,
                 refresh,
@@ -71,6 +73,7 @@ pub(super) fn render_virtualized_list(
                 &key,
                 item_extent,
                 on_end_reached,
+                on_scroll,
                 scroll_position,
                 sticky_header,
                 refresh,
@@ -127,6 +130,7 @@ fn open_list(
     key: &str,
     item_extent: Option<f32>,
     on_end_reached: Option<&[Action]>,
+    on_scroll: Option<&[Action]>,
     scroll_position: Option<&str>,
     sticky_header: Option<&[Node]>,
     refresh: Option<&FastListRefresh>,
@@ -135,6 +139,7 @@ fn open_list(
     out: &mut String,
 ) {
     if on_end_reached.is_some()
+        || on_scroll.is_some()
         || scroll_position.is_some()
         || sticky_header.is_some()
         || refresh.is_some()
@@ -176,6 +181,12 @@ fn open_list(
         }
         if let Some(actions) = on_end_reached {
             out.push_str(", onEndReached: {\n");
+            render_actions(actions, depth + 1, out);
+            indent(out, depth);
+            out.push('}');
+        }
+        if let Some(actions) = on_scroll {
+            out.push_str(", onScroll: {\n");
             render_actions(actions, depth + 1, out);
             indent(out, depth);
             out.push('}');
