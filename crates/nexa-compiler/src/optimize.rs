@@ -73,6 +73,12 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
             collect_expression_state_names(right, names);
         }
         Expr::Not(value) | Expr::Await(value) => collect_expression_state_names(value, names),
+        Expr::Index {
+            collection, index, ..
+        } => {
+            collect_expression_state_names(collection, names);
+            collect_expression_state_names(index, names);
+        }
         Expr::Array(items) | Expr::Set(items) => {
             for item in items {
                 collect_expression_state_names(item, names);
@@ -121,6 +127,9 @@ fn is_pure_expression(expression: &Expr) -> bool {
             is_pure_expression(left) && is_pure_expression(right)
         }
         Expr::Not(value) => is_pure_expression(value),
+        Expr::Index {
+            collection, index, ..
+        } => is_pure_expression(collection) && is_pure_expression(index),
         Expr::Array(items) | Expr::Set(items) => items.iter().all(is_pure_expression),
         Expr::Map(entries) => entries
             .iter()
@@ -685,6 +694,15 @@ fn fold_expression(expression: Expr) -> Expr {
             arguments: arguments.into_iter().map(fold_expression).collect(),
             return_type,
             is_async,
+        },
+        Expr::Index {
+            collection,
+            index,
+            element_type,
+        } => Expr::Index {
+            collection: Box::new(fold_expression(*collection)),
+            index: Box::new(fold_expression(*index)),
+            element_type,
         },
         Expr::Await(value) => Expr::Await(Box::new(fold_expression(*value))),
         Expr::Interpolation(parts) => Expr::Interpolation(

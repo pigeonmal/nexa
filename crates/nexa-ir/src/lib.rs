@@ -151,6 +151,11 @@ pub enum Expr {
         return_type: Type,
         is_async: bool,
     },
+    Index {
+        collection: Box<Expr>,
+        index: Box<Expr>,
+        element_type: Type,
+    },
     Await(Box<Expr>),
     IsRegularWidth,
 }

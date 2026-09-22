@@ -66,6 +66,9 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
             references_state(first) || references_state(second) || references_state(third)
         }
         ast::Expr::Call(_, arguments, _) => arguments.iter().any(references_state),
+        ast::Expr::Index(collection, index, _) => {
+            references_state(collection) || references_state(index)
+        }
         ast::Expr::Await(value, _) => references_state(value),
         ast::Expr::Interpolation(parts, _) => parts
             .iter()
@@ -306,6 +309,31 @@ pub(super) fn lower_expr(
             allow_await,
             false,
         ),
+        ast::Expr::Index(collection, index, span) => {
+            let Some(Type::Array(element_type)) = infer_expr_type(collection, symbols, functions)
+            else {
+                return Err(CompileError::new(
+                    *span,
+                    "collection indexing requires an Array<T> value",
+                ));
+            };
+            let index_type = Type::Numeric(NumericType::Int32);
+            let lowered_collection = lower_expr(
+                collection,
+                Some(&Type::Array(element_type.clone())),
+                symbols,
+                functions,
+                allow_await,
+            )?;
+            let lowered_index =
+                lower_expr(index, Some(&index_type), symbols, functions, allow_await)?;
+            require_expected(expected, &element_type, *span)?;
+            Ok(Expr::Index {
+                collection: Box::new(lowered_collection),
+                index: Box::new(lowered_index),
+                element_type: (*element_type).clone(),
+            })
+        }
         ast::Expr::Await(value, span) => {
             if !allow_await {
                 return Err(CompileError::new(
@@ -516,6 +544,11 @@ pub(super) fn infer_expr_type(
         ast::Expr::Call(name, _, _) => functions
             .get(name)
             .map(|signature| signature.return_type.clone()),
+        ast::Expr::Index(collection, _, _) => match infer_expr_type(collection, symbols, functions)
+        {
+            Some(Type::Array(element_type)) => Some(*element_type),
+            _ => None,
+        },
         ast::Expr::Await(value, _) => infer_expr_type(value, symbols, functions),
         ast::Expr::ThemeToken(_, _) => None,
         ast::Expr::Add(left_expr, right_expr, _) => {

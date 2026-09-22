@@ -32,6 +32,9 @@ pub(super) fn expression(expr: &Expr) -> String {
         },
         Expr::State(name, _) => state_name(name),
         Expr::Not(value) => format!("(!{})", expression(value)),
+        Expr::Index {
+            collection, index, ..
+        } => format!("{}[Int({})]", expression(collection), expression(index)),
         Expr::Array(items) => format!(
             "[{}]",
             items.iter().map(expression).collect::<Vec<_>>().join(", ")

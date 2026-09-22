@@ -123,6 +123,12 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
                 walk_expression(argument, visit);
             }
         }
+        Expr::Index {
+            collection, index, ..
+        } => {
+            walk_expression(collection, visit);
+            walk_expression(index, visit);
+        }
         Expr::Await(value) => walk_expression(value, visit),
         Expr::Interpolation(parts) => {
             for part in parts {

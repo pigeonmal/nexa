@@ -67,7 +67,7 @@ Numeric types should include explicit types such as:
 - Float32
 - Float64
 
-The current compiler supports the scalar types above plus `Array<T>`, `Set<T>`, `Map<K, V>`, `Pair<A, B>`, and `Triple<A, B, C>` as contextually typed value declarations and literals. These map directly to Swift value types/tuples and Kotlin collection or tuple-value types. Set elements and map keys are currently limited to scalar `String`, `Bool`, and numeric types for native hashability. Collection lookup, mutation, iteration, and transformations are still roadmap work.
+The current compiler supports the scalar types above plus `Array<T>`, `Set<T>`, `Map<K, V>`, `Pair<A, B>`, and `Triple<A, B, C>` as contextually typed value declarations and literals. These map directly to Swift value types/tuples and Kotlin collection or tuple-value types. Array indexing with an `Int32` index is implemented as direct native subscripting. Set elements and map keys are currently limited to scalar `String`, `Bool`, and numeric types for native hashability. Collection key lookup, mutation, iteration, and transformations are still roadmap work.
 
 Generated modules that use remote images also receive a feature-gated native network/file library. iOS uses URLSession with a 16 MiB memory and 64 MiB disk URLCache; Android uses Play Services Cronet with a 64 MiB disk cache, HTTP/2, QUIC, and Brotli, and Coil 3 is wired to that same Cronet client. The library exposes asynchronous fetch/download options, optional certificate pinning, path directories, and asynchronous file reads/writes without a shared runtime bridge.
 

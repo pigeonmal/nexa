@@ -954,6 +954,17 @@ impl Parser {
     }
 
     fn primary(&mut self) -> Result<Expr, CompileError> {
+        let mut expression = self.primary_atom()?;
+        while self.take(&Kind::LBracket) {
+            let span = expression.span();
+            let index = self.expr()?;
+            self.expect(Kind::RBracket, "expected `]` after collection index")?;
+            expression = Expr::Index(Box::new(expression), Box::new(index), span);
+        }
+        Ok(expression)
+    }
+
+    fn primary_atom(&mut self) -> Result<Expr, CompileError> {
         if self.check(&Kind::Minus) {
             let minus_span = self.advance().span;
             let token = self.advance().clone();

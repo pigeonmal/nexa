@@ -1,0 +1,16 @@
+app CollectionIndexingDemo {
+    let labels = ["Nexa", "Swift", "Kotlin"]
+    let selected = 1
+
+    body {
+        Column {
+            Text(labels[selected])
+            FastList(items: labels, index: position, item: label) {
+                Row(spacing: 8, alignment: Center) {
+                    Text(position)
+                    Text(label)
+                }
+            }
+        }
+    }
+}

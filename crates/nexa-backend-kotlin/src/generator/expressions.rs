@@ -28,6 +28,9 @@ pub(super) fn expression(expr: &Expr) -> String {
         Expr::Number { raw, ty } => kotlin_number(raw, *ty),
         Expr::State(name, _) => state_name(name),
         Expr::Not(value) => format!("(!{})", expression(value)),
+        Expr::Index {
+            collection, index, ..
+        } => format!("{}[{}]", expression(collection), expression(index)),
         Expr::Array(items) => format!(
             "listOf({})",
             items.iter().map(expression).collect::<Vec<_>>().join(", ")
