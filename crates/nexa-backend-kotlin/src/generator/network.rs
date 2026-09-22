@@ -71,7 +71,7 @@ private class NexaUploadProvider(private val payload: ByteArray) : UploadDataPro
 
 private class NexaCronetRequestClient(
     private val engine: CronetEngine,
-)
+) {
 
     suspend fun execute(
         url: String,

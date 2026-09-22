@@ -53,7 +53,7 @@ private final class NexaURLSessionDelegate: NSObject, URLSessionTaskDelegate {
         }
 
         guard SecTrustEvaluateWithError(trust, nil),
-              let certificate = SecTrustGetCertificateAtIndex(trust, 0) else {
+              let certificate = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first else {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
