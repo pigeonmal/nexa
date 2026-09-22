@@ -21,6 +21,9 @@ fn render_component(component: &Component, module: &Module, features: &Features,
     if features.component_uses_keyboard_interactive(&component.name) {
         out.push_str("\n@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)");
     }
+    if component_uses_sticky_header(component) {
+        out.push_str("\n@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)");
+    }
     out.push_str(&format!(
         "\n@Composable\nprivate fun {}(",
         nexa_codegen::names::component_name(&component.name)
@@ -104,6 +107,24 @@ fn component_uses_bottom_sheet(component: &Component) -> bool {
     walk_ir(
         &component.body,
         &mut |node| found |= matches!(node, Node::BottomSheet { .. }),
+        &mut |_| {},
+    );
+    found
+}
+
+fn component_uses_sticky_header(component: &Component) -> bool {
+    let mut found = false;
+    walk_ir(
+        &component.body,
+        &mut |node| {
+            found |= matches!(
+                node,
+                Node::FastList {
+                    sticky_header: Some(_),
+                    ..
+                }
+            )
+        },
         &mut |_| {},
     );
     found
