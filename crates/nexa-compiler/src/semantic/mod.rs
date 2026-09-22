@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use nexa_diagnostics::{CompileError, CompileWarning};
+use nexa_ir::walk::any_node;
 use nexa_ir::{
     Action, DirectionConfig, Function, FunctionLocal, FunctionParameter, Module, Node, Screen,
     ScreenId, State, StatusBarConfig, Type,
@@ -975,67 +976,9 @@ fn extract_status_bar(
 }
 
 pub(super) fn contains_status_bar(node: &Node) -> bool {
-    match node {
-        Node::StatusBar { .. } => true,
-        Node::Layout { children, .. }
-        | Node::NavigationLink { children, .. }
-        | Node::Link { children, .. }
-        | Node::Accessibility { children, .. }
-        | Node::KeyboardAware { children, .. }
-        | Node::BottomSheet { children, .. }
-        | Node::RefreshControl { children, .. }
-        | Node::Pressable { children, .. } => children.iter().any(contains_status_bar),
-        Node::FastList {
-            children,
-            sticky_header,
-            section_header,
-            ..
-        } => {
-            children.iter().any(contains_status_bar)
-                || sticky_header
-                    .as_deref()
-                    .is_some_and(|header| header.iter().any(contains_status_bar))
-                || section_header
-                    .as_deref()
-                    .is_some_and(|header| header.iter().any(contains_status_bar))
-        }
-        Node::AppBottomBar { tabs, .. } => tabs
-            .iter()
-            .any(|tab| tab.children.iter().any(contains_status_bar)),
-        Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            then_body.iter().any(contains_status_bar)
-                || else_body
-                    .as_deref()
-                    .is_some_and(|body| body.iter().any(contains_status_bar))
-        }
-        Node::When {
-            cases, else_body, ..
-        } => {
-            cases
-                .iter()
-                .any(|case| case.body.iter().any(contains_status_bar))
-                || else_body.iter().any(contains_status_bar)
-        }
-        Node::Text { .. }
-        | Node::Button { .. }
-        | Node::TextInput { .. }
-        | Node::Switch { .. }
-        | Node::Image { .. }
-        | Node::NavigationStack { .. }
-        | Node::NavigationBack { .. }
-        | Node::ComponentCall { .. }
-        | Node::Content
-        | Node::Direction { .. }
-        | Node::OnAppear { .. }
-        | Node::OnDisappear { .. }
-        | Node::OnActive { .. }
-        | Node::OnInactive { .. }
-        | Node::OnBackground { .. } => false,
-    }
+    any_node(std::slice::from_ref(node), |node| {
+        matches!(node, Node::StatusBar { .. })
+    })
 }
 
 fn extract_direction(
@@ -1067,67 +1010,9 @@ fn extract_direction(
 }
 
 pub(super) fn contains_direction(node: &Node) -> bool {
-    match node {
-        Node::Direction { .. } => true,
-        Node::Layout { children, .. }
-        | Node::NavigationLink { children, .. }
-        | Node::Link { children, .. }
-        | Node::Accessibility { children, .. }
-        | Node::KeyboardAware { children, .. }
-        | Node::BottomSheet { children, .. }
-        | Node::RefreshControl { children, .. }
-        | Node::Pressable { children, .. } => children.iter().any(contains_direction),
-        Node::FastList {
-            children,
-            sticky_header,
-            section_header,
-            ..
-        } => {
-            children.iter().any(contains_direction)
-                || sticky_header
-                    .as_deref()
-                    .is_some_and(|header| header.iter().any(contains_direction))
-                || section_header
-                    .as_deref()
-                    .is_some_and(|header| header.iter().any(contains_direction))
-        }
-        Node::AppBottomBar { tabs, .. } => tabs
-            .iter()
-            .any(|tab| tab.children.iter().any(contains_direction)),
-        Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            then_body.iter().any(contains_direction)
-                || else_body
-                    .as_deref()
-                    .is_some_and(|body| body.iter().any(contains_direction))
-        }
-        Node::When {
-            cases, else_body, ..
-        } => {
-            cases
-                .iter()
-                .any(|case| case.body.iter().any(contains_direction))
-                || else_body.iter().any(contains_direction)
-        }
-        Node::StatusBar { .. }
-        | Node::Text { .. }
-        | Node::Button { .. }
-        | Node::TextInput { .. }
-        | Node::Switch { .. }
-        | Node::Image { .. }
-        | Node::NavigationStack { .. }
-        | Node::NavigationBack { .. }
-        | Node::ComponentCall { .. }
-        | Node::Content
-        | Node::OnAppear { .. }
-        | Node::OnDisappear { .. }
-        | Node::OnActive { .. }
-        | Node::OnInactive { .. }
-        | Node::OnBackground { .. } => false,
-    }
+    any_node(std::slice::from_ref(node), |node| {
+        matches!(node, Node::Direction { .. })
+    })
 }
 
 fn extract_on_appear(
@@ -1165,67 +1050,9 @@ fn extract_on_appear(
 }
 
 pub(super) fn contains_on_appear(node: &Node) -> bool {
-    match node {
-        Node::OnAppear { .. } => true,
-        Node::Layout { children, .. }
-        | Node::NavigationLink { children, .. }
-        | Node::Link { children, .. }
-        | Node::Accessibility { children, .. }
-        | Node::KeyboardAware { children, .. }
-        | Node::BottomSheet { children, .. }
-        | Node::RefreshControl { children, .. }
-        | Node::Pressable { children, .. } => children.iter().any(contains_on_appear),
-        Node::FastList {
-            children,
-            sticky_header,
-            section_header,
-            ..
-        } => {
-            children.iter().any(contains_on_appear)
-                || sticky_header
-                    .as_deref()
-                    .is_some_and(|header| header.iter().any(contains_on_appear))
-                || section_header
-                    .as_deref()
-                    .is_some_and(|header| header.iter().any(contains_on_appear))
-        }
-        Node::AppBottomBar { tabs, .. } => tabs
-            .iter()
-            .any(|tab| tab.children.iter().any(contains_on_appear)),
-        Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            then_body.iter().any(contains_on_appear)
-                || else_body
-                    .as_deref()
-                    .is_some_and(|body| body.iter().any(contains_on_appear))
-        }
-        Node::When {
-            cases, else_body, ..
-        } => {
-            cases
-                .iter()
-                .any(|case| case.body.iter().any(contains_on_appear))
-                || else_body.iter().any(contains_on_appear)
-        }
-        Node::StatusBar { .. }
-        | Node::Direction { .. }
-        | Node::Text { .. }
-        | Node::Button { .. }
-        | Node::TextInput { .. }
-        | Node::Switch { .. }
-        | Node::Image { .. }
-        | Node::NavigationStack { .. }
-        | Node::NavigationBack { .. }
-        | Node::ComponentCall { .. }
-        | Node::Content
-        | Node::OnDisappear { .. }
-        | Node::OnActive { .. }
-        | Node::OnInactive { .. }
-        | Node::OnBackground { .. } => false,
-    }
+    any_node(std::slice::from_ref(node), |node| {
+        matches!(node, Node::OnAppear { .. })
+    })
 }
 
 fn extract_on_disappear(
@@ -1325,150 +1152,18 @@ pub(super) fn contains_on_background(node: &Node) -> bool {
 }
 
 fn contains_lifecycle_event(node: &Node, event: LifecycleEvent) -> bool {
-    match (event, node) {
-        (LifecycleEvent::Active, Node::OnActive { .. })
-        | (LifecycleEvent::Inactive, Node::OnInactive { .. })
-        | (LifecycleEvent::Background, Node::OnBackground { .. }) => true,
-        _ => match node {
-            Node::Layout { children, .. }
-            | Node::NavigationLink { children, .. }
-            | Node::Link { children, .. }
-            | Node::Accessibility { children, .. }
-            | Node::KeyboardAware { children, .. }
-            | Node::BottomSheet { children, .. }
-            | Node::RefreshControl { children, .. }
-            | Node::Pressable { children, .. } => children
-                .iter()
-                .any(|child| contains_lifecycle_event(child, event)),
-            Node::FastList {
-                children,
-                sticky_header,
-                section_header,
-                ..
-            } => {
-                children
-                    .iter()
-                    .any(|child| contains_lifecycle_event(child, event))
-                    || sticky_header.as_deref().is_some_and(|header| {
-                        header
-                            .iter()
-                            .any(|child| contains_lifecycle_event(child, event))
-                    })
-                    || section_header.as_deref().is_some_and(|header| {
-                        header
-                            .iter()
-                            .any(|child| contains_lifecycle_event(child, event))
-                    })
-            }
-            Node::AppBottomBar { tabs, .. } => tabs.iter().any(|tab| {
-                tab.children
-                    .iter()
-                    .any(|child| contains_lifecycle_event(child, event))
-            }),
-            Node::If {
-                then_body,
-                else_body,
-                ..
-            } => {
-                then_body
-                    .iter()
-                    .any(|child| contains_lifecycle_event(child, event))
-                    || else_body.as_deref().is_some_and(|body| {
-                        body.iter()
-                            .any(|child| contains_lifecycle_event(child, event))
-                    })
-            }
-            Node::When {
-                cases, else_body, ..
-            } => {
-                cases.iter().any(|case| {
-                    case.body
-                        .iter()
-                        .any(|child| contains_lifecycle_event(child, event))
-                }) || else_body
-                    .iter()
-                    .any(|child| contains_lifecycle_event(child, event))
-            }
-            Node::StatusBar { .. }
-            | Node::Direction { .. }
-            | Node::OnAppear { .. }
-            | Node::OnDisappear { .. }
-            | Node::OnActive { .. }
-            | Node::OnInactive { .. }
-            | Node::OnBackground { .. }
-            | Node::Text { .. }
-            | Node::Button { .. }
-            | Node::TextInput { .. }
-            | Node::Switch { .. }
-            | Node::Image { .. }
-            | Node::NavigationStack { .. }
-            | Node::NavigationBack { .. }
-            | Node::ComponentCall { .. }
-            | Node::Content => false,
-        },
-    }
+    any_node(std::slice::from_ref(node), |node| {
+        matches!(
+            (event, node),
+            (LifecycleEvent::Active, Node::OnActive { .. })
+                | (LifecycleEvent::Inactive, Node::OnInactive { .. })
+                | (LifecycleEvent::Background, Node::OnBackground { .. })
+        )
+    })
 }
 
 pub(super) fn contains_on_disappear(node: &Node) -> bool {
-    match node {
-        Node::OnDisappear { .. } => true,
-        Node::Layout { children, .. }
-        | Node::NavigationLink { children, .. }
-        | Node::Link { children, .. }
-        | Node::Accessibility { children, .. }
-        | Node::KeyboardAware { children, .. }
-        | Node::BottomSheet { children, .. }
-        | Node::RefreshControl { children, .. }
-        | Node::Pressable { children, .. } => children.iter().any(contains_on_disappear),
-        Node::FastList {
-            children,
-            sticky_header,
-            section_header,
-            ..
-        } => {
-            children.iter().any(contains_on_disappear)
-                || sticky_header
-                    .as_deref()
-                    .is_some_and(|header| header.iter().any(contains_on_disappear))
-                || section_header
-                    .as_deref()
-                    .is_some_and(|header| header.iter().any(contains_on_disappear))
-        }
-        Node::AppBottomBar { tabs, .. } => tabs
-            .iter()
-            .any(|tab| tab.children.iter().any(contains_on_disappear)),
-        Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            then_body.iter().any(contains_on_disappear)
-                || else_body
-                    .as_deref()
-                    .is_some_and(|body| body.iter().any(contains_on_disappear))
-        }
-        Node::When {
-            cases, else_body, ..
-        } => {
-            cases
-                .iter()
-                .any(|case| case.body.iter().any(contains_on_disappear))
-                || else_body.iter().any(contains_on_disappear)
-        }
-        Node::StatusBar { .. }
-        | Node::Direction { .. }
-        | Node::OnAppear { .. }
-        | Node::OnActive { .. }
-        | Node::OnInactive { .. }
-        | Node::OnBackground { .. }
-        | Node::Text { .. }
-        | Node::Button { .. }
-        | Node::TextInput { .. }
-        | Node::Switch { .. }
-        | Node::Image { .. }
-        | Node::NavigationStack { .. }
-        | Node::NavigationBack { .. }
-        | Node::ComponentCall { .. }
-        | Node::Content => false,
-    }
+    any_node(std::slice::from_ref(node), |node| {
+        matches!(node, Node::OnDisappear { .. })
+    })
 }

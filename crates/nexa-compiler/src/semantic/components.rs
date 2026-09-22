@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, Span};
+use nexa_ir::walk::any_node;
 use nexa_ir::{
     AccessibilityRole, Action, BottomBarTab, Capitalization, CollectionMutation, DirectionConfig,
     DirectionStyle, Expr, FastListRefresh, FontWeight, HapticStyle, ImageScale, ImageSource,
@@ -1352,69 +1353,9 @@ pub(super) fn lower_node(
 }
 
 pub(super) fn contains_content(node: &Node) -> bool {
-    match node {
-        Node::Content => true,
-        Node::Layout { children, .. }
-        | Node::NavigationLink { children, .. }
-        | Node::Link { children, .. }
-        | Node::Accessibility { children, .. }
-        | Node::KeyboardAware { children, .. }
-        | Node::BottomSheet { children, .. }
-        | Node::RefreshControl { children, .. }
-        | Node::Pressable { children, .. } => children.iter().any(contains_content),
-        Node::FastList {
-            children,
-            sticky_header,
-            section_header,
-            ..
-        } => {
-            children.iter().any(contains_content)
-                || sticky_header
-                    .as_deref()
-                    .is_some_and(|header| header.iter().any(contains_content))
-                || section_header
-                    .as_deref()
-                    .is_some_and(|header| header.iter().any(contains_content))
-        }
-        Node::ComponentCall { children, .. } => children
-            .as_ref()
-            .is_some_and(|children| children.iter().any(contains_content)),
-        Node::AppBottomBar { tabs, .. } => tabs
-            .iter()
-            .any(|tab| tab.children.iter().any(contains_content)),
-        Node::If {
-            then_body,
-            else_body,
-            ..
-        } => {
-            then_body.iter().any(contains_content)
-                || else_body
-                    .as_deref()
-                    .is_some_and(|body| body.iter().any(contains_content))
-        }
-        Node::When {
-            cases, else_body, ..
-        } => {
-            cases
-                .iter()
-                .any(|case| case.body.iter().any(contains_content))
-                || else_body.iter().any(contains_content)
-        }
-        Node::Text { .. }
-        | Node::Button { .. }
-        | Node::StatusBar { .. }
-        | Node::Direction { .. }
-        | Node::OnAppear { .. }
-        | Node::OnDisappear { .. }
-        | Node::OnActive { .. }
-        | Node::OnInactive { .. }
-        | Node::OnBackground { .. }
-        | Node::TextInput { .. }
-        | Node::Switch { .. }
-        | Node::Image { .. }
-        | Node::NavigationStack { .. }
-        | Node::NavigationBack { .. } => false,
-    }
+    any_node(std::slice::from_ref(node), |node| {
+        matches!(node, Node::Content)
+    })
 }
 
 fn lower_status_bar(

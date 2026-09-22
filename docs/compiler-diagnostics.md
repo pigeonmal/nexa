@@ -67,6 +67,15 @@ The compiler runs a platform-independent IR pass after semantic lowering and bef
 
 The pass does not add a runtime or bridge. It reduces generated source before the Swift and Kotlin compilers run, leaving platform-specific optimization to the native toolchains. This matches Apple’s guidance to measure changes and keep optimization close to the native compiler, and Kotlin’s guidance to rely on release compiler optimization and dead-code elimination rather than a custom runtime layer. See [Apple performance guidance](https://developer.apple.com/documentation/xcode/improving-your-app-s-performance/) and [Kotlin compiler options](https://kotlinlang.org/docs/compiler-reference.html).
 
+## Shared semantic traversal
+
+Semantic placement checks reuse the common IR walker in `nexa-ir::walk`. The
+same traversal covers ordinary children, conditional branches, tab bodies,
+custom component content, and both `FastList` header slots. Status-bar,
+direction, lifecycle, and `Content()` validation therefore cannot drift apart
+when a new nested node slot is added. This is a compiler-only reuse point: it
+does not add a runtime visitor, registry, or generated code.
+
 ## Platform-specific lowering
 
 `platform ios { ... }` and `platform android { ... }` are resolved from the CLI build target. The compiler keeps only the selected block before semantic lowering, reachability analysis, and backend generation. `nexa check` compiles both target variants so both branches remain validated; a target build emits only its native branch.

@@ -174,6 +174,11 @@ Apply compile-time optimization aggressively.
 
 The current compiler performs a conservative IR pass that folds pure literal boolean/scalar/numeric expressions, removes unreachable UI and event branches, flattens one-child layouts with no spacing/alignment/style effect, removes unused state and value-struct declarations, and tree-shakes pure functions that are unreachable from the app. It runs after semantic lowering and before either native backend, so it adds no runtime layer and keeps native component mappings unchanged. The compiler also reports unused declarations, function parameters, action-loop and `FastList` row bindings, pure functions, and constant conditions; `--deny-warnings` promotes those diagnostics to a failed check or build. See [compiler diagnostics and optimization](docs/compiler-diagnostics.md).
 
+Shared semantic placement checks reuse the platform-independent IR walker,
+including `FastList` row and header slots, conditional branches, tabs, and
+custom component content. Adding a nested node slot therefore updates one
+traversal instead of duplicating recursive matchers across validators.
+
 Potential optimizations should include:
 
 - constant folding,

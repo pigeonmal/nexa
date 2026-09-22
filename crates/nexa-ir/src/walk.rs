@@ -168,6 +168,23 @@ pub fn walk_ir(
     }
 }
 
+/// Returns whether any node in the tree satisfies `predicate`.
+///
+/// Semantic validation uses this shared traversal for placement checks so all
+/// nested slots (including list headers, tab bodies, and component content)
+/// receive the same coverage as backend feature analysis.
+pub fn any_node(nodes: &[Node], mut predicate: impl FnMut(&Node) -> bool) -> bool {
+    let mut found = false;
+    walk_ir(
+        nodes,
+        &mut |node| {
+            found |= predicate(node);
+        },
+        &mut |_| {},
+    );
+    found
+}
+
 /// Visits an expression tree in preorder without allocating.
 pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
     visit(expression);
