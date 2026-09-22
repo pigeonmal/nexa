@@ -285,7 +285,7 @@ The selected build target keeps its block and removes the other block before sem
 
 ## Components
 
-- `Column { ... }` is the vertical container. It maps to SwiftUI `VStack` and Compose `Column` without an extra runtime wrapper.
+- `Column { ... }` is the vertical container. It maps to SwiftUI `VStack` and Compose `Column`; the IR optimizer removes a one-child Column/Row/Stack when it has no spacing, alignment, or style effect, so semantically redundant native stacks are not emitted.
 - `Stack { ... }` is the overlay container. It maps to SwiftUI `ZStack` and Compose `Box`; children are emitted once in source order, and static `alignment`, size, background, border, and other layout styles use the same native modifier path. `spacing` is rejected because overlay containers do not have inter-child spacing. See [stack.nx](../examples/stack.nx).
 - `StatusBar(style: Default|Light|Dark, hidden: true|false, background: "#RRGGBB")` configures the app status bar's content appearance, visibility, and static background at the app body's top level or a named screen's top level. The compiler removes the declaration before rendering and emits SwiftUI safe-area coloring or AndroidX window status-bar calls for that native destination. The hexadecimal background is validated at compile time; animated transitions remain future options.
 - `Direction(value: LTR|RTL)` sets one static app-level layout direction. Swift emits the native `layoutDirection` environment value and Compose provides `LocalLayoutDirection`; omitted direction follows the platform/system setting. Directional alignment uses native leading/trailing or start/end behavior, while dynamic language changes and directional spacing APIs remain future work. See [direction.nx](../examples/direction.nx).
