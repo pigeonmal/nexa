@@ -185,10 +185,12 @@ fn generate_android(root: &Path, app_name: &str, module: &Module) -> Result<(), 
     } else {
         ""
     };
-    let cronet_init = if remote {
-        "        CronetProviderInstaller.installProvider(this)\n"
+    let content_setup = if remote {
+        format!(
+            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{\n            setContent {{ MaterialTheme {{ {screen}() }} }}\n        }}\n"
+        )
     } else {
-        ""
+        format!("        setContent {{ MaterialTheme {{ {screen}() }} }}\n")
     };
     write_if_changed(
         &source_dir.join("NexaGenerated.kt"),
@@ -197,7 +199,7 @@ fn generate_android(root: &Path, app_name: &str, module: &Module) -> Result<(), 
     write_if_changed(
         &source_dir.join("MainActivity.kt"),
         &format!(
-            "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{cronet_import}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n        super.onCreate(savedInstanceState)\n{cronet_init}        setContent {{ MaterialTheme {{ {screen}() }} }}\n    }}\n}}\n"
+            "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{cronet_import}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n        super.onCreate(savedInstanceState)\n{content_setup}    }}\n}}\n"
         ),
     )?;
     write_if_changed(
