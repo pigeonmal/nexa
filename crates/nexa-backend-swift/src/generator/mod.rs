@@ -44,6 +44,16 @@ pub(super) fn generate(module: &Module) -> String {
     if uses_fast_list {
         out.push_str("\n@available(iOS 16.0, *)\n");
     }
+    for declaration in &module.enums {
+        out.push_str(&format!(
+            "private enum {}: String {{\n",
+            nexa_codegen::names::enum_name(&declaration.name)
+        ));
+        for case in &declaration.cases {
+            out.push_str(&format!("    case {case}\n"));
+        }
+        out.push_str("}\n\n");
+    }
     out.push_str(&format!(
         "public struct {}: View {{\n",
         nexa_codegen::names::screen_name(&module.app_name)

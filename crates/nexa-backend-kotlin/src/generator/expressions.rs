@@ -27,6 +27,14 @@ pub(super) fn expression(expr: &Expr) -> String {
         Expr::IsRegularWidth => "(LocalConfiguration.current.screenWidthDp >= 600)".to_owned(),
         Expr::Number { raw, ty } => kotlin_number(raw, *ty),
         Expr::State(name, _) => state_name(name),
+        Expr::EnumValue {
+            enum_name,
+            case_name,
+        } => format!(
+            "{}.{}",
+            nexa_codegen::names::enum_name(enum_name),
+            case_name
+        ),
         Expr::Not(value) => format!("(!{})", expression(value)),
         Expr::Null(_) => "null".to_owned(),
         Expr::Coalesce(left, right) => {

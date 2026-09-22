@@ -5,12 +5,26 @@ use nexa_diagnostics::Span;
 #[derive(Clone, Debug)]
 pub struct App {
     pub name: String,
+    pub enums: Vec<EnumDecl>,
     pub states: Vec<StateDecl>,
     pub functions: Vec<FunctionDecl>,
     pub screens: Vec<ScreenDecl>,
     pub theme: Option<ThemeDecl>,
     pub components: Vec<ComponentDecl>,
     pub body: Vec<Node>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct EnumDecl {
+    pub name: String,
+    pub cases: Vec<EnumCaseDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct EnumCaseDecl {
+    pub name: String,
     pub span: Span,
 }
 
@@ -327,6 +341,11 @@ pub enum Expr {
     Number(String, Span),
     Bool(bool, Span),
     Name(String, Span),
+    EnumCase {
+        enum_name: String,
+        case_name: String,
+        span: Span,
+    },
     ThemeToken(String, Span),
     IsRegularWidth(Span),
     Add(Box<Expr>, Box<Expr>, Span),
@@ -389,6 +408,7 @@ impl Expr {
             | Self::Number(_, s)
             | Self::Bool(_, s)
             | Self::Name(_, s)
+            | Self::EnumCase { span: s, .. }
             | Self::ThemeToken(_, s)
             | Self::IsRegularWidth(s)
             | Self::Add(_, _, s)

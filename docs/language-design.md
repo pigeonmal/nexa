@@ -22,7 +22,7 @@ Nexa borrows useful ideas from Kotlin and Swift, but keeps one source language a
 | Layout borders | Integrate first slice | `borderColor` and `borderWidth` are typed static layout style values. Swift emits a `RoundedRectangle` overlay stroke and Compose emits `Modifier.border`; incomplete pairs are rejected at compile time. |
 | Layout animation | Integrate first slice | A static `animation: Spring|EaseIn|EaseOut|EaseInOut|Linear` layout option lowers to SwiftUI animation and Compose `animateContentSize` with native specs. No shared frame scheduler is introduced; transforms, transitions, and gesture-driven animations remain deferred. |
 | Network, paths, and files | Integrate native library now | Generated modules use URLSession on iOS and Play Services Cronet on Android. Fetch/download options, cache policy, redirect handling, byte limits, optional pinning, path directories, and asynchronous file operations map directly to native APIs; typed `.nx` calls to those helpers remain future work. |
-| Multiple choice (`when / switch`) | Integrate first slice | Exhaustive scalar `when` with literal cases and a required `else` lowers directly to Kotlin `when` or Swift `switch`; enum pattern cases remain deferred. |
+| Multiple choice (`when / switch`) | Integrate first slice | Exhaustive scalar `when` with literal or closed-enum cases and a required `else` lowers directly to Kotlin `when` or Swift `switch`; associated-value patterns remain deferred. |
 | AND / OR / NOT | Integrate now | `&&`, `||`, `!`; native short-circuit operators. |
 | Equality and comparison | Integrate now | `==`, `!=` for scalar values; numeric `<`, `<=`, `>`, `>=`. Exact types are required; no runtime conversions. |
 | Mutable variable / constant | Keep Nexa terms | `state` means observed, mutable UI state and `let` means immutable. Both can infer a type from a non-empty initializer using shared defaults (`Int32` for integer literals and `Float64` for decimal literals); explicit annotations remain available for narrower numeric bindings. `var`/`val` aliases would add duplicate syntax. |
@@ -44,7 +44,7 @@ Nexa borrows useful ideas from Kotlin and Swift, but keeps one source language a
 | Constructor | Adopt with value types | Generate direct Swift initializers and Kotlin constructors; define initialization and mutability before exposing user types. |
 | Inheritance | Avoid in core | Use composition and statically dispatched interfaces; class inheritance brings dynamic dispatch and fragile shared behavior. |
 | Interface / protocol | Adopt as static constraints | Resolve implementations statically where possible; avoid implicit existential boxes in hot paths. |
-| Enum | Adopt before matching | Closed, typed value cases enable efficient native enums/sealed representations and exhaustive `match`. |
+| Enum | Integrate first slice | Closed, typed `enum Name { caseA, caseB }` declarations and `Name.caseA` values lower to private Swift enums or Kotlin enum classes; scalar `when` accepts enum cases with a required `else`. Associated values and payload patterns remain deferred. |
 | Extension | Defer as syntax sugar | Can desugar at compile time, but requires clear member lookup and conflict rules. |
 | Generics | Adopt with monomorphization | Specialize statically to avoid runtime generic dispatch; track binary-size growth. |
 | Type check (`is`) | Avoid general runtime checks | Prefer exhaustive matching on closed enums; no dynamic object hierarchy is planned for ordinary app models. |

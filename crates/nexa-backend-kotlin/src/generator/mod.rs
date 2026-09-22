@@ -46,6 +46,13 @@ pub(super) fn generate(module: &Module) -> String {
                 .any(|screen| screen.on_disappear.is_some()),
         &mut out,
     );
+    for declaration in &module.enums {
+        out.push_str(&format!(
+            "private enum class {} {{ {} }}\n\n",
+            nexa_codegen::names::enum_name(&declaration.name),
+            declaration.cases.join(", ")
+        ));
+    }
     out.push_str(&format!(
         "@Composable\nfun {}() {{\n",
         nexa_codegen::names::screen_name(&module.app_name)

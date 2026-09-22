@@ -32,6 +32,7 @@ cargo run -p nexa-cli -- check examples/function-locals.nx
 cargo run -p nexa-cli -- check examples/conditional-logic.nx
 cargo run -p nexa-cli -- check examples/responsive-layout.nx
 cargo run -p nexa-cli -- check examples/constant-branches.nx
+cargo run -p nexa-cli -- check examples/enums.nx
 cargo run -p nexa-cli -- check examples/interpolation.nx
 cargo run -p nexa-cli -- check examples/status-bar.nx
 cargo run -p nexa-cli -- check examples/bottom-sheet.nx
@@ -143,6 +144,8 @@ These skills distinguish the current prototype from the longer-term goals in `pl
 See the [language guide](docs/language.md) for syntax, supported types, themes, current limits, and native mappings, and the [language design decisions](docs/language-design.md) for how Nexa adopts or defers Kotlin/Swift concepts. The full roadmap remains in [plan.md](plan.md).
 
 The authoring surface keeps mutability explicit: `state` stays mutable and `let` stays immutable. Both declarations infer their type from non-empty initializers using the same defaults: integer literals become `Int32` and decimal literals become `Float64`; the resolved type is fixed in the typed IR before native bindings are generated. Nullable `T?`, `null`, `??`, and safe collection indexing (`values?[index]`) lower directly to native Swift/Kotlin optional semantics. `Column` is the single vertical container; it emits direct native stack code on both platforms. `View` is no longer a Nexa component; replace it with `Column` in existing `.nx` files. SwiftUI's native `View` protocol remains part of generated Swift output.
+
+Closed enums use `enum Name { caseA, caseB }`, construct values as `Name.caseA`, and can be matched in exhaustive scalar `when` branches. Swift receives a private native `enum`; Kotlin receives a private `enum class`; no enum registry or runtime reflection is generated. See [enums.nx](examples/enums.nx).
 
 String interpolation supports `$name` and `\(expression)`. Embedded expressions use the normal Nexa type checker and lower directly into Swift or Kotlin interpolation without a template runtime; see [interpolation.nx](examples/interpolation.nx).
 

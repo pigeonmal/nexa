@@ -3,6 +3,7 @@ pub mod walk;
 #[derive(Clone, Debug)]
 pub struct Module {
     pub app_name: String,
+    pub enums: Vec<EnumDecl>,
     pub functions: Vec<Function>,
     pub states: Vec<State>,
     pub screens: Vec<Screen>,
@@ -13,6 +14,12 @@ pub struct Module {
     pub on_appear: Option<Vec<Action>>,
     pub on_appear_async: bool,
     pub on_disappear: Option<Vec<Action>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct EnumDecl {
+    pub name: String,
+    pub cases: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -122,6 +129,7 @@ pub enum Type {
     Map(Box<Type>, Box<Type>),
     Pair(Box<Type>, Box<Type>),
     Triple(Box<Type>, Box<Type>, Box<Type>),
+    Enum(String),
 }
 
 #[derive(Clone, Debug)]
@@ -134,6 +142,10 @@ pub enum Expr {
         ty: NumericType,
     },
     State(String, Type),
+    EnumValue {
+        enum_name: String,
+        case_name: String,
+    },
     Add(Box<Expr>, Box<Expr>, NumericType),
     Not(Box<Expr>),
     Binary {
@@ -534,6 +546,7 @@ impl Type {
             Self::Triple(first, second, third) => {
                 format!("({}, {}, {})", first.swift(), second.swift(), third.swift())
             }
+            Self::Enum(name) => native_enum_name(name),
         }
     }
     pub fn kotlin(&self) -> String {
@@ -554,6 +567,23 @@ impl Type {
                 second.kotlin(),
                 third.kotlin()
             ),
+            Self::Enum(name) => native_enum_name(name),
         }
     }
+}
+
+fn native_enum_name(name: &str) -> String {
+    let mut result = String::from("Nexa");
+    let mut uppercase = true;
+    for character in name.chars() {
+        if character == '_' {
+            uppercase = true;
+        } else if uppercase {
+            result.extend(character.to_uppercase());
+            uppercase = false;
+        } else {
+            result.push(character);
+        }
+    }
+    result
 }

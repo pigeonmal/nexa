@@ -173,6 +173,7 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
         | Expr::Bool(_)
         | Expr::Number { .. }
         | Expr::State(_, _)
+        | Expr::EnumValue { .. }
         | Expr::Null(_)
         | Expr::IsRegularWidth => {}
     }

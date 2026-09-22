@@ -134,6 +134,7 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
         Expr::String(_)
         | Expr::Bool(_)
         | Expr::Number { .. }
+        | Expr::EnumValue { .. }
         | Expr::Null(_)
         | Expr::IsRegularWidth => {}
     }
@@ -181,6 +182,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
         Expr::String(_)
         | Expr::Bool(_)
         | Expr::Number { .. }
+        | Expr::EnumValue { .. }
         | Expr::State(_, _)
         | Expr::Null(_)
         | Expr::IsRegularWidth => true,

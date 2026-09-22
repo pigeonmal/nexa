@@ -61,6 +61,7 @@ pub(super) fn lower_components(
     screen_ids: &HashMap<String, nexa_ir::ScreenId>,
     themes: &ThemeSymbols,
     functions: &FunctionSignatures,
+    enum_symbols: &HashMap<String, (Type, bool)>,
     target: Target,
 ) -> Result<(Vec<Component>, ComponentSignatures), CompileError> {
     let signatures = collect_signatures(&declarations)?;
@@ -75,6 +76,7 @@ pub(super) fn lower_components(
             screen_ids,
             themes,
             functions,
+            enum_symbols,
             target,
         );
         components.push(result.map_err(|error| in_file(error, source_file.as_deref()))?);
@@ -131,6 +133,7 @@ fn lower_component(
     screen_ids: &HashMap<String, nexa_ir::ScreenId>,
     themes: &ThemeSymbols,
     functions: &FunctionSignatures,
+    enum_symbols: &HashMap<String, (Type, bool)>,
     target: Target,
 ) -> Result<Component, CompileError> {
     if declaration
@@ -145,6 +148,11 @@ fn lower_component(
     }
     let signature = &signatures[&declaration.name];
     let mut symbols = HashMap::with_capacity(signature.parameters.len() + declaration.states.len());
+    symbols.extend(
+        enum_symbols
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone())),
+    );
     for (name, ty) in &signature.parameters {
         symbols.insert(name.clone(), (ty.clone(), false));
     }

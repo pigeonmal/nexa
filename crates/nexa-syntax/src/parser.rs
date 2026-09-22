@@ -25,12 +25,18 @@ pub fn parse(tokens: Vec<Token>) -> Result<App, CompileError> {
 }
 
 pub fn parse_program(tokens: Vec<Token>) -> Result<Program, CompileError> {
-    Parser { tokens, cursor: 0 }.program()
+    Parser {
+        tokens,
+        cursor: 0,
+        enum_names: std::collections::BTreeSet::new(),
+    }
+    .program()
 }
 
 struct Parser {
     tokens: Vec<Token>,
     cursor: usize,
+    enum_names: std::collections::BTreeSet<String>,
 }
 
 impl Parser {
@@ -147,13 +153,18 @@ impl Parser {
         self.expect_word("app")?;
         let (name, span) = self.ident()?;
         self.expect(Kind::LBrace, "expected `{` after app name")?;
+        let mut enums = Vec::new();
         let mut states = Vec::new();
         let mut screens = Vec::new();
         let mut functions = Vec::new();
         let mut theme = None;
         let mut body = None;
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
-            if self.word_is("state") || self.word_is("let") {
+            if self.word_is("enum") {
+                let declaration = self.enum_decl()?;
+                self.enum_names.insert(declaration.name.clone());
+                enums.push(declaration);
+            } else if self.word_is("state") || self.word_is("let") {
                 states.push(self.state_decl()?);
             } else if self.word_is("async") {
                 functions.push(self.function_decl(true)?);
@@ -174,7 +185,7 @@ impl Parser {
                 body = Some(self.block_nodes()?);
             } else {
                 return self.error_here(
-                    "expected a `state`, `fn`, `async fn`, `screen`, `theme`, or `body` declaration",
+                    "expected an `enum`, `state`, `fn`, `async fn`, `screen`, `theme`, or `body` declaration",
                 );
             }
         }
@@ -182,6 +193,7 @@ impl Parser {
         let body = body.ok_or_else(|| CompileError::new(span, "app is missing a `body` block"))?;
         Ok(App {
             name,
+            enums,
             states,
             functions,
             screens,
@@ -190,6 +202,41 @@ impl Parser {
             body,
             span,
         })
+    }
+
+    fn enum_decl(&mut self) -> Result<EnumDecl, CompileError> {
+        let span = self.advance().span;
+        let (name, name_span) = self.ident()?;
+        self.expect(Kind::LBrace, "expected `{` after enum name")?;
+        let mut cases = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (case_name, case_span) = self.ident()?;
+            if cases
+                .iter()
+                .any(|case: &EnumCaseDecl| case.name == case_name)
+            {
+                return Err(CompileError::new(
+                    case_span,
+                    format!("enum case `{case_name}` is declared more than once"),
+                ));
+            }
+            cases.push(EnumCaseDecl {
+                name: case_name,
+                span: case_span,
+            });
+            if !self.take(&Kind::Comma) {
+                break;
+            }
+        }
+        self.expect(Kind::RBrace, "expected `}` to close enum")?;
+        if cases.is_empty() {
+            return Err(CompileError::new(
+                name_span,
+                format!("enum `{name}` must declare at least one case"),
+            ));
+        }
+        self.optional_semicolon();
+        Ok(EnumDecl { name, cases, span })
     }
 
     fn screen_decl(&mut self) -> Result<ScreenDecl, CompileError> {
@@ -1143,6 +1190,18 @@ impl Parser {
                         _ => unreachable!("namespace checked above"),
                     };
                 }
+                if self.enum_names.contains(&value) && self.take(&Kind::Dot) {
+                    let (case_name, case_span) = self.ident()?;
+                    let span = Span {
+                        end: case_span.end,
+                        ..token.span
+                    };
+                    return Ok(Expr::EnumCase {
+                        enum_name: value,
+                        case_name,
+                        span,
+                    });
+                }
                 Ok(Expr::Name(value, token.span))
             }
             _ => Err(CompileError::new(
@@ -1247,7 +1306,11 @@ impl Parser {
         span: Span,
     ) -> Result<Expr, CompileError> {
         let tokens = lexer::lex(source)?;
-        let mut parser = Parser { tokens, cursor: 0 };
+        let mut parser = Parser {
+            tokens,
+            cursor: 0,
+            enum_names: self.enum_names.clone(),
+        };
         let expression = parser.expr()?;
         if !parser.check(&Kind::Eof) {
             return Err(CompileError::new(

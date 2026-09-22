@@ -53,6 +53,7 @@ pub(super) fn collect_function_signatures(
 pub(super) fn references_state(expr: &ast::Expr) -> bool {
     match expr {
         ast::Expr::Name(_, _) => true,
+        ast::Expr::EnumCase { .. } => false,
         ast::Expr::Add(left, right, _) | ast::Expr::Binary(left, _, right, _) => {
             references_state(left) || references_state(right)
         }
@@ -69,7 +70,12 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         ast::Expr::Index {
             collection, index, ..
         } => references_state(collection) || references_state(index),
-        ast::Expr::Member { base, .. } => references_state(base),
+        ast::Expr::Member { base, .. } => match base.as_ref() {
+            ast::Expr::Name(name, _) if name.chars().next().is_some_and(char::is_uppercase) => {
+                false
+            }
+            _ => references_state(base),
+        },
         ast::Expr::Range {
             start, end, step, ..
         } => {
@@ -294,6 +300,24 @@ pub(super) fn lower_expr(
             require_expected(expected, ty, *span)?;
             Ok(Expr::State(name.clone(), ty.clone()))
         }
+        ast::Expr::EnumCase {
+            enum_name,
+            case_name,
+            span,
+        } => {
+            let key = format!("{enum_name}.{case_name}");
+            let Some((ty @ Type::Enum(_), _)) = symbols.get(&key) else {
+                return Err(CompileError::new(
+                    *span,
+                    format!("unknown enum case `{enum_name}.{case_name}`"),
+                ));
+            };
+            require_expected(expected, ty, *span)?;
+            Ok(Expr::EnumValue {
+                enum_name: enum_name.clone(),
+                case_name: case_name.clone(),
+            })
+        }
         ast::Expr::ThemeToken(name, span) => Err(CompileError::new(
             *span,
             format!("`Theme.{name}` can only be used in supported style options"),
@@ -439,6 +463,18 @@ pub(super) fn lower_expr(
             optional,
             span,
         } => {
+            if !*optional {
+                if let ast::Expr::Name(enum_name, _) = base.as_ref() {
+                    let key = format!("{enum_name}.{name}");
+                    if let Some((ty @ Type::Enum(_), _)) = symbols.get(&key) {
+                        require_expected(expected, ty, *span)?;
+                        return Ok(Expr::EnumValue {
+                            enum_name: enum_name.clone(),
+                            case_name: name.clone(),
+                        });
+                    }
+                }
+            }
             let Some(base_type) = infer_expr_type(base, symbols, functions) else {
                 return Err(CompileError::new(
                     *span,
@@ -735,12 +771,12 @@ fn lower_binary(
     if !is_ordered
         && !matches!(
             common_type,
-            Type::Numeric(_) | Type::Bool | Type::String | Type::Optional(_)
+            Type::Numeric(_) | Type::Bool | Type::String | Type::Enum(_) | Type::Optional(_)
         )
     {
         return Err(CompileError::new(
             span,
-            "equality is supported for numeric, Bool, and String values",
+            "equality is supported for numeric, Bool, String, and enum values",
         ));
     }
     let left = lower_expr(left, Some(&common_type), symbols, functions, allow_await)?;
@@ -769,6 +805,13 @@ pub(super) fn infer_expr_type(
             NumericType::Int32
         })),
         ast::Expr::Name(name, _) => symbols.get(name).map(|(ty, _)| ty.clone()),
+        ast::Expr::EnumCase {
+            enum_name,
+            case_name,
+            ..
+        } => symbols
+            .get(&format!("{enum_name}.{case_name}"))
+            .map(|(ty, _)| ty.clone()),
         ast::Expr::Call(name, _, _) => functions
             .get(name)
             .map(|signature| signature.return_type.clone()),
@@ -795,16 +838,27 @@ pub(super) fn infer_expr_type(
             name,
             optional,
             ..
-        } => infer_expr_type(base, symbols, functions).and_then(|base_type| {
-            if *optional {
-                let Type::Optional(inner) = base_type else {
-                    return None;
-                };
-                member_field_type(&inner, name).map(|field| Type::Optional(Box::new(field)))
-            } else {
-                member_field_type(&base_type, name)
+        } => {
+            if !*optional {
+                if let ast::Expr::Name(enum_name, _) = base.as_ref() {
+                    if let Some((ty @ Type::Enum(_), _)) =
+                        symbols.get(&format!("{enum_name}.{name}"))
+                    {
+                        return Some(ty.clone());
+                    }
+                }
             }
-        }),
+            infer_expr_type(base, symbols, functions).and_then(|base_type| {
+                if *optional {
+                    let Type::Optional(inner) = base_type else {
+                        return None;
+                    };
+                    member_field_type(&inner, name).map(|field| Type::Optional(Box::new(field)))
+                } else {
+                    member_field_type(&base_type, name)
+                }
+            })
+        }
         ast::Expr::Range { .. } => None,
         ast::Expr::Null(_) => None,
         ast::Expr::Coalesce(left, right, _) => {
@@ -1014,7 +1068,7 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
             validate_type_constraints(third, span)
         }
         Type::Optional(inner) => validate_type_constraints(inner, span),
-        Type::String | Type::Bool | Type::Numeric(_) => Ok(()),
+        Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_) => Ok(()),
     }
 }
 
@@ -1032,7 +1086,7 @@ fn require_hashable_key(ty: &Type, span: Span, description: &str) -> Result<(), 
     }
 }
 
-fn parse_named_type(name: &str, span: Span) -> Result<Type, CompileError> {
+fn parse_named_type(name: &str, _span: Span) -> Result<Type, CompileError> {
     let ty = match name {
         "String" => Type::String,
         "Bool" => Type::Bool,
@@ -1046,7 +1100,7 @@ fn parse_named_type(name: &str, span: Span) -> Result<Type, CompileError> {
         "UInt64" => Type::Numeric(NumericType::UInt64),
         "Float32" => Type::Numeric(NumericType::Float32),
         "Float64" => Type::Numeric(NumericType::Float64),
-        _ => return Err(CompileError::new(span, format!("unknown type `{name}`"))),
+        _ => Type::Enum(name.to_owned()),
     };
     Ok(ty)
 }
@@ -1126,6 +1180,7 @@ pub(super) fn type_name(ty: &Type) -> String {
             type_name(second),
             type_name(third)
         ),
+        Type::Enum(name) => name.clone(),
         Type::Optional(inner) => format!("{}?", type_name(inner)),
     }
 }

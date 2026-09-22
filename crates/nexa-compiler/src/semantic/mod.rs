@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use nexa_diagnostics::{CompileError, CompileWarning};
 use nexa_ir::{
     Action, DirectionConfig, Function, FunctionLocal, FunctionParameter, Module, Node, Screen,
-    ScreenId, State, StatusBarConfig,
+    ScreenId, State, StatusBarConfig, Type,
 };
 use nexa_syntax::ast;
 
@@ -11,7 +11,7 @@ use self::{
     components::lower_nodes,
     custom_components::{lower_components, retain_reachable},
     expressions::{
-        FunctionSignatures, collect_function_signatures, lower_expr, references_state,
+        FunctionSignatures, collect_function_signatures, lower_expr, parse_type, references_state,
         resolve_declaration_type, resolve_value_type,
     },
     themes::lower_theme,
@@ -31,7 +31,38 @@ pub fn lower_with_warnings(
 ) -> Result<(Module, Vec<CompileWarning>), CompileError> {
     let warnings = warnings::analyze(&app, target);
     let themes = lower_theme(app.theme.as_ref())?;
+    let enum_declarations = lower_enum_declarations(&app.enums)?;
+    let enum_symbols = enum_symbols(&enum_declarations);
+    let enum_names = enum_declarations
+        .iter()
+        .map(|declaration| declaration.name.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    validate_declared_types(&app, &enum_names)?;
     let function_signatures = collect_function_signatures(&app.functions)?;
+    for declaration in &enum_declarations {
+        if function_signatures.contains_key(&declaration.name) {
+            return Err(CompileError::new(
+                app.span,
+                format!(
+                    "enum `{}` conflicts with a function of the same name",
+                    declaration.name
+                ),
+            ));
+        }
+        if app
+            .components
+            .iter()
+            .any(|component| component.name == declaration.name)
+        {
+            return Err(CompileError::new(
+                app.span,
+                format!(
+                    "enum `{}` conflicts with a component of the same name",
+                    declaration.name
+                ),
+            ));
+        }
+    }
     let mut screen_ids = HashMap::with_capacity(app.screens.len());
     for (index, screen) in app.screens.iter().enumerate() {
         if screen_ids
@@ -56,12 +87,17 @@ pub fn lower_with_warnings(
         &screen_ids,
         &themes,
         &function_signatures,
+        &enum_symbols,
         target,
     )?;
 
-    let functions = lower_functions(std::mem::take(&mut app.functions), &function_signatures)?;
+    let functions = lower_functions(
+        std::mem::take(&mut app.functions),
+        &function_signatures,
+        &enum_symbols,
+    )?;
 
-    let mut symbols = HashMap::new();
+    let mut symbols = enum_symbols.clone();
     let mut states = Vec::with_capacity(app.states.len());
     for declaration in app.states {
         if symbols.contains_key(&declaration.name) {
@@ -152,6 +188,7 @@ pub fn lower_with_warnings(
     let components = retain_reachable(components, &body, &screens);
     let mut module = Module {
         app_name: app.name,
+        enums: enum_declarations,
         functions,
         states,
         screens,
@@ -167,9 +204,138 @@ pub fn lower_with_warnings(
     Ok((module, warnings))
 }
 
+fn lower_enum_declarations(
+    declarations: &[ast::EnumDecl],
+) -> Result<Vec<nexa_ir::EnumDecl>, CompileError> {
+    let mut names = std::collections::HashSet::with_capacity(declarations.len());
+    let mut lowered = Vec::with_capacity(declarations.len());
+    for declaration in declarations {
+        if matches!(
+            declaration.name.as_str(),
+            "String"
+                | "Bool"
+                | "Int8"
+                | "Int16"
+                | "Int32"
+                | "Int64"
+                | "UInt8"
+                | "UInt16"
+                | "UInt32"
+                | "UInt64"
+                | "Float32"
+                | "Float64"
+                | "Array"
+                | "Set"
+                | "Map"
+                | "Pair"
+                | "Triple"
+                | "Theme"
+                | "Layout"
+        ) {
+            return Err(CompileError::new(
+                declaration.span,
+                format!("enum name `{}` is reserved", declaration.name),
+            ));
+        }
+        if !names.insert(&declaration.name) {
+            return Err(CompileError::new(
+                declaration.span,
+                format!("enum `{}` is declared more than once", declaration.name),
+            ));
+        }
+        lowered.push(nexa_ir::EnumDecl {
+            name: declaration.name.clone(),
+            cases: declaration
+                .cases
+                .iter()
+                .map(|case| case.name.clone())
+                .collect(),
+        });
+    }
+    Ok(lowered)
+}
+
+fn enum_symbols(declarations: &[nexa_ir::EnumDecl]) -> HashMap<String, (nexa_ir::Type, bool)> {
+    let mut symbols = HashMap::new();
+    for declaration in declarations {
+        let ty = nexa_ir::Type::Enum(declaration.name.clone());
+        symbols.insert(format!("__enum::{}", declaration.name), (ty.clone(), false));
+        for case in &declaration.cases {
+            symbols.insert(
+                format!("{}.{}", declaration.name, case),
+                (ty.clone(), false),
+            );
+        }
+    }
+    symbols
+}
+
+fn validate_declared_types(
+    app: &ast::App,
+    enum_names: &std::collections::HashSet<&str>,
+) -> Result<(), CompileError> {
+    for declaration in &app.states {
+        if let Some(ty) = &declaration.ty {
+            validate_type_names(&parse_type(ty)?, enum_names, ty.span())?;
+        }
+    }
+    for declaration in &app.functions {
+        for parameter in &declaration.parameters {
+            validate_type_names(&parse_type(&parameter.ty)?, enum_names, parameter.ty.span())?;
+        }
+        validate_type_names(
+            &parse_type(&declaration.return_type)?,
+            enum_names,
+            declaration.return_type.span(),
+        )?;
+        for statement in &declaration.body {
+            if let ast::Stmt::Let { ty: Some(ty), .. } = statement {
+                validate_type_names(&parse_type(ty)?, enum_names, ty.span())?;
+            }
+        }
+    }
+    for declaration in &app.components {
+        for parameter in &declaration.parameters {
+            validate_type_names(&parse_type(&parameter.ty)?, enum_names, parameter.ty.span())?;
+        }
+        for state in &declaration.states {
+            if let Some(ty) = &state.ty {
+                validate_type_names(&parse_type(ty)?, enum_names, ty.span())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_type_names(
+    ty: &Type,
+    enum_names: &std::collections::HashSet<&str>,
+    span: nexa_diagnostics::Span,
+) -> Result<(), CompileError> {
+    match ty {
+        Type::Enum(name) if !enum_names.contains(name.as_str()) => {
+            Err(CompileError::new(span, format!("unknown type `{name}`")))
+        }
+        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) => {
+            validate_type_names(inner, enum_names, span)
+        }
+        Type::Map(key, value) | Type::Pair(key, value) => {
+            validate_type_names(key, enum_names, span)?;
+            validate_type_names(value, enum_names, span)
+        }
+        Type::Triple(first, second, third) => {
+            validate_type_names(first, enum_names, span)?;
+            validate_type_names(second, enum_names, span)?;
+            validate_type_names(third, enum_names, span)
+        }
+        Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_) => Ok(()),
+    }
+}
+
 fn lower_functions(
     declarations: Vec<ast::FunctionDecl>,
     signatures: &FunctionSignatures,
+    enum_symbols: &HashMap<String, (Type, bool)>,
 ) -> Result<Vec<Function>, CompileError> {
     declarations
         .into_iter()
@@ -183,6 +349,7 @@ fn lower_functions(
                 .map(|(name, ty)| (name.clone(), (ty.clone(), false)))
                 .collect::<HashMap<_, _>>();
             let mut symbols = symbols;
+            symbols.extend(enum_symbols.iter().map(|(name, value)| (name.clone(), value.clone())));
             let mut locals = Vec::new();
             let mut return_value = None;
             for statement in declaration.body {

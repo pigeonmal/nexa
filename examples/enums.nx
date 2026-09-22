@@ -1,0 +1,19 @@
+app EnumExample {
+    enum ThemeMode {
+        light,
+        dark
+    }
+
+    state mode: ThemeMode = ThemeMode.light
+
+    body {
+        when mode {
+            ThemeMode.light: { Text("Light mode") }
+            ThemeMode.dark: { Text("Dark mode") }
+            else: { Text("Unknown mode") }
+        }
+        Button("Use dark mode") {
+            mode = ThemeMode.dark
+        }
+    }
+}

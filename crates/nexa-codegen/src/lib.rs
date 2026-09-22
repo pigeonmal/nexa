@@ -39,6 +39,11 @@ pub mod names {
         format!("nexa_fn_{name}")
     }
 
+    /// Gives source-defined enum declarations stable native type names.
+    pub fn enum_name(name: &str) -> String {
+        format!("Nexa{}", pascal_name(name, "Enum"))
+    }
+
     pub fn navigation_case_name(screen: nexa_ir::ScreenId) -> String {
         format!("screen{}", screen.0)
     }

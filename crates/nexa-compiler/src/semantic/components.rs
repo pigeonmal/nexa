@@ -713,10 +713,13 @@ pub(super) fn lower_node(
         } => {
             let value_type = infer_expr_type(&value, symbols, functions)
                 .ok_or_else(|| CompileError::new(span, "when requires a typed scalar value"))?;
-            if !matches!(value_type, Type::String | Type::Bool | Type::Numeric(_)) {
+            if !matches!(
+                value_type,
+                Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_)
+            ) {
                 return Err(CompileError::new(
                     span,
-                    "when supports String, Bool, and numeric values only",
+                    "when supports String, Bool, numeric, and enum values only",
                 ));
             }
             let lowered_value = lower_expr(&value, Some(&value_type), symbols, functions, false)?;
@@ -725,11 +728,14 @@ pub(super) fn lower_node(
             for case in cases {
                 if !matches!(
                     &case.value,
-                    ast::Expr::String(_, _) | ast::Expr::Number(_, _) | ast::Expr::Bool(_, _)
+                    ast::Expr::String(_, _)
+                        | ast::Expr::Number(_, _)
+                        | ast::Expr::Bool(_, _)
+                        | ast::Expr::EnumCase { .. }
                 ) {
                     return Err(CompileError::new(
                         case.span,
-                        "when case values must be String, Bool, or numeric literals",
+                        "when case values must be String, Bool, numeric literals, or enum cases",
                     ));
                 }
                 let lowered_case =
