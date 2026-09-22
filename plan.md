@@ -1086,6 +1086,13 @@ Create a project/build system that handles:
 - release builds,
 - code generation.
 
+The first project-generation slice is available as `nexa generate`. It writes
+deterministic iOS Xcode and Android Gradle/Compose host projects, generated
+native sources, feature-gated dependency declarations, and a
+`nexa.project.json` manifest from one `.nx` entry file. Incremental compilation,
+dependency/plugin resolution, native release signing, and cache-aware rebuilds
+remain future work.
+
 Incremental compilation should be a major priority.
 
 Changing one screen should not require recompiling the entire application when avoidable.

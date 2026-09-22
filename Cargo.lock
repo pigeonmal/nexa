@@ -26,6 +26,7 @@ dependencies = [
  "nexa-backend-swift",
  "nexa-codegen",
  "nexa-compiler",
+ "nexa-ir",
 ]
 
 [[package]]

@@ -2,9 +2,9 @@
 
 Nexa is an early ahead-of-time compiler prototype for a shared mobile language that emits native SwiftUI and Jetpack Compose source. Its frontend and typed intermediate representation are Rust; generated applications use the platform UI frameworks directly and do not include a JavaScript or Dart runtime.
 
-The current implementation covers the compiler foundation and a growing native-control slice. It parses app state, checks primitive and collection value types and bindings, lowers to a platform-independent IR, and emits native SwiftUI or Compose controls, including virtualized range and collection lists. It is not yet a complete mobile framework or a project generator.
+The current implementation covers the compiler foundation and a growing native-control slice. It parses app state, checks primitive and collection value types and bindings, lowers to a platform-independent IR, and emits native SwiftUI or Compose controls, including virtualized range and collection lists. `nexa generate` also creates a native iOS Xcode project and Android Gradle project around the generated sources.
 
-Nexa's product direction is to let people create complete mobile apps from `.nx` without writing native source. The current compiler supports only the documented language slice below; it does not yet generate complete iOS or Android projects. The core component set comes first, while integrations such as SQLite, MMKV, and maps are planned as optional plugins. Its first theme slice compiles typed color, spacing, radius, and font-size tokens directly into native code.
+Nexa's product direction is to let people create complete mobile apps from `.nx` without writing native source. The current compiler supports only the documented language slice below; unsupported language features remain explicit roadmap items. The core component set comes first, while integrations such as SQLite, MMKV, and maps are planned as optional plugins. Its first theme slice compiles typed color, spacing, radius, and font-size tokens directly into native code.
 
 ## Build and use
 
@@ -96,9 +96,10 @@ cargo run -p nexa-cli -- build examples/platform-widgets.nx --target swift --out
 cargo run -p nexa-cli -- build examples/platform-widgets.nx --target kotlin --out /tmp/PlatformWidgets.kt
 cargo run -p nexa-cli -- build examples/network-image.nx --target swift --out /tmp/NetworkImage.swift
 cargo run -p nexa-cli -- build examples/network-image.nx --target kotlin --out /tmp/NetworkImage.kt
+cargo run -p nexa-cli -- generate examples/counter.nx --out CounterProject --name CounterApp
 ```
 
-The default output replaces the input file extension, producing `counter.swift` or `counter.kt`. Generated files are intended to be added to an existing SwiftUI or Compose application with the corresponding platform dependencies configured.
+The default output replaces the input file extension, producing `counter.swift` or `counter.kt`. `nexa generate` writes `ios/<App>.xcodeproj`, an iOS app target, an Android Compose/Gradle project, and a `nexa.project.json` manifest. Regenerate from the `.nx` entry file after source changes; generated native files are build outputs.
 
 ## Workspace layout
 
@@ -111,7 +112,7 @@ The default output replaces the input file extension, producing `counter.swift` 
 | `nexa-codegen` | Backend contract and generated-name rules |
 | `nexa-backend-swift` | SwiftUI source generation |
 | `nexa-backend-kotlin` | Jetpack Compose source generation |
-| `nexa-cli` | `check` and `build` commands |
+| `nexa-cli` | `check`, `build`, and native `generate` commands |
 
 Each target backend consumes the same typed IR. Adding another backend should require implementing the `nexa-codegen::Backend` contract without changing the lexer or parser.
 

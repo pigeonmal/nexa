@@ -13,3 +13,4 @@ nexa-backend-kotlin = { path = "../nexa-backend-kotlin" }
 nexa-backend-swift = { path = "../nexa-backend-swift" }
 nexa-codegen = { path = "../nexa-codegen" }
 nexa-compiler = { path = "../nexa-compiler" }
+nexa-ir = { path = "../nexa-ir" }

@@ -5,6 +5,8 @@ use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
 use nexa_compiler::{CompileWarning, Target, compile_file_with_warnings_for_target};
 
+mod project;
+
 fn main() {
     if let Err(message) = run() {
         eprintln!("{message}");
@@ -17,6 +19,7 @@ fn run() -> Result<(), String> {
     match args.first().map(String::as_str) {
         Some("check") => check(&args[1..]),
         Some("build") => build(&args[1..]),
+        Some("generate") => project::run(&args[1..]),
         Some("--help" | "-h") | None => {
             print_help();
             Ok(())
@@ -128,7 +131,7 @@ fn deduplicate_warnings(warnings: Vec<CompileWarning>) -> Vec<CompileWarning> {
 fn print_help() {
     println!(
         "Nexa — ahead-of-time compiler for native iOS and Android UI\n\n\
-Usage:\n  nexa check <source.nx> [--deny-warnings]\n  nexa build <source.nx> --target <swift|kotlin> [--out <path>] [--deny-warnings]\n\n\
-Targets emit native SwiftUI or Jetpack Compose source."
+Usage:\n  nexa check <source.nx> [--deny-warnings]\n  nexa build <source.nx> --target <swift|kotlin> [--out <path>] [--deny-warnings]\n  nexa generate <source.nx> [--target <ios|android|all>] [--out <directory>] [--name <AppName>] [--deny-warnings]\n\n\
+Targets emit native SwiftUI or Jetpack Compose source. `generate` creates a self-contained native project bundle."
     );
 }
