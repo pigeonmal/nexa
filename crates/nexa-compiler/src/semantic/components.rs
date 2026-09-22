@@ -660,6 +660,7 @@ pub(super) fn lower_node(
             scroll_position,
             children,
             on_end_reached,
+            sticky_header,
             span,
         } => {
             let axis = match axis {
@@ -706,6 +707,12 @@ pub(super) fn lower_node(
                     ));
                 }
             };
+            if sticky_header.is_some() && !matches!(axis, ListAxis::Vertical) {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `stickyHeader` is supported only for vertical lists",
+                ));
+            }
             let item_extent = optional_dimension(item_extent, "FastList itemExtent", None, themes)?;
             if item_extent.is_some_and(|value| value <= 0.0) {
                 return Err(CompileError::new(
@@ -824,6 +831,13 @@ pub(super) fn lower_node(
             let on_end_reached = on_end_reached
                 .map(|actions| lower_actions(actions, symbols, functions, false))
                 .transpose()?;
+            let sticky_header = sticky_header
+                .map(|header| {
+                    lower_nodes(
+                        header, symbols, screen_ids, themes, components, functions, false, target,
+                    )
+                })
+                .transpose()?;
             Ok(Node::FastList {
                 source,
                 axis,
@@ -834,6 +848,7 @@ pub(super) fn lower_node(
                 scroll_position,
                 children: lowered_children,
                 on_end_reached,
+                sticky_header,
                 refresh: None,
             })
         }

@@ -54,6 +54,7 @@ pub fn walk_ir(
                 key,
                 children,
                 on_end_reached,
+                sticky_header,
                 refresh,
                 ..
             } => {
@@ -66,6 +67,9 @@ pub fn walk_ir(
                 }
                 if let Some(refresh) = refresh {
                     walk_actions(&refresh.actions, visit_expression);
+                }
+                if let Some(sticky_header) = sticky_header {
+                    walk_ir(sticky_header, visit_node, visit_expression);
                 }
                 walk_ir(children, visit_node, visit_expression);
             }

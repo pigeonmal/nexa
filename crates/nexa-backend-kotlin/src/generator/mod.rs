@@ -64,6 +64,9 @@ pub(super) fn generate(module: &Module) -> String {
     if features.app_uses_keyboard_interactive {
         out.push_str("@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)\n");
     }
+    if features.uses_sticky_header {
+        out.push_str("@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)\n");
+    }
     out.push_str(&format!(
         "@Composable\nfun {}() {{\n",
         nexa_codegen::names::screen_name(&module.app_name)

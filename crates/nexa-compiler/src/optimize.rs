@@ -895,6 +895,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             key,
             children,
             on_end_reached,
+            sticky_header,
             refresh,
             scroll_position,
         } => Some(Node::FastList {
@@ -906,6 +907,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             key: key.map(fold_expression),
             children: optimize_nodes(children),
             on_end_reached: on_end_reached.map(optimize_actions),
+            sticky_header: sticky_header.map(optimize_nodes),
             scroll_position,
             refresh: refresh.map(|refresh| nexa_ir::FastListRefresh {
                 state: refresh.state,

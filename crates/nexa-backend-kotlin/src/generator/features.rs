@@ -54,6 +54,7 @@ pub(super) struct Features {
     pub(super) uses_list_scroll_position: bool,
     pub(super) uses_linear_list_scroll_position: bool,
     pub(super) uses_grid_scroll_position: bool,
+    pub(super) uses_sticky_header: bool,
     pub(super) uses_keyboard_aware: bool,
     pub(super) uses_keyboard_interactive: bool,
     pub(super) app_uses_keyboard_interactive: bool,
@@ -525,9 +526,11 @@ impl Features {
                 on_end_reached,
                 refresh,
                 scroll_position,
+                sticky_header,
                 children,
                 ..
             } => {
+                self.uses_sticky_header |= sticky_header.is_some();
                 self.uses_refresh_control |= refresh.is_some();
                 self.uses_list_scroll_position |= scroll_position.is_some();
                 self.uses_linear_list_scroll_position |=

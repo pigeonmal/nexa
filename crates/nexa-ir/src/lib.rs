@@ -404,6 +404,7 @@ pub enum Node {
         scroll_position: Option<String>,
         children: Vec<Node>,
         on_end_reached: Option<Vec<Action>>,
+        sticky_header: Option<Vec<Node>>,
         refresh: Option<FastListRefresh>,
     },
     If {

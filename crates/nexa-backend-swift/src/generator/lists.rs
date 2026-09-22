@@ -15,6 +15,7 @@ pub(super) fn render_virtualized_list(
     children: &[Node],
     on_end_reached: Option<&[Action]>,
     scroll_position: Option<&str>,
+    sticky_header: Option<&[Node]>,
     refresh: Option<&FastListRefresh>,
     module: &Module,
     depth: usize,
@@ -38,7 +39,9 @@ pub(super) fn render_virtualized_list(
                 item_extent,
                 on_end_reached,
                 scroll_position,
+                sticky_header,
                 refresh,
+                module,
                 depth,
                 out,
             );
@@ -69,7 +72,9 @@ pub(super) fn render_virtualized_list(
                 item_extent,
                 on_end_reached,
                 scroll_position,
+                sticky_header,
                 refresh,
+                module,
                 depth,
                 out,
             );
@@ -123,11 +128,17 @@ fn open_list(
     item_extent: Option<f32>,
     on_end_reached: Option<&[Action]>,
     scroll_position: Option<&str>,
+    sticky_header: Option<&[Node]>,
     refresh: Option<&FastListRefresh>,
+    module: &Module,
     depth: usize,
     out: &mut String,
 ) {
-    if on_end_reached.is_some() || scroll_position.is_some() || refresh.is_some() {
+    if on_end_reached.is_some()
+        || scroll_position.is_some()
+        || sticky_header.is_some()
+        || refresh.is_some()
+    {
         let mut constructor = list_constructor(axis, row_count, key, item_extent);
         constructor.pop();
         out.push_str(&constructor);
@@ -140,6 +151,18 @@ fn open_list(
                 "{} = Int32(position)\n",
                 state_name(scroll_position)
             ));
+            indent(out, depth);
+            out.push('}');
+        }
+        if let Some(sticky_header) = sticky_header {
+            debug_assert!(matches!(axis, ListAxis::Vertical));
+            out.push_str(", headerContent: {\n");
+            indent(out, depth + 1);
+            out.push_str("AnyView(VStack(spacing: 0) {\n");
+            render_children(sticky_header, module, depth + 2, out);
+            out.push('\n');
+            indent(out, depth + 1);
+            out.push_str("})\n");
             indent(out, depth);
             out.push('}');
         }

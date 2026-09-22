@@ -177,6 +177,10 @@ pub(super) fn render(
         "androidx.compose.foundation.lazy.items",
     );
     add(
+        features.uses_sticky_header,
+        "androidx.compose.foundation.lazy.stickyHeader",
+    );
+    add(
         features.uses_grid_list,
         "androidx.compose.foundation.lazy.grid.items",
     );

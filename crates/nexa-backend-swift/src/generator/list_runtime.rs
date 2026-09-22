@@ -2,6 +2,7 @@ pub(super) fn render(out: &mut String) {
     out.push_str(
         r#"
 private let nexaFastListCellReuseIdentifier = "NexaFastListCell"
+private let nexaFastListHeaderReuseIdentifier = "NexaFastListHeader"
 
 private final class NexaFastListRefreshController: NSObject {
     let control = UIRefreshControl()
@@ -58,6 +59,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
     let isRefreshing: Bool
     let onRefresh: (() -> Void)?
     let onEndReached: (() -> Void)?
+    let headerContent: (() -> AnyView)?
     let rowContent: (Int) -> RowContent
 
     init(
@@ -69,6 +71,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         isRefreshing: Bool = false,
         onRefresh: (() -> Void)? = nil,
         onEndReached: (() -> Void)? = nil,
+        headerContent: (() -> AnyView)? = nil,
         @ViewBuilder rowContent: @escaping (Int) -> RowContent
     ) {
         self.rowCount = max(0, rowCount)
@@ -79,6 +82,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         self.isRefreshing = isRefreshing
         self.onRefresh = onRefresh
         self.onEndReached = onEndReached
+        self.headerContent = headerContent
         self.rowContent = rowContent
     }
 
@@ -90,6 +94,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             scrollPosition: scrollPosition,
             onScrollPositionChanged: onScrollPositionChanged,
             onEndReached: onEndReached,
+            headerContent: headerContent,
             rowContent: rowContent
         )
     }
@@ -105,6 +110,10 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             action: onRefresh
         )
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: nexaFastListCellReuseIdentifier)
+        tableView.register(
+            UITableViewHeaderFooterView.self,
+            forHeaderFooterViewReuseIdentifier: nexaFastListHeaderReuseIdentifier
+        )
         if let rowHeight {
             tableView.rowHeight = rowHeight
             tableView.estimatedRowHeight = rowHeight
@@ -129,6 +138,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         coordinator.scrollPosition = scrollPosition
         coordinator.onScrollPositionChanged = onScrollPositionChanged
         coordinator.onEndReached = onEndReached
+        coordinator.headerContent = headerContent
         coordinator.rowContent = rowContent
         nexaUpdateRefreshControl(
             tableView,
@@ -150,6 +160,12 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
                     tableView.reconfigureRows(at: visibleRows)
                 }
             }
+            if let header = tableView.headerView(forSection: 0), let headerContent {
+                header.contentConfiguration = UIHostingConfiguration {
+                    headerContent()
+                }
+                .margins(.all, 0)
+            }
             return
         }
         tableView.reloadData()
@@ -163,6 +179,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         var onScrollPositionChanged: ((Int) -> Void)?
         var refreshController: NexaFastListRefreshController?
         var onEndReached: (() -> Void)?
+        var headerContent: (() -> AnyView)?
         var lastEndReachedRowCount: Int?
         var lastReportedScrollPosition: Int?
         var rowContent: (Int) -> RowContent
@@ -174,6 +191,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             scrollPosition: Int32?,
             onScrollPositionChanged: ((Int) -> Void)?,
             onEndReached: (() -> Void)?,
+            headerContent: (() -> AnyView)?,
             rowContent: @escaping (Int) -> RowContent
         ) {
             self.rowCount = rowCount
@@ -183,6 +201,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             self.onScrollPositionChanged = onScrollPositionChanged
             self.refreshController = nil
             self.onEndReached = onEndReached
+            self.headerContent = headerContent
             self.lastEndReachedRowCount = nil
             self.lastReportedScrollPosition = nil
             self.rowContent = rowContent
@@ -205,6 +224,26 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             }
             .margins(.all, 0)
             return cell
+        }
+
+        func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+            guard let headerContent else { return nil }
+            let header = tableView.dequeueReusableHeaderFooterView(
+                withIdentifier: nexaFastListHeaderReuseIdentifier
+            ) ?? UITableViewHeaderFooterView(reuseIdentifier: nexaFastListHeaderReuseIdentifier)
+            header.contentConfiguration = UIHostingConfiguration {
+                headerContent()
+            }
+            .margins(.all, 0)
+            return header
+        }
+
+        func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+            headerContent == nil ? .leastNormalMagnitude : UITableView.automaticDimension
+        }
+
+        func tableView(_ tableView: UITableView, estimatedHeightForHeaderInSection section: Int) -> CGFloat {
+            headerContent == nil ? 0 : 44
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {

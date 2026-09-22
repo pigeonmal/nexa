@@ -16,6 +16,7 @@ pub(super) fn render_virtualized_list(
     children: &[Node],
     on_end_reached: Option<&[Action]>,
     scroll_position: Option<&str>,
+    sticky_header: Option<&[Node]>,
     refresh: Option<&FastListRefresh>,
     module: &Module,
     features: &Features,
@@ -34,6 +35,7 @@ pub(super) fn render_virtualized_list(
             children,
             on_end_reached,
             scroll_position,
+            sticky_header,
             refresh,
             module,
             features,
@@ -73,6 +75,15 @@ pub(super) fn render_virtualized_list(
         .as_str(),
     );
     indent(out, list_depth + 1);
+    if let Some(sticky_header) = sticky_header {
+        debug_assert!(matches!(axis, ListAxis::Vertical));
+        out.push_str("stickyHeader {\n");
+        render_children(sticky_header, module, features, list_depth + 2, out);
+        out.push('\n');
+        indent(out, list_depth + 1);
+        out.push_str("}\n");
+        indent(out, list_depth + 1);
+    }
     match source {
         ListSource::Count(count) => {
             let count = list_count
@@ -146,6 +157,7 @@ fn render_grid_list(
     children: &[Node],
     on_end_reached: Option<&[Action]>,
     scroll_position: Option<&str>,
+    _sticky_header: Option<&[Node]>,
     refresh: Option<&FastListRefresh>,
     module: &Module,
     features: &Features,

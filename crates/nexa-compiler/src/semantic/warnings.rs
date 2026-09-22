@@ -382,6 +382,7 @@ fn walk_node(
             scroll_position,
             children,
             on_end_reached,
+            sticky_header,
             span,
         } => {
             match source {
@@ -397,6 +398,11 @@ fn walk_node(
             }
             if let Some(actions) = on_end_reached {
                 walk_actions(actions, names, used, target, file, warnings);
+            }
+            if let Some(sticky_header) = sticky_header {
+                for child in sticky_header {
+                    walk_node(child, names, used, target, file, warnings);
+                }
             }
             let mut row_names = names.clone();
             let index_name = index

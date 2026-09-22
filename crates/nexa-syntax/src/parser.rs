@@ -1087,12 +1087,27 @@ impl Parser {
                 let key = args.remove("key");
                 let scroll_position = args.remove("scrollPosition");
                 let children = self.block_nodes()?;
-                let on_end_reached = if self.word_is("onEndReached") {
-                    self.advance();
-                    Some(self.block_stmts()?)
-                } else {
-                    None
-                };
+                let mut on_end_reached = None;
+                let mut sticky_header = None;
+                loop {
+                    if self.word_is("onEndReached") {
+                        if on_end_reached.is_some() {
+                            return self
+                                .error_here("FastList accepts only one `onEndReached` block");
+                        }
+                        self.advance();
+                        on_end_reached = Some(self.block_stmts()?);
+                    } else if self.word_is("stickyHeader") {
+                        if sticky_header.is_some() {
+                            return self
+                                .error_here("FastList accepts only one `stickyHeader` block");
+                        }
+                        self.advance();
+                        sticky_header = Some(self.block_nodes()?);
+                    } else {
+                        break;
+                    }
+                }
                 Ok(Node::FastList {
                     source,
                     axis,
@@ -1103,6 +1118,7 @@ impl Parser {
                     scroll_position,
                     children,
                     on_end_reached,
+                    sticky_header,
                     span,
                 })
             }
