@@ -116,8 +116,14 @@ pub(super) fn lower_node(
             spacing,
             style,
             children,
-            span: _,
+            span,
         } => {
+            if matches!(kind, ast::LayoutKind::Stack) && spacing.is_some() {
+                return Err(CompileError::new(
+                    spacing.as_ref().map(ast::Expr::span).unwrap_or(span),
+                    "Stack does not accept `spacing`; use alignment or explicit child layout instead",
+                ));
+            }
             let spacing = optional_dimension(
                 spacing,
                 "spacing",

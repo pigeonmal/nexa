@@ -636,7 +636,7 @@ Support:
 
 Avoid layout passes that duplicate work already performed by the native platform.
 
-The first stack layout slice is implemented: `Stack { ... }` maps directly to SwiftUI `ZStack` and Compose `Box`, with the existing static alignment and size-bound styles. It overlays children without introducing a shared layout pass; spacing is ignored for this overlay container. See [stack.nx](examples/stack.nx).
+The first stack layout slice is implemented: `Stack { ... }` maps directly to SwiftUI `ZStack` and Compose `Box`, with the existing static alignment and size-bound styles. It overlays children without introducing a shared layout pass; `spacing` is rejected at compile time because native overlay containers do not have inter-child spacing. See [stack.nx](examples/stack.nx).
 
 The first border styling slice is implemented: `Column` and `Row` accept paired static `borderColor` and `borderWidth` options. Swift emits a native rounded-rectangle stroke overlay and Compose emits `Modifier.border`; incomplete pairs are compile-time errors. See [borders.nx](examples/borders.nx).
 
