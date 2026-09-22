@@ -828,6 +828,12 @@ pub(super) fn lower_node(
                     "FastList requires at least one row component",
                 ));
             }
+            if sticky_header.as_ref().is_some_and(Vec::is_empty) {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `stickyHeader` requires at least one header component",
+                ));
+            }
             let on_end_reached = on_end_reached
                 .map(|actions| lower_actions(actions, symbols, functions, false))
                 .transpose()?;
