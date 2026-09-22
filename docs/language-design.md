@@ -25,7 +25,7 @@ Nexa borrows useful ideas from Kotlin and Swift, but keeps one source language a
 | AND / OR / NOT | Integrate now | `&&`, `||`, `!`; native short-circuit operators. |
 | Equality and comparison | Integrate now | `==`, `!=` for scalar values; numeric `<`, `<=`, `>`, `>=`. Exact types are required; no runtime conversions. |
 | Mutable variable / constant | Keep Nexa terms | `state` means observed, mutable UI state and `let` means immutable. Both can infer a type from a non-empty initializer using shared defaults (`Int32` for integer literals and `Float64` for decimal literals); explicit annotations remain available for narrower numeric bindings. `var`/`val` aliases would add duplicate syntax. |
-| Function / return | Adopt | Typed, statically resolved functions; avoid dynamic function registries. Not implemented yet. |
+| Function / return | Integrate first slice | App-local functions require explicit parameter and return types and exactly one return expression. Calls are checked at compile time and lower to direct private top-level Swift/Kotlin functions; local variables, closures, async functions, generics, and dynamic dispatch remain deferred. |
 | Nullable / optional | Adopt | Explicit `T?` with checked unwrap semantics, mapped to Swift `Optional` and Kotlin nullable types. Not implemented yet. |
 | Default value if null | Adopt one spelling | Prefer `??` in Nexa and lower to native short-circuit fallback; do not make Kotlin's `?:` the shared spelling. Depends on optionals. |
 | Safe access | Adopt | `?.` with compile-time member/type checking; depends on optionals and user-defined types. |

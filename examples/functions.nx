@@ -1,0 +1,19 @@
+app Functions {
+    fn add(a: Int32, b: Int32) -> Int32 {
+        return a + b
+    }
+
+    fn greeting(name: String) -> String {
+        return "Hello, $name"
+    }
+
+    let result: Int32 = add(1, 2)
+    let message = greeting("Nexa")
+
+    body {
+        Column {
+            Text(message)
+            Text(result)
+        }
+    }
+}

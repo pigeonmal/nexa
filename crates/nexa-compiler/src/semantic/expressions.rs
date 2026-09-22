@@ -4,6 +4,50 @@ use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{BinaryOp, Expr, InterpolatedPart, NumericType, Type};
 use nexa_syntax::ast;
 
+#[derive(Clone)]
+pub(super) struct FunctionSignature {
+    pub(super) parameters: Vec<(String, Type)>,
+    pub(super) return_type: Type,
+}
+
+pub(super) type FunctionSignatures = HashMap<String, FunctionSignature>;
+
+pub(super) fn collect_function_signatures(
+    declarations: &[ast::FunctionDecl],
+) -> Result<FunctionSignatures, CompileError> {
+    let mut signatures = HashMap::with_capacity(declarations.len());
+    for declaration in declarations {
+        if signatures.contains_key(&declaration.name) {
+            return Err(CompileError::new(
+                declaration.span,
+                format!("function `{}` is already declared", declaration.name),
+            ));
+        }
+        let mut names = std::collections::HashSet::with_capacity(declaration.parameters.len());
+        let mut parameters = Vec::with_capacity(declaration.parameters.len());
+        for parameter in &declaration.parameters {
+            if !names.insert(parameter.name.as_str()) {
+                return Err(CompileError::new(
+                    parameter.span,
+                    format!(
+                        "function parameter `{}` is declared more than once",
+                        parameter.name
+                    ),
+                ));
+            }
+            parameters.push((parameter.name.clone(), parse_type(&parameter.ty)?));
+        }
+        signatures.insert(
+            declaration.name.clone(),
+            FunctionSignature {
+                parameters,
+                return_type: parse_type(&declaration.return_type)?,
+            },
+        );
+    }
+    Ok(signatures)
+}
+
 pub(super) fn references_state(expr: &ast::Expr) -> bool {
     match expr {
         ast::Expr::Name(_, _) => true,
@@ -19,6 +63,7 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         ast::Expr::Triple(first, second, third, _) => {
             references_state(first) || references_state(second) || references_state(third)
         }
+        ast::Expr::Call(_, arguments, _) => arguments.iter().any(references_state),
         ast::Expr::Interpolation(parts, _) => parts
             .iter()
             .any(|part| matches!(part, ast::StringPart::Name(_))),
@@ -34,6 +79,7 @@ pub(super) fn lower_expr(
     expr: &ast::Expr,
     expected: Option<&Type>,
     symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
 ) -> Result<Expr, CompileError> {
     match expr {
         ast::Expr::String(value, _) => {
@@ -49,8 +95,12 @@ pub(super) fn lower_expr(
                         lowered.push(InterpolatedPart::Literal(value.clone()));
                     }
                     ast::StringPart::Name(name) => {
-                        let value =
-                            lower_expr(&ast::Expr::Name(name.clone(), *span), None, symbols)?;
+                        let value = lower_expr(
+                            &ast::Expr::Name(name.clone(), *span),
+                            None,
+                            symbols,
+                            functions,
+                        )?;
                         lowered.push(InterpolatedPart::Value(Box::new(value)));
                     }
                 }
@@ -78,7 +128,7 @@ pub(super) fn lower_expr(
             };
             let mut lowered = Vec::with_capacity(items.len());
             for item in items {
-                lowered.push(lower_expr(item, Some(element_type), symbols)?);
+                lowered.push(lower_expr(item, Some(element_type), symbols, functions)?);
             }
             if matches!(expected, Some(Type::Set(_))) {
                 Ok(Expr::Set(lowered))
@@ -96,8 +146,8 @@ pub(super) fn lower_expr(
             let mut lowered = Vec::with_capacity(entries.len());
             for (key, value) in entries {
                 lowered.push((
-                    lower_expr(key, Some(key_type), symbols)?,
-                    lower_expr(value, Some(value_type), symbols)?,
+                    lower_expr(key, Some(key_type), symbols, functions)?,
+                    lower_expr(value, Some(value_type), symbols, functions)?,
                 ));
             }
             Ok(Expr::Map(lowered))
@@ -110,8 +160,8 @@ pub(super) fn lower_expr(
                 ));
             };
             Ok(Expr::Pair(
-                Box::new(lower_expr(first, Some(first_type), symbols)?),
-                Box::new(lower_expr(second, Some(second_type), symbols)?),
+                Box::new(lower_expr(first, Some(first_type), symbols, functions)?),
+                Box::new(lower_expr(second, Some(second_type), symbols, functions)?),
             ))
         }
         ast::Expr::Triple(first, second, third, span) => {
@@ -122,9 +172,9 @@ pub(super) fn lower_expr(
                 ));
             };
             Ok(Expr::Triple(
-                Box::new(lower_expr(first, Some(first_type), symbols)?),
-                Box::new(lower_expr(second, Some(second_type), symbols)?),
-                Box::new(lower_expr(third, Some(third_type), symbols)?),
+                Box::new(lower_expr(first, Some(first_type), symbols, functions)?),
+                Box::new(lower_expr(second, Some(second_type), symbols, functions)?),
+                Box::new(lower_expr(third, Some(third_type), symbols, functions)?),
             ))
         }
         ast::Expr::Number(raw, span) => {
@@ -162,8 +212,12 @@ pub(super) fn lower_expr(
         ast::Expr::Add(left, right, span) => {
             let ty = expected
                 .and_then(as_numeric_type)
-                .or_else(|| infer_expr_type(left, symbols).and_then(|ty| as_numeric_type(&ty)))
-                .or_else(|| infer_expr_type(right, symbols).and_then(|ty| as_numeric_type(&ty)))
+                .or_else(|| {
+                    infer_expr_type(left, symbols, functions).and_then(|ty| as_numeric_type(&ty))
+                })
+                .or_else(|| {
+                    infer_expr_type(right, symbols, functions).and_then(|ty| as_numeric_type(&ty))
+                })
                 .ok_or_else(|| {
                     CompileError::new(*span, "`+` requires numeric values of the same type")
                 })?;
@@ -177,8 +231,8 @@ pub(super) fn lower_expr(
                     ),
                 ));
             }
-            let left = lower_expr(left, Some(&numeric), symbols)?;
-            let right = lower_expr(right, Some(&numeric), symbols)?;
+            let left = lower_expr(left, Some(&numeric), symbols, functions)?;
+            let right = lower_expr(right, Some(&numeric), symbols, functions)?;
             if expr_numeric_type(&left) != Some(ty) || expr_numeric_type(&right) != Some(ty) {
                 return Err(CompileError::new(
                     *span,
@@ -188,11 +242,40 @@ pub(super) fn lower_expr(
             Ok(Expr::Add(Box::new(left), Box::new(right), ty))
         }
         ast::Expr::Not(value, _span) => {
-            let value = lower_expr(value, Some(&Type::Bool), symbols)?;
+            let value = lower_expr(value, Some(&Type::Bool), symbols, functions)?;
             Ok(Expr::Not(Box::new(value)))
         }
         ast::Expr::Binary(left, operator, right, span) => {
-            lower_binary(left, *operator, right, *span, expected, symbols)
+            lower_binary(left, *operator, right, *span, expected, symbols, functions)
+        }
+        ast::Expr::Call(name, arguments, span) => {
+            let Some(signature) = functions.get(name) else {
+                return Err(CompileError::new(
+                    *span,
+                    format!("unknown function `{name}`"),
+                ));
+            };
+            if arguments.len() != signature.parameters.len() {
+                return Err(CompileError::new(
+                    *span,
+                    format!(
+                        "function `{name}` expects {} argument(s), found {}",
+                        signature.parameters.len(),
+                        arguments.len()
+                    ),
+                ));
+            }
+            require_expected(expected, &signature.return_type, *span)?;
+            let lowered = arguments
+                .iter()
+                .zip(&signature.parameters)
+                .map(|(argument, (_, ty))| lower_expr(argument, Some(ty), symbols, functions))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Expr::Call {
+                name: name.clone(),
+                arguments: lowered,
+                return_type: signature.return_type.clone(),
+            })
         }
     }
 }
@@ -204,6 +287,7 @@ fn lower_binary(
     span: Span,
     expected: Option<&Type>,
     symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
 ) -> Result<Expr, CompileError> {
     let ir_operator = match operator {
         ast::BinaryOp::And => BinaryOp::And,
@@ -228,8 +312,8 @@ fn lower_binary(
             return Err(CompileError::new(span, "logical expressions produce Bool"));
         }
         let bool_type = Type::Bool;
-        let left = lower_expr(left, Some(&bool_type), symbols)?;
-        let right = lower_expr(right, Some(&bool_type), symbols)?;
+        let left = lower_expr(left, Some(&bool_type), symbols, functions)?;
+        let right = lower_expr(right, Some(&bool_type), symbols, functions)?;
         return Ok(Expr::Binary {
             op: ir_operator,
             left: Box::new(left),
@@ -243,8 +327,8 @@ fn lower_binary(
             "comparison expressions produce Bool",
         ));
     }
-    let left_type = infer_expr_type(left, symbols);
-    let right_type = infer_expr_type(right, symbols);
+    let left_type = infer_expr_type(left, symbols, functions);
+    let right_type = infer_expr_type(right, symbols, functions);
     let common_type = match (left_type, right_type) {
         (Some(left_type), Some(right_type)) if left_type == right_type => left_type,
         (Some(left_type @ Type::Numeric(_)), Some(Type::Numeric(_)))
@@ -269,8 +353,8 @@ fn lower_binary(
         }
         (Some(ty), None) | (None, Some(ty)) => ty,
         (None, None) => {
-            let left = lower_expr(left, None, symbols)?;
-            let right = lower_expr(right, None, symbols)?;
+            let left = lower_expr(left, None, symbols, functions)?;
+            let right = lower_expr(right, None, symbols, functions)?;
             let _ = (left, right);
             return Err(CompileError::new(
                 span,
@@ -290,8 +374,8 @@ fn lower_binary(
             "equality is supported for numeric, Bool, and String values",
         ));
     }
-    let left = lower_expr(left, Some(&common_type), symbols)?;
-    let right = lower_expr(right, Some(&common_type), symbols)?;
+    let left = lower_expr(left, Some(&common_type), symbols, functions)?;
+    let right = lower_expr(right, Some(&common_type), symbols, functions)?;
     Ok(Expr::Binary {
         op: ir_operator,
         left: Box::new(left),
@@ -299,7 +383,11 @@ fn lower_binary(
     })
 }
 
-fn infer_expr_type(expr: &ast::Expr, symbols: &HashMap<String, (Type, bool)>) -> Option<Type> {
+pub(super) fn infer_expr_type(
+    expr: &ast::Expr,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+) -> Option<Type> {
     match expr {
         ast::Expr::String(_, _) | ast::Expr::Interpolation(_, _) => Some(Type::String),
         ast::Expr::Bool(_, _)
@@ -312,10 +400,13 @@ fn infer_expr_type(expr: &ast::Expr, symbols: &HashMap<String, (Type, bool)>) ->
             NumericType::Int32
         })),
         ast::Expr::Name(name, _) => symbols.get(name).map(|(ty, _)| ty.clone()),
+        ast::Expr::Call(name, _, _) => functions
+            .get(name)
+            .map(|signature| signature.return_type.clone()),
         ast::Expr::ThemeToken(_, _) => None,
         ast::Expr::Add(left_expr, right_expr, _) => {
-            let left_type = infer_expr_type(left_expr, symbols);
-            let right_type = infer_expr_type(right_expr, symbols);
+            let left_type = infer_expr_type(left_expr, symbols, functions);
+            let right_type = infer_expr_type(right_expr, symbols, functions);
             match (left_type, right_type) {
                 (Some(Type::Numeric(left)), Some(Type::Numeric(right))) if left == right => {
                     Some(Type::Numeric(left))
@@ -338,23 +429,23 @@ fn infer_expr_type(expr: &ast::Expr, symbols: &HashMap<String, (Type, bool)>) ->
         }
         ast::Expr::Array(items, _) => items
             .first()
-            .and_then(|item| infer_expr_type(item, symbols))
+            .and_then(|item| infer_expr_type(item, symbols, functions))
             .map(|item_type| Type::Array(Box::new(item_type))),
         ast::Expr::Map(entries, _) => {
             let (key, value) = entries.first()?;
             Some(Type::Map(
-                Box::new(infer_expr_type(key, symbols)?),
-                Box::new(infer_expr_type(value, symbols)?),
+                Box::new(infer_expr_type(key, symbols, functions)?),
+                Box::new(infer_expr_type(value, symbols, functions)?),
             ))
         }
         ast::Expr::Pair(first, second, _) => Some(Type::Pair(
-            Box::new(infer_expr_type(first, symbols)?),
-            Box::new(infer_expr_type(second, symbols)?),
+            Box::new(infer_expr_type(first, symbols, functions)?),
+            Box::new(infer_expr_type(second, symbols, functions)?),
         )),
         ast::Expr::Triple(first, second, third, _) => Some(Type::Triple(
-            Box::new(infer_expr_type(first, symbols)?),
-            Box::new(infer_expr_type(second, symbols)?),
-            Box::new(infer_expr_type(third, symbols)?),
+            Box::new(infer_expr_type(first, symbols, functions)?),
+            Box::new(infer_expr_type(second, symbols, functions)?),
+            Box::new(infer_expr_type(third, symbols, functions)?),
         )),
     }
 }
@@ -439,10 +530,11 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
 pub(super) fn resolve_declaration_type(
     declaration: &ast::StateDecl,
     symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
 ) -> Result<Type, CompileError> {
     let ty = match declaration.ty.as_ref() {
         Some(syntax) => parse_type(syntax)?,
-        None => infer_expr_type(&declaration.initial, symbols).ok_or_else(|| {
+        None => infer_expr_type(&declaration.initial, symbols, functions).ok_or_else(|| {
             CompileError::new(
                 declaration.initial.span(),
                 format!(

@@ -8,6 +8,7 @@ mod controls;
 mod custom_components;
 mod expressions;
 mod features;
+mod functions;
 mod images;
 mod input;
 mod keyboard;
@@ -111,6 +112,7 @@ pub(super) fn generate(module: &Module) -> String {
     if features.uses_remote_image {
         network::render(&mut out);
     }
+    functions::render(module, &mut out);
     out
 }
 

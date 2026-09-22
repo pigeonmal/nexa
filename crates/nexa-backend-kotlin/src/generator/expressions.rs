@@ -1,4 +1,4 @@
-use nexa_codegen::names::state_name;
+use nexa_codegen::names::{function_name, state_name};
 use nexa_ir::{BinaryOp, Expr, InterpolatedPart, NumericType, Type};
 
 use super::utils::{kotlin_string, kotlin_string_content};
@@ -52,6 +52,17 @@ pub(super) fn expression(expr: &Expr) -> String {
             expression(first),
             expression(second),
             expression(third)
+        ),
+        Expr::Call {
+            name, arguments, ..
+        } => format!(
+            "{}({})",
+            function_name(name),
+            arguments
+                .iter()
+                .map(expression)
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
         Expr::Add(left, right, ty) => {
             let sum = format!("({} + {})", expression(left), expression(right));

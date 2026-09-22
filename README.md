@@ -149,6 +149,8 @@ String interpolation supports `$name` and `\(name)` for declared state and const
 
 `OnAppear { ... }` and `OnDisappear { ... }` are top-level app or named-screen lifecycle callbacks. Their direct state actions run through SwiftUI lifecycle modifiers on iOS and Compose effects on Android; see [lifecycle.nx](examples/lifecycle.nx) and [navigation.nx](examples/navigation.nx). App background events remain future lifecycle slices.
 
+Typed app functions use `fn name(parameters) -> ReturnType { return expression }`. Calls are resolved during compilation and emitted as direct private native functions, with no runtime registry; the current slice supports one return expression and no local variables or async/closure syntax. See [functions.nx](examples/functions.nx).
+
 ## License
 
 Copyright © 2026 Nexa contributors. Nexa is licensed under the GNU General Public License v3.0 only; see [LICENSE](LICENSE) for the full terms.

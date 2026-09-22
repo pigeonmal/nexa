@@ -6,6 +6,7 @@ use nexa_diagnostics::Span;
 pub struct App {
     pub name: String,
     pub states: Vec<StateDecl>,
+    pub functions: Vec<FunctionDecl>,
     pub screens: Vec<ScreenDecl>,
     pub theme: Option<ThemeDecl>,
     pub components: Vec<ComponentDecl>,
@@ -38,6 +39,22 @@ pub struct ComponentDecl {
 
 #[derive(Clone, Debug)]
 pub struct ComponentParameter {
+    pub name: String,
+    pub ty: TypeSyntax,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct FunctionDecl {
+    pub name: String,
+    pub parameters: Vec<FunctionParameter>,
+    pub return_type: TypeSyntax,
+    pub body: Vec<Stmt>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct FunctionParameter {
     pub name: String,
     pub ty: TypeSyntax,
     pub span: Span,
@@ -301,6 +318,7 @@ pub enum Expr {
     Map(Vec<(Expr, Expr)>, Span),
     Pair(Box<Expr>, Box<Expr>, Span),
     Triple(Box<Expr>, Box<Expr>, Box<Expr>, Span),
+    Call(String, Vec<Expr>, Span),
 }
 
 #[derive(Clone, Debug)]
@@ -337,7 +355,8 @@ impl Expr {
             | Self::Array(_, s)
             | Self::Map(_, s)
             | Self::Pair(_, _, s)
-            | Self::Triple(_, _, _, s) => *s,
+            | Self::Triple(_, _, _, s)
+            | Self::Call(_, _, s) => *s,
         }
     }
 }
@@ -353,6 +372,10 @@ pub enum Stmt {
         condition: Expr,
         then_branch: Vec<Stmt>,
         else_branch: Option<Vec<Stmt>>,
+        span: Span,
+    },
+    Return {
+        value: Expr,
         span: Span,
     },
 }

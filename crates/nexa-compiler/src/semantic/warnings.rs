@@ -25,6 +25,22 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
         &mut warnings,
     );
 
+    for function in &app.functions {
+        let names = function
+            .parameters
+            .iter()
+            .map(|parameter| parameter.name.clone())
+            .collect::<HashSet<_>>();
+        walk_actions(
+            &function.body,
+            &names,
+            &mut HashSet::new(),
+            target,
+            None,
+            &mut warnings,
+        );
+    }
+
     for component in &app.components {
         let mut names = component
             .parameters
@@ -307,6 +323,7 @@ fn walk_actions(
                     walk_actions(else_branch, names, used, target, file, warnings);
                 }
             }
+            ast::Stmt::Return { value, .. } => walk_expression(value, names, used),
         }
     }
 }
@@ -355,6 +372,11 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
             walk_expression(first, names, used);
             walk_expression(second, names, used);
             walk_expression(third, names, used);
+        }
+        ast::Expr::Call(_, arguments, _) => {
+            for argument in arguments {
+                walk_expression(argument, names, used);
+            }
         }
         ast::Expr::Interpolation(parts, _) => {
             for part in parts {

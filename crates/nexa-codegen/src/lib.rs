@@ -34,6 +34,11 @@ pub mod names {
         format!("nexa_{name}")
     }
 
+    /// Gives source-defined pure functions stable top-level native names.
+    pub fn function_name(name: &str) -> String {
+        format!("nexa_fn_{name}")
+    }
+
     pub fn navigation_case_name(screen: nexa_ir::ScreenId) -> String {
         format!("screen{}", screen.0)
     }

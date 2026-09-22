@@ -10,7 +10,7 @@ use nexa_syntax::ast;
 
 use super::{
     custom_components::ComponentSignatures,
-    expressions::{lower_expr, type_name},
+    expressions::{FunctionSignatures, lower_expr, type_name},
     styles::{lower_style, optional_color, optional_dimension},
     themes::ThemeSymbols,
 };
@@ -22,6 +22,7 @@ pub(super) fn lower_nodes(
     screen_ids: &HashMap<String, ScreenId>,
     themes: &ThemeSymbols,
     components: &ComponentSignatures,
+    functions: &FunctionSignatures,
     allow_navigation_stack: bool,
     target: Target,
 ) -> Result<Vec<Node>, CompileError> {
@@ -40,6 +41,7 @@ pub(super) fn lower_nodes(
                         screen_ids,
                         themes,
                         components,
+                        functions,
                         allow_navigation_stack,
                         target,
                     )?);
@@ -54,6 +56,7 @@ pub(super) fn lower_nodes(
                     screen_ids,
                     themes,
                     components,
+                    functions,
                     allow_navigation,
                     target,
                 )?);
@@ -76,6 +79,7 @@ pub(super) fn lower_node(
     screen_ids: &HashMap<String, ScreenId>,
     themes: &ThemeSymbols,
     components: &ComponentSignatures,
+    functions: &FunctionSignatures,
     allow_navigation_stack: bool,
     target: Target,
 ) -> Result<Node, CompileError> {
@@ -90,10 +94,10 @@ pub(super) fn lower_node(
             config: lower_direction(value)?,
         }),
         ast::Node::OnAppear { actions, .. } => Ok(Node::OnAppear {
-            actions: lower_actions(actions, symbols)?,
+            actions: lower_actions(actions, symbols, functions)?,
         }),
         ast::Node::OnDisappear { actions, .. } => Ok(Node::OnDisappear {
-            actions: lower_actions(actions, symbols)?,
+            actions: lower_actions(actions, symbols, functions)?,
         }),
         ast::Node::Layout {
             kind,
@@ -111,7 +115,7 @@ pub(super) fn lower_node(
             .unwrap_or(0.0);
             let style = lower_style(style, themes)?;
             let lowered = lower_nodes(
-                children, symbols, screen_ids, themes, components, false, target,
+                children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
             let kind = match kind {
                 ast::LayoutKind::Column => LayoutKind::Column,
@@ -135,7 +139,7 @@ pub(super) fn lower_node(
             selectable,
             ..
         } => {
-            let value = lower_expr(&value, None, symbols)?;
+            let value = lower_expr(&value, None, symbols, functions)?;
             let color = optional_color(color, "text color", themes)?;
             let font_size = optional_dimension(
                 font_size,
@@ -168,7 +172,7 @@ pub(super) fn lower_node(
             actions,
             span,
         } => {
-            let label = lower_expr(&label, Some(&Type::String), symbols)?;
+            let label = lower_expr(&label, Some(&Type::String), symbols, functions)?;
             if !matches!(
                 label,
                 Expr::String(_) | Expr::Interpolation(_) | Expr::State(_, Type::String)
@@ -176,12 +180,12 @@ pub(super) fn lower_node(
                 return Err(CompileError::new(span, "Button label must be a String"));
             }
             let loading = loading
-                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols))
+                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions))
                 .transpose()?;
             let disabled = disabled
-                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols))
+                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions))
                 .transpose()?;
-            let lowered = lower_actions(actions, symbols)?;
+            let lowered = lower_actions(actions, symbols, functions)?;
             Ok(Node::Button {
                 label,
                 loading,
@@ -272,7 +276,7 @@ pub(super) fn lower_node(
                 multiline,
                 autocorrect,
                 capitalization,
-                actions: lower_actions(actions, symbols)?,
+                actions: lower_actions(actions, symbols, functions)?,
             })
         }
         ast::Node::Switch { value, label, span } => {
@@ -356,10 +360,10 @@ pub(super) fn lower_node(
         } => {
             let disabled = optional_bool(disabled, false, "disabled")?;
             let lowered_children = lower_nodes(
-                children, symbols, screen_ids, themes, components, false, target,
+                children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
-            let actions = lower_actions(actions, symbols)?;
-            let long_press_actions = lower_actions(long_press_actions, symbols)?;
+            let actions = lower_actions(actions, symbols, functions)?;
+            let long_press_actions = lower_actions(long_press_actions, symbols, functions)?;
             Ok(Node::Pressable {
                 disabled,
                 children: lowered_children,
@@ -393,7 +397,7 @@ pub(super) fn lower_node(
                     },
                 )?;
             let lowered_children = lower_nodes(
-                children, symbols, screen_ids, themes, components, false, target,
+                children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
             Ok(Node::NavigationLink {
                 destination,
@@ -413,7 +417,7 @@ pub(super) fn lower_node(
                 ));
             }
             let children = lower_nodes(
-                children, symbols, screen_ids, themes, components, false, target,
+                children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
             Ok(Node::Link { url, children })
         }
@@ -453,7 +457,7 @@ pub(super) fn lower_node(
                 }
             };
             let children = lower_nodes(
-                children, symbols, screen_ids, themes, components, false, target,
+                children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
             if children.is_empty() {
                 return Err(CompileError::new(
@@ -469,7 +473,7 @@ pub(super) fn lower_node(
         }
         ast::Node::KeyboardAware { children, .. } => {
             let lowered_children = lower_nodes(
-                children, symbols, screen_ids, themes, components, false, target,
+                children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
             Ok(Node::KeyboardAware {
                 children: lowered_children,
@@ -483,7 +487,7 @@ pub(super) fn lower_node(
             let state =
                 require_mutable_binding(&is_presented, &Type::Bool, symbols, span, "BottomSheet")?;
             let lowered_children = lower_nodes(
-                children, symbols, screen_ids, themes, components, false, target,
+                children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
             Ok(Node::BottomSheet {
                 state,
@@ -504,12 +508,12 @@ pub(super) fn lower_node(
                 "RefreshControl",
             )?;
             let lowered_children = lower_nodes(
-                children, symbols, screen_ids, themes, components, false, target,
+                children, symbols, screen_ids, themes, components, functions, false, target,
             )?;
             Ok(Node::RefreshControl {
                 state,
                 children: lowered_children,
-                actions: lower_actions(actions, symbols)?,
+                actions: lower_actions(actions, symbols, functions)?,
             })
         }
         ast::Node::AppBottomBar {
@@ -555,6 +559,7 @@ pub(super) fn lower_node(
                     screen_ids,
                     themes,
                     components,
+                    functions,
                     false,
                     target,
                 )?;
@@ -586,7 +591,8 @@ pub(super) fn lower_node(
                             "FastList `item` is only available with an `items` source",
                         ));
                     }
-                    let count_value = lower_expr(&count, Some(&row_index_type), symbols)?;
+                    let count_value =
+                        lower_expr(&count, Some(&row_index_type), symbols, functions)?;
                     if let ast::Expr::Number(raw, count_span) = &count {
                         if raw.parse::<i32>().is_ok_and(|value| value < 0) {
                             return Err(CompileError::new(
@@ -644,6 +650,7 @@ pub(super) fn lower_node(
                 screen_ids,
                 themes,
                 components,
+                functions,
                 false,
                 target,
             )?;
@@ -666,13 +673,15 @@ pub(super) fn lower_node(
             else_body,
             ..
         } => {
-            let condition = lower_expr(&condition, Some(&Type::Bool), symbols)?;
+            let condition = lower_expr(&condition, Some(&Type::Bool), symbols, functions)?;
             let lowered_then = lower_nodes(
-                then_body, symbols, screen_ids, themes, components, false, target,
+                then_body, symbols, screen_ids, themes, components, functions, false, target,
             )?;
             let lowered_else = else_body
                 .map(|body| {
-                    lower_nodes(body, symbols, screen_ids, themes, components, false, target)
+                    lower_nodes(
+                        body, symbols, screen_ids, themes, components, functions, false, target,
+                    )
                 })
                 .transpose()?;
             Ok(Node::If {
@@ -709,8 +718,10 @@ pub(super) fn lower_node(
                         format!("component `{name}` requires parameter `{parameter}`"),
                     )
                 })?;
-                lowered_arguments
-                    .push((parameter.clone(), lower_expr(&argument, Some(ty), symbols)?));
+                lowered_arguments.push((
+                    parameter.clone(),
+                    lower_expr(&argument, Some(ty), symbols, functions)?,
+                ));
             }
             Ok(Node::ComponentCall {
                 name,
@@ -861,6 +872,7 @@ fn resolve_screen(
 fn lower_actions(
     actions: Vec<ast::Stmt>,
     symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
 ) -> Result<Vec<Action>, CompileError> {
     let mut lowered = Vec::with_capacity(actions.len());
     for action in actions {
@@ -875,7 +887,7 @@ fn lower_actions(
                         format!("`{name}` is immutable and cannot be assigned"),
                     ));
                 }
-                let value = lower_expr(&value, Some(ty), symbols)?;
+                let value = lower_expr(&value, Some(ty), symbols, functions)?;
                 lowered.push(Action::Assign { name, value });
             }
             ast::Stmt::If {
@@ -884,14 +896,20 @@ fn lower_actions(
                 else_branch,
                 ..
             } => {
-                let condition = lower_expr(&condition, Some(&Type::Bool), symbols)?;
+                let condition = lower_expr(&condition, Some(&Type::Bool), symbols, functions)?;
                 lowered.push(Action::If {
                     condition,
-                    then_branch: lower_actions(then_branch, symbols)?,
+                    then_branch: lower_actions(then_branch, symbols, functions)?,
                     else_branch: else_branch
-                        .map(|branch| lower_actions(branch, symbols))
+                        .map(|branch| lower_actions(branch, symbols, functions))
                         .transpose()?,
                 });
+            }
+            ast::Stmt::Return { span, .. } => {
+                return Err(CompileError::new(
+                    span,
+                    "`return` is only valid inside a function",
+                ));
             }
         }
     }

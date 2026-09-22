@@ -1,13 +1,19 @@
 use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, CompileWarning};
-use nexa_ir::{Action, DirectionConfig, Module, Node, Screen, ScreenId, State, StatusBarConfig};
+use nexa_ir::{
+    Action, DirectionConfig, Function, FunctionParameter, Module, Node, Screen, ScreenId, State,
+    StatusBarConfig,
+};
 use nexa_syntax::ast;
 
 use self::{
     components::lower_nodes,
     custom_components::{lower_components, retain_reachable},
-    expressions::{lower_expr, references_state, resolve_declaration_type},
+    expressions::{
+        FunctionSignatures, collect_function_signatures, lower_expr, references_state,
+        resolve_declaration_type,
+    },
     themes::lower_theme,
 };
 use crate::Target;
@@ -25,6 +31,7 @@ pub fn lower_with_warnings(
 ) -> Result<(Module, Vec<CompileWarning>), CompileError> {
     let warnings = warnings::analyze(&app, target);
     let themes = lower_theme(app.theme.as_ref())?;
+    let function_signatures = collect_function_signatures(&app.functions)?;
     let mut screen_ids = HashMap::with_capacity(app.screens.len());
     for (index, screen) in app.screens.iter().enumerate() {
         if screen_ids
@@ -48,8 +55,11 @@ pub fn lower_with_warnings(
         std::mem::take(&mut app.components),
         &screen_ids,
         &themes,
+        &function_signatures,
         target,
     )?;
+
+    let functions = lower_functions(std::mem::take(&mut app.functions), &function_signatures)?;
 
     let mut symbols = HashMap::new();
     let mut states = Vec::with_capacity(app.states.len());
@@ -60,8 +70,13 @@ pub fn lower_with_warnings(
                 format!("`{}` is already declared", declaration.name),
             ));
         }
-        let ty = resolve_declaration_type(&declaration, &symbols)?;
-        let initial = lower_expr(&declaration.initial, Some(&ty), &symbols)?;
+        let ty = resolve_declaration_type(&declaration, &symbols, &function_signatures)?;
+        let initial = lower_expr(
+            &declaration.initial,
+            Some(&ty),
+            &symbols,
+            &function_signatures,
+        )?;
         if declaration.mutable && references_state(&declaration.initial) {
             return Err(CompileError::new(
                 declaration.initial.span(),
@@ -84,6 +99,7 @@ pub fn lower_with_warnings(
             &screen_ids,
             &themes,
             &component_signatures,
+            &function_signatures,
             false,
             target,
         )?;
@@ -116,6 +132,7 @@ pub fn lower_with_warnings(
         &screen_ids,
         &themes,
         &component_signatures,
+        &function_signatures,
         true,
         target,
     )?;
@@ -126,6 +143,7 @@ pub fn lower_with_warnings(
     let components = retain_reachable(components, &body, &screens);
     let mut module = Module {
         app_name: app.name,
+        functions,
         states,
         screens,
         components,
@@ -137,6 +155,57 @@ pub fn lower_with_warnings(
     };
     crate::optimize::optimize(&mut module);
     Ok((module, warnings))
+}
+
+fn lower_functions(
+    declarations: Vec<ast::FunctionDecl>,
+    signatures: &FunctionSignatures,
+) -> Result<Vec<Function>, CompileError> {
+    declarations
+        .into_iter()
+        .map(|declaration| {
+            let signature = signatures
+                .get(&declaration.name)
+                .expect("collected signature");
+            let [statement] = declaration.body.as_slice() else {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!(
+                        "function `{}` must contain exactly one `return` statement",
+                        declaration.name
+                    ),
+                ));
+            };
+            let ast::Stmt::Return { value, .. } = statement else {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!(
+                        "function `{}` must contain exactly one `return` statement",
+                        declaration.name
+                    ),
+                ));
+            };
+            let symbols = signature
+                .parameters
+                .iter()
+                .map(|(name, ty)| (name.clone(), (ty.clone(), false)))
+                .collect::<HashMap<_, _>>();
+            let body = lower_expr(value, Some(&signature.return_type), &symbols, signatures)?;
+            Ok(Function {
+                name: declaration.name,
+                parameters: signature
+                    .parameters
+                    .iter()
+                    .map(|(name, ty)| FunctionParameter {
+                        name: name.clone(),
+                        ty: ty.clone(),
+                    })
+                    .collect(),
+                return_type: signature.return_type.clone(),
+                body,
+            })
+        })
+        .collect()
 }
 
 fn has_navigation_root(nodes: &[ast::Node], target: Target) -> bool {

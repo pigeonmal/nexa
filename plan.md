@@ -79,6 +79,8 @@ String interpolation is implemented for `$name` and `\(name)` segments. Names ar
 
 For a fast authoring path, `let` and mutable `state` declarations may omit their type when the compiler can infer it from a non-empty initializer. Integer literals default to `Int32` and decimal literals to `Float64`; component parameters remain explicitly typed. Inference is compile-time only and does not add runtime metadata or alter native output for explicitly typed source.
 
+The first pure function slice is implemented inside an app: `fn name(a: Type) -> ReturnType { return expression }`. Parameters and the return type are explicit, calls are checked for arity and exact types, and each function must contain exactly one return expression. The compiler lowers functions to direct private top-level Swift/Kotlin helpers and keeps function calls out of any shared runtime. Local variables, closures, async functions, generic functions, and dynamic dispatch remain future work.
+
 ## User-defined components and modules
 
 App authors should be able to create reusable UI components in Nexa source files, pass typed inputs, compose built-in and custom components, and declare private per-instance state. Component files should be reusable through relative imports and resolve at compile time. Generated output should use native view/composable declarations without a dynamic registry or cross-platform component runtime.

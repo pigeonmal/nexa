@@ -149,11 +149,14 @@ impl Parser {
         self.expect(Kind::LBrace, "expected `{` after app name")?;
         let mut states = Vec::new();
         let mut screens = Vec::new();
+        let mut functions = Vec::new();
         let mut theme = None;
         let mut body = None;
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             if self.word_is("state") || self.word_is("let") {
                 states.push(self.state_decl()?);
+            } else if self.word_is("fn") {
+                functions.push(self.function_decl()?);
             } else if self.word_is("screen") {
                 screens.push(self.screen_decl()?);
             } else if self.word_is("theme") {
@@ -168,8 +171,9 @@ impl Parser {
                 self.advance();
                 body = Some(self.block_nodes()?);
             } else {
-                return self
-                    .error_here("expected a `state`, `screen`, `theme`, or `body` declaration");
+                return self.error_here(
+                    "expected a `state`, `fn`, `screen`, `theme`, or `body` declaration",
+                );
             }
         }
         self.expect(Kind::RBrace, "expected `}` to close app")?;
@@ -177,6 +181,7 @@ impl Parser {
         Ok(App {
             name,
             states,
+            functions,
             screens,
             theme,
             components: Vec::new(),
@@ -258,6 +263,47 @@ impl Parser {
             initial,
             mutable,
             span,
+        })
+    }
+
+    fn function_decl(&mut self) -> Result<FunctionDecl, CompileError> {
+        let keyword = self.advance().span;
+        let (name, _) = self.ident()?;
+        self.expect(Kind::LParen, "expected `(` after function name")?;
+        let mut parameters = Vec::new();
+        while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            let (parameter_name, span) = self.ident()?;
+            if parameters
+                .iter()
+                .any(|parameter: &FunctionParameter| parameter.name == parameter_name)
+            {
+                return Err(CompileError::new(
+                    span,
+                    format!("function parameter `{parameter_name}` is declared more than once"),
+                ));
+            }
+            self.expect(Kind::Colon, "expected `:` after function parameter name")?;
+            let ty = self.type_syntax()?;
+            parameters.push(FunctionParameter {
+                name: parameter_name,
+                ty,
+                span,
+            });
+            if !self.take(&Kind::Comma) {
+                break;
+            }
+        }
+        self.expect(Kind::RParen, "expected `)` after function parameters")?;
+        self.expect(Kind::Minus, "expected `->` before function return type")?;
+        self.expect(Kind::Greater, "expected `->` before function return type")?;
+        let return_type = self.type_syntax()?;
+        let body = self.function_body()?;
+        Ok(FunctionDecl {
+            name,
+            parameters,
+            return_type,
+            body,
+            span: keyword,
         })
     }
 
@@ -735,9 +781,34 @@ impl Parser {
     }
 
     fn block_stmts(&mut self) -> Result<Vec<Stmt>, CompileError> {
-        self.expect(Kind::LBrace, "expected `{` to open button handler")?;
+        self.statements(false)
+    }
+
+    fn function_body(&mut self) -> Result<Vec<Stmt>, CompileError> {
+        self.statements(true)
+    }
+
+    fn statements(&mut self, allow_return: bool) -> Result<Vec<Stmt>, CompileError> {
+        self.expect(
+            Kind::LBrace,
+            if allow_return {
+                "expected `{` to open function body"
+            } else {
+                "expected `{` to open event handler"
+            },
+        )?;
         let mut stmts = Vec::new();
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            if self.word_is("return") {
+                if !allow_return {
+                    return self.error_here("`return` is only allowed inside a function");
+                }
+                let span = self.advance().span;
+                let value = self.expr()?;
+                stmts.push(Stmt::Return { value, span });
+                self.optional_semicolon();
+                continue;
+            }
             if self.word_is("if") {
                 stmts.push(self.if_stmt()?);
                 self.optional_semicolon();
@@ -902,6 +973,9 @@ impl Parser {
                     if (value == "Pair" || value == "Triple") && self.check(&Kind::LParen) {
                         return self.tuple_constructor(value, token.span);
                     }
+                    if self.check(&Kind::LParen) {
+                        return self.call_expression(value, token.span);
+                    }
                     return Ok(Expr::Name(value, token.span));
                 }
                 let (name, name_span) = self.ident()?;
@@ -1033,6 +1107,19 @@ impl Parser {
                 span,
             ))
         }
+    }
+
+    fn call_expression(&mut self, name: String, span: Span) -> Result<Expr, CompileError> {
+        self.expect(Kind::LParen, "expected `(` after function name")?;
+        let mut arguments = Vec::new();
+        while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            arguments.push(self.expr()?);
+            if !self.take(&Kind::Comma) {
+                break;
+            }
+        }
+        self.expect(Kind::RParen, "expected `)` after function arguments")?;
+        Ok(Expr::Call(name, arguments, span))
     }
 
     fn if_node(&mut self) -> Result<Node, CompileError> {

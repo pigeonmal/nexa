@@ -10,6 +10,9 @@ use nexa_ir::{
 /// it folds only pure constant expressions, removes branches whose conditions
 /// are statically known, and drops state declarations with no reachable use.
 pub(crate) fn optimize(module: &mut Module) {
+    for function in &mut module.functions {
+        function.body = fold_expression(std::mem::replace(&mut function.body, Expr::Bool(false)));
+    }
     module.states.iter_mut().for_each(|state| {
         state.initial = fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
     });
@@ -445,6 +448,15 @@ fn fold_expression(expression: Expr) -> Expr {
             Box::new(fold_expression(*second)),
             Box::new(fold_expression(*third)),
         ),
+        Expr::Call {
+            name,
+            arguments,
+            return_type,
+        } => Expr::Call {
+            name,
+            arguments: arguments.into_iter().map(fold_expression).collect(),
+            return_type,
+        },
         Expr::Interpolation(parts) => Expr::Interpolation(
             parts
                 .into_iter()

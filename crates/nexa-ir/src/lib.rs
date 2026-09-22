@@ -3,6 +3,7 @@ pub mod walk;
 #[derive(Clone, Debug)]
 pub struct Module {
     pub app_name: String,
+    pub functions: Vec<Function>,
     pub states: Vec<State>,
     pub screens: Vec<Screen>,
     pub components: Vec<Component>,
@@ -11,6 +12,20 @@ pub struct Module {
     pub direction: Option<DirectionConfig>,
     pub on_appear: Option<Vec<Action>>,
     pub on_disappear: Option<Vec<Action>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Function {
+    pub name: String,
+    pub parameters: Vec<FunctionParameter>,
+    pub return_type: Type,
+    pub body: Expr,
+}
+
+#[derive(Clone, Debug)]
+pub struct FunctionParameter {
+    pub name: String,
+    pub ty: Type,
 }
 
 #[derive(Clone, Debug)]
@@ -119,6 +134,11 @@ pub enum Expr {
     Map(Vec<(Expr, Expr)>),
     Pair(Box<Expr>, Box<Expr>),
     Triple(Box<Expr>, Box<Expr>, Box<Expr>),
+    Call {
+        name: String,
+        arguments: Vec<Expr>,
+        return_type: Type,
+    },
     IsRegularWidth,
 }
 

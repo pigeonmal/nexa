@@ -116,6 +116,11 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             walk_expression(second, visit);
             walk_expression(third, visit);
         }
+        Expr::Call { arguments, .. } => {
+            for argument in arguments {
+                walk_expression(argument, visit);
+            }
+        }
         Expr::Interpolation(parts) => {
             for part in parts {
                 if let InterpolatedPart::Value(value) = part {

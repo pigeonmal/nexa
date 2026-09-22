@@ -6,7 +6,9 @@ use nexa_syntax::ast;
 
 use super::{
     components::lower_nodes,
-    expressions::{lower_expr, parse_type, references_state, resolve_declaration_type},
+    expressions::{
+        FunctionSignatures, lower_expr, parse_type, references_state, resolve_declaration_type,
+    },
     themes::ThemeSymbols,
 };
 use crate::Target;
@@ -58,6 +60,7 @@ pub(super) fn lower_components(
     declarations: Vec<ast::ComponentDecl>,
     screen_ids: &HashMap<String, nexa_ir::ScreenId>,
     themes: &ThemeSymbols,
+    functions: &FunctionSignatures,
     target: Target,
 ) -> Result<(Vec<Component>, ComponentSignatures), CompileError> {
     let signatures = collect_signatures(&declarations)?;
@@ -66,7 +69,14 @@ pub(super) fn lower_components(
     let mut components = Vec::with_capacity(declarations.len());
     for declaration in declarations {
         let source_file = declaration.source_file.clone();
-        let result = lower_component(declaration, &signatures, screen_ids, themes, target);
+        let result = lower_component(
+            declaration,
+            &signatures,
+            screen_ids,
+            themes,
+            functions,
+            target,
+        );
         components.push(result.map_err(|error| in_file(error, source_file.as_deref()))?);
     }
     Ok((components, signatures))
@@ -120,6 +130,7 @@ fn lower_component(
     signatures: &ComponentSignatures,
     screen_ids: &HashMap<String, nexa_ir::ScreenId>,
     themes: &ThemeSymbols,
+    functions: &FunctionSignatures,
     target: Target,
 ) -> Result<Component, CompileError> {
     if declaration
@@ -149,8 +160,8 @@ fn lower_component(
                 ),
             ));
         }
-        let ty = resolve_declaration_type(&state, &symbols)?;
-        let initial = lower_expr(&state.initial, Some(&ty), &symbols)?;
+        let ty = resolve_declaration_type(&state, &symbols, functions)?;
+        let initial = lower_expr(&state.initial, Some(&ty), &symbols, functions)?;
         if state.mutable && references_state(&state.initial) {
             return Err(CompileError::new(
                 state.initial.span(),
@@ -172,6 +183,7 @@ fn lower_component(
         screen_ids,
         themes,
         signatures,
+        functions,
         false,
         target,
     )?;
