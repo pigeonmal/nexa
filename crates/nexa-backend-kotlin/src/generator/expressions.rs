@@ -35,6 +35,16 @@ pub(super) fn expression(expr: &Expr) -> String {
         Expr::Index {
             collection, index, ..
         } => format!("{}[{}]", expression(collection), expression(index)),
+        Expr::Range {
+            start,
+            end,
+            inclusive,
+        } => format!(
+            "{}{}{}",
+            expression(start),
+            if *inclusive { ".." } else { " until " },
+            expression(end)
+        ),
         Expr::Array(items) => format!(
             "listOf({})",
             items.iter().map(expression).collect::<Vec<_>>().join(", ")

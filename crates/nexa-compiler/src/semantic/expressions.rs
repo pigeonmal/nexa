@@ -69,6 +69,7 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         ast::Expr::Index(collection, index, _) => {
             references_state(collection) || references_state(index)
         }
+        ast::Expr::Range { start, end, .. } => references_state(start) || references_state(end),
         ast::Expr::Coalesce(left, right, _) => references_state(left) || references_state(right),
         ast::Expr::Await(value, _) => references_state(value),
         ast::Expr::Interpolation(parts, _) => parts
@@ -372,6 +373,10 @@ pub(super) fn lower_expr(
                 element_type: result_type,
             })
         }
+        ast::Expr::Range { span, .. } => Err(CompileError::new(
+            *span,
+            "ranges are only valid as `for` loop iterables",
+        )),
         ast::Expr::Coalesce(left, right, span) => {
             let Some(Type::Optional(inner)) = infer_expr_type(left, symbols, functions) else {
                 return Err(CompileError::new(
@@ -612,6 +617,7 @@ pub(super) fn infer_expr_type(
             Some(Type::Map(_, value_type)) => Some(Type::Optional(value_type)),
             _ => None,
         },
+        ast::Expr::Range { .. } => None,
         ast::Expr::Null(_) => None,
         ast::Expr::Coalesce(left, right, _) => {
             let Some(Type::Optional(inner)) = infer_expr_type(left, symbols, functions) else {

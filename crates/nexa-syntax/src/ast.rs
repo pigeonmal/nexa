@@ -338,6 +338,12 @@ pub enum Expr {
     Triple(Box<Expr>, Box<Expr>, Box<Expr>, Span),
     Call(String, Vec<Expr>, Span),
     Index(Box<Expr>, Box<Expr>, Span),
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        inclusive: bool,
+        span: Span,
+    },
     Null(Span),
     Coalesce(Box<Expr>, Box<Expr>, Span),
     Await(Box<Expr>, Span),
@@ -380,6 +386,7 @@ impl Expr {
             | Self::Triple(_, _, _, s)
             | Self::Call(_, _, s)
             | Self::Index(_, _, s)
+            | Self::Range { span: s, .. }
             | Self::Null(s)
             | Self::Coalesce(_, _, s)
             | Self::Await(_, s) => *s,

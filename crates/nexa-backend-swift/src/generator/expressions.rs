@@ -50,6 +50,16 @@ pub(super) fn expression(expr: &Expr) -> String {
             };
             format!("{}[{index}]", expression(collection))
         }
+        Expr::Range {
+            start,
+            end,
+            inclusive,
+        } => format!(
+            "{}{}{}",
+            range_bound(start),
+            if *inclusive { "..." } else { "..<" },
+            range_bound(end)
+        ),
         Expr::Array(items) => format!(
             "[{}]",
             items.iter().map(expression).collect::<Vec<_>>().join(", ")
@@ -102,6 +112,16 @@ pub(super) fn expression(expr: &Expr) -> String {
             binary_operator(*op),
             expression(right)
         ),
+    }
+}
+
+fn range_bound(expr: &Expr) -> String {
+    match expr {
+        Expr::Number {
+            raw,
+            ty: NumericType::Int32,
+        } => format!("Int32({raw})"),
+        _ => expression(expr),
     }
 }
 

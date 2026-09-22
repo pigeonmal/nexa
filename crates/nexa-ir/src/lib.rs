@@ -158,6 +158,11 @@ pub enum Expr {
         collection_type: Type,
         element_type: Type,
     },
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        inclusive: bool,
+    },
     Null(Type),
     Coalesce(Box<Expr>, Box<Expr>),
     Await(Box<Expr>),

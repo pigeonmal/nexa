@@ -1022,24 +1022,45 @@ fn lower_actions_with_depth(
                         format!("loop binding `{name}` shadows an existing binding"),
                     ));
                 }
-                let Some(Type::Array(element_type)) =
-                    infer_expr_type(&iterable, symbols, functions)
-                else {
-                    return Err(CompileError::new(
-                        span,
-                        "for loops currently require an Array<T> iterable",
-                    ));
+                let (iterable, element_type) = if let ast::Expr::Range {
+                    start,
+                    end,
+                    inclusive,
+                    ..
+                } = &iterable
+                {
+                    let int32 = Type::Numeric(NumericType::Int32);
+                    let start = lower_expr(start, Some(&int32), symbols, functions, allow_await)?;
+                    let end = lower_expr(end, Some(&int32), symbols, functions, allow_await)?;
+                    (
+                        Expr::Range {
+                            start: Box::new(start),
+                            end: Box::new(end),
+                            inclusive: *inclusive,
+                        },
+                        int32,
+                    )
+                } else {
+                    let Some(Type::Array(element_type)) =
+                        infer_expr_type(&iterable, symbols, functions)
+                    else {
+                        return Err(CompileError::new(
+                            span,
+                            "for loops require an Array<T> or an Int32 range",
+                        ));
+                    };
+                    let iterable_type = Type::Array(element_type.clone());
+                    let iterable = lower_expr(
+                        &iterable,
+                        Some(&iterable_type),
+                        symbols,
+                        functions,
+                        allow_await,
+                    )?;
+                    (iterable, (*element_type).clone())
                 };
-                let iterable_type = Type::Array(element_type.clone());
-                let iterable = lower_expr(
-                    &iterable,
-                    Some(&iterable_type),
-                    symbols,
-                    functions,
-                    allow_await,
-                )?;
                 let mut loop_symbols = symbols.clone();
-                loop_symbols.insert(name.clone(), ((*element_type).clone(), false));
+                loop_symbols.insert(name.clone(), (element_type, false));
                 let body = lower_actions_with_depth(
                     body,
                     &loop_symbols,

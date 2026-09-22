@@ -1314,7 +1314,26 @@ impl Parser {
         let span = self.advance().span;
         let (name, _) = self.ident()?;
         self.expect_word("in")?;
-        let iterable = self.expr()?;
+        let start = self.expr()?;
+        let iterable = if self.take(&Kind::DotDot)
+            || self.take(&Kind::DotDotDot)
+            || self.take(&Kind::DotDotLess)
+        {
+            let operator = self.tokens[self.cursor - 1].kind.clone();
+            let end = self.expr()?;
+            let range_span = Span {
+                end: end.span().end,
+                ..start.span()
+            };
+            Expr::Range {
+                start: Box::new(start),
+                end: Box::new(end),
+                inclusive: !matches!(operator, Kind::DotDotLess),
+                span: range_span,
+            }
+        } else {
+            start
+        };
         let body = self.block_stmts()?;
         Ok(Stmt::For {
             name,

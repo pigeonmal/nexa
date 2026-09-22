@@ -79,6 +79,10 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
             collect_expression_state_names(collection, names);
             collect_expression_state_names(index, names);
         }
+        Expr::Range { start, end, .. } => {
+            collect_expression_state_names(start, names);
+            collect_expression_state_names(end, names);
+        }
         Expr::Coalesce(left, right) => {
             collect_expression_state_names(left, names);
             collect_expression_state_names(right, names);
@@ -138,6 +142,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
         Expr::Index {
             collection, index, ..
         } => is_pure_expression(collection) && is_pure_expression(index),
+        Expr::Range { start, end, .. } => is_pure_expression(start) && is_pure_expression(end),
         Expr::Coalesce(left, right) => is_pure_expression(left) && is_pure_expression(right),
         Expr::Array(items) | Expr::Set(items) => items.iter().all(is_pure_expression),
         Expr::Map(entries) => entries
@@ -767,6 +772,15 @@ fn fold_expression(expression: Expr) -> Expr {
             index: Box::new(fold_expression(*index)),
             collection_type,
             element_type,
+        },
+        Expr::Range {
+            start,
+            end,
+            inclusive,
+        } => Expr::Range {
+            start: Box::new(fold_expression(*start)),
+            end: Box::new(fold_expression(*end)),
+            inclusive,
         },
         Expr::Null(ty) => Expr::Null(ty),
         Expr::Coalesce(left, right) => {
