@@ -1042,6 +1042,12 @@ Swift/Kotlin constants, while no runtime plugin configuration registry is
 introduced. See
 [`docs/plugins.md`](docs/plugins.md).
 
+Native plugin scaffolds also include a validated `abi.nxabi` contract. Version
+1 fixes the C calling convention, string/byte ownership, returned-buffer
+ownership, and lifetime rules; call-scoped borrowed read-only bytes are the
+only zero-copy-safe shape currently declared. C++/Rust adapter emission still
+requires generated ownership wrappers and native layout declarations.
+
 The plugin system should take inspiration from systems such as:
 
 - Nitro
@@ -1061,6 +1067,12 @@ The framework compiler/code generator should automatically generate:
 - Swift interfaces and bindings,
 - Kotlin interfaces and bindings,
 - Rust/C bindings when needed.
+
+`nexa plugin generate --target c` now emits a C header for the validated ABI
+subset. It uses borrowed read-only string/byte views for inputs and
+caller-owned views for returns; async, Result, nullable, and generic layouts
+are rejected until their contracts are defined. Full generated C++/Rust
+adapters remain future work.
 
 Avoid:
 
@@ -1190,8 +1202,9 @@ Create a project/build system that handles:
 The first project-generation slice is available as `nexa generate`. It writes
 deterministic iOS Xcode projects with shared schemes and explicit simulator/device
 platform settings, Android Gradle/Compose host projects, generated
-native sources, feature-gated dependency declarations, and a
-`nexa.project.json` manifest plus a generated `nexa.config.nx` host configuration
+native sources, feature-gated dependency declarations, and
+`nexa.project.json`/`nexa.sources.json` manifests plus a generated
+`nexa.config.nx` host configuration
 from one `.nx` entry file. Multi-target generation
 loads and parses the shared source/import graph once before lowering each
 platform independently, avoiding duplicate frontend I/O and parsing work while
@@ -1205,7 +1218,10 @@ Android release variants enable R8 code shrinking, resource shrinking, and the
 optimized default Android ruleset; the project-specific keep file stays empty
 because generated bindings use direct calls rather than reflection. Generated
 iOS Release targets use whole-module Swift `-O`, dead-code stripping, and
-size-oriented Clang optimization.
+size-oriented Clang optimization. `nexa audit` reports optimized IR
+capabilities, generated source bytes, selected dependencies, and warnings;
+native binary sizes remain unmeasured until an Android release build or Xcode
+archive is supplied.
 Native backends expose typed project-feature manifests to this scaffolder, so
 dependency declarations and host initialization are derived from the same
 feature analysis as generated imports and helper fragments; generated source

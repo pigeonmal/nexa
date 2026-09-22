@@ -114,6 +114,10 @@ fn init(args: &[String]) -> Result<(), String> {
         fs::create_dir_all(output.join("assets"))
             .map_err(|error| format!("{}: {error}", output.display()))?;
     } else {
+        write_if_absent(
+            &output.join("abi.nxabi"),
+            &nexa_plugin_idl::abi::AbiContract::default().render(),
+        )?;
         write_if_absent(&output.join(&ios_source), &ios_stub(&type_name))?;
         write_if_absent(
             &output.join(&android_source),
@@ -132,6 +136,7 @@ fn init(args: &[String]) -> Result<(), String> {
 
 fn check(args: &[String]) -> Result<(), String> {
     let path = idl_path(args, "check")?;
+    let abi = validate_abi(&path)?;
     let parsed = idl::parse_file(&path)?;
     let methods = parsed
         .interfaces
@@ -139,8 +144,10 @@ fn check(args: &[String]) -> Result<(), String> {
         .map(|interface| interface.methods.len())
         .sum::<usize>();
     println!(
-        "checked {} ({} type(s), {} interface(s), {} method(s))",
+        "checked {} (ABI schema {}, zero-copy bytes: {}, {} type(s), {} interface(s), {} method(s))",
         path.display(),
+        abi.schema,
+        abi.zero_copy_bytes(),
         parsed.types.len(),
         parsed.interfaces.len(),
         methods
@@ -160,7 +167,7 @@ fn generate(args: &[String]) -> Result<(), String> {
                 cursor += 1;
                 target = Some(
                     args.get(cursor)
-                        .ok_or("`--target` requires `swift` or `kotlin`")?
+                        .ok_or("`--target` requires `swift`, `kotlin`, or `c`")?
                         .as_str(),
                 );
             }
@@ -185,23 +192,26 @@ fn generate(args: &[String]) -> Result<(), String> {
         cursor += 1;
     }
     let path = idl_path_from(path.ok_or_else(|| usage_for("generate"))?)?;
-    let target =
-        target.ok_or("`nexa plugin generate` requires `--target swift` or `--target kotlin`")?;
+    let abi = validate_abi(&path)?;
+    let target = target.ok_or(
+        "`nexa plugin generate` requires `--target swift`, `--target kotlin`, or `--target c`",
+    )?;
     let parsed = idl::parse_file(&path)?;
     let source = match target {
         "swift" => bindings::swift(&parsed),
         "kotlin" => bindings::kotlin(&parsed, &package),
+        "c" => bindings::c_header(&parsed, &abi)?,
         _ => {
             return Err(format!(
-                "unknown target `{target}`; expected `swift` or `kotlin`"
+                "unknown target `{target}`; expected `swift`, `kotlin`, or `c`"
             ));
         }
     };
     let output = output.unwrap_or_else(|| {
-        path.with_file_name(if target == "swift" {
-            "NexaPluginBindings.swift"
-        } else {
-            "NexaPluginBindings.kt"
+        path.with_file_name(match target {
+            "swift" => "NexaPluginBindings.swift",
+            "kotlin" => "NexaPluginBindings.kt",
+            _ => "NexaPluginBindings.h",
         })
     });
     if let Some(parent) = output.parent() {
@@ -238,6 +248,20 @@ fn idl_path_from(path: PathBuf) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn validate_abi(idl_path: &Path) -> Result<nexa_plugin_idl::abi::AbiContract, String> {
+    let abi_path = idl_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("abi.nxabi");
+    if !abi_path.is_file() {
+        return Err(format!(
+            "native plugin is missing its versioned ABI contract: {}",
+            abi_path.display()
+        ));
+    }
+    nexa_plugin_idl::abi::parse_file(&abi_path)
+}
+
 fn usage() -> String {
     format!(
         "{}\n{}\n{}",
@@ -251,7 +275,7 @@ fn usage_for(command: &str) -> String {
     match command {
         "init" => "usage: nexa plugin init <plugin.id> [--kind <pure|native>] [--out <directory>] [--name <TypeName>] [--version <version>]".to_owned(),
         "check" => "usage: nexa plugin check <plugin-directory|interfaces.nxid>".to_owned(),
-        "generate" => "usage: nexa plugin generate <plugin-directory|interfaces.nxid> --target <swift|kotlin> [--package <kotlin.package>] [--out <file>]".to_owned(),
+        "generate" => "usage: nexa plugin generate <plugin-directory|interfaces.nxid> --target <swift|kotlin|c> [--package <kotlin.package>] [--out <file>]".to_owned(),
         _ => "usage: nexa plugin <init|check|generate> ...".to_owned(),
     }
 }
@@ -342,7 +366,7 @@ fn manifest(
         );
     }
     format!(
-        "{{\n  \"format\": 1,\n  \"id\": \"{}\",\n  \"version\": \"{}\",\n  \"kind\": \"{}\",\n  \"idl\": \"{}\",\n  \"interfaces\": [],\n  \"implementations\": {{\n    \"ios\": {{ \"source\": \"{}\" }},\n    \"android\": {{ \"source\": \"{}\" }}\n  }}\n}}\n",
+        "{{\n  \"format\": 1,\n  \"id\": \"{}\",\n  \"version\": \"{}\",\n  \"kind\": \"{}\",\n  \"idl\": \"{}\",\n  \"abi\": \"abi.nxabi\",\n  \"interfaces\": [],\n  \"implementations\": {{\n    \"ios\": {{ \"source\": \"{}\" }},\n    \"android\": {{ \"source\": \"{}\" }}\n  }}\n}}\n",
         json_escape(id),
         json_escape(version),
         json_escape(kind),
@@ -359,7 +383,7 @@ fn readme(id: &str, version: &str, type_name: &str, kind: &str) -> String {
         );
     }
     format!(
-        "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `nexa.plugin.json` declares the package identity, IDL path, and platform source entry points.\n- `interfaces.nxid` contains typed public interface declarations and optional compile-time config options.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nValidate the IDL with `nexa plugin check .`. Generate direct native binding skeletons with `nexa plugin generate . --target swift` or `--target kotlin`. A local `.nx` app can declare `plugin \"path\" as Namespace`; project generation then includes these platform source trees. Package installation, dependency resolution, and generated implementation methods are not included yet.\n"
+        "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `nexa.plugin.json` declares the package identity, IDL path, ABI contract, and platform source entry points.\n- `interfaces.nxid` contains typed public interface declarations and optional compile-time config options.\n- `abi.nxabi` fixes the C ABI version, buffer ownership, and lifetime rules before zero-copy bindings are allowed.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nValidate the IDL and ABI with `nexa plugin check .`. Generate direct native binding skeletons with `nexa plugin generate . --target swift`, `--target kotlin`, or `--target c`. A local `.nx` app can declare `plugin \"path\" as Namespace`; project generation then includes these platform source trees. Package installation, dependency resolution, and generated implementation methods are not included yet.\n"
     )
 }
 

@@ -6,6 +6,8 @@
 
 use std::{fs, path::Path};
 
+pub mod abi;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginIdl {
     pub types: Vec<NamedType>,

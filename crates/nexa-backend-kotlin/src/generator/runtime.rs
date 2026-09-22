@@ -18,36 +18,53 @@ public object NexaRuntime {
     );
     if include_permissions {
         out.push_str(
-            r#"    @Volatile private var activity: android.app.Activity? = null
-    private val nextPermissionRequest = java.util.concurrent.atomic.AtomicInteger(0x4E58)
-    private val permissionCallbacks = java.util.concurrent.ConcurrentHashMap<Int, (IntArray) -> Unit>()
+            r#"    @Volatile private var permissionLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>? = null
+    @Volatile private var permissionCallback: ((Map<String, Boolean>) -> Unit)? = null
+    private val permissionLock = Any()
 
-    public fun bindActivity(context: android.content.Context) {
-        if (context is android.app.Activity) activity = context
+    public fun bindPermissionLauncher(
+        launcher: androidx.activity.result.ActivityResultLauncher<Array<String>>,
+    ) {
+        permissionLauncher = launcher
     }
 
-    public suspend fun requestPermissions(permissions: Array<String>): IntArray {
-        if (permissions.isEmpty()) return IntArray(0)
-        val host = requireNotNull(activity) {
-            "NexaRuntime.bind must receive an Activity before requesting permissions"
+    public suspend fun requestPermissions(permissions: Array<String>): Map<String, Boolean> {
+        if (permissions.isEmpty()) return emptyMap()
+        val launcher = requireNotNull(permissionLauncher) {
+            "NexaRuntime.bindPermissionLauncher must run before requesting permissions"
         }
         return kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
-            val requestCode = nextPermissionRequest.getAndIncrement()
-            permissionCallbacks[requestCode] = { grantResults ->
-                if (continuation.isActive) continuation.resumeWith(Result.success(grantResults))
+            val callback: (Map<String, Boolean>) -> Unit = { result ->
+                if (continuation.isActive) continuation.resumeWith(Result.success(result))
+            }
+            val accepted = synchronized(permissionLock) {
+                if (permissionCallback != null) {
+                    false
+                } else {
+                    permissionCallback = callback
+                    true
+                }
+            }
+            if (!accepted) {
+                continuation.resumeWithException(IllegalStateException("a permission request is already active"))
+                return@suspendCancellableCoroutine
             }
             continuation.invokeOnCancellation {
-                permissionCallbacks.remove(requestCode)
+                synchronized(permissionLock) {
+                    if (permissionCallback === callback) permissionCallback = null
+                }
             }
-            androidx.core.app.ActivityCompat.requestPermissions(host, permissions, requestCode)
+            if (continuation.isActive) launcher.launch(permissions)
         }
     }
 
-    public fun dispatchPermissionResult(
-        requestCode: Int,
-        grantResults: IntArray,
-    ) {
-        permissionCallbacks.remove(requestCode)?.invoke(grantResults)
+    public fun dispatchPermissionResult(result: Map<String, Boolean>) {
+        val callback = synchronized(permissionLock) {
+            val current = permissionCallback
+            permissionCallback = null
+            current
+        }
+        callback?.invoke(result)
     }
 "#,
         );

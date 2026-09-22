@@ -60,26 +60,40 @@ implemented after the findings were reviewed.
 - Added iOS remote-image response limits and ImageIO downsampling.
 - Removed avoidable UITableView visible-row mapping and animation closure work
   in FastList updates; table scroll position now uses UIKit's sorted first row.
+- Added a versioned `abi.nxabi` contract to native plugin scaffolds. The
+  contract validates C calling convention, buffer ownership, and lifetimes
+  before binding generation and explicitly identifies call-scoped borrowed
+  bytes as the only zero-copy-safe shape currently available.
+- Added `nexa audit`, which emits a machine-readable report of optimized IR
+  capabilities, generated source bytes, and target dependencies. Project
+  generation now emits `nexa.sources.json`, an explicit list of generated
+  source/resource units.
+- Split generated app output into independently compiled native units for
+  types, app declarations, components, runtime helpers, native libraries,
+  permissions, assets, lists, and functions. The Xcode project includes each
+  Swift unit as a separate source input; Android keeps each Kotlin unit in the
+  same generated package.
+- Replaced the process-global Android Activity permission holder with a
+  lifecycle-owned `rememberLauncherForActivityResult` bridge.
+- Cached Cronet engines by canonical certificate-pin sets, unified terminal
+  completion guards, and moved download sink writes off the Cronet callback
+  executor.
 
 ## Independent Swift/Kotlin review
 
 The independent Luna review confirmed the same priorities and additionally
 identified Cronet callback cancellation races, pinned-engine cache misses,
 blocking download writes on the callback executor, and coarse Compose baseline
-dependencies. Those items remain follow-up work where they require a larger
-generated-runtime ownership change; the current patch does not claim a
-zero-copy ABI or measured binary-size reduction without release builds.
+dependencies. The cancellation, cache, and callback-I/O findings are fixed
+above; reducing the remaining Compose baseline without breaking generated API
+stability remains follow-up work. The current patch does not claim a zero-copy
+ABI or measured binary-size reduction without release builds.
 
 ## Remaining architectural work
 
-1. Introduce generated source units/manifests for app declarations and native
-   feature fragments so unchanged components do not recompile with every edit.
-2. Add a versioned native ABI schema for C++/Rust plugins with explicit
-   ownership and zero-copy byte-buffer rules, then generate platform adapters.
-3. Add `nexa audit` to record emitted feature units, dependency declarations,
-   R8/resource shrink results, and Swift release size data for fixture apps.
-4. Replace the process-global Android permission Activity holder with a
-   lifecycle-owned Activity Result launcher.
-5. Define certificate pinning as one representation on both platforms (the
+1. Generate C++/Rust adapters from `abi.nxabi`. The schema and validation are
+   now present, but adapter emission and native model layout are still pending.
+2. Extend `nexa audit` with Android R8/resource-shrink results and Swift
+   release binary/resource sizes when native release toolchains are available.
+3. Define certificate pinning as one representation on both platforms (the
    current Swift leaf-certificate and Android public-key semantics differ).
-

@@ -69,6 +69,14 @@ pub(super) fn render(
         "androidx.compose.ui.platform.LocalView",
     );
     add(
+        features.uses_permission_request,
+        "androidx.activity.compose.rememberLauncherForActivityResult",
+    );
+    add(
+        features.uses_permission_request,
+        "androidx.activity.result.contract.ActivityResultContracts",
+    );
+    add(
         features.uses_bottom_sheet,
         "androidx.compose.material3.ModalBottomSheet",
     );

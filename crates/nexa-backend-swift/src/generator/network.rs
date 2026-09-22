@@ -130,18 +130,12 @@ public enum NexaNetwork {
         defer {
             if delegate != nil { session.finishTasksAndInvalidate() }
         }
-        let (bytes, response) = try await session.bytes(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else {
             throw NexaNetworkError.invalidResponse
         }
-
-        var data = Data()
-        data.reserveCapacity(min(maxResponseBytes, 64 * 1024))
-        for try await byte in bytes {
-            if data.count >= maxResponseBytes {
-                throw NexaNetworkError.responseTooLarge
-            }
-            data.append(byte)
+        if data.count > maxResponseBytes {
+            throw NexaNetworkError.responseTooLarge
         }
         guard (200..<300).contains(response.statusCode) else {
             throw NexaNetworkError.httpStatus(response.statusCode)

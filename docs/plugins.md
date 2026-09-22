@@ -14,6 +14,8 @@ The scaffold contains:
   path, and iOS/Android implementation source paths;
 - `interfaces.nxid`, a small typed plugin IDL kept outside the application
   `.nx` grammar;
+- `abi.nxabi`, a versioned C ABI contract describing string/byte ownership and
+  buffer lifetimes;
 - `ios/Sources/Camera.swift` as the iOS implementation boundary;
 - `android/src/main/kotlin/.../Camera.kt` as the Android implementation
   boundary;
@@ -21,6 +23,24 @@ The scaffold contains:
 
 The command is deterministic and idempotent: unchanged files are preserved and
 existing edits are not overwritten when their contents differ.
+
+### Native plugin ABI contracts
+
+Native scaffolds include `abi.nxabi`:
+
+```text
+schema 1
+calling_convention c
+strings borrowed_readonly
+bytes borrowed_readonly
+returned_buffers caller_owned
+lifetime call
+```
+
+`nexa plugin check` validates this contract before accepting the IDL. A
+call-scoped borrowed byte buffer is the current zero-copy-safe boundary. The
+compiler does not claim zero-copy C++/Rust adapters until a future generator
+emits the matching ownership wrappers and native layout declarations.
 
 ## Pure Nexa plugins
 
@@ -172,6 +192,13 @@ emits a direct interface and Kotlin model/error declarations; asynchronous
 other than the default generated package. Primitive and collection types map directly to native
 types, including `Array`, `Set`, `Map`, `Pair`, and `Triple`.
 
+Use `--target c` to emit `NexaPluginBindings.h` for the versioned native ABI.
+The C header uses borrowed read-only string/byte views for inputs and
+caller-owned views for returns. Async methods, `Result`, nullable values, and
+generic collections are rejected until their callback, error, nullable, and
+layout contracts are defined; rejecting them keeps the generated FFI safe and
+zero-copy where it is supported.
+
 This is the first typed binding boundary. IDL checking and direct local `.nx`
 calls are integrated without adding optional dependencies to applications that
 do not declare a plugin. The generated native bindings support named models;
@@ -180,9 +207,9 @@ pair, and triple values, so native model construction remains in the plugin
 implementation. Package installation, version resolution, generated
 implementation methods, typed error values in `.nx`, and Rust/C bindings remain
 roadmap work. In particular, the current IDL boundary does not claim a
-zero-copy C++/Rust ABI: a future ABI must define buffer ownership, alignment,
-lifetimes, and error transport in a versioned schema before bindings can be
-generated safely.
+zero-copy C++/Rust adapters until a future generator emits matching ownership
+wrappers, alignment checks, native layouts, and error transport. The current
+versioned contract is `abi.nxabi`.
 
 ## Capability and size pruning
 
@@ -192,3 +219,9 @@ image support, preventing target-specific feature scans from drifting. A
 project that never uses network calls or remote images therefore does not receive
 Cronet, Coil, URLSession helpers, or their host initialization. A project that
 uses only a pure plugin receives no plugin native sources or dependencies.
+
+Use `nexa audit app.nx --target all --out audit.json` to record optimized
+capabilities, generated source byte counts, selected dependencies, and compiler
+warnings. Native binary sizes remain `null` until an Android release build or
+Xcode archive is supplied; source size is never presented as a binary-size
+measurement.

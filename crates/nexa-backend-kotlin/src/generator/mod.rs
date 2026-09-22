@@ -89,6 +89,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
             || module.on_background.is_some(),
         &mut out,
     );
+    out.push_str("// nexa-unit:types\n");
     for declaration in &module.enums {
         out.push_str(&format!(
             "private enum class {} {{ {} }}\n\n",
@@ -106,6 +107,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
     if features.uses_sticky_header {
         out.push_str("@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)\n");
     }
+    out.push_str("// nexa-unit:app\n");
     out.push_str(&format!(
         "@Composable\nfun {}() {{\n",
         nexa_codegen::names::screen_name(&module.app_name)
@@ -117,11 +119,13 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
     if features.app_uses_link {
         out.push_str("    val nexaLinkContext = LocalContext.current\n");
     }
+    if features.uses_permission_request {
+        out.push_str(
+            "    val nexaPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->\n        NexaRuntime.dispatchPermissionResult(result)\n    }\n    NexaRuntime.bindPermissionLauncher(nexaPermissionLauncher)\n",
+        );
+    }
     if features.uses_network_api || features.uses_path_api || features.uses_permissions {
         out.push_str("    NexaRuntime.bind(LocalContext.current)\n");
-        if features.uses_permission_request {
-            out.push_str("    NexaRuntime.bindActivity(LocalContext.current)\n");
-        }
     }
     if features.app_uses_haptic {
         out.push_str("    val nexaHapticView = LocalView.current\n");
@@ -223,11 +227,14 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
         out.push_str("\n    }");
     }
     out.push_str("\n}\n");
+    out.push_str("// nexa-unit:components\n");
     custom_components::render(module, &features, &mut out);
     if features.uses_network_api || features.uses_path_api || features.uses_permissions {
+        out.push_str("// nexa-unit:runtime\n");
         runtime::render(&mut out, features.uses_permission_request);
     }
     if features.uses_native_library {
+        out.push_str("// nexa-unit:native-library\n");
         network::render(
             &mut out,
             features.uses_network_api,
@@ -242,9 +249,11 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
         || features.uses_button_icon
         || features.uses_placeholder
     {
+        out.push_str("// nexa-unit:assets\n");
         assets::render(&mut out);
     }
     if features.uses_permissions {
+        out.push_str("// nexa-unit:permissions\n");
         permissions::render(
             &mut out,
             features.uses_permission_request,
@@ -252,6 +261,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
             features.dynamic_permission,
         );
     }
+    out.push_str("// nexa-unit:functions\n");
     functions::render(module, &mut out);
     out
 }

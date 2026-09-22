@@ -181,7 +181,7 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
 
     let entry = input.canonicalize().unwrap_or(input.clone());
     let manifest = format!(
-        "{{\n  \"format\": 1,\n  \"entry\": \"{}\",\n  \"name\": \"{}\",\n  \"targets\": [{}],\n  \"cacheKey\": \"{}\"\n}}\n",
+        "{{\n  \"format\": 1,\n  \"entry\": \"{}\",\n  \"name\": \"{}\",\n  \"targets\": [{}],\n  \"sourceManifest\": \"nexa.sources.json\",\n  \"cacheKey\": \"{}\"\n}}\n",
         json_escape(&entry.display().to_string()),
         json_escape(&app_name),
         generated_targets
@@ -192,6 +192,10 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         cache_key,
     );
     write_if_changed(&output.join("nexa.project.json"), &manifest)?;
+    write_if_changed(
+        &output.join("nexa.sources.json"),
+        &source_manifest(&output, &app_name, &generated_targets)?,
+    )?;
     write_if_changed(
         &output.join("README.md"),
         &templates::root_readme(&app_name, &generated_targets),
@@ -208,6 +212,157 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn source_manifest(root: &Path, app_name: &str, targets: &[&str]) -> Result<String, String> {
+    let mut units = Vec::new();
+    for target in targets {
+        let directory = if *target == "ios" {
+            root.join("ios").join(app_name)
+        } else {
+            root.join("android").join("app").join("src").join("main")
+        };
+        let mut files = Vec::new();
+        collect_source_units(&directory, root, &mut files)?;
+        files.sort();
+        for file in files {
+            units.push(format!(
+                "    {{ \"target\": \"{}\", \"path\": \"{}\" }}",
+                target,
+                json_escape(&file)
+            ));
+        }
+    }
+    Ok(format!(
+        "{{\n  \"format\": 1,\n  \"generatedBy\": \"nexa\",\n  \"units\": [\n{}\n  ]\n}}\n",
+        units.join(",\n")
+    ))
+}
+
+fn collect_source_units(
+    directory: &Path,
+    root: &Path,
+    files: &mut Vec<String>,
+) -> Result<(), String> {
+    if !directory.is_dir() {
+        return Ok(());
+    }
+    for entry in
+        fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?
+    {
+        let entry = entry.map_err(|error| format!("{}: {error}", directory.display()))?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_source_units(&path, root, files)?;
+        } else if path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|extension| matches!(extension, "swift" | "kt" | "xml" | "plist" | "json"))
+            || path
+                .components()
+                .any(|component| component.as_os_str() == "Assets.xcassets")
+        {
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            files.push(relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
+    Ok(())
+}
+
+/// Splits backend output at generator-owned unit markers while preserving one
+/// shared import/package header in every native source file. Top-level private
+/// declarations become module-internal so a component can call a generated
+/// helper from another unit without a runtime indirection; member visibility
+/// remains unchanged.
+fn split_generated_units(source: &str, extension: &str) -> Vec<(String, String)> {
+    let mut header = Vec::new();
+    let mut units: Vec<(String, Vec<String>)> = Vec::new();
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if let Some(name) = trimmed.strip_prefix("// nexa-unit:") {
+            units.push((name.to_owned(), Vec::new()));
+        } else if let Some((_, lines)) = units.last_mut() {
+            lines.push(line.to_owned());
+        } else {
+            header.push(line.to_owned());
+        }
+    }
+    if units.is_empty() {
+        return vec![(
+            format!("NexaGenerated.{extension}"),
+            ensure_internal_top_level(source),
+        )];
+    }
+    let header = header.join("\n");
+    let mut result = Vec::new();
+    for (name, lines) in units {
+        if lines.iter().all(|line| line.trim().is_empty()) {
+            continue;
+        }
+        let mut contents = String::new();
+        if !header.trim().is_empty() {
+            contents.push_str(&header);
+            contents.push_str("\n\n");
+        }
+        contents.push_str(&ensure_internal_top_level(&lines.join("\n")));
+        contents.push('\n');
+        let file_name = if name == "app" {
+            format!("NexaGenerated.{extension}")
+        } else {
+            format!("NexaGenerated_{}.{}", name.replace('-', "_"), extension)
+        };
+        result.push((file_name, contents));
+    }
+    if let Some(app_index) = result
+        .iter()
+        .position(|(file_name, _)| file_name == &format!("NexaGenerated.{extension}"))
+    {
+        let app = result.remove(app_index);
+        result.insert(0, app);
+    }
+    result
+}
+
+fn ensure_internal_top_level(source: &str) -> String {
+    source
+        .lines()
+        .map(|line| {
+            if line.starts_with("private ") {
+                line.replacen("private ", "", 1)
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn remove_stale_generated_units(
+    directory: &Path,
+    current: &[String],
+    extension: &str,
+) -> Result<(), String> {
+    if !directory.is_dir() {
+        return Ok(());
+    }
+    for entry in
+        fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?
+    {
+        let entry = entry.map_err(|error| format!("{}: {error}", directory.display()))?;
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if name.starts_with("NexaGenerated_")
+            && path.extension().and_then(|value| value.to_str()) == Some(extension)
+            && !current.iter().any(|value| value == name)
+        {
+            fs::remove_file(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
 fn generate_ios(
     root: &Path,
     app_name: &str,
@@ -218,9 +373,17 @@ fn generate_ios(
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let screen = nexa_codegen::names::screen_name(app_name);
     let source = ios_generated_source(module, config)?;
+    let source_units = split_generated_units(&source, "swift");
     let has_assets = plugins::copy_plugin_assets(root, app_name, module)?;
     let plugin_sources = plugins::copy_ios_plugin_sources(root, app_name, module)?;
-    write_if_changed(&directory.join("NexaGenerated.swift"), &source)?;
+    let generated_names = source_units
+        .iter()
+        .map(|(name, contents)| {
+            write_if_changed(&directory.join(name), contents)?;
+            Ok(name.clone())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    remove_stale_generated_units(&directory, &generated_names, "swift")?;
     write_if_changed(
         &directory.join(format!("{app_name}App.swift")),
         &format!(
@@ -235,7 +398,7 @@ fn generate_ios(
         &root
             .join("ios")
             .join(format!("{app_name}.xcodeproj/project.pbxproj")),
-        &templates::ios_project_file(app_name, has_assets, &plugin_sources),
+        &templates::ios_project_file(app_name, has_assets, &generated_names, &plugin_sources),
     )?;
     write_if_changed(
         &root.join("ios").join(format!(
@@ -266,11 +429,7 @@ fn generate_android(
     } else {
         ""
     };
-    let permission_callback = if project_features.uses_permission_request {
-        "    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {\n        super.onRequestPermissionsResult(requestCode, permissions, grantResults)\n        NexaRuntime.dispatchPermissionResult(requestCode, grantResults)\n    }\n"
-    } else {
-        ""
-    };
+    let permission_callback = "";
     let content_setup = if project_features.uses_network {
         format!(
             "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (result.isSuccessful) {{\n                setContent {{ MaterialTheme {{ {screen}() }} }}\n            }} else {{\n                setContent {{ MaterialTheme {{ androidx.compose.material3.Text(\"Network provider unavailable\") }} }}\n            }}\n        }}\n"
@@ -278,13 +437,19 @@ fn generate_android(
     } else {
         format!("        setContent {{ MaterialTheme {{ {screen}() }} }}\n")
     };
-    write_if_changed(
-        &source_dir.join("NexaGenerated.kt"),
-        &format!(
-            "package {package}\n\n{generated}{}",
-            plugins::render_kotlin_plugin_config(module, config)
-        ),
-    )?;
+    let generated_source = format!(
+        "package {package}\n\n{generated}{}",
+        plugins::render_kotlin_plugin_config(module, config)
+    );
+    let generated_units = split_generated_units(&generated_source, "kt");
+    let generated_names = generated_units
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect::<Vec<_>>();
+    for (name, contents) in generated_units {
+        write_if_changed(&source_dir.join(name), &contents)?;
+    }
+    remove_stale_generated_units(&source_dir, &generated_names, "kt")?;
     write_if_changed(
         &source_dir.join("MainActivity.kt"),
         &format!(
@@ -402,6 +567,9 @@ fn project_cache_is_current(
         return false;
     }
     if !output.join("nexa.config.nx").is_file() {
+        return false;
+    }
+    if !output.join("nexa.sources.json").is_file() {
         return false;
     }
     let needs_ios = matches!(target, ProjectTarget::Ios | ProjectTarget::All);

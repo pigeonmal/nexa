@@ -8,6 +8,7 @@ use nexa_compiler::{
     compile_file_with_warnings_for_targets,
 };
 
+mod audit;
 mod cache;
 mod config;
 mod plugin;
@@ -25,6 +26,7 @@ fn run() -> Result<(), String> {
     match args.first().map(String::as_str) {
         Some("check") => check(&args[1..]),
         Some("build") => build(&args[1..]),
+        Some("audit") => audit::run(&args[1..]),
         Some("generate") => project::run(&args[1..]),
         Some("plugin") => plugin::run(&args[1..]),
         Some("--help" | "-h") | None => {
@@ -185,7 +187,7 @@ fn deduplicate_warnings(warnings: Vec<CompileWarning>) -> Vec<CompileWarning> {
 fn print_help() {
     println!(
         "Nexa — ahead-of-time compiler for native iOS and Android UI\n\n\
-Usage:\n  nexa check <source.nx> [--deny-warnings]\n  nexa build <source.nx> --target <swift|kotlin> [--out <path>] [--deny-warnings]\n  nexa generate <source.nx> [--target <ios|android|all>] [--out <directory>] [--name <AppName>] [--deny-warnings]\n  nexa plugin init <plugin.id> [--kind <pure|native>] [--out <directory>] [--name <TypeName>] [--version <version>]\n  nexa plugin check <plugin-directory|interfaces.nxid>\n  nexa plugin generate <plugin-directory|interfaces.nxid> --target <swift|kotlin> [--package <kotlin.package>] [--out <file>]\n\n\
+Usage:\n  nexa check <source.nx> [--deny-warnings]\n  nexa build <source.nx> --target <swift|kotlin> [--out <path>] [--deny-warnings]\n  nexa audit <source.nx> [--target <ios|android|all>] [--out <path>]\n  nexa generate <source.nx> [--target <ios|android|all>] [--out <directory>] [--name <AppName>] [--deny-warnings]\n  nexa plugin init <plugin.id> [--kind <pure|native>] [--out <directory>] [--name <TypeName>] [--version <version>]\n  nexa plugin check <plugin-directory|interfaces.nxid>\n  nexa plugin generate <plugin-directory|interfaces.nxid> --target <swift|kotlin|c> [--package <kotlin.package>] [--out <file>]\n\n\
 Targets emit native SwiftUI or Jetpack Compose source. `generate` creates a self-contained native project bundle. `plugin init --kind pure` creates a source-only Nexa package; the default native kind creates an IDL-backed optional-plugin scaffold; `plugin check` validates its typed IDL and `plugin generate` emits direct native binding skeletons."
     );
 }

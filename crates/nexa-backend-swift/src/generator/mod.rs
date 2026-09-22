@@ -75,6 +75,7 @@ pub(super) fn generate(module: &Module) -> String {
         }
         out.push('\n');
     }
+    out.push_str("\n// nexa-unit:types\n");
     if uses_fast_list {
         out.push_str("\n@available(iOS 16.0, *)\n");
     }
@@ -109,6 +110,7 @@ pub(super) fn generate(module: &Module) -> String {
         }
         out.push_str("}\n\n");
     }
+    out.push_str("\n// nexa-unit:app\n");
     out.push_str(&format!(
         "public struct {}: View {{\n",
         nexa_codegen::names::screen_name(&module.app_name)
@@ -210,8 +212,10 @@ pub(super) fn generate(module: &Module) -> String {
         }
     }
     out.push_str("}\n");
+    out.push_str("\n// nexa-unit:components\n");
     custom_components::render(module, &features, &mut out);
     if uses_fast_list {
+        out.push_str("\n// nexa-unit:list-runtime\n");
         list_runtime::render(
             &mut out,
             features.uses_sticky_header,
@@ -223,6 +227,7 @@ pub(super) fn generate(module: &Module) -> String {
         );
     }
     if features.uses_native_library {
+        out.push_str("\n// nexa-unit:native-library\n");
         network::render(
             &mut out,
             features.uses_network_api,
@@ -233,6 +238,7 @@ pub(super) fn generate(module: &Module) -> String {
         );
     }
     if features.uses_permissions {
+        out.push_str("\n// nexa-unit:permissions\n");
         permissions::render(
             &mut out,
             features.uses_permission_request,
@@ -240,6 +246,7 @@ pub(super) fn generate(module: &Module) -> String {
             features.dynamic_permission,
         );
     }
+    out.push_str("\n// nexa-unit:functions\n");
     functions::render(module, &mut out);
     out
 }

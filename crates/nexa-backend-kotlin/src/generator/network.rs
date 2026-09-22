@@ -29,16 +29,21 @@ private class NexaNetworkException(message: String) : Exception(message)
 
 private object NexaCronetRuntime {
     private val callbackExecutor = Executors.newFixedThreadPool(2)
-    private val engines = WeakHashMap<Context, CronetEngine>()
+    private val ioExecutor = Executors.newFixedThreadPool(2)
+    private val engines = WeakHashMap<Context, MutableMap<String, CronetEngine>>()
 
     fun executor() = callbackExecutor
+    fun ioExecutor() = ioExecutor
 
     fun engine(context: Context, certificatePins: Map<String, Set<ByteArray>> = emptyMap()): CronetEngine {
         val applicationContext = context.applicationContext
-        if (certificatePins.isEmpty()) {
-            synchronized(engines) {
-                engines[applicationContext]?.let { return it }
+        val pinKey = certificatePins.entries
+            .sortedBy { it.key }
+            .joinToString("|") { (host, pins) ->
+                host + ":" + pins.map { pin -> pin.joinToString(",") }.sorted().joinToString(";")
             }
+        synchronized(engines) {
+            engines[applicationContext]?.get(pinKey)?.let { return it }
         }
         val builder = CronetEngine.Builder(context.applicationContext)
             .enableHttp2(true)
@@ -53,8 +58,8 @@ private object NexaCronetRuntime {
             builder.addPublicKeyPins(host, pins, true, expiration)
         }
         val engine = builder.build()
-        if (certificatePins.isEmpty()) {
-            synchronized(engines) { engines[applicationContext] = engine }
+        synchronized(engines) {
+            engines.getOrPut(applicationContext) { mutableMapOf() }[pinKey] = engine
         }
         return engine
     }
@@ -101,6 +106,13 @@ private class NexaCronetRequestClient(
     ): NexaNetworkResponse = suspendCancellableCoroutine { continuation ->
         val output = if (sink == null) ByteArrayOutputStream() else null
         var receivedBytes = 0L
+        val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+        var request: UrlRequest? = null
+        fun fail(error: Throwable) {
+            if (completed.compareAndSet(false, true)) {
+                continuation.resumeWithException(error)
+            }
+        }
         val callback = object : UrlRequest.Callback() {
             override fun onRedirectReceived(request: UrlRequest, info: UrlResponseInfo, newLocationUrl: String) {
                 if (followRedirects) request.followRedirect() else request.cancel()
@@ -113,30 +125,43 @@ private class NexaCronetRequestClient(
             override fun onReadCompleted(request: UrlRequest, info: UrlResponseInfo, byteBuffer: ByteBuffer) {
                 byteBuffer.flip()
                 if (receivedBytes + byteBuffer.remaining() > maxResponseBytes) {
+                    fail(NexaNetworkException("response exceeds maxResponseBytes"))
                     request.cancel()
-                    continuation.resumeWithException(NexaNetworkException("response exceeds maxResponseBytes"))
                     return
                 }
                 val bytes = ByteArray(byteBuffer.remaining())
                 byteBuffer.get(bytes)
                 receivedBytes += bytes.size
-                if (sink != null) sink.write(bytes) else output!!.write(bytes)
-                byteBuffer.clear()
-                request.read(byteBuffer)
+                if (sink != null) {
+                    NexaCronetRuntime.ioExecutor().execute {
+                        try {
+                            sink.write(bytes)
+                            byteBuffer.clear()
+                            request.read(byteBuffer)
+                        } catch (error: Throwable) {
+                            fail(error)
+                            request.cancel()
+                        }
+                    }
+                } else {
+                    output!!.write(bytes)
+                    byteBuffer.clear()
+                    request.read(byteBuffer)
+                }
             }
 
             override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
-                continuation.resume(
+                if (completed.compareAndSet(false, true)) continuation.resume(
                     NexaNetworkResponse(info.httpStatusCode, info.allHeaders, output?.toByteArray() ?: ByteArray(0))
                 )
             }
 
             override fun onFailed(request: UrlRequest, info: UrlResponseInfo?, error: org.chromium.net.CronetException) {
-                continuation.resumeWithException(error)
+                fail(error)
             }
 
             override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) {
-                if (continuation.isActive) continuation.resumeWithException(CancellationException("request cancelled"))
+                fail(CancellationException("request cancelled"))
             }
         }
         val builder = engine.newUrlRequestBuilder(url, callback, NexaCronetRuntime.executor())
@@ -146,9 +171,11 @@ private class NexaCronetRequestClient(
         if (body != null) {
             builder.setUploadDataProvider(NexaUploadProvider(body), NexaCronetRuntime.executor())
         }
-        val request = builder.build()
-        continuation.invokeOnCancellation { request.cancel() }
-        request.start()
+        request = builder.build()
+        continuation.invokeOnCancellation {
+            if (completed.compareAndSet(false, true)) request?.cancel()
+        }
+        request!!.start()
     }
 }
 
@@ -164,6 +191,13 @@ private class NexaCronetImageRequestClient(
     suspend fun execute(url: String): NexaNetworkResponse = suspendCancellableCoroutine { continuation ->
         val output = ByteArrayOutputStream()
         var receivedBytes = 0L
+        val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+        var request: UrlRequest? = null
+        fun fail(error: Throwable) {
+            if (completed.compareAndSet(false, true)) {
+                continuation.resumeWithException(error)
+            }
+        }
         val callback = object : UrlRequest.Callback() {
             override fun onRedirectReceived(request: UrlRequest, info: UrlResponseInfo, newLocationUrl: String) {
                 request.followRedirect()
@@ -176,8 +210,8 @@ private class NexaCronetImageRequestClient(
             override fun onReadCompleted(request: UrlRequest, info: UrlResponseInfo, byteBuffer: ByteBuffer) {
                 byteBuffer.flip()
                 if (receivedBytes + byteBuffer.remaining() > 64L * 1024L * 1024L) {
+                    fail(NexaNetworkException("image response exceeds 64 MiB"))
                     request.cancel()
-                    continuation.resumeWithException(NexaNetworkException("image response exceeds 64 MiB"))
                     return
                 }
                 val bytes = ByteArray(byteBuffer.remaining())
@@ -189,24 +223,26 @@ private class NexaCronetImageRequestClient(
             }
 
             override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
-                continuation.resume(
+                if (completed.compareAndSet(false, true)) continuation.resume(
                     NexaNetworkResponse(info.httpStatusCode, info.allHeaders, output.toByteArray())
                 )
             }
 
             override fun onFailed(request: UrlRequest, info: UrlResponseInfo?, error: org.chromium.net.CronetException) {
-                continuation.resumeWithException(error)
+                fail(error)
             }
 
             override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) {
-                if (continuation.isActive) continuation.resumeWithException(CancellationException("request cancelled"))
+                fail(CancellationException("request cancelled"))
             }
         }
-        val request = engine.newUrlRequestBuilder(url, callback, NexaCronetRuntime.executor())
+        request = engine.newUrlRequestBuilder(url, callback, NexaCronetRuntime.executor())
             .setHttpMethod("GET")
             .build()
-        continuation.invokeOnCancellation { request.cancel() }
-        request.start()
+        continuation.invokeOnCancellation {
+            if (completed.compareAndSet(false, true)) request?.cancel()
+        }
+        request!!.start()
     }
 }
 
