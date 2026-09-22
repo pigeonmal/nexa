@@ -170,6 +170,7 @@ pub enum ThemeTokenValue {
 #[derive(Clone, Debug)]
 pub struct ScreenDecl {
     pub name: String,
+    pub states: Vec<StateDecl>,
     pub body: Vec<Node>,
     pub span: Span,
 }

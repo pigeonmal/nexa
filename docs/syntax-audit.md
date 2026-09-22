@@ -109,6 +109,7 @@ surface readable without making every value a verbose named option.
 | `StatusBar` | Optional named `style:`, `hidden:`, and `background:` | None | Defaults are explicit and the declaration is allowed only once at an app or screen root. |
 | `Direction` | Required named `value: LTR|RTL` | None | The direction value is a closed choice and the declaration is top-level only. |
 | `OnAppear`, `OnDisappear` | `OnAppear` may add the `async` marker; no value arguments | One action block | Each lifecycle callback has one top-level declaration per destination; `await` is restricted to the async form. |
+| Named `screen` declarations | Screen-local `state`/`let` declarations must precede UI nodes | Screen UI nodes and lifecycle blocks | A screen state name must be unique across the app so generated native state storage stays direct and deterministic. |
 | `Text`, `Button` | One positional primary value, then named options | Optional action block for `Button` | The first value is always the label/text; all configuration is named. |
 | `TextInput`, `Switch`, `NavigationStack`, `NavigationLink`, `Link`, `Accessibility`, `BottomSheet` | Named options only | A fixed content block where applicable | Required options and unknown names are checked before lowering. |
 | `Image` | Named `asset:` or `url:` source plus named options | None | Exactly one source is required; providing both is an error. |

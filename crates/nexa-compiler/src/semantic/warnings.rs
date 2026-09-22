@@ -20,10 +20,33 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
         &app_names,
         app.body.iter(),
         app.screens.iter().flat_map(|screen| screen.body.iter()),
+        app.screens
+            .iter()
+            .flat_map(|screen| screen.states.iter().map(|state| &state.initial)),
         target,
         None,
         &mut warnings,
     );
+    for screen in &app.screens {
+        let mut screen_names = app_names.clone();
+        screen_names.extend(
+            screen
+                .states
+                .iter()
+                .map(|declaration| declaration.name.clone()),
+        );
+        analyze_scope(
+            &screen.states,
+            &[],
+            &screen_names,
+            screen.body.iter(),
+            std::iter::empty(),
+            std::iter::empty(),
+            target,
+            None,
+            &mut warnings,
+        );
+    }
 
     let function_names = app
         .functions
@@ -34,6 +57,11 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
     let mut reachability_warnings = Vec::new();
     for state in &app.states {
         walk_expression(&state.initial, &function_names, &mut used_functions);
+    }
+    for screen in &app.screens {
+        for state in &screen.states {
+            walk_expression(&state.initial, &function_names, &mut used_functions);
+        }
     }
     for node in app
         .body
@@ -169,6 +197,7 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
             &names,
             component.body.iter(),
             std::iter::empty(),
+            std::iter::empty(),
             target,
             component.source_file.as_deref(),
             &mut warnings,
@@ -178,22 +207,27 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
     warnings
 }
 
-fn analyze_scope<'a, I, J>(
+fn analyze_scope<'a, I, J, K>(
     declarations: &[ast::StateDecl],
     parameters: &[ast::ComponentParameter],
     names: &HashSet<String>,
     body: I,
     screens: J,
+    initializers: K,
     target: Target,
     file: Option<&str>,
     warnings: &mut Vec<CompileWarning>,
 ) where
     I: IntoIterator<Item = &'a ast::Node>,
     J: IntoIterator<Item = &'a ast::Node>,
+    K: IntoIterator<Item = &'a ast::Expr>,
 {
     let mut used = HashSet::new();
     for declaration in declarations {
         walk_expression(&declaration.initial, names, &mut used);
+    }
+    for initializer in initializers {
+        walk_expression(initializer, names, &mut used);
     }
     for node in body.into_iter().chain(screens) {
         walk_node(node, names, &mut used, target, file, warnings);

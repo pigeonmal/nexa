@@ -16,13 +16,19 @@ app NavigationDemo {
     }
 
     screen Profile {
+        state profileVisits: Int32 = 0
+
         StatusBar(style: Light, hidden: false)
 
         Column(spacing: 12) {
             Text("Profile")
             Text(visits)
+            Text(profileVisits)
             Button("Increment visits") {
                 visits = visits + 1
+            }
+            Button("Increment profile visits") {
+                profileVisits = profileVisits + 1
             }
         }
     }

@@ -886,6 +886,12 @@ On Android use Compose/native Android navigation concepts.
 
 Navigation transitions should remain native.
 
+Named screens may declare typed `state` and `let` bindings before their UI
+nodes. The compiler lowers these declarations into direct native state storage
+and requires unique state names across the app so the generated navigation
+stack remains statically bound. Typed route parameters, deep links, and
+navigation guards remain future work.
+
 ## Permissions
 
 Provide a typed cross-platform permissions API.

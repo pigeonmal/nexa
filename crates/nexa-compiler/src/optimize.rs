@@ -30,6 +30,10 @@ pub(crate) fn optimize(module: &mut Module) {
         *actions = optimize_actions(std::mem::take(actions));
     }
     for screen in &mut module.screens {
+        for state in &mut screen.states {
+            state.initial =
+                fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
+        }
         screen.body = optimize_nodes(std::mem::take(&mut screen.body));
         if let Some(actions) = &mut screen.on_appear {
             *actions = optimize_actions(std::mem::take(actions));
@@ -253,6 +257,9 @@ fn prune_unused_functions(module: &mut Module) {
         collect_action_function_references(actions, &declared, &mut used);
     }
     for screen in &module.screens {
+        for state in &screen.states {
+            collect_expression_function_references(&state.initial, &declared, &mut used);
+        }
         collect_node_function_references(&screen.body, &declared, &mut used);
         if let Some(actions) = &screen.on_appear {
             collect_action_function_references(actions, &declared, &mut used);
@@ -385,7 +392,23 @@ fn prune_unused_states(module: &mut Module) {
             collect_action_state_references(actions, &mut used);
         }
     }
-    retain_referenced_states(&mut module.states, used);
+    loop {
+        let previous_len = used.len();
+        for screen in &module.screens {
+            for state in &screen.states {
+                if used.contains(&state.name) {
+                    collect_expression_state_references(&state.initial, &mut used);
+                }
+            }
+        }
+        if used.len() == previous_len {
+            break;
+        }
+    }
+    retain_referenced_states(&mut module.states, used.clone());
+    for screen in &mut module.screens {
+        retain_referenced_states(&mut screen.states, used.clone());
+    }
 
     for component in &mut module.components {
         let mut used = HashSet::new();
@@ -428,6 +451,10 @@ fn prune_unused_structs(module: &mut Module) {
     }
     collect_node_struct_names(&module.body, &mut used);
     for screen in &module.screens {
+        for state in &screen.states {
+            collect_type_struct_names(&state.ty, &mut used);
+            collect_expression_struct_names(&state.initial, &mut used);
+        }
         collect_node_struct_names(&screen.body, &mut used);
         if let Some(actions) = &screen.on_appear {
             collect_action_struct_names(actions, &mut used);
@@ -494,6 +521,9 @@ fn prune_unused_plugins(module: &mut Module) {
         collect_action_plugin_references(actions, &mut collect);
     }
     for screen in &module.screens {
+        for state in &screen.states {
+            nexa_ir::walk::walk_expression(&state.initial, &mut collect);
+        }
         nexa_ir::walk::walk_ir(&screen.body, &mut |_| {}, &mut collect);
         if let Some(actions) = &screen.on_appear {
             collect_action_plugin_references(actions, &mut collect);

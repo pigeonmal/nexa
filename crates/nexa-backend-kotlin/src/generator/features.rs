@@ -163,6 +163,22 @@ impl Features {
                 uses_permissions |= uses_permissions_call(expr);
             });
         }
+        for screen in &module.screens {
+            for state in &screen.states {
+                features.record_state(state);
+                walk_expression(&state.initial, &mut |expr| {
+                    uses_size_class |= matches!(
+                        expr,
+                        Expr::IsRegularWidth
+                            | Expr::IsCompactWidth
+                            | Expr::IsRegularHeight
+                            | Expr::IsCompactHeight
+                    );
+                    uses_native_library |= uses_core_native_library(expr);
+                    uses_permissions |= uses_permissions_call(expr);
+                });
+            }
+        }
         for function in &module.functions {
             for local in &function.locals {
                 walk_expression(&local.initial, &mut |expr| {

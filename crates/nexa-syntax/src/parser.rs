@@ -511,8 +511,31 @@ impl Parser {
     fn screen_decl(&mut self) -> Result<ScreenDecl, CompileError> {
         self.expect_word("screen")?;
         let (name, span) = self.ident()?;
-        let body = self.block_nodes()?;
-        Ok(ScreenDecl { name, body, span })
+        self.expect(Kind::LBrace, "expected `{` after screen name")?;
+        let mut states = Vec::new();
+        let mut body = Vec::new();
+        let mut body_started = false;
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            if self.word_is("state") || self.word_is("let") {
+                if body_started {
+                    return self.error_here(
+                        "screen state and let declarations must appear before screen UI nodes",
+                    );
+                }
+                states.push(self.state_decl()?);
+            } else {
+                body_started = true;
+                body.push(self.node()?);
+                self.optional_semicolon();
+            }
+        }
+        self.expect(Kind::RBrace, "expected `}` to close screen")?;
+        Ok(ScreenDecl {
+            name,
+            states,
+            body,
+            span,
+        })
     }
 
     fn theme_decl(&mut self) -> Result<ThemeDecl, CompileError> {

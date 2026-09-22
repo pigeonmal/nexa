@@ -85,13 +85,31 @@ pub(super) fn generate(module: &Module) -> String {
             expressions::expression(&state.initial)
         ));
     }
+    for screen in &module.screens {
+        for state in &screen.states {
+            if !state.mutable || focus_bindings.contains(&state.name) {
+                continue;
+            }
+            let name = nexa_codegen::names::state_name(&state.name);
+            out.push_str(&format!(
+                "    @State private var {name}: {} = {}\n",
+                state.ty.swift(),
+                expressions::expression(&state.initial)
+            ));
+        }
+    }
     for binding in &focus_bindings {
         out.push_str(&format!(
             "    @FocusState private var {}: Bool\n",
             nexa_codegen::names::state_name(binding),
         ));
     }
-    if !module.states.is_empty() {
+    if !module.states.is_empty()
+        || module
+            .screens
+            .iter()
+            .any(|screen| !screen.states.is_empty())
+    {
         out.push('\n');
     }
     if features.app_uses_adaptive_color {

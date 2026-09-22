@@ -71,6 +71,19 @@ impl Features {
             },
         );
         for screen in &module.screens {
+            for state in &screen.states {
+                walk_expression(&state.initial, &mut |expr| {
+                    app_uses_size_class |= matches!(
+                        expr,
+                        Expr::IsRegularWidth
+                            | Expr::IsCompactWidth
+                            | Expr::IsRegularHeight
+                            | Expr::IsCompactHeight
+                    );
+                    uses_native_library |= uses_core_native_library(expr);
+                    uses_permissions |= uses_permissions_call(expr);
+                });
+            }
             walk_ir(
                 &screen.body,
                 &mut |node| features.record_app_node(node),

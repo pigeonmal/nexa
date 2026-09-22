@@ -106,6 +106,30 @@ pub(super) fn generate(module: &Module) -> String {
             ));
         }
     }
+    for screen in &module.screens {
+        for state in &screen.states {
+            let name = nexa_codegen::names::state_name(&state.name);
+            if state.mutable {
+                if state::is_mutable_collection(state) {
+                    out.push_str(&format!(
+                        "    val {name} = remember {{ {} }}\n",
+                        state::kotlin_state_initializer(state)
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "    var {name} by remember {{ {} }}\n",
+                        state::kotlin_state_initializer(state)
+                    ));
+                }
+            } else {
+                out.push_str(&format!(
+                    "    val {name}: {} = {}\n",
+                    state.ty.kotlin(),
+                    expressions::expression(&state.initial)
+                ));
+            }
+        }
+    }
     if !focus_bindings.is_empty() {
         for binding in &focus_bindings {
             out.push_str(&format!(

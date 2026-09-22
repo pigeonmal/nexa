@@ -65,6 +65,7 @@ pub(super) fn render_screen_function(
         screen_view_name(screen.id)
     ));
     render_immutable_state(&module.states, depth + 1, out);
+    render_immutable_state(&screen.states, depth + 1, out);
     render_children(&screen.body, module, depth + 1, out);
     super::render_on_appear_modifier(
         screen.on_appear.as_deref(),

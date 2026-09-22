@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nexa_diagnostics::{CompileError, CompileWarning};
 use nexa_ir::{
@@ -212,11 +212,65 @@ pub fn lower_with_warnings(
             mutable: declaration.mutable,
         });
     }
+    let mut all_state_names = states
+        .iter()
+        .map(|state| state.name.clone())
+        .collect::<HashSet<_>>();
     let mut screens = Vec::with_capacity(app.screens.len());
     for (index, screen) in app.screens.into_iter().enumerate() {
+        let mut screen_symbols = symbols.clone();
+        let mut screen_states = Vec::with_capacity(screen.states.len());
+        for declaration in screen.states {
+            if screen_symbols.contains_key(&declaration.name)
+                || !all_state_names.insert(declaration.name.clone())
+            {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!(
+                        "screen state `{}` conflicts with another app or screen state",
+                        declaration.name
+                    ),
+                ));
+            }
+            if function_signatures.contains_key(&declaration.name) {
+                return Err(CompileError::new(
+                    declaration.span,
+                    format!(
+                        "screen state `{}` is already declared as a function",
+                        declaration.name
+                    ),
+                ));
+            }
+            let ty = resolve_declaration_type(
+                &declaration,
+                &screen_symbols,
+                &function_signatures,
+                &struct_types,
+            )?;
+            let initial = lower_expr(
+                &declaration.initial,
+                Some(&ty),
+                &screen_symbols,
+                &function_signatures,
+                false,
+            )?;
+            if declaration.mutable && references_state(&declaration.initial) {
+                return Err(CompileError::new(
+                    declaration.initial.span(),
+                    "mutable screen state initializers cannot refer to other state values yet",
+                ));
+            }
+            screen_symbols.insert(declaration.name.clone(), (ty.clone(), declaration.mutable));
+            screen_states.push(State {
+                name: declaration.name,
+                ty,
+                initial,
+                mutable: declaration.mutable,
+            });
+        }
         let screen_body = lower_nodes(
             screen.body,
-            &symbols,
+            &screen_symbols,
             &screen_ids,
             &themes,
             &component_signatures,
@@ -243,6 +297,7 @@ pub fn lower_with_warnings(
         screens.push(Screen {
             id: ScreenId(index),
             name: screen.name,
+            states: screen_states,
             body: screen_body,
             status_bar,
             on_appear,

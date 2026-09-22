@@ -6,7 +6,7 @@ Nexa performs diagnostics before native code generation. A successful compile ca
 
 The compiler reports:
 
-- unused app or component `state` declarations,
+- unused app, screen, or component `state` declarations,
 - unused immutable `let` constants,
 - unused function-local `let` constants,
 - unused function parameters,
