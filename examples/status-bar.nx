@@ -1,6 +1,6 @@
 app StatusBarExample {
     body {
-        StatusBar(style: Dark, hidden: false)
+        StatusBar(style: Dark, hidden: false, background: "#101827")
         Text("Content")
     }
 }

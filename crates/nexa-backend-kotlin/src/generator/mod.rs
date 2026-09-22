@@ -262,5 +262,14 @@ pub(super) fn render_status_bar(
         )),
         nexa_ir::StatusBarStyle::Default => {}
     }
+    if let Some(nexa_ir::ColorValue::Static(color)) = config.background {
+        let argb = (u32::from(color.alpha) << 24)
+            | (u32::from(color.red) << 16)
+            | (u32::from(color.green) << 8)
+            | u32::from(color.blue);
+        out.push_str(&format!(
+            "{deeply_nested_indent}nexaWindow.statusBarColor = android.graphics.Color.parseColor(\"#{argb:08X}\")\n"
+        ));
+    }
     out.push_str(&format!("{nested_indent}}}\n{indent}}}\n"));
 }

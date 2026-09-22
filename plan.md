@@ -97,7 +97,7 @@ App authors should be able to create reusable UI components in Nexa source files
 
 The first implementation supports typed parameters, private state, nested custom components, required `Content()` slots with trailing content blocks, `NavigationLink` inside reusable components, relative `.nx` imports, import-cycle diagnostics, and reachability-based output pruning. Callback properties, explicit visibility/module namespaces, and shared state bindings remain future work.
 
-The first `StatusBar` slice is implemented as one top-level app or named-screen declaration with static `style` (`Default`, `Light`, or `Dark`) and `hidden` options. It lowers to SwiftUI status-bar modifiers and AndroidX insets-controller APIs; background configuration and animated transitions remain future work.
+The first `StatusBar` slice is implemented as one top-level app or named-screen declaration with static `style` (`Default`, `Light`, or `Dark`), `hidden`, and hexadecimal `background` options. It lowers to SwiftUI safe-area coloring and AndroidX insets-controller/window APIs; animated transitions remain future work.
 
 Compile-time platform blocks are supported with `platform ios { ... }` and `platform android { ... }`. Target-specific lowering removes the inactive block before semantic analysis and backend generation, so platform selection adds no runtime branch or cross-platform UI wrapper.
 
@@ -513,11 +513,10 @@ The goal is performance comparable to highly optimized native lists.
 
 ## StatusBar
 
-The first cross-platform `StatusBar` API slice is implemented. It accepts one app-level static declaration with `style: Default|Light|Dark` and `hidden: true|false`, then lowers directly to SwiftUI status-bar modifiers or AndroidX insets-controller APIs.
+The first cross-platform `StatusBar` API slice is implemented. It accepts one app-level static declaration with `style: Default|Light|Dark`, `hidden: true|false`, and an optional static hexadecimal `background` color, then lowers directly to SwiftUI status-bar modifiers or AndroidX insets-controller APIs. Swift paints the top safe area with the native color, while Android sets the native window status-bar color.
 
 Remaining work:
 
-- background configuration where supported,
 - animated transitions.
 
 The compiler rejects nested and repeated declarations and emits no shared status-bar runtime. A named screen's configuration overrides the app-level configuration while that screen is visible.

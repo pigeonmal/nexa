@@ -215,6 +215,7 @@ pub enum Node {
     StatusBar {
         style: Option<Expr>,
         hidden: Option<Expr>,
+        background: Option<Expr>,
         span: Span,
     },
     Direction {

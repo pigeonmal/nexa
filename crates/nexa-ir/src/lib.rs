@@ -131,6 +131,7 @@ pub enum NumericType {
 pub struct StatusBarConfig {
     pub style: StatusBarStyle,
     pub hidden: bool,
+    pub background: Option<ColorValue>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

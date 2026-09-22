@@ -12,7 +12,7 @@ use nexa_syntax::ast;
 use super::{
     custom_components::ComponentSignatures,
     expressions::{FunctionSignatures, infer_expr_type, lower_expr, type_name},
-    styles::{lower_style, optional_color, optional_dimension},
+    styles::{lower_style, optional_color, optional_dimension, parse_color_literal},
     themes::ThemeSymbols,
 };
 use crate::Target;
@@ -89,8 +89,13 @@ pub(super) fn lower_node(
             unreachable!("platform blocks are expanded by lower_nodes")
         }
         ast::Node::Content { .. } => Ok(Node::Content),
-        ast::Node::StatusBar { style, hidden, .. } => Ok(Node::StatusBar {
-            config: lower_status_bar(style, hidden)?,
+        ast::Node::StatusBar {
+            style,
+            hidden,
+            background,
+            ..
+        } => Ok(Node::StatusBar {
+            config: lower_status_bar(style, hidden, background)?,
         }),
         ast::Node::Direction { value, .. } => Ok(Node::Direction {
             config: lower_direction(value)?,
@@ -940,6 +945,7 @@ pub(super) fn contains_content(node: &Node) -> bool {
 fn lower_status_bar(
     style: Option<ast::Expr>,
     hidden: Option<ast::Expr>,
+    background: Option<ast::Expr>,
 ) -> Result<StatusBarConfig, CompileError> {
     let style = match style {
         Some(ast::Expr::Name(name, name_span)) => match name.as_str() {
@@ -971,7 +977,15 @@ fn lower_status_bar(
         }
         None => false,
     };
-    Ok(StatusBarConfig { style, hidden })
+    let background = background
+        .map(|value| parse_color_literal(value, "StatusBar background"))
+        .transpose()?
+        .map(nexa_ir::ColorValue::Static);
+    Ok(StatusBarConfig {
+        style,
+        hidden,
+        background,
+    })
 }
 
 fn lower_haptic(value: Option<ast::Expr>) -> Result<Option<HapticStyle>, CompileError> {

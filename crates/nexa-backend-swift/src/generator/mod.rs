@@ -259,6 +259,14 @@ pub(super) fn render_status_bar_modifiers(
         utils::indent(out, depth);
         out.push_str(&format!(".preferredColorScheme(.{scheme})"));
     }
+    if let Some(background) = config.background {
+        out.push('\n');
+        utils::indent(out, depth);
+        out.push_str(&format!(
+            ".background(alignment: .top) {{ GeometryReader {{ proxy in {}.frame(height: proxy.safeAreaInsets.top) }}.ignoresSafeArea(edges: .top) }}",
+            colors::expression(background)
+        ));
+    }
 }
 
 pub(super) fn render_immutable_state(states: &[State], depth: usize, out: &mut String) {

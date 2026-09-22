@@ -723,10 +723,11 @@ impl Parser {
                 })
             }
             "StatusBar" => {
-                let mut args = self.named_args(&["style", "hidden"])?;
+                let mut args = self.named_args(&["style", "hidden", "background"])?;
                 Ok(Node::StatusBar {
                     style: args.remove("style"),
                     hidden: args.remove("hidden"),
+                    background: args.remove("background"),
                     span,
                 })
             }
