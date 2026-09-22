@@ -873,9 +873,9 @@ The first static declaration slice is implemented. An app may declare one
 calendar, bluetooth }` block. Semantic lowering validates names and duplicates,
 and `nexa generate` emits only the required iOS `Info.plist` usage descriptions
 and Android manifest permissions. This keeps host-project declarations in the
-Nexa source and adds no runtime permission registry. Runtime status values,
-request flows, denial handling, and platform-specific permission APIs remain
-future work.
+Nexa source and adds no runtime permission registry. Runtime status values are
+implemented below; request flows, denial handling, and platform-specific
+permission APIs remain future work.
 
 Typed runtime status is now available as the asynchronous native call
 `await Permissions.status(permission: Camera)`, returning
