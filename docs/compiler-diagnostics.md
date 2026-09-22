@@ -11,6 +11,7 @@ The compiler reports:
 - unused function-local `let` constants,
 - unused function parameters,
 - unused action-loop bindings (`for item`, `for (key, value)`),
+- unused `FastList` row bindings (`index` and `item`),
 - unused pure app functions,
 - unused custom-component parameters,
 - conditions that are provably always `true` or `false`.

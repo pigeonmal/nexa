@@ -369,7 +369,7 @@ fn walk_node(
             index,
             item,
             children,
-            ..
+            span,
         } => {
             match source {
                 ast::ListSource::Count(count) | ast::ListSource::Items(count) => {
@@ -377,11 +377,46 @@ fn walk_node(
                 }
             }
             let mut row_names = names.clone();
-            if let Some(ast::Expr::Name(name, _)) = index {
-                row_names.insert(name.clone());
+            let index_name = index
+                .as_ref()
+                .and_then(|index| match index {
+                    ast::Expr::Name(name, _) => Some(name.as_str()),
+                    _ => None,
+                })
+                .unwrap_or("index");
+            if index_name != "_" {
+                row_names.insert(index_name.to_owned());
             }
-            if let Some(ast::Expr::Name(name, _)) = item {
-                row_names.insert(name.clone());
+            let item_name = item.as_ref().and_then(|item| match item {
+                ast::Expr::Name(name, _) => Some(name.as_str()),
+                _ => None,
+            });
+            if let Some(item_name) = item_name.filter(|name| *name != "_") {
+                row_names.insert(item_name.to_owned());
+            }
+            if index_name != "_" && !nodes_reference_name(children, index_name, target) {
+                push_warning(
+                    warnings,
+                    *span,
+                    format!(
+                        "unused FastList index binding `{index_name}`{}",
+                        target_suffix(target)
+                    ),
+                    file,
+                );
+            }
+            if let Some(item_name) = item_name
+                && !nodes_reference_name(children, item_name, target)
+            {
+                push_warning(
+                    warnings,
+                    *span,
+                    format!(
+                        "unused FastList item binding `{item_name}`{}",
+                        target_suffix(target)
+                    ),
+                    file,
+                );
             }
             for child in children {
                 walk_node(child, &row_names, used, target, file, warnings);
@@ -491,6 +526,16 @@ fn walk_actions(
             ast::Stmt::Return { value, .. } => walk_expression(value, names, used),
         }
     }
+}
+
+fn nodes_reference_name(nodes: &[ast::Node], name: &str, target: Target) -> bool {
+    let names = std::iter::once(name.to_owned()).collect::<HashSet<_>>();
+    let mut used = HashSet::new();
+    let mut ignored_warnings = Vec::new();
+    for node in nodes {
+        walk_node(node, &names, &mut used, target, None, &mut ignored_warnings);
+    }
+    used.contains(name)
 }
 
 fn warn_unused_loop_binding(
