@@ -1,8 +1,10 @@
-pub(super) fn render(out: &mut String) {
-    out.push_str(
+pub(super) fn render(out: &mut String, uses_sticky_header: bool) {
+    let mut runtime = String::from(
         r#"
 private let nexaFastListCellReuseIdentifier = "NexaFastListCell"
+// <nexa:sticky-header-identifier:begin>
 private let nexaFastListHeaderReuseIdentifier = "NexaFastListHeader"
+// <nexa:sticky-header-identifier:end>
 
 private final class NexaFastListRefreshController: NSObject {
     let control = UIRefreshControl()
@@ -59,7 +61,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
     let isRefreshing: Bool
     let onRefresh: (() -> Void)?
     let onEndReached: (() -> Void)?
+    // <nexa:sticky-header-field:begin>
     let headerContent: (() -> AnyView)?
+    // <nexa:sticky-header-field:end>
     let rowContent: (Int) -> RowContent
 
     init(
@@ -71,7 +75,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         isRefreshing: Bool = false,
         onRefresh: (() -> Void)? = nil,
         onEndReached: (() -> Void)? = nil,
+        // <nexa:sticky-header-init-parameter:begin>
         headerContent: (() -> AnyView)? = nil,
+        // <nexa:sticky-header-init-parameter:end>
         @ViewBuilder rowContent: @escaping (Int) -> RowContent
     ) {
         self.rowCount = max(0, rowCount)
@@ -82,7 +88,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         self.isRefreshing = isRefreshing
         self.onRefresh = onRefresh
         self.onEndReached = onEndReached
+        // <nexa:sticky-header-init-assignment:begin>
         self.headerContent = headerContent
+        // <nexa:sticky-header-init-assignment:end>
         self.rowContent = rowContent
     }
 
@@ -94,7 +102,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             scrollPosition: scrollPosition,
             onScrollPositionChanged: onScrollPositionChanged,
             onEndReached: onEndReached,
+            // <nexa:sticky-header-coordinator-argument:begin>
             headerContent: headerContent,
+            // <nexa:sticky-header-coordinator-argument:end>
             rowContent: rowContent
         )
     }
@@ -110,10 +120,12 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             action: onRefresh
         )
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: nexaFastListCellReuseIdentifier)
+        // <nexa:sticky-header-register:begin>
         tableView.register(
             UITableViewHeaderFooterView.self,
             forHeaderFooterViewReuseIdentifier: nexaFastListHeaderReuseIdentifier
         )
+        // <nexa:sticky-header-register:end>
         if let rowHeight {
             tableView.rowHeight = rowHeight
             tableView.estimatedRowHeight = rowHeight
@@ -138,7 +150,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         coordinator.scrollPosition = scrollPosition
         coordinator.onScrollPositionChanged = onScrollPositionChanged
         coordinator.onEndReached = onEndReached
+        // <nexa:sticky-header-update-assignment:begin>
         coordinator.headerContent = headerContent
+        // <nexa:sticky-header-update-assignment:end>
         coordinator.rowContent = rowContent
         nexaUpdateRefreshControl(
             tableView,
@@ -160,12 +174,14 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
                     tableView.reconfigureRows(at: visibleRows)
                 }
             }
+            // <nexa:sticky-header-update-view:begin>
             if let header = tableView.headerView(forSection: 0), let headerContent {
                 header.contentConfiguration = UIHostingConfiguration {
                     headerContent()
                 }
                 .margins(.all, 0)
             }
+            // <nexa:sticky-header-update-view:end>
             return
         }
         tableView.reloadData()
@@ -179,7 +195,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         var onScrollPositionChanged: ((Int) -> Void)?
         var refreshController: NexaFastListRefreshController?
         var onEndReached: (() -> Void)?
+        // <nexa:sticky-header-coordinator-field:begin>
         var headerContent: (() -> AnyView)?
+        // <nexa:sticky-header-coordinator-field:end>
         var lastEndReachedRowCount: Int?
         var lastReportedScrollPosition: Int?
         var rowContent: (Int) -> RowContent
@@ -191,7 +209,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             scrollPosition: Int32?,
             onScrollPositionChanged: ((Int) -> Void)?,
             onEndReached: (() -> Void)?,
+            // <nexa:sticky-header-coordinator-init-parameter:begin>
             headerContent: (() -> AnyView)?,
+            // <nexa:sticky-header-coordinator-init-parameter:end>
             rowContent: @escaping (Int) -> RowContent
         ) {
             self.rowCount = rowCount
@@ -201,7 +221,9 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             self.onScrollPositionChanged = onScrollPositionChanged
             self.refreshController = nil
             self.onEndReached = onEndReached
+            // <nexa:sticky-header-coordinator-init-assignment:begin>
             self.headerContent = headerContent
+            // <nexa:sticky-header-coordinator-init-assignment:end>
             self.lastEndReachedRowCount = nil
             self.lastReportedScrollPosition = nil
             self.rowContent = rowContent
@@ -226,6 +248,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             return cell
         }
 
+        // <nexa:sticky-header-delegate-methods:begin>
         func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
             guard let headerContent else { return nil }
             let header = tableView.dequeueReusableHeaderFooterView(
@@ -245,6 +268,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         func tableView(_ tableView: UITableView, estimatedHeightForHeaderInSection section: Int) -> CGFloat {
             headerContent == nil ? 0 : 44
         }
+        // <nexa:sticky-header-delegate-methods:end>
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             if let onScrollPositionChanged,
@@ -699,4 +723,80 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
 }
 "#,
     );
+    if !uses_sticky_header {
+        for section in [
+            "identifier",
+            "field",
+            "init-parameter",
+            "init-assignment",
+            "coordinator-argument",
+            "register",
+            "update-assignment",
+            "update-view",
+            "coordinator-field",
+            "coordinator-init-parameter",
+            "coordinator-init-assignment",
+            "delegate-methods",
+        ] {
+            runtime = remove_marked_section(&mut runtime, section);
+        }
+    }
+    for section in [
+        "identifier",
+        "field",
+        "init-parameter",
+        "init-assignment",
+        "coordinator-argument",
+        "register",
+        "update-assignment",
+        "update-view",
+        "coordinator-field",
+        "coordinator-init-parameter",
+        "coordinator-init-assignment",
+        "delegate-methods",
+    ] {
+        runtime = strip_markers(&mut runtime, section);
+    }
+    out.push_str(&runtime);
+}
+
+fn remove_marked_section(source: &mut String, section: &str) -> String {
+    let start = format!("// <nexa:sticky-header-{section}:begin>");
+    let end = format!("// <nexa:sticky-header-{section}:end>");
+    let Some(start_position) = source.find(&start) else {
+        return std::mem::take(source);
+    };
+    let start_line = source[..start_position]
+        .rfind('\n')
+        .map_or(0, |position| position + 1);
+    let end_position = start_position + start.len();
+    let Some(end_relative_position) = source[end_position..].find(&end) else {
+        return std::mem::take(source);
+    };
+    let end_position = end_position + end_relative_position + end.len();
+    let suffix_start = source[end_position..]
+        .find('\n')
+        .map_or(source.len(), |position| end_position + position + 1);
+    format!("{}{}", &source[..start_line], &source[suffix_start..])
+}
+
+fn strip_markers(source: &mut String, section: &str) -> String {
+    let start = format!("// <nexa:sticky-header-{section}:begin>");
+    let end = format!("// <nexa:sticky-header-{section}:end>");
+    let mut source = remove_marker_line(source, &start);
+    remove_marker_line(&mut source, &end)
+}
+
+fn remove_marker_line(source: &mut String, marker: &str) -> String {
+    let Some(marker_position) = source.find(marker) else {
+        return std::mem::take(source);
+    };
+    let line_start = source[..marker_position]
+        .rfind('\n')
+        .map_or(0, |position| position + 1);
+    let line_end = source[marker_position..]
+        .find('\n')
+        .map_or(source.len(), |position| marker_position + position + 1);
+    source.replace_range(line_start..line_end, "");
+    remove_marker_line(source, marker)
 }

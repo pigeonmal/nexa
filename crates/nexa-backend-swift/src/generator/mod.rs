@@ -141,7 +141,7 @@ pub(super) fn generate(module: &Module) -> String {
     out.push_str("}\n");
     custom_components::render(module, &features, &mut out);
     if uses_fast_list {
-        list_runtime::render(&mut out);
+        list_runtime::render(&mut out, features.uses_sticky_header);
     }
     if features.uses_native_library {
         network::render(&mut out, features.uses_remote_image);

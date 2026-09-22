@@ -6,6 +6,7 @@ use nexa_ir::{ColorValue, Expr, Module, Node};
 #[derive(Default)]
 pub(super) struct Features {
     pub(super) uses_fast_list: bool,
+    pub(super) uses_sticky_header: bool,
     pub(super) uses_link: bool,
     pub(super) uses_remote_image: bool,
     pub(super) uses_native_library: bool,
@@ -180,6 +181,13 @@ impl Features {
 
     fn record_list_usage(&mut self, node: &Node) {
         self.uses_fast_list |= matches!(node, Node::FastList { .. });
+        self.uses_sticky_header |= matches!(
+            node,
+            Node::FastList {
+                sticky_header: Some(_),
+                ..
+            }
+        );
     }
 }
 
