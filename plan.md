@@ -161,7 +161,7 @@ The IR should represent:
 
 Apply compile-time optimization aggressively.
 
-The current compiler performs a conservative IR pass that folds pure literal boolean/scalar/numeric expressions, removes unreachable UI and event branches, removes unused state declarations, and tree-shakes pure functions that are unreachable from the app. It runs after semantic lowering and before either native backend, so it adds no runtime layer and keeps native component mappings unchanged. The compiler also reports unused declarations, pure functions, and constant conditions; `--deny-warnings` promotes those diagnostics to a failed check or build. See [compiler diagnostics and optimization](docs/compiler-diagnostics.md).
+The current compiler performs a conservative IR pass that folds pure literal boolean/scalar/numeric expressions, removes unreachable UI and event branches, removes unused state declarations, and tree-shakes pure functions that are unreachable from the app. It runs after semantic lowering and before either native backend, so it adds no runtime layer and keeps native component mappings unchanged. The compiler also reports unused declarations, function parameters, action-loop bindings, pure functions, and constant conditions; `--deny-warnings` promotes those diagnostics to a failed check or build. See [compiler diagnostics and optimization](docs/compiler-diagnostics.md).
 
 Potential optimizations should include:
 

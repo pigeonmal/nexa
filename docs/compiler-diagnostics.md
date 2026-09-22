@@ -9,6 +9,8 @@ The compiler reports:
 - unused app or component `state` declarations,
 - unused immutable `let` constants,
 - unused function-local `let` constants,
+- unused function parameters,
+- unused action-loop bindings (`for item`, `for (key, value)`),
 - unused pure app functions,
 - unused custom-component parameters,
 - conditions that are provably always `true` or `false`.
@@ -28,6 +30,8 @@ Use `--deny-warnings` in CI or release checks when warnings must fail the comman
 cargo run -p nexa-cli -- check app.nx --deny-warnings
 cargo run -p nexa-cli -- build app.nx --target kotlin --deny-warnings
 ```
+
+Loop-binding diagnostics are lexical: a binding is considered used when it appears anywhere in that loop's condition, iterable, or nested action body. The compiler keeps the warning source span at the loop declaration so editors can point to the binding even though the parser currently stores one span for the complete loop statement.
 
 This follows the same separation used by Rust lint levels: diagnostics are warnings by default and can be promoted to errors at the command boundary. See the [Rust lint levels](https://doc.rust-lang.org/rustc/lints/levels.html) reference for the model Nexa follows.
 

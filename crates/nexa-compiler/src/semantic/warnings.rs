@@ -135,6 +135,20 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
                 );
             }
         }
+        for parameter in &function.parameters {
+            if !used.contains(&parameter.name) {
+                push_warning(
+                    &mut warnings,
+                    parameter.span,
+                    format!(
+                        "unused function parameter `{}`{}",
+                        parameter.name,
+                        target_suffix(target)
+                    ),
+                    None,
+                );
+            }
+        }
     }
 
     for component in &app.components {
@@ -445,12 +459,26 @@ fn walk_actions(
                     walk_actions(else_branch, names, used, target, file, warnings);
                 }
             }
-            ast::Stmt::For { iterable, body, .. } => {
+            ast::Stmt::For {
+                name,
+                iterable,
+                body,
+                span,
+            } => {
                 walk_expression(iterable, names, used);
+                warn_unused_loop_binding(name, body, *span, file, target, warnings);
                 walk_actions(body, names, used, target, file, warnings);
             }
-            ast::Stmt::ForMap { iterable, body, .. } => {
+            ast::Stmt::ForMap {
+                key_name,
+                value_name,
+                iterable,
+                body,
+                span,
+            } => {
                 walk_expression(iterable, names, used);
+                warn_unused_loop_binding(key_name, body, *span, file, target, warnings);
+                warn_unused_loop_binding(value_name, body, *span, file, target, warnings);
                 walk_actions(body, names, used, target, file, warnings);
             }
             ast::Stmt::While {
@@ -462,6 +490,99 @@ fn walk_actions(
             ast::Stmt::Break { .. } | ast::Stmt::Continue { .. } => {}
             ast::Stmt::Return { value, .. } => walk_expression(value, names, used),
         }
+    }
+}
+
+fn warn_unused_loop_binding(
+    name: &str,
+    body: &[ast::Stmt],
+    span: Span,
+    file: Option<&str>,
+    target: Target,
+    warnings: &mut Vec<CompileWarning>,
+) {
+    if !actions_reference_name(body, name) {
+        push_warning(
+            warnings,
+            span,
+            format!("unused loop binding `{name}`{}", target_suffix(target)),
+            file,
+        );
+    }
+}
+
+fn actions_reference_name(actions: &[ast::Stmt], name: &str) -> bool {
+    actions.iter().any(|action| match action {
+        ast::Stmt::Let { initial, .. } | ast::Stmt::Return { value: initial, .. } => {
+            expression_references_name(initial, name)
+        }
+        ast::Stmt::Assign { value, .. } => expression_references_name(value, name),
+        ast::Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            expression_references_name(condition, name)
+                || actions_reference_name(then_branch, name)
+                || else_branch
+                    .as_deref()
+                    .is_some_and(|branch| actions_reference_name(branch, name))
+        }
+        ast::Stmt::For { iterable, body, .. } | ast::Stmt::ForMap { iterable, body, .. } => {
+            expression_references_name(iterable, name) || actions_reference_name(body, name)
+        }
+        ast::Stmt::While {
+            condition, body, ..
+        } => expression_references_name(condition, name) || actions_reference_name(body, name),
+        ast::Stmt::Break { .. } | ast::Stmt::Continue { .. } => false,
+    })
+}
+
+fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
+    match expression {
+        ast::Expr::Name(candidate, _) => candidate == name,
+        ast::Expr::Add(left, right, _)
+        | ast::Expr::Binary(left, _, right, _)
+        | ast::Expr::Pair(left, right, _) => {
+            expression_references_name(left, name) || expression_references_name(right, name)
+        }
+        ast::Expr::Not(value, _) | ast::Expr::Await(value, _) => {
+            expression_references_name(value, name)
+        }
+        ast::Expr::Array(values, _) => values
+            .iter()
+            .any(|value| expression_references_name(value, name)),
+        ast::Expr::Map(entries, _) => entries.iter().any(|(key, value)| {
+            expression_references_name(key, name) || expression_references_name(value, name)
+        }),
+        ast::Expr::Triple(first, second, third, _) => {
+            expression_references_name(first, name)
+                || expression_references_name(second, name)
+                || expression_references_name(third, name)
+        }
+        ast::Expr::Call(_, arguments, _) => arguments
+            .iter()
+            .any(|argument| expression_references_name(argument, name)),
+        ast::Expr::Index(collection, index, _) => {
+            expression_references_name(collection, name) || expression_references_name(index, name)
+        }
+        ast::Expr::Member { base, .. } => expression_references_name(base, name),
+        ast::Expr::Range { start, end, .. } => {
+            expression_references_name(start, name) || expression_references_name(end, name)
+        }
+        ast::Expr::Coalesce(left, right, _) => {
+            expression_references_name(left, name) || expression_references_name(right, name)
+        }
+        ast::Expr::Interpolation(parts, _) => parts
+            .iter()
+            .any(|part| matches!(part, ast::StringPart::Name(candidate) if candidate == name)),
+        ast::Expr::String(_, _)
+        | ast::Expr::Number(_, _)
+        | ast::Expr::Bool(_, _)
+        | ast::Expr::Null(_)
+        | ast::Expr::ThemeToken(_, _)
+        | ast::Expr::IsRegularWidth(_) => false,
     }
 }
 
