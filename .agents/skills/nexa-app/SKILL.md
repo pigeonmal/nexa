@@ -7,6 +7,8 @@ description: "Use when helping a Nexa user plan, author, structure, or troublesh
 
 Help people build an iOS and Android app from Nexa's shared `.nx` source without asking them to edit native Swift or Kotlin. Start from the user's product goal, clarify important screens and interactions only when needed, and build a coherent app using the framework's current core components.
 
+Nexa is alpha software with one current language surface. Use documented current spellings directly; superseded component names and compatibility aliases are removed when the compiler design changes.
+
 ## Work within today's language
 
 - Read `README.md`, `docs/language.md`, and the examples relevant to the request before writing `.nx` syntax. The language and compiler are an early prototype; check actual parser/backend support instead of assuming the roadmap is implemented.

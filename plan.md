@@ -32,6 +32,10 @@ The framework must provide:
 
 The framework should behave more like a native compiler toolchain than a traditional cross-platform runtime.
 
+## Alpha compatibility policy
+
+Nexa is still pre-1.0, so the source language and generated native contracts are allowed to evolve directly. Keep one current spelling for each concept and remove superseded names, compatibility aliases, migration shims, and legacy generated helpers when a design changes. Do not preserve old syntax solely for hypothetical consumers. Every breaking alpha change must update the parser, semantic diagnostics, IR, native backends, examples, documentation, and skills together so the repository describes one coherent current architecture.
+
 ## User-facing language
 
 Create a small statically typed programming language inspired by the best parts of:
