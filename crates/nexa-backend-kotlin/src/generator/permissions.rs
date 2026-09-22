@@ -1,5 +1,5 @@
 /// Emits direct Android permission status queries for the typed `Permissions` API.
-pub(super) fn render(out: &mut String) {
+pub(super) fn render(out: &mut String, include_request: bool) {
     out.push_str(
         r#"
 private enum class NexaPermission {
@@ -49,7 +49,11 @@ private object NexaPermissions {
         }
     }
 
-    suspend fun request(
+"#,
+    );
+    if include_request {
+        out.push_str(
+            r#"    suspend fun request(
         context: android.content.Context,
         permission: NexaPermission,
     ): NexaPermissionStatus {
@@ -91,7 +95,11 @@ private object NexaPermissions {
         return status(context, permission)
     }
 
-    private fun statusFor(context: android.content.Context, permission: String): NexaPermissionStatus {
+"#,
+        );
+    }
+    out.push_str(
+        r#"    private fun statusFor(context: android.content.Context, permission: String): NexaPermissionStatus {
         if (context.checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
             return NexaPermissionStatus.granted
         }

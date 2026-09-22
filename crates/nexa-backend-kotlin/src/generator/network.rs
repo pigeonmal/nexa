@@ -3,9 +3,17 @@
 /// Cronet owns connection pooling, HTTP/2, QUIC, Brotli, redirects, and the
 /// disk cache. Coil 3 is wired to the same client, so a remote Image never
 /// silently switches to OkHttp or another networking implementation.
-pub(super) fn render(out: &mut String, include_image_support: bool) {
-    out.push_str(
-        r#"
+pub(super) fn render(
+    out: &mut String,
+    include_network: bool,
+    include_image_support: bool,
+    include_path: bool,
+    include_file: bool,
+    include_file_async: bool,
+) {
+    if include_network {
+        out.push_str(
+            r#"
 public data class NexaNetworkResponse(
     val statusCode: Int,
     val headers: Map<String, List<String>>,
@@ -227,7 +235,12 @@ public object NexaNetwork {
     }
 }
 
-public object NexaPath {
+"#,
+        );
+    }
+    if include_path {
+        out.push_str(
+            r#"public object NexaPath {
     public fun documents(context: Context, vararg components: String): String =
         components.fold(context.filesDir) { file, component -> File(file, component) }.path
 
@@ -244,8 +257,17 @@ public object NexaPath {
         components.fold(File(path)) { file, component -> File(file, component) }.path
 }
 
-public object NexaFile {
-    public suspend fun read(path: String): ByteArray = withContext(Dispatchers.IO) { File(path).readBytes() }
+"#,
+        );
+    }
+    if include_file {
+        out.push_str(
+            r#"public object NexaFile {
+"#,
+        );
+        if include_file_async {
+            out.push_str(
+                r#"    public suspend fun read(path: String): ByteArray = withContext(Dispatchers.IO) { File(path).readBytes() }
 
     public suspend fun write(data: ByteArray, path: String) = withContext(Dispatchers.IO) {
         val file = File(path)
@@ -262,11 +284,16 @@ public object NexaFile {
 
     public suspend fun delete(path: String): Boolean = withContext(Dispatchers.IO) { File(path).delete() }
 
-    public fun exists(path: String): Boolean = File(path).exists()
+"#,
+            );
+        }
+        out.push_str(
+            r#"    public fun exists(path: String): Boolean = File(path).exists()
 }
 
 "#,
-    );
+        );
+    }
     if include_image_support {
         out.push_str(
             r#"

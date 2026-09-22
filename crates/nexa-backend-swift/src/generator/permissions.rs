@@ -3,7 +3,7 @@
 /// The generated helper only exists when a module calls the typed Permissions API.
 /// Each request stays inside the platform authorization framework and returns
 /// the same compact status enum as status queries.
-pub(super) fn render(out: &mut String) {
+pub(super) fn render(out: &mut String, include_request: bool) {
     out.push_str(
         r#"
 private enum NexaPermission {
@@ -24,7 +24,11 @@ private enum NexaPermissionStatus {
     case notDetermined
 }
 
-private final class NexaLocationRequester: NSObject, CLLocationManagerDelegate {
+"#,
+    );
+    if include_request {
+        out.push_str(
+            r#"private final class NexaLocationRequester: NSObject, CLLocationManagerDelegate {
     private lazy var manager = CLLocationManager()
     private var continuation: CheckedContinuation<NexaPermissionStatus, Never>?
 
@@ -103,7 +107,11 @@ private final class NexaBluetoothRequester: NSObject, CBCentralManagerDelegate {
     }
 }
 
-private enum NexaPermissions {
+"#,
+        );
+    }
+    out.push_str(
+        r#"private enum NexaPermissions {
     static func status(_ permission: NexaPermission) async -> NexaPermissionStatus {
         switch permission {
         case .Camera:
@@ -172,7 +180,11 @@ private enum NexaPermissions {
         }
     }
 
-    static func request(_ permission: NexaPermission) async -> NexaPermissionStatus {
+"#,
+    );
+    if include_request {
+        out.push_str(
+            r#"    static func request(_ permission: NexaPermission) async -> NexaPermissionStatus {
         switch permission {
         case .Camera:
             return await AVCaptureDevice.requestAccess(for: .video) ? .granted : .denied
@@ -218,7 +230,11 @@ private enum NexaPermissions {
         case .Bluetooth:
             return await NexaBluetoothRequester().request()
         }
+    }"#,
+        );
     }
+    out.push_str(
+        r#"
 }
 "#,
     );

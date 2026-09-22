@@ -258,7 +258,9 @@ fn generate_android(
     let uses_network = generated.contains("NexaNetwork") || generated.contains("org.chromium.net");
     let uses_remote_image =
         generated.contains("coil3.compose.AsyncImage") || generated.contains("coil3.network");
+    let uses_compose_graphics = generated.contains("androidx.compose.ui.graphics.");
     let uses_lifecycle_events = generated.contains("LocalLifecycleOwner");
+    let uses_coroutines = generated.contains("kotlinx.coroutines.");
     let cronet_import = if uses_network {
         "import com.google.android.gms.net.CronetProviderInstaller\n"
     } else {
@@ -311,7 +313,9 @@ fn generate_android(
             &package,
             uses_network,
             uses_remote_image,
+            uses_coroutines,
             generated.contains("NavHost"),
+            uses_compose_graphics,
             uses_lifecycle_events,
         ),
     )?;
@@ -869,12 +873,17 @@ fn android_app_gradle(
     package: &str,
     uses_network: bool,
     uses_remote_image: bool,
+    uses_coroutines: bool,
     navigation: bool,
+    uses_compose_graphics: bool,
     uses_lifecycle_events: bool,
 ) -> String {
     let mut dependencies = String::from(
-        "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.ui:ui-graphics\")\n    implementation(\"androidx.compose.ui:ui-tooling-preview\")\n    implementation(\"androidx.compose.material3:material3\")\n    debugImplementation(\"androidx.compose.ui:ui-tooling\")\n",
+        "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.material3:material3\")\n",
     );
+    if uses_compose_graphics {
+        dependencies.push_str("    implementation(\"androidx.compose.ui:ui-graphics\")\n");
+    }
     if navigation {
         dependencies
             .push_str("    implementation(\"androidx.navigation:navigation-compose:2.8.5\")\n");
@@ -889,9 +898,14 @@ fn android_app_gradle(
             "    implementation(\"io.coil-kt.coil3:coil-compose:3.6.3\")\n    implementation(\"io.coil-kt.coil3:coil-network-core:3.6.3\")\n",
         );
     }
+    if uses_coroutines {
+        dependencies.push_str(
+            "    implementation(\"org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0\")\n",
+        );
+    }
     if uses_network {
         dependencies.push_str(
-            "    implementation(\"com.google.android.gms:play-services-cronet:18.0.1\")\n    implementation(\"org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0\")\n",
+            "    implementation(\"com.google.android.gms:play-services-cronet:18.0.1\")\n",
         );
     }
     format!(

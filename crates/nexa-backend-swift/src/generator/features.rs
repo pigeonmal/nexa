@@ -15,7 +15,12 @@ pub(super) struct Features {
     pub(super) uses_link: bool,
     pub(super) uses_remote_image: bool,
     pub(super) uses_native_library: bool,
+    pub(super) uses_network_api: bool,
+    pub(super) uses_path_api: bool,
+    pub(super) uses_file_api: bool,
+    pub(super) uses_file_async: bool,
     pub(super) uses_permissions: bool,
+    pub(super) uses_permission_request: bool,
     pub(super) uses_haptic: bool,
     pub(super) app_uses_adaptive_color: bool,
     pub(super) app_uses_size_class: bool,
@@ -27,8 +32,8 @@ impl Features {
     pub(super) fn analyze(module: &Module) -> Self {
         let mut features = Self::default();
         let mut app_uses_size_class = false;
-        let mut uses_native_library = false;
         let mut uses_permissions = false;
+        let mut uses_permission_request = false;
 
         for state in &module.states {
             walk_expression(&state.initial, &mut |expr| {
@@ -39,20 +44,20 @@ impl Features {
                         | Expr::IsRegularHeight
                         | Expr::IsCompactHeight
                 );
-                uses_native_library |= uses_core_native_library(expr);
                 uses_permissions |= uses_permissions_call(expr);
+                uses_permission_request |= uses_permission_request_call(expr);
             });
         }
         for function in &module.functions {
             for local in &function.locals {
                 walk_expression(&local.initial, &mut |expr| {
-                    uses_native_library |= uses_core_native_library(expr);
                     uses_permissions |= uses_permissions_call(expr);
+                    uses_permission_request |= uses_permission_request_call(expr);
                 });
             }
             walk_expression(&function.body, &mut |expr| {
-                uses_native_library |= uses_core_native_library(expr);
                 uses_permissions |= uses_permissions_call(expr);
+                uses_permission_request |= uses_permission_request_call(expr);
             });
         }
         walk_ir(
@@ -66,8 +71,8 @@ impl Features {
                         | Expr::IsRegularHeight
                         | Expr::IsCompactHeight
                 );
-                uses_native_library |= uses_core_native_library(expr);
                 uses_permissions |= uses_permissions_call(expr);
+                uses_permission_request |= uses_permission_request_call(expr);
             },
         );
         for screen in &module.screens {
@@ -80,8 +85,8 @@ impl Features {
                             | Expr::IsRegularHeight
                             | Expr::IsCompactHeight
                     );
-                    uses_native_library |= uses_core_native_library(expr);
                     uses_permissions |= uses_permissions_call(expr);
+                    uses_permission_request |= uses_permission_request_call(expr);
                 });
             }
             walk_ir(
@@ -95,22 +100,29 @@ impl Features {
                             | Expr::IsRegularHeight
                             | Expr::IsCompactHeight
                     );
-                    uses_native_library |= uses_core_native_library(expr);
                     uses_permissions |= uses_permissions_call(expr);
+                    uses_permission_request |= uses_permission_request_call(expr);
                 },
             );
         }
-        for actions in module.on_appear.iter().chain(module.on_disappear.iter()) {
+        for actions in module
+            .on_appear
+            .iter()
+            .chain(module.on_disappear.iter())
+            .chain(module.on_active.iter())
+            .chain(module.on_inactive.iter())
+            .chain(module.on_background.iter())
+        {
             walk_actions(actions, &mut |expr| {
-                uses_native_library |= uses_core_native_library(expr);
                 uses_permissions |= uses_permissions_call(expr);
+                uses_permission_request |= uses_permission_request_call(expr);
             });
         }
         for screen in &module.screens {
             for actions in screen.on_appear.iter().chain(screen.on_disappear.iter()) {
                 walk_actions(actions, &mut |expr| {
-                    uses_native_library |= uses_core_native_library(expr);
                     uses_permissions |= uses_permissions_call(expr);
+                    uses_permission_request |= uses_permission_request_call(expr);
                 });
             }
         }
@@ -128,8 +140,8 @@ impl Features {
                             | Expr::IsRegularHeight
                             | Expr::IsCompactHeight
                     );
-                    uses_native_library |= uses_core_native_library(expr);
                     uses_permissions |= uses_permissions_call(expr);
+                    uses_permission_request |= uses_permission_request_call(expr);
                 });
             }
             walk_ir(
@@ -155,8 +167,8 @@ impl Features {
                             | Expr::IsRegularHeight
                             | Expr::IsCompactHeight
                     );
-                    uses_native_library |= uses_core_native_library(expr);
                     uses_permissions |= uses_permissions_call(expr);
+                    uses_permission_request |= uses_permission_request_call(expr);
                 },
             );
             if uses_adaptive_color {
@@ -170,8 +182,16 @@ impl Features {
                     .insert(component.name.clone());
             }
         }
-        features.uses_native_library = uses_native_library || features.uses_remote_image;
+        let (uses_network_api, uses_path_api, uses_file_api, uses_file_async) =
+            native_api_usage(module);
+        features.uses_network_api = uses_network_api || features.uses_remote_image;
+        features.uses_path_api = uses_path_api;
+        features.uses_file_api = uses_file_api;
+        features.uses_file_async = uses_file_async;
+        features.uses_native_library =
+            features.uses_network_api || features.uses_path_api || features.uses_file_api;
         features.uses_permissions = uses_permissions;
+        features.uses_permission_request = uses_permission_request;
         features
     }
 
@@ -246,11 +266,71 @@ fn node_uses_adaptive_color(node: &Node) -> bool {
     }
 }
 
-fn uses_core_native_library(expr: &Expr) -> bool {
+fn native_api_usage(module: &Module) -> (bool, bool, bool, bool) {
+    let mut uses_network = false;
+    let mut uses_path = false;
+    let mut uses_file = false;
+    let mut uses_file_async = false;
+    let mut record = |expr: &Expr| {
+        let Expr::NativeCall {
+            namespace, name, ..
+        } = expr
+        else {
+            return;
+        };
+        match namespace.as_str() {
+            "Network" => uses_network = true,
+            "Path" => uses_path = true,
+            "File" => {
+                uses_file = true;
+                uses_file_async |= name != "exists";
+            }
+            _ => {}
+        }
+    };
+    for state in &module.states {
+        walk_expression(&state.initial, &mut record);
+    }
+    for screen in &module.screens {
+        for state in &screen.states {
+            walk_expression(&state.initial, &mut record);
+        }
+        walk_ir(&screen.body, &mut |_| {}, &mut record);
+        for actions in screen.on_appear.iter().chain(screen.on_disappear.iter()) {
+            walk_actions(actions, &mut record);
+        }
+    }
+    for function in &module.functions {
+        for local in &function.locals {
+            walk_expression(&local.initial, &mut record);
+        }
+        walk_expression(&function.body, &mut record);
+    }
+    walk_ir(&module.body, &mut |_| {}, &mut record);
+    for actions in module
+        .on_appear
+        .iter()
+        .chain(module.on_disappear.iter())
+        .chain(module.on_active.iter())
+        .chain(module.on_inactive.iter())
+        .chain(module.on_background.iter())
+    {
+        walk_actions(actions, &mut record);
+    }
+    for component in &module.components {
+        for state in &component.states {
+            walk_expression(&state.initial, &mut record);
+        }
+        walk_ir(&component.body, &mut |_| {}, &mut record);
+    }
+    (uses_network, uses_path, uses_file, uses_file_async)
+}
+
+fn uses_permission_request_call(expr: &Expr) -> bool {
     matches!(
         expr,
-        Expr::NativeCall { namespace, .. }
-            if matches!(namespace.as_str(), "Network" | "Path" | "File")
+        Expr::NativeCall { namespace, name, .. }
+            if namespace == "Permissions" && name == "request"
     )
 }
 

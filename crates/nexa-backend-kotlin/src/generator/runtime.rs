@@ -1,21 +1,29 @@
 /// Emits the tiny application-context holder shared by generated native APIs.
-pub(super) fn render(out: &mut String) {
+pub(super) fn render(out: &mut String, include_permissions: bool) {
     out.push_str(
         r#"
 public object NexaRuntime {
     @Volatile private var applicationContext: android.content.Context? = null
-    @Volatile private var activity: android.app.Activity? = null
-    private val nextPermissionRequest = java.util.concurrent.atomic.AtomicInteger(0x4E58)
-    private val permissionCallbacks = java.util.concurrent.ConcurrentHashMap<Int, (IntArray) -> Unit>()
 
     public fun bind(context: android.content.Context) {
         val application = context.applicationContext
         if (applicationContext !== application) applicationContext = application
-        if (context is android.app.Activity) activity = context
     }
 
     public fun context(): android.content.Context = requireNotNull(applicationContext) {
         "NexaRuntime.bind must run before a native API call"
+    }
+
+"#,
+    );
+    if include_permissions {
+        out.push_str(
+            r#"    @Volatile private var activity: android.app.Activity? = null
+    private val nextPermissionRequest = java.util.concurrent.atomic.AtomicInteger(0x4E58)
+    private val permissionCallbacks = java.util.concurrent.ConcurrentHashMap<Int, (IntArray) -> Unit>()
+
+    public fun bindActivity(context: android.content.Context) {
+        if (context is android.app.Activity) activity = context
     }
 
     public suspend fun requestPermissions(permissions: Array<String>): IntArray {
@@ -41,7 +49,11 @@ public object NexaRuntime {
     ) {
         permissionCallbacks.remove(requestCode)?.invoke(grantResults)
     }
-}
+"#,
+        );
+    }
+    out.push_str(
+        r#"}
 "#,
     );
 }

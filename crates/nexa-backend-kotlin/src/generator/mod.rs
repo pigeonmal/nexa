@@ -81,8 +81,11 @@ pub(super) fn generate(module: &Module) -> String {
     if features.app_uses_link {
         out.push_str("    val nexaLinkContext = LocalContext.current\n");
     }
-    if features.uses_native_library || features.uses_permissions {
+    if features.uses_network_api || features.uses_path_api || features.uses_permissions {
         out.push_str("    NexaRuntime.bind(LocalContext.current)\n");
+        if features.uses_permission_request {
+            out.push_str("    NexaRuntime.bindActivity(LocalContext.current)\n");
+        }
     }
     if features.app_uses_haptic {
         out.push_str("    val nexaHapticView = LocalView.current\n");
@@ -185,11 +188,18 @@ pub(super) fn generate(module: &Module) -> String {
     }
     out.push_str("\n}\n");
     custom_components::render(module, &features, &mut out);
-    if features.uses_native_library || features.uses_permissions {
-        runtime::render(&mut out);
+    if features.uses_network_api || features.uses_path_api || features.uses_permissions {
+        runtime::render(&mut out, features.uses_permission_request);
     }
     if features.uses_native_library {
-        network::render(&mut out, features.uses_remote_image);
+        network::render(
+            &mut out,
+            features.uses_network_api,
+            features.uses_remote_image,
+            features.uses_path_api,
+            features.uses_file_api,
+            features.uses_file_async,
+        );
     }
     if features.uses_asset
         || features.uses_tab_icon
@@ -199,7 +209,7 @@ pub(super) fn generate(module: &Module) -> String {
         assets::render(&mut out);
     }
     if features.uses_permissions {
-        permissions::render(&mut out);
+        permissions::render(&mut out, features.uses_permission_request);
     }
     functions::render(module, &mut out);
     out

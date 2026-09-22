@@ -38,8 +38,11 @@ pub(super) fn generate(module: &Module) -> String {
     } else {
         String::from("import SwiftUI\n\n")
     };
-    if features.uses_native_library {
-        out.push_str("import CryptoKit\nimport Foundation\n\n");
+    if features.uses_network_api {
+        out.push_str("import CryptoKit\n");
+    }
+    if features.uses_network_api || features.uses_path_api || features.uses_file_api {
+        out.push_str("import Foundation\n\n");
     } else if features.uses_link {
         out.push_str("import Foundation\n\n");
     }
@@ -180,10 +183,17 @@ pub(super) fn generate(module: &Module) -> String {
         );
     }
     if features.uses_native_library {
-        network::render(&mut out, features.uses_remote_image);
+        network::render(
+            &mut out,
+            features.uses_network_api,
+            features.uses_remote_image,
+            features.uses_path_api,
+            features.uses_file_api,
+            features.uses_file_async,
+        );
     }
     if features.uses_permissions {
-        permissions::render(&mut out);
+        permissions::render(&mut out, features.uses_permission_request);
     }
     functions::render(module, &mut out);
     out

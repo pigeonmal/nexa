@@ -3,9 +3,17 @@
 /// URLSession owns connection pooling, HTTP caching, redirects, TLS, and
 /// HTTP/2 negotiation. Nexa only adds the typed request options that generated
 /// code needs; it does not introduce a cross-platform request runtime.
-pub(super) fn render(out: &mut String, include_image_support: bool) {
-    out.push_str(
-        r#"
+pub(super) fn render(
+    out: &mut String,
+    include_network: bool,
+    include_image_support: bool,
+    include_path: bool,
+    include_file: bool,
+    include_file_async: bool,
+) {
+    if include_network {
+        out.push_str(
+            r#"
 public enum NexaNetworkError: Error {
     case invalidURL
     case invalidResponse
@@ -198,7 +206,12 @@ public enum NexaNetwork {
     }
 }
 
-public enum NexaPath {
+"#,
+        );
+    }
+    if include_path {
+        out.push_str(
+            r#"public enum NexaPath {
     public static func documents(_ components: String... ) -> String {
         append(components, to: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0])
     }
@@ -224,8 +237,17 @@ public enum NexaPath {
     }
 }
 
-public enum NexaFile {
-    public static func read(_ path: String) async throws -> Data {
+"#,
+        );
+    }
+    if include_file {
+        out.push_str(
+            r#"public enum NexaFile {
+"#,
+        );
+        if include_file_async {
+            out.push_str(
+                r#"    public static func read(_ path: String) async throws -> Data {
         try await Task.detached(priority: .utility) {
             try Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe)
         }.value
@@ -258,12 +280,18 @@ public enum NexaFile {
         return true
     }
 
-    public static func exists(_ path: String) -> Bool {
+"#,
+            );
+        }
+        out.push_str(
+            r#"    public static func exists(_ path: String) -> Bool {
         FileManager.default.fileExists(atPath: path)
     }
 }
+
 "#,
-    );
+        );
+    }
     if include_image_support {
         out.push_str(
             r#"
