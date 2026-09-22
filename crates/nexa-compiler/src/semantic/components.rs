@@ -883,6 +883,12 @@ fn lower_actions(
     let mut lowered = Vec::with_capacity(actions.len());
     for action in actions {
         match action {
+            ast::Stmt::Let { span, .. } => {
+                return Err(CompileError::new(
+                    span,
+                    "local `let` declarations are only allowed inside functions",
+                ));
+            }
             ast::Stmt::Assign { name, value, span } => {
                 let Some((ty, mutable)) = symbols.get(&name) else {
                     return Err(CompileError::new(span, format!("unknown state `{name}`")));

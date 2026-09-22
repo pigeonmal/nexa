@@ -646,19 +646,35 @@ pub(super) fn resolve_declaration_type(
     symbols: &HashMap<String, (Type, bool)>,
     functions: &FunctionSignatures,
 ) -> Result<Type, CompileError> {
-    let ty = match declaration.ty.as_ref() {
+    resolve_value_type(
+        &declaration.name,
+        declaration.ty.as_ref(),
+        &declaration.initial,
+        symbols,
+        functions,
+    )
+}
+
+pub(super) fn resolve_value_type(
+    name: &str,
+    annotation: Option<&ast::TypeSyntax>,
+    initial: &ast::Expr,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+) -> Result<Type, CompileError> {
+    let ty = match annotation {
         Some(syntax) => parse_type(syntax)?,
-        None => infer_expr_type(&declaration.initial, symbols, functions).ok_or_else(|| {
+        None => infer_expr_type(initial, symbols, functions).ok_or_else(|| {
             CompileError::new(
-                declaration.initial.span(),
+                initial.span(),
                 format!(
                     "cannot infer the type of `{}`; add an explicit `: Type` annotation (empty collections need one)",
-                    declaration.name
+                    name
                 ),
             )
         })?,
     };
-    validate_type_constraints(&ty, declaration.initial.span())?;
+    validate_type_constraints(&ty, initial.span())?;
     Ok(ty)
 }
 

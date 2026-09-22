@@ -19,6 +19,7 @@ cargo run -p nexa-cli -- check examples/collection-list.nx
 cargo run -p nexa-cli -- check examples/collection-values.nx
 cargo run -p nexa-cli -- check examples/themed-app.nx
 cargo run -p nexa-cli -- check examples/custom-components.nx
+cargo run -p nexa-cli -- check examples/function-locals.nx
 cargo run -p nexa-cli -- check examples/conditional-logic.nx
 cargo run -p nexa-cli -- check examples/responsive-layout.nx
 cargo run -p nexa-cli -- check examples/constant-branches.nx
@@ -151,7 +152,7 @@ String interpolation supports `$name` and `\(name)` for declared state and const
 
 `OnAppear { ... }` and `OnDisappear { ... }` are top-level app or named-screen lifecycle callbacks. Use `OnAppear async { ... }` to await an app-local `async fn`; Swift lowers it to `.task`, while Android uses `LaunchedEffect(Unit)` for the same native coroutine lifecycle. See [lifecycle.nx](examples/lifecycle.nx), [async.nx](examples/async.nx), and [navigation.nx](examples/navigation.nx). App background events remain future lifecycle slices.
 
-Typed app functions use `fn name(parameters) -> ReturnType { return expression }`; `async fn` adds a native async boundary and `await` calls it from `OnAppear async`. Calls are resolved during compilation and emitted as direct private native functions, with no runtime registry. See [functions.nx](examples/functions.nx) and [async.nx](examples/async.nx).
+Typed app functions use `fn name(parameters) -> ReturnType { let local = expression; return expression }`; local constants are resolved and emitted as direct Swift `let` or Kotlin `val` statements. `async fn` adds a native async boundary and `await` calls it from `OnAppear async`. Calls are resolved during compilation with no runtime registry. See [functions.nx](examples/functions.nx), [function-locals.nx](examples/function-locals.nx), and [async.nx](examples/async.nx).
 
 ## License
 

@@ -816,6 +816,29 @@ impl Parser {
         )?;
         let mut stmts = Vec::new();
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            if !allow_return && self.word_is("let") {
+                return self
+                    .error_here("local `let` declarations are only allowed inside functions");
+            }
+            if allow_return && self.word_is("let") {
+                let span = self.advance().span;
+                let (name, _) = self.ident()?;
+                let ty = if self.take(&Kind::Colon) {
+                    Some(self.type_syntax()?)
+                } else {
+                    None
+                };
+                self.expect(Kind::Equal, "expected `=` after local constant")?;
+                let initial = self.expr()?;
+                stmts.push(Stmt::Let {
+                    name,
+                    ty,
+                    initial,
+                    span,
+                });
+                self.optional_semicolon();
+                continue;
+            }
             if self.word_is("return") {
                 if !allow_return {
                     return self.error_here("`return` is only allowed inside a function");

@@ -36,6 +36,15 @@ fn render_function(function: &Function, out: &mut String) {
     }
     out.push_str(&function.return_type.swift());
     out.push_str(" {\n");
+    for local in &function.locals {
+        indent(out, 1);
+        out.push_str(&format!(
+            "let {}: {} = {}\n",
+            nexa_codegen::names::state_name(&local.name),
+            local.ty.swift(),
+            expressions::expression(&local.initial)
+        ));
+    }
     indent(out, 1);
     out.push_str("return ");
     out.push_str(&expressions::expression(&function.body));

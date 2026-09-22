@@ -99,19 +99,42 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
     }
 
     for function in &app.functions {
-        let names = function
+        let mut names = function
             .parameters
             .iter()
             .map(|parameter| parameter.name.clone())
             .collect::<HashSet<_>>();
+        names.extend(
+            function
+                .body
+                .iter()
+                .filter_map(|statement| match statement {
+                    ast::Stmt::Let { name, .. } => Some(name.clone()),
+                    _ => None,
+                }),
+        );
+        let mut used = HashSet::new();
         walk_actions(
             &function.body,
             &names,
-            &mut HashSet::new(),
+            &mut used,
             target,
             None,
             &mut warnings,
         );
+        for statement in &function.body {
+            let ast::Stmt::Let { name, span, .. } = statement else {
+                continue;
+            };
+            if !used.contains(name) {
+                push_warning(
+                    &mut warnings,
+                    *span,
+                    format!("unused local constant `{name}`{}", target_suffix(target)),
+                    None,
+                );
+            }
+        }
     }
 
     for component in &app.components {
@@ -377,6 +400,7 @@ fn walk_actions(
 ) {
     for action in actions {
         match action {
+            ast::Stmt::Let { initial, .. } => walk_expression(initial, names, used),
             ast::Stmt::Assign { name, value, .. } => {
                 if names.contains(name) {
                     used.insert(name.clone());

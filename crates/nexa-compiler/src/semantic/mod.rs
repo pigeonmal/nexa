@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use nexa_diagnostics::{CompileError, CompileWarning};
 use nexa_ir::{
-    Action, DirectionConfig, Function, FunctionParameter, Module, Node, Screen, ScreenId, State,
-    StatusBarConfig,
+    Action, DirectionConfig, Function, FunctionLocal, FunctionParameter, Module, Node, Screen,
+    ScreenId, State, StatusBarConfig,
 };
 use nexa_syntax::ast;
 
@@ -12,7 +12,7 @@ use self::{
     custom_components::{lower_components, retain_reachable},
     expressions::{
         FunctionSignatures, collect_function_signatures, lower_expr, references_state,
-        resolve_declaration_type,
+        resolve_declaration_type, resolve_value_type,
     },
     themes::lower_theme,
 };
@@ -177,31 +177,94 @@ fn lower_functions(
             let signature = signatures
                 .get(&declaration.name)
                 .expect("collected signature");
-            let [statement] = declaration.body.as_slice() else {
-                return Err(CompileError::new(
-                    declaration.span,
-                    format!(
-                        "function `{}` must contain exactly one `return` statement",
-                        declaration.name
-                    ),
-                ));
-            };
-            let ast::Stmt::Return { value, .. } = statement else {
-                return Err(CompileError::new(
-                    declaration.span,
-                    format!(
-                        "function `{}` must contain exactly one `return` statement",
-                        declaration.name
-                    ),
-                ));
-            };
             let symbols = signature
                 .parameters
                 .iter()
                 .map(|(name, ty)| (name.clone(), (ty.clone(), false)))
                 .collect::<HashMap<_, _>>();
+            let mut symbols = symbols;
+            let mut locals = Vec::new();
+            let mut return_value = None;
+            for statement in declaration.body {
+                match statement {
+                    ast::Stmt::Let {
+                        name,
+                        ty,
+                        initial,
+                        span,
+                    } => {
+                        if return_value.is_some() {
+                            return Err(CompileError::new(
+                                span,
+                                format!(
+                                    "function `{}` cannot declare a local after `return`",
+                                    declaration.name
+                                ),
+                            ));
+                        }
+                        if symbols.contains_key(&name) {
+                            return Err(CompileError::new(
+                                span,
+                                format!(
+                                    "local constant `{name}` is already declared in function `{}`",
+                                    declaration.name
+                                ),
+                            ));
+                        }
+                        let local_type = resolve_value_type(
+                            &name,
+                            ty.as_ref(),
+                            &initial,
+                            &symbols,
+                            signatures,
+                        )?;
+                        let lowered = lower_expr(
+                            &initial,
+                            Some(&local_type),
+                            &symbols,
+                            signatures,
+                            signature.is_async,
+                        )?;
+                        symbols.insert(name.clone(), (local_type.clone(), false));
+                        locals.push(FunctionLocal {
+                            name,
+                            ty: local_type,
+                            initial: lowered,
+                        });
+                    }
+                    ast::Stmt::Return { value, span: _ } => {
+                        if return_value.replace(value).is_some() {
+                            return Err(CompileError::new(
+                                declaration.span,
+                                format!(
+                                    "function `{}` must contain exactly one `return` statement",
+                                    declaration.name
+                                ),
+                            ));
+                        }
+                    }
+                    ast::Stmt::Assign { span, .. } | ast::Stmt::If { span, .. } => {
+                        return Err(CompileError::new(
+                            span,
+                            format!(
+                                "function `{}` supports only `let` declarations and one `return` statement",
+                                declaration.name
+                            ),
+                        ));
+                    }
+                }
+            }
+            let value = return_value.ok_or_else(|| {
+                CompileError::new(
+                    declaration.span,
+                    format!(
+                        "function `{}` must contain exactly one `return` statement",
+                        declaration.name
+                    ),
+                )
+            })?;
             let body = lower_expr(
-                value,
+                &value,
                 Some(&signature.return_type),
                 &symbols,
                 signatures,
@@ -218,6 +281,7 @@ fn lower_functions(
                         ty: ty.clone(),
                     })
                     .collect(),
+                locals,
                 return_type: signature.return_type.clone(),
                 body,
             })

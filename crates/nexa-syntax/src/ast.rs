@@ -368,6 +368,12 @@ impl Expr {
 
 #[derive(Clone, Debug)]
 pub enum Stmt {
+    Let {
+        name: String,
+        ty: Option<TypeSyntax>,
+        initial: Expr,
+        span: Span,
+    },
     Assign {
         name: String,
         value: Expr,

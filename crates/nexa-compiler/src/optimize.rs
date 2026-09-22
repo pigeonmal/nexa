@@ -8,10 +8,16 @@ use nexa_ir::{
 /// Applies small, semantics-preserving optimizations to the typed IR before
 /// either native backend sees it. The pass deliberately stays conservative:
 /// it folds only pure constant expressions, removes branches whose conditions
-/// are statically known, and drops state declarations with no reachable use.
+/// are statically known, and drops declarations with no reachable use when
+/// their initializers are pure.
 pub(crate) fn optimize(module: &mut Module) {
     for function in &mut module.functions {
+        for local in &mut function.locals {
+            local.initial =
+                fold_expression(std::mem::replace(&mut local.initial, Expr::Bool(false)));
+        }
         function.body = fold_expression(std::mem::replace(&mut function.body, Expr::Bool(false)));
+        prune_unused_function_locals(function);
     }
     module.states.iter_mut().for_each(|state| {
         state.initial = fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
@@ -41,6 +47,98 @@ pub(crate) fn optimize(module: &mut Module) {
     }
     prune_unused_functions(module);
     prune_unused_states(module);
+}
+
+fn prune_unused_function_locals(function: &mut nexa_ir::Function) {
+    let mut referenced = HashSet::new();
+    collect_expression_state_names(&function.body, &mut referenced);
+    let mut kept = Vec::with_capacity(function.locals.len());
+    for local in function.locals.drain(..).rev() {
+        if referenced.contains(&local.name) || !is_pure_expression(&local.initial) {
+            collect_expression_state_names(&local.initial, &mut referenced);
+            kept.push(local);
+        }
+    }
+    kept.reverse();
+    function.locals = kept;
+}
+
+fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>) {
+    match expression {
+        Expr::State(name, _) => {
+            names.insert(name.clone());
+        }
+        Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
+            collect_expression_state_names(left, names);
+            collect_expression_state_names(right, names);
+        }
+        Expr::Not(value) | Expr::Await(value) => collect_expression_state_names(value, names),
+        Expr::Array(items) | Expr::Set(items) => {
+            for item in items {
+                collect_expression_state_names(item, names);
+            }
+        }
+        Expr::Map(entries) => {
+            for (key, value) in entries {
+                collect_expression_state_names(key, names);
+                collect_expression_state_names(value, names);
+            }
+        }
+        Expr::Pair(first, second) => {
+            collect_expression_state_names(first, names);
+            collect_expression_state_names(second, names);
+        }
+        Expr::Triple(first, second, third) => {
+            collect_expression_state_names(first, names);
+            collect_expression_state_names(second, names);
+            collect_expression_state_names(third, names);
+        }
+        Expr::Call { arguments, .. } => {
+            for argument in arguments {
+                collect_expression_state_names(argument, names);
+            }
+        }
+        Expr::Interpolation(parts) => {
+            for part in parts {
+                if let InterpolatedPart::Value(value) = part {
+                    collect_expression_state_names(value, names);
+                }
+            }
+        }
+        Expr::String(_) | Expr::Bool(_) | Expr::Number { .. } | Expr::IsRegularWidth => {}
+    }
+}
+
+fn is_pure_expression(expression: &Expr) -> bool {
+    match expression {
+        Expr::Call {
+            arguments,
+            is_async,
+            ..
+        } => !is_async && arguments.iter().all(is_pure_expression),
+        Expr::Await(_) => false,
+        Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
+            is_pure_expression(left) && is_pure_expression(right)
+        }
+        Expr::Not(value) => is_pure_expression(value),
+        Expr::Array(items) | Expr::Set(items) => items.iter().all(is_pure_expression),
+        Expr::Map(entries) => entries
+            .iter()
+            .all(|(key, value)| is_pure_expression(key) && is_pure_expression(value)),
+        Expr::Pair(first, second) => is_pure_expression(first) && is_pure_expression(second),
+        Expr::Triple(first, second, third) => {
+            is_pure_expression(first) && is_pure_expression(second) && is_pure_expression(third)
+        }
+        Expr::Interpolation(parts) => parts.iter().all(|part| match part {
+            InterpolatedPart::Literal(_) => true,
+            InterpolatedPart::Value(value) => is_pure_expression(value),
+        }),
+        Expr::String(_)
+        | Expr::Bool(_)
+        | Expr::Number { .. }
+        | Expr::State(_, _)
+        | Expr::IsRegularWidth => true,
+    }
 }
 
 fn prune_unused_functions(module: &mut Module) {
@@ -89,6 +187,9 @@ fn prune_unused_functions(module: &mut Module) {
         else {
             continue;
         };
+        for local in &function.locals {
+            collect_expression_function_references(&local.initial, &declared, &mut used);
+        }
         collect_expression_function_references(&function.body, &declared, &mut used);
         pending.extend(
             used.iter()

@@ -20,6 +20,7 @@ pub struct Function {
     pub name: String,
     pub is_async: bool,
     pub parameters: Vec<FunctionParameter>,
+    pub locals: Vec<FunctionLocal>,
     pub return_type: Type,
     pub body: Expr,
 }
@@ -28,6 +29,13 @@ pub struct Function {
 pub struct FunctionParameter {
     pub name: String,
     pub ty: Type,
+}
+
+#[derive(Clone, Debug)]
+pub struct FunctionLocal {
+    pub name: String,
+    pub ty: Type,
+    pub initial: Expr,
 }
 
 #[derive(Clone, Debug)]

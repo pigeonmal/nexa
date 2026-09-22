@@ -1,0 +1,14 @@
+app FunctionLocals {
+    fn greeting(name: String, count: Int32) -> String {
+        let prefix = "Hello, $name"
+        let message: String = prefix
+        return message
+    }
+
+    state name: String = "Nexa"
+    state count: Int32 = 3
+
+    body {
+        Text(greeting(name, count))
+    }
+}
