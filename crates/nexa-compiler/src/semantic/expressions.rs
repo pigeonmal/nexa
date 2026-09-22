@@ -1887,7 +1887,11 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
     }
 }
 
-fn require_hashable_key(ty: &Type, span: Span, description: &str) -> Result<(), CompileError> {
+pub(super) fn require_hashable_key(
+    ty: &Type,
+    span: Span,
+    description: &str,
+) -> Result<(), CompileError> {
     if matches!(ty, Type::String | Type::Bool | Type::Numeric(_)) {
         Ok(())
     } else {

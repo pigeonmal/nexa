@@ -170,12 +170,14 @@ pub(super) fn render_node(
             source,
             index,
             item,
+            key,
             children,
         } => {
             lists::render_virtualized_list(
                 source,
                 index,
                 item.as_deref(),
+                key.as_ref(),
                 children,
                 module,
                 features,

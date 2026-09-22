@@ -323,6 +323,7 @@ pub enum Node {
         source: ListSource,
         index: Option<Expr>,
         item: Option<Expr>,
+        key: Option<Expr>,
         children: Vec<Node>,
         span: Span,
     },

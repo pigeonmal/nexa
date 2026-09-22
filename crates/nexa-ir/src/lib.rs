@@ -376,6 +376,7 @@ pub enum Node {
         source: ListSource,
         index: String,
         item: Option<String>,
+        key: Option<Expr>,
         children: Vec<Node>,
     },
     If {

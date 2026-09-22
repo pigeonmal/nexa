@@ -50,9 +50,15 @@ pub fn walk_ir(
                 }
             }
             Node::FastList {
-                source, children, ..
+                source,
+                key,
+                children,
+                ..
             } => {
                 walk_list_source(source, visit_expression);
+                if let Some(key) = key {
+                    walk_expression(key, visit_expression);
+                }
                 walk_ir(children, visit_node, visit_expression);
             }
             Node::If {

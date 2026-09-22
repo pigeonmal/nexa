@@ -860,11 +860,13 @@ fn optimize_node(node: Node) -> Option<Node> {
             source,
             index,
             item,
+            key,
             children,
         } => Some(Node::FastList {
             source: optimize_list_source(source),
             index,
             item,
+            key: key.map(fold_expression),
             children: optimize_nodes(children),
         }),
         Node::If {

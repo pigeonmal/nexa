@@ -376,6 +376,7 @@ fn walk_node(
             source,
             index,
             item,
+            key,
             children,
             span,
         } => {
@@ -402,7 +403,13 @@ fn walk_node(
             if let Some(item_name) = item_name.filter(|name| *name != "_") {
                 row_names.insert(item_name.to_owned());
             }
-            if index_name != "_" && !nodes_reference_name(children, index_name, target) {
+            let key_uses_index = key
+                .as_ref()
+                .is_some_and(|key| expression_references_name(key, index_name));
+            if index_name != "_"
+                && !key_uses_index
+                && !nodes_reference_name(children, index_name, target)
+            {
                 push_warning(
                     warnings,
                     *span,
@@ -414,6 +421,9 @@ fn walk_node(
                 );
             }
             if let Some(item_name) = item_name
+                && !key
+                    .as_ref()
+                    .is_some_and(|key| expression_references_name(key, item_name))
                 && !nodes_reference_name(children, item_name, target)
             {
                 push_warning(

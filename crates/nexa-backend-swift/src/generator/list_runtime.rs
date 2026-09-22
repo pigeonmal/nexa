@@ -6,15 +6,21 @@ private let nexaFastListCellReuseIdentifier = "NexaFastListCell"
 @available(iOS 16.0, *)
 private struct NexaFastList<RowContent: View>: UIViewRepresentable {
     let rowCount: Int
+    let rowKey: ((Int) -> AnyHashable)?
     let rowContent: (Int) -> RowContent
 
-    init(rowCount: Int, @ViewBuilder rowContent: @escaping (Int) -> RowContent) {
+    init(
+        rowCount: Int,
+        rowKey: ((Int) -> AnyHashable)? = nil,
+        @ViewBuilder rowContent: @escaping (Int) -> RowContent
+    ) {
         self.rowCount = max(0, rowCount)
+        self.rowKey = rowKey
         self.rowContent = rowContent
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(rowCount: rowCount, rowContent: rowContent)
+        Coordinator(rowCount: rowCount, rowKey: rowKey, rowContent: rowContent)
     }
 
     func makeUIView(context: Context) -> UITableView {
@@ -33,6 +39,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         let coordinator = context.coordinator
         let previousRowCount = coordinator.rowCount
         coordinator.rowCount = rowCount
+        coordinator.rowKey = rowKey
         coordinator.rowContent = rowContent
 
         guard previousRowCount != rowCount else {
@@ -49,10 +56,16 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITableViewDataSource {
         var rowCount: Int
+        var rowKey: ((Int) -> AnyHashable)?
         var rowContent: (Int) -> RowContent
 
-        init(rowCount: Int, rowContent: @escaping (Int) -> RowContent) {
+        init(
+            rowCount: Int,
+            rowKey: ((Int) -> AnyHashable)?,
+            rowContent: @escaping (Int) -> RowContent
+        ) {
             self.rowCount = rowCount
+            self.rowKey = rowKey
             self.rowContent = rowContent
             super.init()
         }
@@ -65,7 +78,11 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             let cell = tableView.dequeueReusableCell(withIdentifier: nexaFastListCellReuseIdentifier, for: indexPath)
             cell.selectionStyle = .none
             cell.contentConfiguration = UIHostingConfiguration {
-                rowContent(indexPath.row)
+                if let rowKey {
+                    rowContent(indexPath.row).id(rowKey(indexPath.row))
+                } else {
+                    rowContent(indexPath.row)
+                }
             }
             .margins(.all, 0)
             return cell

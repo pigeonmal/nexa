@@ -604,6 +604,7 @@ pub(super) fn lower_node(
             source,
             index,
             item,
+            key,
             children,
             span,
         } => {
@@ -670,6 +671,24 @@ pub(super) fn lower_node(
             if let (Some(item_name), Some(item_type)) = (&item, &item_type) {
                 row_symbols.insert(item_name.clone(), (item_type.clone(), false));
             }
+            let key = key
+                .map(|key| {
+                    let key_type =
+                        super::expressions::infer_expr_type(&key, &row_symbols, functions)
+                            .ok_or_else(|| {
+                                CompileError::new(
+                                    key.span(),
+                                    "FastList `key` must have a statically known scalar type",
+                                )
+                            })?;
+                    super::expressions::require_hashable_key(
+                        &key_type,
+                        key.span(),
+                        "FastList keys",
+                    )?;
+                    lower_expr(&key, Some(&key_type), &row_symbols, functions, false)
+                })
+                .transpose()?;
             let lowered_children = lower_nodes(
                 children,
                 &row_symbols,
@@ -690,6 +709,7 @@ pub(super) fn lower_node(
                 source,
                 index,
                 item,
+                key,
                 children: lowered_children,
             })
         }

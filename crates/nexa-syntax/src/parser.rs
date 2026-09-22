@@ -1026,7 +1026,7 @@ impl Parser {
                 })
             }
             "FastList" => {
-                let mut args = self.named_args(&["count", "items", "index", "item"])?;
+                let mut args = self.named_args(&["count", "items", "index", "item", "key"])?;
                 let count = args.remove("count");
                 let items = args.remove("items");
                 let source = match (count, items) {
@@ -1044,11 +1044,13 @@ impl Parser {
                 };
                 let index = args.remove("index");
                 let item = args.remove("item");
+                let key = args.remove("key");
                 let children = self.block_nodes()?;
                 Ok(Node::FastList {
                     source,
                     index,
                     item,
+                    key,
                     children,
                     span,
                 })
