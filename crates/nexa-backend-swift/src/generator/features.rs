@@ -8,6 +8,7 @@ pub(super) struct Features {
     pub(super) uses_fast_list: bool,
     pub(super) uses_link: bool,
     pub(super) uses_remote_image: bool,
+    pub(super) uses_native_library: bool,
     pub(super) app_uses_adaptive_color: bool,
     pub(super) app_uses_regular_width: bool,
     components_using_adaptive_color: HashSet<String>,
@@ -18,22 +19,40 @@ impl Features {
     pub(super) fn analyze(module: &Module) -> Self {
         let mut features = Self::default();
         let mut app_uses_regular_width = false;
+        let mut uses_native_library = false;
 
         for state in &module.states {
             walk_expression(&state.initial, &mut |expr| {
                 app_uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+            });
+        }
+        for function in &module.functions {
+            for local in &function.locals {
+                walk_expression(&local.initial, &mut |expr| {
+                    uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                });
+            }
+            walk_expression(&function.body, &mut |expr| {
+                uses_native_library |= matches!(expr, Expr::NativeCall { .. });
             });
         }
         walk_ir(
             &module.body,
             &mut |node| features.record_app_node(node),
-            &mut |expr| app_uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
+            &mut |expr| {
+                app_uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+            },
         );
         for screen in &module.screens {
             walk_ir(
                 &screen.body,
                 &mut |node| features.record_app_node(node),
-                &mut |expr| app_uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
+                &mut |expr| {
+                    app_uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                    uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                },
             );
         }
         features.app_uses_regular_width = app_uses_regular_width;
@@ -44,6 +63,7 @@ impl Features {
             for state in &component.states {
                 walk_expression(&state.initial, &mut |expr| {
                     uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                    uses_native_library |= matches!(expr, Expr::NativeCall { .. });
                 });
             }
             walk_ir(
@@ -60,7 +80,10 @@ impl Features {
                     );
                     uses_adaptive_color |= node_uses_adaptive_color(node);
                 },
-                &mut |expr| uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
+                &mut |expr| {
+                    uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                    uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                },
             );
             if uses_adaptive_color {
                 features
@@ -73,6 +96,7 @@ impl Features {
                     .insert(component.name.clone());
             }
         }
+        features.uses_native_library = uses_native_library || features.uses_remote_image;
         features
     }
 

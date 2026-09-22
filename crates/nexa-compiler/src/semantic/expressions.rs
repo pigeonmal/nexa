@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{BinaryOp, Expr, InterpolatedPart, NumericType, Type};
@@ -72,6 +72,7 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
             references_state(first) || references_state(second) || references_state(third)
         }
         ast::Expr::Call(_, arguments, _) => arguments.iter().any(references_state),
+        ast::Expr::QualifiedCall { arguments, .. } => arguments.values().any(references_state),
         ast::Expr::Index {
             collection, index, ..
         } => references_state(collection) || references_state(index),
@@ -383,6 +384,22 @@ pub(super) fn lower_expr(
             allow_await,
             false,
         ),
+        ast::Expr::QualifiedCall {
+            namespace,
+            name,
+            arguments,
+            span,
+        } => lower_native_call(
+            namespace,
+            name,
+            arguments,
+            *span,
+            expected,
+            symbols,
+            functions,
+            allow_await,
+            false,
+        ),
         ast::Expr::Index {
             collection,
             index,
@@ -559,22 +576,40 @@ pub(super) fn lower_expr(
                     "`await` is only allowed in an async function or `OnAppear async` block",
                 ));
             }
-            let ast::Expr::Call(name, arguments, call_span) = value.as_ref() else {
-                return Err(CompileError::new(
-                    *span,
-                    "`await` must be applied to an async function call",
-                ));
+            let call = match value.as_ref() {
+                ast::Expr::Call(name, arguments, call_span) => lower_call(
+                    name,
+                    arguments,
+                    *call_span,
+                    expected,
+                    symbols,
+                    functions,
+                    allow_await,
+                    true,
+                )?,
+                ast::Expr::QualifiedCall {
+                    namespace,
+                    name,
+                    arguments,
+                    span: call_span,
+                } => lower_native_call(
+                    namespace,
+                    name,
+                    arguments,
+                    *call_span,
+                    expected,
+                    symbols,
+                    functions,
+                    allow_await,
+                    true,
+                )?,
+                _ => {
+                    return Err(CompileError::new(
+                        *span,
+                        "`await` must be applied to an async function call",
+                    ));
+                }
             };
-            let call = lower_call(
-                name,
-                arguments,
-                *call_span,
-                expected,
-                symbols,
-                functions,
-                allow_await,
-                true,
-            )?;
             Ok(Expr::Await(Box::new(call)))
         }
     }
@@ -643,6 +678,155 @@ fn lower_call(
             } if struct_name == name
         ),
     })
+}
+
+fn lower_native_call(
+    namespace: &str,
+    name: &str,
+    arguments: &BTreeMap<String, ast::Expr>,
+    span: Span,
+    expected: Option<&Type>,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+    awaited: bool,
+) -> Result<Expr, CompileError> {
+    let qualified_name = format!("{namespace}.{name}");
+    let (return_type, is_async, specs): (Type, bool, Vec<(&str, Type, Option<ast::Expr>)>) =
+        match qualified_name.as_str() {
+            "Network.fetch" => (Type::NetworkResponse, true, network_specs(span, false)),
+            "Network.download" => (Type::Bool, true, network_specs(span, true)),
+            "Path.documents" | "Path.caches" | "Path.temporary" | "Path.appSupport" => {
+                (Type::String, false, Vec::new())
+            }
+            "Path.join" => (
+                Type::String,
+                false,
+                vec![
+                    ("path", Type::String, None),
+                    ("component", Type::String, None),
+                ],
+            ),
+            "File.exists" => (Type::Bool, false, vec![("path", Type::String, None)]),
+            "File.readText" => (Type::String, true, vec![("path", Type::String, None)]),
+            "File.writeText" => (
+                Type::Bool,
+                true,
+                vec![
+                    ("path", Type::String, None),
+                    ("contents", Type::String, None),
+                ],
+            ),
+            "File.delete" => (Type::Bool, true, vec![("path", Type::String, None)]),
+            _ => {
+                return Err(CompileError::new(
+                    span,
+                    format!("unknown native API `{qualified_name}`"),
+                ));
+            }
+        };
+    if is_async && !awaited {
+        return Err(CompileError::new(
+            span,
+            format!("async native call `{qualified_name}` must be awaited"),
+        ));
+    }
+    if awaited && !is_async {
+        return Err(CompileError::new(
+            span,
+            format!("native call `{qualified_name}` is not async and cannot be awaited"),
+        ));
+    }
+    if awaited && !allow_await {
+        return Err(CompileError::new(
+            span,
+            "`await` is only allowed in an async function or `OnAppear async` block",
+        ));
+    }
+    require_expected(expected, &return_type, span)?;
+
+    let known = specs.iter().map(|(name, ..)| *name).collect::<HashSet<_>>();
+    if let Some(unknown) = arguments.keys().find(|name| !known.contains(name.as_str())) {
+        return Err(CompileError::new(
+            span,
+            format!("unknown option `{unknown}` for `{qualified_name}`"),
+        ));
+    }
+    let mut lowered = Vec::with_capacity(specs.len());
+    for (argument_name, argument_type, default) in specs {
+        let argument = arguments
+            .get(argument_name)
+            .or(default.as_ref())
+            .ok_or_else(|| {
+                CompileError::new(
+                    span,
+                    format!("`{qualified_name}` requires `{argument_name}`"),
+                )
+            })?;
+        lowered.push((
+            argument_name.to_owned(),
+            lower_expr(
+                argument,
+                Some(&argument_type),
+                symbols,
+                functions,
+                allow_await,
+            )?,
+        ));
+    }
+    Ok(Expr::NativeCall {
+        namespace: namespace.to_owned(),
+        name: name.to_owned(),
+        arguments: lowered,
+        return_type,
+        is_async,
+    })
+}
+
+fn network_specs(span: Span, download: bool) -> Vec<(&'static str, Type, Option<ast::Expr>)> {
+    let string = || Type::String;
+    let optional_string = || Type::Optional(Box::new(Type::String));
+    let empty_map = ast::Expr::Map(Vec::new(), span);
+    let empty_set = ast::Expr::Array(Vec::new(), span);
+    let mut specs = vec![
+        ("url", string(), None),
+        (
+            "method",
+            string(),
+            Some(ast::Expr::String("GET".to_owned(), span)),
+        ),
+        ("body", optional_string(), Some(ast::Expr::Null(span))),
+        (
+            "headers",
+            Type::Map(Box::new(Type::String), Box::new(Type::String)),
+            Some(empty_map),
+        ),
+        (
+            "timeout",
+            Type::Numeric(NumericType::Float64),
+            Some(ast::Expr::Number("30".to_owned(), span)),
+        ),
+        ("useCache", Type::Bool, Some(ast::Expr::Bool(true, span))),
+        (
+            "followRedirects",
+            Type::Bool,
+            Some(ast::Expr::Bool(true, span)),
+        ),
+        (
+            "maxResponseBytes",
+            Type::Numeric(NumericType::Int64),
+            Some(ast::Expr::Number("67108864".to_owned(), span)),
+        ),
+        (
+            "certificatePins",
+            Type::Set(Box::new(Type::String)),
+            Some(empty_set),
+        ),
+    ];
+    if download {
+        specs.insert(1, ("destinationPath", string(), None));
+    }
+    specs
 }
 
 fn lower_binary(
@@ -827,6 +1011,22 @@ pub(super) fn infer_expr_type(
         ast::Expr::Call(name, _, _) => functions
             .get(name)
             .map(|signature| signature.return_type.clone()),
+        ast::Expr::QualifiedCall {
+            namespace, name, ..
+        } => match (namespace.as_str(), name.as_str()) {
+            ("Network", "fetch") => Some(Type::NetworkResponse),
+            ("Network", "download")
+            | ("File", "writeText")
+            | ("File", "delete")
+            | ("File", "exists") => Some(Type::Bool),
+            ("Path", "documents")
+            | ("Path", "caches")
+            | ("Path", "temporary")
+            | ("Path", "appSupport")
+            | ("Path", "join")
+            | ("File", "readText") => Some(Type::String),
+            _ => None,
+        },
         ast::Expr::Index {
             collection,
             optional,
@@ -950,6 +1150,12 @@ fn member_field_type(base_type: &Type, name: &str) -> Option<Type> {
             .iter()
             .find(|(field, _)| field == field_name)
             .map(|(_, ty)| ty.clone()),
+        (Type::NetworkResponse, "statusCode") => Some(Type::Numeric(NumericType::Int32)),
+        (Type::NetworkResponse, "headers") => Some(Type::Map(
+            Box::new(Type::String),
+            Box::new(Type::Array(Box::new(Type::String))),
+        )),
+        (Type::NetworkResponse, "body") => Some(Type::String),
         _ => None,
     }
 }
@@ -1044,7 +1250,11 @@ pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
             Box::new(resolve_struct_type(second, structs)),
             Box::new(resolve_struct_type(third, structs)),
         ),
-        Type::String | Type::Bool | Type::Numeric(_) | Type::Struct { .. } => ty.clone(),
+        Type::String
+        | Type::Bool
+        | Type::Numeric(_)
+        | Type::NetworkResponse
+        | Type::Struct { .. } => ty.clone(),
     }
 }
 
@@ -1110,9 +1320,12 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
             validate_type_constraints(third, span)
         }
         Type::Optional(inner) => validate_type_constraints(inner, span),
-        Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_) | Type::Struct { .. } => {
-            Ok(())
-        }
+        Type::String
+        | Type::Bool
+        | Type::Numeric(_)
+        | Type::Enum(_)
+        | Type::NetworkResponse
+        | Type::Struct { .. } => Ok(()),
     }
 }
 
@@ -1225,6 +1438,7 @@ pub(super) fn type_name(ty: &Type) -> String {
             type_name(third)
         ),
         Type::Enum(name) => name.clone(),
+        Type::NetworkResponse => "NetworkResponse".to_owned(),
         Type::Struct { name, .. } => name.clone(),
         Type::Optional(inner) => format!("{}?", type_name(inner)),
     }

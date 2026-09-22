@@ -37,7 +37,7 @@ pub(super) fn generate(module: &Module) -> String {
     } else {
         String::from("import SwiftUI\n\n")
     };
-    if features.uses_remote_image {
+    if features.uses_native_library {
         out.push_str("import CryptoKit\nimport Foundation\n\n");
     } else if features.uses_link {
         out.push_str("import Foundation\n\n");
@@ -144,7 +144,7 @@ pub(super) fn generate(module: &Module) -> String {
     if uses_fast_list {
         list_runtime::render(&mut out);
     }
-    if features.uses_remote_image {
+    if features.uses_native_library {
         network::render(&mut out);
     }
     functions::render(module, &mut out);

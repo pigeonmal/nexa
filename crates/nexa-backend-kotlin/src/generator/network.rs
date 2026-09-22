@@ -10,7 +10,9 @@ public data class NexaNetworkResponse(
     val statusCode: Int,
     val headers: Map<String, List<String>>,
     val body: ByteArray,
-)
+) {
+    val text: String get() = body.toString(Charsets.UTF_8)
+}
 
 private class NexaNetworkException(message: String) : Exception(message)
 
@@ -44,6 +46,19 @@ private object NexaCronetRuntime {
             synchronized(engines) { engines[applicationContext] = engine }
         }
         return engine
+    }
+}
+
+public object NexaRuntime {
+    @Volatile private var applicationContext: Context? = null
+
+    public fun bind(context: Context) {
+        val application = context.applicationContext
+        if (applicationContext !== application) applicationContext = application
+    }
+
+    public fun context(): Context = requireNotNull(applicationContext) {
+        "NexaRuntime.bind must run before a native network or path call"
     }
 }
 
@@ -94,6 +109,7 @@ private class NexaCronetNetworkClient(
         sink: FileOutputStream? = null,
     ): NexaNetworkResponse = suspendCancellableCoroutine { continuation ->
         val output = if (sink == null) ByteArrayOutputStream() else null
+        var receivedBytes = 0L
         val callback = object : UrlRequest.Callback() {
             override fun onRedirectReceived(request: UrlRequest, info: UrlResponseInfo, newLocationUrl: String) {
                 if (followRedirects) request.followRedirect() else request.cancel()
@@ -105,13 +121,14 @@ private class NexaCronetNetworkClient(
 
             override fun onReadCompleted(request: UrlRequest, info: UrlResponseInfo, byteBuffer: ByteBuffer) {
                 byteBuffer.flip()
-                if (sink == null && output!!.size().toLong() + byteBuffer.remaining() > maxResponseBytes) {
+                if (receivedBytes + byteBuffer.remaining() > maxResponseBytes) {
                     request.cancel()
                     continuation.resumeWithException(NexaNetworkException("response exceeds maxResponseBytes"))
                     return
                 }
                 val bytes = ByteArray(byteBuffer.remaining())
                 byteBuffer.get(bytes)
+                receivedBytes += bytes.size
                 if (sink != null) sink.write(bytes) else output!!.write(bytes)
                 byteBuffer.clear()
                 request.read(byteBuffer)
@@ -205,8 +222,9 @@ public object NexaNetwork {
         timeoutMillis: Long = 30_000L,
         useCache: Boolean = true,
         followRedirects: Boolean = true,
+        maxResponseBytes: Long = 64L * 1024L * 1024L,
         certificatePins: Set<String> = emptySet(),
-    ) {
+    ): Boolean {
         withContext(Dispatchers.IO) {
             val destination = File(destinationPath)
             destination.parentFile?.mkdirs()
@@ -225,7 +243,7 @@ public object NexaNetwork {
                         method,
                         requestHeaders,
                         body,
-                        Long.MAX_VALUE,
+                        maxResponseBytes,
                         followRedirects,
                         useCache,
                         output,
@@ -236,6 +254,7 @@ public object NexaNetwork {
                 }
             }
         }
+        return true
     }
 }
 
@@ -263,6 +282,13 @@ public object NexaFile {
         val file = File(path)
         file.parentFile?.mkdirs()
         file.writeBytes(data)
+    }
+
+    public suspend fun readText(path: String): String = read(path).toString(Charsets.UTF_8)
+
+    public suspend fun writeText(text: String, path: String): Boolean {
+        write(text.toByteArray(Charsets.UTF_8), path)
+        return true
     }
 
     public suspend fun delete(path: String): Boolean = withContext(Dispatchers.IO) { File(path).delete() }

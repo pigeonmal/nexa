@@ -1,0 +1,11 @@
+app InferredBindings {
+    let retries = 3
+    state count = 0
+
+    body {
+        Column {
+            Text("Retries: \(retries)")
+            Text("Count: \(count)")
+        }
+    }
+}

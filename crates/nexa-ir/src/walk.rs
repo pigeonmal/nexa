@@ -141,6 +141,11 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
                 walk_expression(argument, visit);
             }
         }
+        Expr::NativeCall { arguments, .. } => {
+            for (_, argument) in arguments {
+                walk_expression(argument, visit);
+            }
+        }
         Expr::Index {
             collection, index, ..
         } => {

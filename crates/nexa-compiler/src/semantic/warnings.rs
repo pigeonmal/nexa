@@ -609,6 +609,9 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
         ast::Expr::Call(_, arguments, _) => arguments
             .iter()
             .any(|argument| expression_references_name(argument, name)),
+        ast::Expr::QualifiedCall { arguments, .. } => arguments
+            .values()
+            .any(|argument| expression_references_name(argument, name)),
         ast::Expr::Index {
             collection, index, ..
         } => {
@@ -692,6 +695,11 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
                 used.insert(name.clone());
             }
             for argument in arguments {
+                walk_expression(argument, names, used);
+            }
+        }
+        ast::Expr::QualifiedCall { arguments, .. } => {
+            for argument in arguments.values() {
                 walk_expression(argument, names, used);
             }
         }

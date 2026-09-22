@@ -125,6 +125,11 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
                 collect_expression_state_names(argument, names);
             }
         }
+        Expr::NativeCall { arguments, .. } => {
+            for (_, argument) in arguments {
+                collect_expression_state_names(argument, names);
+            }
+        }
         Expr::Interpolation(parts) => {
             for part in parts {
                 if let InterpolatedPart::Value(value) = part {
@@ -148,6 +153,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
             is_async,
             ..
         } => !is_async && arguments.iter().all(is_pure_expression),
+        Expr::NativeCall { .. } => false,
         Expr::Await(_) => false,
         Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
             is_pure_expression(left) && is_pure_expression(right)
@@ -439,7 +445,8 @@ fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
         nexa_ir::Type::String
         | nexa_ir::Type::Bool
         | nexa_ir::Type::Numeric(_)
-        | nexa_ir::Type::Enum(_) => {}
+        | nexa_ir::Type::Enum(_)
+        | nexa_ir::Type::NetworkResponse => {}
     }
 }
 
@@ -453,6 +460,7 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
     match expression {
         Expr::State(_, ty) | Expr::Null(ty) => collect_type_struct_names(ty, used),
         Expr::Call { return_type, .. } => collect_type_struct_names(return_type, used),
+        Expr::NativeCall { return_type, .. } => collect_type_struct_names(return_type, used),
         Expr::Index {
             collection_type,
             element_type,

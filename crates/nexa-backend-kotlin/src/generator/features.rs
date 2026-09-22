@@ -30,6 +30,7 @@ pub(super) struct Features {
     pub(super) uses_refresh_scroll: bool,
     pub(super) uses_image: bool,
     pub(super) uses_remote_image: bool,
+    pub(super) uses_native_library: bool,
     pub(super) uses_placeholder: bool,
     pub(super) uses_navigation_link: bool,
     pub(super) uses_link: bool,
@@ -103,6 +104,7 @@ impl Features {
             ..Self::default()
         };
         let mut uses_regular_width = false;
+        let mut uses_native_library = false;
 
         for state in module.states.iter().chain(
             module
@@ -113,6 +115,17 @@ impl Features {
             features.record_state(state);
             walk_expression(&state.initial, &mut |expr| {
                 uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+            });
+        }
+        for function in &module.functions {
+            for local in &function.locals {
+                walk_expression(&local.initial, &mut |expr| {
+                    uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                });
+            }
+            walk_expression(&function.body, &mut |expr| {
+                uses_native_library |= matches!(expr, Expr::NativeCall { .. });
             });
         }
 
@@ -126,7 +139,10 @@ impl Features {
                 features.record_node(node);
                 app_uses_link |= matches!(node, Node::Link { .. });
             },
-            &mut |expr| uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
+            &mut |expr| {
+                uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+            },
         );
         for screen in &module.screens {
             walk_ir(
@@ -135,7 +151,10 @@ impl Features {
                     features.record_node(node);
                     app_uses_link |= matches!(node, Node::Link { .. });
                 },
-                &mut |expr| uses_regular_width |= matches!(expr, Expr::IsRegularWidth),
+                &mut |expr| {
+                    uses_regular_width |= matches!(expr, Expr::IsRegularWidth);
+                    uses_native_library |= matches!(expr, Expr::NativeCall { .. });
+                },
             );
         }
         for component in &module.components {
@@ -178,6 +197,7 @@ impl Features {
         features.components_using_link = components_using_link;
         features.app_uses_link = app_uses_link;
         features.uses_regular_width = uses_regular_width;
+        features.uses_native_library = uses_native_library || features.uses_remote_image;
         features
     }
 

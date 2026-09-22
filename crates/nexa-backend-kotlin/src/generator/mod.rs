@@ -66,6 +66,9 @@ pub(super) fn generate(module: &Module) -> String {
     if features.app_uses_link {
         out.push_str("    val nexaLinkContext = LocalContext.current\n");
     }
+    if features.uses_native_library {
+        out.push_str("    NexaRuntime.bind(LocalContext.current.applicationContext)\n");
+    }
     for state in &module.states {
         let name = nexa_codegen::names::state_name(&state.name);
         if state.mutable {
@@ -132,7 +135,7 @@ pub(super) fn generate(module: &Module) -> String {
     }
     out.push_str("\n}\n");
     custom_components::render(module, &features, &mut out);
-    if features.uses_remote_image {
+    if features.uses_native_library {
         network::render(&mut out);
     }
     functions::render(module, &mut out);

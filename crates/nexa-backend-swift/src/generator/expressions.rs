@@ -111,8 +111,19 @@ pub(super) fn expression(expr: &Expr) -> String {
                         nexa_codegen::names::struct_field_name(field)
                     );
                 }
+                (Type::NetworkResponse, "statusCode") => ".statusCode",
+                (Type::NetworkResponse, "headers") => ".headers",
+                (Type::NetworkResponse, "body") => ".text",
                 _ => unreachable!("semantic analysis validates member access"),
             };
+            if matches!(tuple_type, Type::NetworkResponse) && name == "statusCode" {
+                return format!(
+                    "Int32({}{}{})",
+                    expression(base),
+                    if *optional { "?" } else { "" },
+                    field
+                );
+            }
             format!(
                 "{}{}{}",
                 expression(base),
@@ -187,7 +198,20 @@ pub(super) fn expression(expr: &Expr) -> String {
             };
             format!("{callee}({arguments})")
         }
-        Expr::Await(value) => format!("await {}", expression(value)),
+        Expr::NativeCall {
+            namespace,
+            name,
+            arguments,
+            ..
+        } => native_call(namespace, name, arguments),
+        Expr::Await(value) => match value.as_ref() {
+            Expr::NativeCall { return_type, .. } => format!(
+                "(try? await {}) ?? {}",
+                expression(value),
+                native_failure_default(return_type)
+            ),
+            _ => format!("await {}", expression(value)),
+        },
         Expr::Add(left, right, ty) => {
             let operator = if matches!(ty, NumericType::Float32 | NumericType::Float64) {
                 "+"
@@ -215,6 +239,101 @@ pub(super) fn expression(expr: &Expr) -> String {
             };
             format!("{}.contains({})", receiver, expression(value))
         }
+    }
+}
+
+fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> String {
+    let argument = |name: &str| {
+        arguments
+            .iter()
+            .find(|(candidate, _)| candidate == name)
+            .map(|(_, value)| expression(value))
+            .expect("native argument validated by semantic analysis")
+    };
+    let body = arguments
+        .iter()
+        .find(|(candidate, _)| candidate == "body")
+        .map(|(_, value)| match value {
+            Expr::Null(_) => "nil".to_owned(),
+            _ if is_optional_expression(value) => {
+                format!("{}.map {{ Data($0.utf8) }}", expression(value))
+            }
+            _ => format!("Data({}.utf8)", expression(value)),
+        })
+        .unwrap_or_else(|| "nil".to_owned());
+    match (namespace, name) {
+        ("Network", "fetch") => format!(
+            "NexaNetwork.fetch(url: {}, method: {}, body: {}, headers: {}, timeout: {}, useCache: {}, followRedirects: {}, maxResponseBytes: Int({}), certificatePins: {})",
+            argument("url"),
+            argument("method"),
+            body,
+            argument("headers"),
+            argument("timeout"),
+            argument("useCache"),
+            argument("followRedirects"),
+            argument("maxResponseBytes"),
+            argument("certificatePins"),
+        ),
+        ("Network", "download") => format!(
+            "NexaNetwork.download(url: {}, destinationPath: {}, method: {}, body: {}, headers: {}, timeout: {}, useCache: {}, followRedirects: {}, maxResponseBytes: Int({}), certificatePins: {})",
+            argument("url"),
+            argument("destinationPath"),
+            argument("method"),
+            body,
+            argument("headers"),
+            argument("timeout"),
+            argument("useCache"),
+            argument("followRedirects"),
+            argument("maxResponseBytes"),
+            argument("certificatePins"),
+        ),
+        ("Path", path_name) => {
+            if path_name == "join" {
+                format!(
+                    "NexaPath.join({}, {})",
+                    argument("path"),
+                    argument("component")
+                )
+            } else {
+                format!("NexaPath.{}()", path_name)
+            }
+        }
+        ("File", "exists") => format!("NexaFile.exists({})", argument("path")),
+        ("File", "readText") => format!("NexaFile.readText({})", argument("path")),
+        ("File", "writeText") => format!(
+            "NexaFile.writeText({}, to: {})",
+            argument("contents"),
+            argument("path")
+        ),
+        ("File", "delete") => format!("NexaFile.delete({})", argument("path")),
+        _ => unreachable!("semantic analysis validates native calls"),
+    }
+}
+
+fn is_optional_expression(expr: &Expr) -> bool {
+    match expr {
+        Expr::State(_, Type::Optional(_))
+        | Expr::Member {
+            field_type: Type::Optional(_),
+            ..
+        }
+        | Expr::Index {
+            element_type: Type::Optional(_),
+            ..
+        }
+        | Expr::Null(_) => true,
+        _ => false,
+    }
+}
+
+fn native_failure_default(ty: &Type) -> String {
+    match ty {
+        Type::NetworkResponse => {
+            "NexaNetworkResponse(statusCode: -1, headers: [:], body: Data())".to_owned()
+        }
+        Type::String => "\"\"".to_owned(),
+        Type::Bool => "false".to_owned(),
+        _ => "fatalError(\"native operation failed\")".to_owned(),
     }
 }
 

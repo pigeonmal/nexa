@@ -14,9 +14,11 @@ public enum NexaNetworkError: Error {
 }
 
 public struct NexaNetworkResponse {
-    public let statusCode: Int
-    public let headers: [AnyHashable: Any]
+    public let statusCode: Int32
+    public let headers: [String: [String]]
     public let body: Data
+
+    public var text: String { String(decoding: body, as: UTF8.self) }
 }
 
 private final class NexaURLSessionDelegate: NSObject, URLSessionTaskDelegate {
@@ -128,9 +130,13 @@ public enum NexaNetwork {
         guard (200..<300).contains(response.statusCode) else {
             throw NexaNetworkError.httpStatus(response.statusCode)
         }
+        let headers = Dictionary(grouping: response.allHeaderFields.compactMap { key, value -> (String, String)? in
+            guard let key = key as? String else { return nil }
+            return (key, String(describing: value))
+        }, by: { $0.0 }).mapValues { $0.map(\.1) }
         return NexaNetworkResponse(
-            statusCode: response.statusCode,
-            headers: response.allHeaderFields,
+            statusCode: Int32(response.statusCode),
+            headers: headers,
             body: data
         )
     }
@@ -144,8 +150,9 @@ public enum NexaNetwork {
         timeout: TimeInterval = 30,
         useCache: Bool = true,
         followRedirects: Bool = true,
+        maxResponseBytes: Int = 64 * 1024 * 1024,
         certificatePins: Set<String> = []
-    ) async throws {
+    ) async throws -> Bool {
         guard let url = URL(string: url) else { throw NexaNetworkError.invalidURL }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -175,6 +182,10 @@ public enum NexaNetwork {
             throw NexaNetworkError.httpStatus(response.statusCode)
         }
         let destination = URL(fileURLWithPath: destinationPath)
+        if let size = try? FileManager.default.attributesOfItem(atPath: temporaryURL.path)[.size] as? NSNumber,
+           size.intValue > maxResponseBytes {
+            throw NexaNetworkError.responseTooLarge
+        }
         try FileManager.default.createDirectory(
             at: destination.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -183,6 +194,7 @@ public enum NexaNetwork {
             try FileManager.default.removeItem(at: destination)
         }
         try FileManager.default.moveItem(at: temporaryURL, to: destination)
+        return true
     }
 }
 
@@ -230,10 +242,20 @@ public enum NexaFile {
         }.value
     }
 
-    public static func delete(_ path: String) async throws {
+    public static func readText(_ path: String) async throws -> String {
+        String(decoding: try await read(path), as: UTF8.self)
+    }
+
+    public static func writeText(_ text: String, to path: String) async throws -> Bool {
+        try await write(Data(text.utf8), to: path)
+        return true
+    }
+
+    public static func delete(_ path: String) async throws -> Bool {
         try await Task.detached(priority: .utility) {
             try FileManager.default.removeItem(atPath: path)
         }.value
+        return true
     }
 
     public static func exists(_ path: String) -> Bool {

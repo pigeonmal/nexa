@@ -632,7 +632,9 @@ fn validate_type_names(
         Type::Struct { fields, .. } => fields
             .iter()
             .try_for_each(|(_, field)| validate_type_names(field, enum_names, span)),
-        Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_) => Ok(()),
+        Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_) | Type::NetworkResponse => {
+            Ok(())
+        }
     }
 }
 

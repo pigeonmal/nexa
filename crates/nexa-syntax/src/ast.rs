@@ -380,6 +380,12 @@ pub enum Expr {
     Pair(Box<Expr>, Box<Expr>, Span),
     Triple(Box<Expr>, Box<Expr>, Box<Expr>, Span),
     Call(String, Vec<Expr>, Span),
+    QualifiedCall {
+        namespace: String,
+        name: String,
+        arguments: BTreeMap<String, Expr>,
+        span: Span,
+    },
     Index {
         collection: Box<Expr>,
         index: Box<Expr>,
@@ -443,6 +449,7 @@ impl Expr {
             | Self::Pair(_, _, s)
             | Self::Triple(_, _, _, s)
             | Self::Call(_, _, s)
+            | Self::QualifiedCall { span: s, .. }
             | Self::Index { span: s, .. }
             | Self::Member { span: s, .. }
             | Self::Range { span: s, .. }

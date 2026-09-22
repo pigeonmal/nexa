@@ -69,7 +69,7 @@ Numeric types should include explicit types such as:
 
 The current compiler supports the scalar types above, closed app enums, top-level value `struct` declarations, plus nullable `T?` values, `Array<T>`, `Set<T>`, `Map<K, V>`, `Pair<A, B>`, and `Triple<A, B, C>` as contextually typed value declarations and literals. Struct construction is positional and lowers to direct native Swift/Kotlin value types; compile-time member access supports `user.name` and optional `user?.name`. Recursive structs, named constructor arguments, methods, inheritance, and mutation remain roadmap work. Nullable values and `null` lower to native Swift optionals and Kotlin nullable types; `??` lowers to each platform's native fallback operator. Pair and triple field access uses compile-time checked `.first`, `.second`, and `.third` members with direct native tuple/standard-library access, including `?.` optional chaining that returns an optional field. Array indexing with an `Int32` index and map lookup with a declared key type are implemented as direct native subscripting; optional arrays/maps support `?[index]` safe indexing, and map lookup returns `V?`. Set elements and map keys are currently limited to scalar `String`, `Bool`, and numeric types for native hashability. Scalar `value in array`, `value in set`, and `key in map` lower to direct native membership checks. Action `for` loops iterate arrays, sets, Int32 ranges, and destructured maps directly; collection mutation and transformations remain roadmap work.
 
-Generated modules that use remote images also receive a feature-gated native network/file library. iOS uses URLSession with a 16 MiB memory and 64 MiB disk URLCache; Android uses Play Services Cronet with a 64 MiB disk cache, HTTP/2, QUIC, and Brotli, and Coil 3 is wired to that same Cronet client. Generated Android hosts initialize `CronetProviderInstaller` before Compose content starts so the Play Services provider is available before the first image loader is created. The library exposes asynchronous fetch/download options, optional certificate pinning, path directories, and asynchronous file reads/writes without a shared runtime bridge.
+Generated modules that use remote images or typed native API calls receive a feature-gated native network/file library. iOS uses URLSession with a 16 MiB memory and 64 MiB disk URLCache; Android uses Play Services Cronet with a 64 MiB disk cache, HTTP/2, QUIC, and Brotli, and Coil 3 is wired to that same Cronet client. Generated Android hosts initialize `CronetProviderInstaller` before Compose content starts so the Play Services provider is available before the first image loader is created. The library exposes asynchronous fetch/download options, optional certificate pinning, path directories, and asynchronous file reads/writes without a shared runtime bridge.
 
 Avoid implicit numeric conversions that could create unpredictable behavior or performance costs.
 
@@ -79,7 +79,7 @@ String interpolation is implemented for `$name` and `\(expression)` segments. Em
 
 For a fast authoring path, `let` and mutable `state` declarations may omit their type when the compiler can infer it from a non-empty initializer. Integer literals default to `Int32` and decimal literals to `Float64`; component parameters remain explicitly typed. Inference is compile-time only and does not add runtime metadata or alter native output for explicitly typed source. A `null` initializer always requires an explicit `T?` annotation.
 
-The first pure function slice is implemented inside an app: `fn name(a: Type) -> ReturnType { let local = expression; return expression }`. Parameters and the return type are explicit, ordered immutable local constants can use explicit or inferred types, calls are checked for arity and exact types, and each function must contain exactly one return expression. The compiler lowers functions to direct private top-level Swift/Kotlin helpers and keeps function calls out of any shared runtime. `async fn`, direct `await`, and `OnAppear async` are now implemented as the first native async slice: Swift uses `async` helpers and `.task`, while Kotlin uses `suspend` helpers and `LaunchedEffect(Unit)`. Closures, async network bindings, generic functions, and dynamic dispatch remain future work.
+The first pure function slice is implemented inside an app: `fn name(a: Type) -> ReturnType { let local = expression; return expression }`. Parameters and the return type are explicit, ordered immutable local constants can use explicit or inferred types, calls are checked for arity and exact types, and each function must contain exactly one return expression. The compiler lowers functions to direct private top-level Swift/Kotlin helpers and keeps function calls out of any shared runtime. `async fn`, direct `await`, `OnAppear async`, and qualified native network/file calls are implemented as the first native async slice: Swift uses `async` helpers and `.task`, while Kotlin uses `suspend` helpers and `LaunchedEffect(Unit)`. Native calls are lowered directly with no runtime registry; typed Result errors and richer cancellation remain future work.
 
 The first native animation slice is implemented as a static layout option: `animation: Spring|EaseIn|EaseOut|EaseInOut|Linear`. Swift uses the matching SwiftUI animation modifier; Compose uses `animateContentSize` with a native spring or tween easing. No shared frame loop or per-frame cross-language callback is introduced. Transforms, transitions, and gesture-driven animation remain future work.
 
@@ -104,7 +104,7 @@ The language should support at minimum:
 - protocols/interfaces,
 - pattern matching,
 - optional/nullability handling,
-- async/await (the typed lifecycle slice is implemented; broader network/error semantics remain),
+- async/await (app functions, lifecycle work, and typed native network/file calls are implemented; typed Result errors remain),
 - closures,
 - modules,
 - imports,
@@ -790,7 +790,7 @@ Map lifecycle events directly to native lifecycle systems.
 
 ## Async
 
-Provide broader first-class async/await support. The initial lifecycle slice is implemented: app-local `async fn` declarations, direct `await` calls, and `OnAppear async` lower to native Swift/Kotlin async constructs without a Nexa scheduler. Extend the same typed boundary to network/file calls and richer cancellation/error semantics.
+Provide broader first-class async/await support. App-local `async fn` declarations, direct `await` calls, `OnAppear async`, and typed `Network`/`File` calls lower to native Swift/Kotlin async constructs without a Nexa scheduler. Extend this boundary later with typed Result errors and richer cancellation semantics.
 
 The implementation must integrate efficiently with:
 

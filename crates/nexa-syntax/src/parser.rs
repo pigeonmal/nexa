@@ -1254,6 +1254,24 @@ impl Parser {
                 if self.check(&Kind::LParen) {
                     return self.call_expression(value, token.span);
                 }
+                if self.check(&Kind::Dot)
+                    && matches!(
+                        self.tokens.get(self.cursor + 1).map(|token| &token.kind),
+                        Some(Kind::Ident(_))
+                    )
+                    && matches!(
+                        self.tokens.get(self.cursor + 2).map(|token| &token.kind),
+                        Some(Kind::LParen)
+                    )
+                {
+                    self.advance();
+                    let (name, name_span) = self.ident()?;
+                    let span = Span {
+                        end: name_span.end,
+                        ..token.span
+                    };
+                    return self.qualified_call(value, name, span);
+                }
                 if value == "Theme" || value == "Layout" {
                     if !self.take(&Kind::Dot) {
                         return Ok(Expr::Name(value, token.span));
@@ -1460,6 +1478,40 @@ impl Parser {
         }
         self.expect(Kind::RParen, "expected `)` after function arguments")?;
         Ok(Expr::Call(name, arguments, span))
+    }
+
+    fn qualified_call(
+        &mut self,
+        namespace: String,
+        name: String,
+        span: Span,
+    ) -> Result<Expr, CompileError> {
+        self.expect(Kind::LParen, "expected `(` after qualified function name")?;
+        let mut arguments = BTreeMap::new();
+        while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            let (argument_name, argument_span) = self.ident()?;
+            if arguments.contains_key(&argument_name) {
+                return Err(CompileError::new(
+                    argument_span,
+                    format!("argument `{argument_name}` was provided more than once"),
+                ));
+            }
+            self.expect(Kind::Colon, "expected `:` after argument name")?;
+            arguments.insert(argument_name, self.expr()?);
+            if !self.take(&Kind::Comma) {
+                break;
+            }
+        }
+        self.expect(
+            Kind::RParen,
+            "expected `)` after qualified function arguments",
+        )?;
+        Ok(Expr::QualifiedCall {
+            namespace,
+            name,
+            arguments,
+            span,
+        })
     }
 
     fn if_node(&mut self) -> Result<Node, CompileError> {

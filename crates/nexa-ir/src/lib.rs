@@ -156,6 +156,7 @@ pub enum Type {
     Pair(Box<Type>, Box<Type>),
     Triple(Box<Type>, Box<Type>, Box<Type>),
     Enum(String),
+    NetworkResponse,
     Struct {
         name: String,
         fields: Vec<(String, Type)>,
@@ -199,6 +200,13 @@ pub enum Expr {
         return_type: Type,
         is_async: bool,
         is_constructor: bool,
+    },
+    NativeCall {
+        namespace: String,
+        name: String,
+        arguments: Vec<(String, Expr)>,
+        return_type: Type,
+        is_async: bool,
     },
     Index {
         collection: Box<Expr>,
@@ -578,6 +586,7 @@ impl Type {
                 format!("({}, {}, {})", first.swift(), second.swift(), third.swift())
             }
             Self::Enum(name) => native_enum_name(name),
+            Self::NetworkResponse => "NexaNetworkResponse".to_owned(),
             Self::Struct { name, .. } => native_struct_name(name),
         }
     }
@@ -600,6 +609,7 @@ impl Type {
                 third.kotlin()
             ),
             Self::Enum(name) => native_enum_name(name),
+            Self::NetworkResponse => "NexaNetworkResponse".to_owned(),
             Self::Struct { name, .. } => native_struct_name(name),
         }
     }

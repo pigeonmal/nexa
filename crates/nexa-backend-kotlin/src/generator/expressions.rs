@@ -82,6 +82,8 @@ pub(super) fn expression(expr: &Expr) -> String {
             };
             let name = if matches!(member_name, Type::Struct { .. }) {
                 nexa_codegen::names::struct_field_name(name)
+            } else if matches!(member_name, Type::NetworkResponse) && name == "body" {
+                "text".to_owned()
             } else {
                 name.clone()
             };
@@ -138,6 +140,12 @@ pub(super) fn expression(expr: &Expr) -> String {
                     .join(", ")
             )
         }
+        Expr::NativeCall {
+            namespace,
+            name,
+            arguments,
+            ..
+        } => native_call(namespace, name, arguments),
         Expr::Await(value) => expression(value),
         Expr::Add(left, right, ty) => {
             let sum = format!("({} + {})", expression(left), expression(right));
@@ -158,6 +166,91 @@ pub(super) fn expression(expr: &Expr) -> String {
         Expr::Contains {
             value, collection, ..
         } => format!("({} in {})", expression(value), expression(collection)),
+    }
+}
+
+fn native_call(namespace: &str, name: &str, arguments: &[(String, Expr)]) -> String {
+    let argument = |name: &str| {
+        arguments
+            .iter()
+            .find(|(candidate, _)| candidate == name)
+            .map(|(_, value)| expression(value))
+            .expect("native argument validated by semantic analysis")
+    };
+    let body = match arguments
+        .iter()
+        .find(|(candidate, _)| candidate == "body")
+        .map(|(_, value)| value)
+    {
+        Some(Expr::Null(_)) => "null".to_owned(),
+        Some(value) if is_optional_expression(value) => {
+            format!("{}?.toByteArray()", expression(value))
+        }
+        Some(value) => format!("{}.toByteArray()", expression(value)),
+        None => "null".to_owned(),
+    };
+    match (namespace, name) {
+        ("Network", "fetch") => format!(
+            "NexaNetwork.fetch(NexaRuntime.context(), {}, {}, {}, {}, ({} * 1000.0).toLong(), {}, {}, {}, {})",
+            argument("url"),
+            argument("method"),
+            body,
+            argument("headers"),
+            argument("timeout"),
+            argument("useCache"),
+            argument("followRedirects"),
+            argument("maxResponseBytes"),
+            argument("certificatePins"),
+        ),
+        ("Network", "download") => format!(
+            "NexaNetwork.download(NexaRuntime.context(), {}, {}, {}, {}, {}, ({} * 1000.0).toLong(), {}, {}, {}, {})",
+            argument("url"),
+            argument("destinationPath"),
+            argument("method"),
+            body,
+            argument("headers"),
+            argument("timeout"),
+            argument("useCache"),
+            argument("followRedirects"),
+            argument("maxResponseBytes"),
+            argument("certificatePins"),
+        ),
+        ("Path", path_name) => {
+            if path_name == "join" {
+                format!(
+                    "NexaPath.join({}, {})",
+                    argument("path"),
+                    argument("component")
+                )
+            } else {
+                format!("NexaPath.{}(NexaRuntime.context())", path_name)
+            }
+        }
+        ("File", "exists") => format!("NexaFile.exists({})", argument("path")),
+        ("File", "readText") => format!("NexaFile.readText({})", argument("path")),
+        ("File", "writeText") => format!(
+            "NexaFile.writeText({}, {})",
+            argument("contents"),
+            argument("path")
+        ),
+        ("File", "delete") => format!("NexaFile.delete({})", argument("path")),
+        _ => unreachable!("semantic analysis validates native calls"),
+    }
+}
+
+fn is_optional_expression(expr: &Expr) -> bool {
+    match expr {
+        Expr::State(_, Type::Optional(_))
+        | Expr::Member {
+            field_type: Type::Optional(_),
+            ..
+        }
+        | Expr::Index {
+            element_type: Type::Optional(_),
+            ..
+        }
+        | Expr::Null(_) => true,
+        _ => false,
     }
 }
 
