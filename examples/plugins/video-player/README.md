@@ -33,8 +33,8 @@ Android players receive an application context from their own Compose view and
 do not use a process-global activity holder.
 
 The complete two-instance example is in
-[`../video-player-demo.nx`](../video-player-demo.nx). Build it with:
+[`../video-player-demo.nx`](../video-player-demo.nx). Generate both native projects with:
 
 ```sh
-nexa build examples/plugins/video-player-demo.nx --target all
+nexa generate examples/plugins/video-player-demo.nx --target all --out build
 ```

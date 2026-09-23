@@ -87,7 +87,7 @@ app TabbedApp {
 ```
 
 - **`selected: stateVar`**: Reactive two-way binding tracking the active tab index.
-- **`Tab(index: Int, label: String, icon: String?, badge: String?) { ... }`**: Each tab specifies its zero-based index, label, system icon, badge counter, and body content.
+- **`Tab(index: Int32, label: String, icon: String?, badge: String?) { ... }`**: Each tab specifies its zero-based index, label, optional system icon, optional badge text, and body content.
 - Compiles to native `TabView` on iOS and `NavigationBar` / `NavigationBarItem` on Android.
 
 ---
@@ -123,39 +123,45 @@ app SheetDemo {
 
 ## 4. Lifecycle Hooks
 
-Screens and components can hook into platform appearance and app state events:
+Apps and named screens can hook into platform appearance events. App lifecycle callbacks are only allowed in the app body; screen lifecycle callbacks are only allowed in screen bodies:
 
 ```nexa
-screen Dashboard {
-    state isRefreshed: Bool = false
+app LifecycleDemo {
+    state userName: String = ""
 
-    OnAppear {
-        // Synchronous setup on view mount
-        isRefreshed = true
+    async fn loadUserData() -> String {
+        return "Nexa user"
     }
 
-    OnAppear async {
-        // Asynchronous background fetch
-        await loadUserData()
-    }
+    screen Dashboard {
+        state isRefreshed: Bool = false
 
-    OnDisappear {
-        // Teardown when view leaves screen
-        isRefreshed = false
-    }
+        OnAppear async {
+            isRefreshed = true
+            userName = await loadUserData()
+        }
 
-    OnActive {
-        // App returned to foreground
-    }
+        OnDisappear {
+            isRefreshed = false
+        }
 
-    OnBackground {
-        // App moved to background
+        Column {
+            Text(userName)
+        }
     }
 
     body {
-        Column {
-            Text("Dashboard")
+        OnActive {
+            userName = "App active"
         }
+
+        OnBackground {
+            userName = "App in background"
+        }
+
+        NavigationStack(root: Dashboard)
     }
 }
 ```
+
+`OnAppear` and `OnDisappear` belong at the top level of an app body or named screen. Use `OnAppear async` for awaited work. `OnActive`, `OnInactive`, and `OnBackground` are app-body callbacks; they are not screen callbacks.

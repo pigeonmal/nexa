@@ -1,6 +1,6 @@
 # Native Plugin System (Swift, Kotlin, C++)
 
-Nexa's zero-cost native plugin system allows developers to integrate platform SDKs, native hardware features, and ultra-high-performance C++ libraries directly into `.nx` applications without reflection or VM overhead.
+Nexa's typed native plugin system allows developers to integrate platform SDKs, native hardware features, and C++ libraries into `.nx` applications through generated Swift, Kotlin, and C++ bindings.
 
 ---
 
@@ -28,21 +28,16 @@ my-plugin/
 
 ## 2. Defining the IDL Contract (`.nxid`)
 
-```nexa
+```nxid
 struct ComputeConfig {
     threads: Int32 = 4
     precision: Float64 = 0.001
 }
 
-error ComputationError {
-    invalidBuffer
-    overflow(limit: Int64)
-}
-
 service FastEngine {
     fn add(a: Int32, b: Int32) -> Int32
     fn processBytes(data: Bytes) -> Bytes
-    async fn runHeavyJob(config: ComputeConfig) throws ComputationError -> Int64
+    async fn runHeavyJob(threads: Int32, precision: Float64) -> Int64
 }
 ```
 
@@ -50,7 +45,7 @@ service FastEngine {
 
 ## 3. High-Performance C++ Implementation
 
-When implementing plugins in C++, Nexa generates zero-overhead JNI bridges on Android and direct Swift-C++ interop bridges on iOS.
+When implementing plugins in C++, Nexa generates JNI bindings on Android and Swift-C++ interop bindings on iOS. Values cross these language boundaries through generated adapters; collection values such as byte arrays may be copied during conversion.
 
 ### Manifest Configuration (`plugin.config.nx`):
 
@@ -130,7 +125,7 @@ app PluginApp {
         Column {
             Text("Result: ${result}")
             Button("Execute C++ Native Function") {
-                result = FastEngine.add(15, 27)
+                result = FastEngine.add(a: 15, b: 27)
             }
         }
     }

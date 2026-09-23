@@ -6,28 +6,26 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)]()
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)]()
 [![Swift](https://img.shields.io/badge/swift-6.0-red.svg)]()
-[![Kotlin](https://img.shields.io/badge/kotlin-2.0-purple.svg)]()
+[![Kotlin](https://img.shields.io/badge/kotlin-2.4-purple.svg)]()
 
 ---
 
 ## What is Nexa?
 
-Nexa is a single cross-platform mobile language designed to achieve **native or better-than-native performance** without maintaining two separate codebases.
+Nexa is a cross-platform mobile language designed to generate native iOS and Android apps from one codebase.
 
-Unlike Flutter or React Native, **Nexa has no bundled runtime engine, no virtual machine, and no JavaScript bridge**. Instead, the Nexa compiler transpiles your `.nx` declarative views and state logic ahead-of-time directly into:
+Nexa does not bundle a cross-platform UI runtime or JavaScript bridge. The compiler transpiles `.nx` views and state logic ahead-of-time into:
 - Idiomatic, type-specialized **Swift (SwiftUI)** for iOS
-- Idiomatic, unboxed **Kotlin (Jetpack Compose)** for Android
+- Idiomatic **Kotlin (Jetpack Compose)** for Android
 
 ---
 
 ## Key Pillars
 
-- 🚀 **Zero Runtime Overhead**: No Dart VM, no JavaScript engines (JSC/Hermes), no reflection. Generated binaries compile directly against Apple's and Google's standard platform toolchains.
-- ⚡ **Better-Than-Native Performance**:
-  - **Swift**: Zero `AnyView` type-erasure in layout trees; specialized generic containers preserve structural identity diffing during scrolling.
-  - **Kotlin**: Zero primitive state boxing (`mutableIntStateOf`, `mutableDoubleStateOf` instead of generic `mutableStateOf<T>`).
-- 🛡️ **Explicit Error Handling**: First-class `Result<T, E>` types and postfix `?` error propagation operator with zero unchecked exception overhead.
-- 🔌 **Zero-Cost Native Plugin System**: Strongly-typed native plugin contracts (`.nxid`) supporting direct Swift, Kotlin, and high-performance **C++20** implementations with zero-copy buffers.
+- 🚀 **No Bundled Cross-Platform Runtime**: Nexa does not package a JavaScript engine or its own interpreter; generated apps use the platform's native UI frameworks and toolchains.
+- ⚡ **Native Code Generation**: Generates SwiftUI and Jetpack Compose code; numeric state uses primitive-specialized Compose holders where supported.
+- 🛡️ **Typed Error Handling**: First-class `Result<T, E>` values and a postfix `?` operator with target-specific error propagation behavior.
+- 🔌 **Typed Native Plugin System**: Strongly typed native plugin contracts (`.nxid`) with generated Swift, Kotlin, and **C++20** bindings.
 - 💻 **First-Class IDE Experience**: Built-in Language Server Protocol 3.17 server (`nexa-lsp`) and VS Code extension providing real-time diagnostics, autocompletion, hover docs, and document symbols.
 
 ---
@@ -80,15 +78,13 @@ nexa build examples/counter.nx --target swift --out CounterView.swift
 nexa build examples/counter.nx --target kotlin --out CounterScreen.kt
 ```
 
-### 3. Run on Simulators
+### 3. Generate Native Projects
 
 ```bash
-# Run on iOS Simulator
-nexa run examples/counter.nx --target ios
-
-# Run on Android Emulator
-nexa run examples/counter.nx --target android
+nexa generate examples/counter.nx --target all --out build
 ```
+
+Open `build/ios/Counter.xcodeproj` in Xcode to build and run on an iOS Simulator or device. Open `build/android` in Android Studio to build and run on an Android emulator or device.
 
 ---
 
@@ -130,7 +126,7 @@ Comprehensive guides are available in [`docs/`](docs/):
 - 📖 [**Language Guide**](docs/language-guide.md): Syntax, static types, collections, state, and `Result<T, E>`.
 - 🧩 [**Component Reference**](docs/components.md): Built-in layout containers, interactive controls, and styling modifiers.
 - 🧭 [**State & Navigation**](docs/state-and-navigation.md): Reactive state, navigation stacks, screen routing, and lifecycle events.
-- 🔌 [**Native Plugins (Swift, Kotlin, C++)**](docs/plugins.md): Zero-cost native contracts, C++ integration, and platform APIs.
+- 🔌 [**Native Plugins (Swift, Kotlin, C++)**](docs/plugins.md): Typed native contracts, C++ integration, and platform APIs.
 - 🏗️ [**Architecture & Performance**](docs/architecture.md): Deep dive into compiler internals, memory layout, and benchmarks.
 
 ---
@@ -145,7 +141,7 @@ Explore real-world examples in [`examples/`](examples/):
 - [`showcase.nx`](examples/showcase.nx): Component catalog covering inputs, switches, cards, and gestures.
 - [`navigation.nx`](examples/navigation.nx): Multi-screen routing with navigation stacks and route parameters.
 - [`plugins/video-player/`](examples/plugins/video-player/): Native Swift & Kotlin plugin with AVPlayer and ExoPlayer.
-- [`plugins/fast-math/`](examples/plugins/fast-math/): Pure modern C++ (`c++20`) plugin demonstrating zero-copy native computation.
+- [`plugins/fast-math/`](examples/plugins/fast-math/): Modern C++ (`c++20`) plugin demonstrating typed native bindings.
 
 ---
 

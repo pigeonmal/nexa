@@ -6,8 +6,8 @@ Official Visual Studio Code extension providing full language tooling for **Nexa
 
 - **Syntax Highlighting**: Full TextMate grammar for `.nx` declarative syntax, control flow, built-in layout containers, and primitives.
 - **Real-Time Diagnostics**: As-you-type syntax error parsing (`nexa-syntax`) and semantic validation checks (`nexa-compiler`).
-- **IntelliSense & Autocompletion**: Context-aware completion items for declarative containers (`Column`, `Row`, `Stack`, `LazyList`, etc.), interactive controls (`Button`, `TextField`, `Toggle`, etc.), keywords, and primitive types.
-- **Hover Documentation**: Detailed Markdown documentation and code examples for layout containers, error propagation (`Result<T, E>`), and keywords.
+- **Completion Suggestions**: Static completion templates for common UI constructs, keywords, and built-in types.
+- **Hover Documentation**: Descriptions for selected layout containers, controls, state declarations, and built-in types.
 - **Document Symbols & Outline**: Full hierarchical symbol outline for VS Code's Outline panel and Breadcrumbs view (`app`, `component`, `struct`, `enum`, `state`, `fn`).
 
 ## Prerequisites

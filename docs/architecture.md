@@ -26,13 +26,13 @@ graph TD
 
 ---
 
-## 2. Zero-Cost Performance Invariants
+## 2. Performance Characteristics
 
 ### 1. Zero Runtime Reflection or Dynamic Boxing
 Unlike cross-platform engines that use untyped hash maps or reflection (`Any`, `Object`, `Mirror`), Nexa statically types all variables, expressions, and parameters directly into concrete Swift and Kotlin types.
 
 ### 2. Elimination of `AnyView` in SwiftUI
-Type-erased views (`AnyView`) destroy SwiftUI's structural identity tree and induce per-frame heap allocations during scrolling. Nexa emits specialized generic view hierarchies:
+Type-erased views such as `AnyView` hide a view's concrete structure from SwiftUI. Nexa's generated view hierarchy uses concrete view types and does not emit `AnyView` wrappers:
 ```swift
 // Emitted by Nexa:
 VStack(spacing: 16) {
@@ -42,12 +42,12 @@ VStack(spacing: 16) {
 ```
 
 ### 3. Unboxed Compose State in Kotlin
-In Jetpack Compose, generic `mutableStateOf<Double>` causes continuous autoboxing and garbage collection pressure. Nexa emits primitive-specialized states:
+In Jetpack Compose, generic state holders represent numeric values as boxed values. Nexa selects primitive-specialized state holders for supported numeric types:
 ```kotlin
 // Emitted by Nexa:
 val count = remember { mutableIntStateOf(0) }
 val progress = remember { mutableDoubleStateOf(0.0) }
 ```
 
-### 4. Zero-Copy C++ Bridging
-C++ native plugins communicate directly via pointer views and standard C++ primitives (`std::int32_t`, `std::vector<std::uint8_t>`) without serialization overhead.
+### 4. Typed C++ Bridging
+C++ native plugins use generated bindings and standard C++ types such as `std::int32_t` and `std::vector<std::uint8_t>`. The bindings avoid a serialization format, while converting collection values at language boundaries may copy their contents.

@@ -8,8 +8,8 @@ This guide walks you through installing Nexa, configuring your environment, and 
 
 ### Prerequisites
 - **Rust Toolchain**: Rust 1.85+ (`cargo`, `rustc`)
-- **For iOS Target**: macOS with Xcode 15+ and Swift 6
-- **For Android Target**: Android SDK (API 26+) and JDK 17+
+- **For iOS Target**: macOS with Xcode 16 or later. Generated projects default to iOS 16.0 and allow changing `minVersion` in `nexa.config.nx`.
+- **For Android Target**: Android SDK Platform 37 and JDK 17 or later. Generated projects default to `minSdk` 24 and `targetSdk` 36; `minSdk` can be changed in `nexa.config.nx`.
 
 ### Building the Nexa CLI
 Clone the repository and build the `nexa` command-line binary:
@@ -83,17 +83,15 @@ To generate native Jetpack Compose source code:
 nexa build App.nx --target kotlin --out AppScreen.kt
 ```
 
-### Running on Simulators & Emulators
+### Generating native projects
 
-To run your application directly on a connected device, iOS Simulator, or Android Emulator:
+Generate the native iOS and Android projects from your `.nx` app:
 
 ```bash
-# Launch on iOS Simulator
-nexa run App.nx --target ios
-
-# Launch on Android Emulator or USB Device
-nexa run App.nx --target android
+nexa generate App.nx --target all --out build
 ```
+
+Open `build/ios/<AppName>.xcodeproj` in Xcode to build and run on an iOS Simulator or device. Open the generated `build/android` project in Android Studio, or build it with Gradle, to run on an emulator or device. `nexa generate` creates the native project files; it does not launch the app itself.
 
 ---
 

@@ -4,10 +4,10 @@ This plugin demonstrates how to write ultra-high-performance cross-platform nati
 
 ## Features
 
-- **Direct C++ Execution**: Code compiles directly via Clang++ on iOS and Android NDK on Android with zero runtime VM or JS engine.
+- **Direct C++ Execution**: C++ sources compile into the host app with Clang on iOS and the Android NDK on Android.
 - **Strongly Typed Contract (`native.nxid`)**: Nexa generates type-safe bindings for Swift and Kotlin JNI automatically.
 - **Asynchronous Futures**: Asynchronous operations return standard `std::future<T>`, mapping to Swift `async` and Kotlin coroutines.
-- **Zero-Copy Byte Buffers**: `Bytes` in `.nxid` maps directly to `std::vector<std::uint8_t>` without boxing.
+- **Typed Byte Buffers**: `Bytes` in `.nxid` maps to `std::vector<std::uint8_t>` in C++; generated platform bindings convert byte collections at the native boundary.
 
 ## Plugin Structure
 
@@ -35,7 +35,7 @@ app DemoApp {
         Column {
             Text("Result: ${result}")
             Button("Compute C++") {
-                result = FastMath.add(10, 20)
+                result = FastMath.add(a: 10, b: 20)
             }
         }
     }

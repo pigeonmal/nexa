@@ -8,9 +8,13 @@ Every native UI component in Nexa compiles Ahead-Of-Time into specialized SwiftU
 Arranges children vertically with optional spacing, alignment, padding, and borders.
 
 ```nexa
-Column(spacing: 12, alignment: Start, padding: 16, background: "#FFFFFF", cornerRadius: 8) {
-    Text("Title")
-    Text("Subtitle")
+app ColumnExample {
+    body {
+        Column(spacing: 12, alignment: Start, padding: 16, background: "#FFFFFF", cornerRadius: 8) {
+            Text("Title")
+            Text("Subtitle")
+        }
+    }
 }
 ```
 - **Properties**: `spacing`, `alignment: Start | Center | End`, `padding`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `borderColor`, `borderWidth`, `opacity`.
@@ -21,9 +25,13 @@ Column(spacing: 12, alignment: Start, padding: 16, background: "#FFFFFF", corner
 Arranges children horizontally with optional spacing, alignment, and styling.
 
 ```nexa
-Row(spacing: 8, alignment: Center) {
-    Text("Status:")
-    Text("Active")
+app RowExample {
+    body {
+        Row(spacing: 8, alignment: Center) {
+            Text("Status:")
+            Text("Active")
+        }
+    }
 }
 ```
 - **Properties**: Accepts the same layout and border properties as `Column`.
@@ -34,9 +42,13 @@ Row(spacing: 8, alignment: Center) {
 Layers children along the Z-axis (overlays).
 
 ```nexa
-Stack(alignment: Center) {
-    Image(asset: "hero_banner", description: "Banner", scale: Fill)
-    Text("Overlay Title")
+app StackExample {
+    body {
+        Stack(alignment: Center) {
+            Image(asset: "hero_banner", description: "Banner", scale: Fill)
+            Text("Overlay Title")
+        }
+    }
 }
 ```
 - **Properties**: `alignment: Start | Center | End`, along with sizing and background modifiers.
@@ -47,22 +59,26 @@ Stack(alignment: Center) {
 High-performance virtualized list with zero `AnyView` type erasure and unboxed scroll state. Supports dynamic collections, count-based ranges, sectioned groups, sticky headers, and pagination.
 
 ```nexa
-// Dynamic collection with sticky header and infinite scroll pagination
-FastList(items, axis: Vertical, key: .self, rowHeight: 52, scrollPosition: scrollPos) { item, index in
-    Text("#${index}: ${item}")
-}.stickyHeader {
-    Text("Category Header")
-}.onEndReached {
-    loadNextPage()
-}.onScroll {
-    onScrolled()
-}
+app FastListExample {
+    state scrollPosition: Int32 = 0
+    state pagesLoaded: Int32 = 0
+    state scrollEvents: Int32 = 0
 
-// Or count-based: FastList(count: 100000, rowHeight: 48) { index in ... }
-// Or sectioned:   FastList(sections: groups, key: .self, rowHeight: 48) { item, itemIndex, sectionIndex in ... }
+    body {
+        FastList(count: 100000, rowHeight: 52, scrollPosition: scrollPosition) { index in
+            Text(index)
+        }.stickyHeader {
+            Text("Category Header")
+        }.onEndReached {
+            pagesLoaded = pagesLoaded + 1
+        }.onScroll {
+            scrollEvents = scrollEvents + 1
+        }
+    }
+}
 ```
-- **Sources**: `FastList(collection, ...)` (collection), `count: Int32` (virtual sequence), or `sections: Array<Array<T>>` (sectioned).
-- **Options**: `axis: Vertical | Horizontal`, `rowHeight: Float`, `key: .self | .id`, `scrollPosition: stateVar`.
+- **Sources**: `FastList(collection, ...)`, `FastList(count: Int32, ...)`, or `FastList(sections: Array<Array<T>>, ...)`.
+- **Options**: `axis: Vertical | Horizontal | Grid(columns)`, where `columns` is a positive integer literal; positive literal `rowHeight`, scalar `key`, and mutable `Int32` `scrollPosition`.
 - **Modifiers**: `.stickyHeader { ... }`, `.sectionHeader { ... }`, `.onEndReached { ... }`, `.onScroll { ... }`.
 
 ---
@@ -71,7 +87,11 @@ FastList(items, axis: Vertical, key: .self, rowHeight: 52, scrollPosition: scrol
 Renders formatted text with typography, color, and wrapping controls.
 
 ```nexa
-Text("Hello Nexa", color: "#333333", fontSize: 18, fontWeight: Bold, lineLimit: 2, selectable: true)
+app TextExample {
+    body {
+        Text("Hello Nexa", color: "#333333", fontSize: 18, fontWeight: Bold, lineLimit: 2, selectable: true)
+    }
+}
 ```
 - **Properties**: `value` (positional), `color`, `fontSize`, `fontWeight`, `lineLimit`, `lineHeight`, `letterSpacing`, `selectable`.
 
@@ -81,8 +101,14 @@ Text("Hello Nexa", color: "#333333", fontSize: 18, fontWeight: Bold, lineLimit: 
 Native platform button triggering state mutations or actions.
 
 ```nexa
-Button("Save Record", icon: "checkmark", loading: isSaving, disabled: false) {
-    saveRecord()
+app ButtonExample {
+    state saves: Int32 = 0
+
+    body {
+        Button("Save Record", icon: "checkmark", loading: false, disabled: false) {
+            saves = saves + 1
+        }
+    }
 }
 ```
 - **Properties**: `label` (positional), `icon: String?`, `loading: Bool?`, `disabled: Bool?`, and a trailing action block.
@@ -93,21 +119,29 @@ Button("Save Record", icon: "checkmark", loading: isSaving, disabled: false) {
 Single or multi-line text field with software keyboard integration.
 
 ```nexa
-TextInput(
-    value: email,
-    placeholder: "name@domain.com",
-    keyboard: Email,
-    secure: false,
-    multiline: false,
-    autocorrect: false,
-    capitalization: None,
-    focused: isEmailFocused,
-    maxLength: 100
-) {
-    submitForm()
+app TextInputExample {
+    state email: String = ""
+    state isEmailFocused: Bool = false
+    state submitted: Int32 = 0
+
+    body {
+        TextInput(
+            value: email,
+            placeholder: "name@domain.com",
+            keyboard: Email,
+            secure: false,
+            multiline: false,
+            autocorrect: false,
+            capitalization: None,
+            focused: isEmailFocused,
+            maxLength: 100
+        ) {
+            submitted = submitted + 1
+        }
+    }
 }
 ```
-- **Properties**: `value`, `placeholder`, `keyboard` (`Default`, `Email`, `Numeric`, `Phone`, `Url`), `secure`, `multiline`, `autocorrect`, `capitalization` (`None`, `Characters`, `Words`, `Sentences`), `focused`, `maxLength`, and trailing onSubmit action.
+- **Properties**: `value`, `placeholder`, `keyboard` (`Text`, `Number`, `Email`, `Phone`, `Url`), `secure`, `multiline`, `autocorrect`, `capitalization` (`None`, `Characters`, `Words`, `Sentences`), `focused`, and positive literal `maxLength`. The optional trailing action block handles submit for single-line fields.
 
 ---
 
@@ -115,7 +149,13 @@ TextInput(
 Platform toggle switch for boolean state.
 
 ```nexa
-Switch(value: isEnabled, label: "Enable Notifications")
+app SwitchExample {
+    state isEnabled: Bool = false
+
+    body {
+        Switch(value: isEnabled, label: "Enable Notifications")
+    }
+}
 ```
 - **Properties**: `value: Bool` (two-way binding), `label: String`.
 
@@ -125,15 +165,21 @@ Switch(value: isEnabled, label: "Enable Notifications")
 Gesture wrapper detecting tap and long-press interactions with hardware haptics.
 
 ```nexa
-Pressable(disabled: false, haptic: Medium) {
-    Text("Tap me!")
-}.onPress {
-    taps = taps + 1
-}.onLongPress {
-    taps = 0
+app PressableExample {
+    state taps: Int32 = 0
+
+    body {
+        Pressable(disabled: false, haptic: Medium) {
+            Text("Tap me!")
+        }.onPress {
+            taps = taps + 1
+        }.onLongPress {
+            taps = 0
+        }
+    }
 }
 ```
-- **Properties**: `disabled: Bool`, `haptic: Selection | Light | Medium | Heavy | Success | Warning | Error`.
+- **Properties**: `disabled: Bool`, optional `haptic: Light | Medium | Heavy`.
 - **Modifiers**: `.onPress { ... }`, `.onLongPress { ... }`.
 
 ---
@@ -142,11 +188,14 @@ Pressable(disabled: false, haptic: Medium) {
 Renders local bundle assets or remote network images with scaling and placeholders.
 
 ```nexa
-// Local asset:
-Image(asset: "logo", description: "App Logo", scale: Fit)
-
-// Remote URL:
-Image(url: "https://example.com/pic.png", description: "Avatar", scale: Fill, placeholder: "avatar_ph")
+app ImageExample {
+    body {
+        Column {
+            Image(asset: "logo", description: "App Logo", scale: Fit)
+            Image(url: "https://example.com/pic.png", description: "Avatar", scale: Fill, placeholder: "avatar_ph")
+        }
+    }
+}
 ```
 - **Properties**: `asset: String` OR `url: String`, `description: String`, `scale: Fit | Fill`, `placeholder: String`.
 
@@ -156,20 +205,26 @@ Image(url: "https://example.com/pic.png", description: "Avatar", scale: Fill, pl
 Bottom tab navigation bar hosting multiple destinations with reactive tab switching.
 
 ```nexa
-AppBottomBar(selected: currentTab) {
-    Tab(index: 0, label: "Home", icon: "house") {
-        HomeScreen()
-    }
-    Tab(index: 1, label: "Search", icon: "magnifyingglass") {
-        SearchScreen()
-    }
-    Tab(index: 2, label: "Profile", icon: "person", badge: "3") {
-        ProfileScreen()
+app TabExample {
+    state currentTab: Int32 = 0
+
+    body {
+        AppBottomBar(selected: currentTab) {
+            Tab(index: 0, label: "Home", icon: "house") {
+                Column { Text("Home") }
+            }
+            Tab(index: 1, label: "Search", icon: "magnifyingglass") {
+                Column { Text("Search") }
+            }
+            Tab(index: 2, label: "Profile", icon: "person", badge: "3") {
+                Column { Text("Profile") }
+            }
+        }
     }
 }
 ```
 - **Properties**: `selected: Int32` (state binding).
-- **Tab Declarations**: `Tab(index: Int, label: String, icon: String?, badge: String?) { ... }`.
+- **Tab Declarations**: `Tab(index: Int32, label: String, icon: String?, badge: String?) { ... }`.
 - Compiles to native `TabView` on iOS and `NavigationBar` on Android.
 
 ---
@@ -178,15 +233,26 @@ AppBottomBar(selected: currentTab) {
 Hierarchical screen stack navigation with push transitions and swipe-to-back gestures.
 
 ```nexa
-NavigationStack(root: Home)
+app NavigationExample {
+    screen Home {
+        Column {
+            NavigationLink(destination: Details) {
+                Text("View Details")
+            }
+        }
+    }
 
-// Inside a screen:
-NavigationLink(destination: Details, when: isAllowed) {
-    Text("View Details")
+    screen Details {
+        Column {
+            Text("Details")
+            NavigationBack(label: "Go Back")
+        }
+    }
+
+    body {
+        NavigationStack(root: Home)
+    }
 }
-
-// Inside destination screen:
-NavigationBack(label: "Go Back")
 ```
 - **`NavigationStack(root: ScreenName)`**: Container hosting the stack.
 - **`NavigationLink(destination: ScreenName, when: Bool?)`**: Push transition.
@@ -198,10 +264,19 @@ NavigationBack(label: "Go Back")
 Modal presentation sheet appearing from the bottom of the screen.
 
 ```nexa
-BottomSheet(isPresented: showModal, partial: true) {
-    Column(padding: 20) {
-        Text("Modal Content")
-        Button("Close") { showModal = false }
+app BottomSheetExample {
+    state showModal: Bool = false
+
+    body {
+        Column {
+            Button("Open") { showModal = true }
+            BottomSheet(isPresented: showModal, partial: true) {
+                Column(padding: 20) {
+                    Text("Modal Content")
+                    Button("Close") { showModal = false }
+                }
+            }
+        }
     }
 }
 ```
@@ -213,10 +288,19 @@ BottomSheet(isPresented: showModal, partial: true) {
 Pull-to-refresh wrapper for scrollable containers.
 
 ```nexa
-RefreshControl(isRefreshing: isRefreshing).onRefresh {
-    reloadFeed()
-} {
-    FastList(posts) { post in ... }
+app RefreshExample {
+    state isRefreshing: Bool = false
+    state postCount: Int32 = 20
+
+    body {
+        RefreshControl(isRefreshing: isRefreshing) {
+            FastList(count: postCount) { index in
+                Text(index)
+            }
+        }.onRefresh {
+            isRefreshing = false
+        }
+    }
 }
 ```
 - **Properties**: `isRefreshing: Bool`.
@@ -228,14 +312,21 @@ RefreshControl(isRefreshing: isRefreshing).onRefresh {
 Automatically scrolls and insets content when the software keyboard appears.
 
 ```nexa
-KeyboardAware(dismiss: Interactive) {
-    Column {
-        TextInput(value: username, placeholder: "Username")
-        TextInput(value: password, placeholder: "Password", secure: true)
+app KeyboardExample {
+    state username: String = ""
+    state password: String = ""
+
+    body {
+        KeyboardAware(dismiss: Interactive) {
+            Column {
+                TextInput(value: username, placeholder: "Username")
+                TextInput(value: password, placeholder: "Password", secure: true)
+            }
+        }
     }
 }
 ```
-- **Properties**: `dismiss: Interactive | OnDrag | Tap`.
+- **Properties**: `dismiss: Interactive | Never`.
 
 ---
 
@@ -243,18 +334,26 @@ KeyboardAware(dismiss: Interactive) {
 Configures system status bar styling per screen.
 
 ```nexa
-StatusBar(style: Light, hidden: false, background: "#000000")
+app StatusBarExample {
+    body {
+        StatusBar(style: Light, hidden: false, background: "#000000")
+        Text("Status bar example")
+    }
+}
 ```
-- **Properties**: `style: Light | Dark`, `hidden: Bool`, `background: Color`.
+- **Properties**: `style: Default | Light | Dark`, `hidden: Bool`, and an optional hexadecimal `background` color.
 
 ---
 
 ### `Direction`
-Overrides text and layout directionality for localization.
+Sets the app-wide text and layout direction for localization.
 
 ```nexa
-Direction(value: RTL) {
-    Column { Text("Arabic or Hebrew localized UI") }
+app DirectionExample {
+    body {
+        Direction(value: RTL)
+        Column { Text("Arabic or Hebrew localized UI") }
+    }
 }
 ```
 - **Properties**: `value: LTR | RTL`.
@@ -265,11 +364,15 @@ Direction(value: RTL) {
 Screen reader annotations for VoiceOver (iOS) and TalkBack (Android).
 
 ```nexa
-Accessibility(label: "Close dialog", hint: "Discards changes", role: Button) {
-    Image(asset: "close_icon", description: "Close")
+app AccessibilityExample {
+    body {
+        Accessibility(label: "Close dialog", hint: "Discards changes", role: Button) {
+            Image(asset: "close_icon", description: "Close")
+        }
+    }
 }
 ```
-- **Properties**: `label: String`, `hint: String?`, `role: Button | Header | Image | Link | Search | Summary | Tab`.
+- **Properties**: `label: String`, optional `hint: String`, and `role: None | Button | Link | Header | Image`.
 
 ---
 
@@ -285,5 +388,13 @@ component Card(title: String) {
         }
     }
 }
+
+app CardExample {
+    body {
+        Card(title: "Summary") {
+            Text("Child text")
+        }
+    }
+}
 ```
-- Call with: `Card(title: "Summary") { Text("Child text") }`.
+- `Content()` renders the children passed to the component call.
