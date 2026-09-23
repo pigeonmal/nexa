@@ -16,6 +16,7 @@ pub(crate) fn render(
 ) {
     let mut runtime = String::from(
         r#"
+@MainActor
 private final class NexaFastListRefreshController: NSObject {
     let control = UIRefreshControl()
     var action: (() -> Void)?
@@ -41,6 +42,7 @@ private final class NexaFastListRefreshController: NSObject {
     }
 }
 
+@MainActor
 private func nexaUpdateRefreshControl(
     _ scrollView: UIScrollView,
     controller: inout NexaFastListRefreshController?,
@@ -66,7 +68,7 @@ private let nexaFastSectionedCellReuseIdentifier = "NexaFastSectionedCell"
 private let nexaFastSectionedHeaderReuseIdentifier = "NexaFastSectionedHeader"
 
 @available(iOS 16.0, *)
-private struct NexaFastSectionedList<RowContent: View, HeaderContent: View = EmptyView>: UIViewRepresentable {
+private struct NexaFastSectionedList<RowContent: View, HeaderContent: View>: UIViewRepresentable {
     let sectionCount: Int
     let sectionCounts: [Int]
     let rowHeight: CGFloat?
@@ -252,7 +254,7 @@ private let nexaFastListHeaderReuseIdentifier = "NexaFastListHeader"
 
 // <nexa:list-runtime-vertical:begin>
 @available(iOS 16.0, *)
-private struct NexaFastList<RowContent: View, HeaderContent: View = EmptyView>: UIViewRepresentable {
+private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepresentable {
     let rowCount: Int
     let rowHeight: CGFloat?
     let rowKey: ((Int) -> AnyHashable)?

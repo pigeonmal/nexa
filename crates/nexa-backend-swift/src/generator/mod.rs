@@ -29,9 +29,6 @@ pub(super) fn generate(module: &Module) -> String {
         );
     }
     out.push_str("// nexa-unit:types\n");
-    if uses_fast_list {
-        out.push_str("\n@available(iOS 16.0, *)\n");
-    }
     for declaration in &module.enums {
         out.push_str(&format!(
             "private enum {}: String, Error {{\n",

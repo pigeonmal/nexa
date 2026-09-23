@@ -107,6 +107,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
         ));
     }
     structs::render(module, &mut out);
+    out.push_str("// nexa-unit:app\n");
     if features.uses_bottom_sheet {
         out.push_str("@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)\n");
     }
@@ -116,7 +117,6 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
     if features.uses_sticky_header {
         out.push_str("@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)\n");
     }
-    out.push_str("// nexa-unit:app\n");
     out.push_str(&format!(
         "@Composable\nfun {}() {{\n",
         nexa_codegen::names::screen_name(&module.app_name)

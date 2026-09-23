@@ -141,7 +141,11 @@ fn render_sectioned_list(
 ) {
     let collection = expression(collection);
     indent(out, depth);
-    out.push_str("NexaFastSectionedList(\n");
+    if section_header.is_some() {
+        out.push_str("NexaFastSectionedList(\n");
+    } else {
+        out.push_str("NexaFastSectionedList<_, EmptyView>(\n");
+    }
     indent(out, depth + 1);
     out.push_str(&format!("sectionCount: {collection}.count,\n"));
     indent(out, depth + 1);
@@ -223,13 +227,15 @@ fn list_constructor(
     row_count: String,
     key: &str,
     item_extent: Option<f32>,
+    has_sticky_header: bool,
 ) -> String {
     let extent = item_extent
         .map(format_float)
         .unwrap_or_else(|| "nil".to_owned());
     match axis {
         ListAxis::Vertical => {
-            format!("NexaFastList(rowCount: {row_count}, rowHeight: {extent}{key})")
+            let type_arguments = if has_sticky_header { "" } else { "<_, EmptyView>" };
+            format!("NexaFastList{type_arguments}(rowCount: {row_count}, rowHeight: {extent}{key})")
         }
         ListAxis::Horizontal => {
             format!("NexaFastHorizontalList(rowCount: {row_count}, itemExtent: {extent}{key})")
@@ -262,7 +268,13 @@ fn open_list(
         || sticky_header.is_some()
         || refresh.is_some()
     {
-        let mut constructor = list_constructor(axis, row_count, key, item_extent);
+        let mut constructor = list_constructor(
+            axis,
+            row_count,
+            key,
+            item_extent,
+            sticky_header.is_some(),
+        );
         constructor.pop();
         out.push_str(&constructor);
         if let Some(scroll_position) = scroll_position {
@@ -311,7 +323,13 @@ fn open_list(
         }
         out.push(')');
     } else {
-        out.push_str(&list_constructor(axis, row_count, key, item_extent));
+        out.push_str(&list_constructor(
+            axis,
+            row_count,
+            key,
+            item_extent,
+            sticky_header.is_some(),
+        ));
     }
     out.push_str(" { listPosition in\n");
 }
