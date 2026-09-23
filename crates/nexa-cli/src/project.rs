@@ -789,4 +789,32 @@ mod tests {
         assert!(kotlin.contains("nexa_player1.prepare("));
         assert!(kotlin.contains("} catch (error: Exception) {"));
     }
+
+    #[test]
+    fn app_owned_native_resources_are_shared_across_route_lifetimes() {
+        let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/plugins/video-player-route-sharing.nx");
+        let compilations =
+            compile_file_with_warnings_for_targets(&entry, &[Target::Swift, Target::Kotlin])
+                .expect("route-sharing example should compile for both native targets");
+
+        let swift = SwiftBackend.generate(&compilations[0].module);
+        assert_eq!(
+            swift
+                .matches("= NexaNativeObjectStorage { VideoPlayer() }")
+                .count(),
+            1
+        );
+        assert!(swift.contains("NexaNavigationRoute.screen1(UUID())"));
+        assert!(swift.contains("nexa_sharedPlayer.play()"));
+        assert!(swift.contains("nexa_sharedPlayer.pause()"));
+        assert!(swift.contains("nexa_sharedPlayer.dispose()"));
+
+        let kotlin = KotlinBackend.generate(&compilations[1].module);
+        assert_eq!(kotlin.matches("remember { VideoPlayer() }").count(), 1);
+        assert!(kotlin.contains("nexa_sharedPlayer.play()"));
+        assert!(kotlin.contains("nexa_sharedPlayer.pause()"));
+        assert!(kotlin.contains("nexa_sharedPlayer.dispose()"));
+        assert!(kotlin.find("val nexa_sharedPlayer").unwrap() < kotlin.find("NavHost(").unwrap());
+    }
 }

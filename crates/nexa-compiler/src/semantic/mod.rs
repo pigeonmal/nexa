@@ -2042,6 +2042,11 @@ mod callback_disposal_tests {
                 .contains("owning app or screen `OnDisappear`")
         );
 
+        module.screens[0].on_disappear = None;
+        validate_module_callback_disposal(&module, &functions).expect(
+            "app-owned resources may be shared by successive routes and outlive each screen",
+        );
+
         module.states.clear();
         module.screens = vec![screen(
             0,

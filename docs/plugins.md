@@ -170,7 +170,9 @@ around the C++ `std::set` contract. They reject floating-point sets (NaN
 ordering) and string sets (Swift's canonical-equivalence equality differs from
 bytewise C++ ordering). iOS map adapters also accept recursively nested maps
 with supported key types, plus primitive, string, byte, compatible-set, or
-nested-array values through generated entry vectors. Generated Swift/C++
+nested-array values through generated entry vectors. Arrays of compatible sets
+use nested vector façades with explicit conversion at the Swift/C++ boundary.
+Generated Swift/C++
 typechecks cover nested maps and numeric, string, byte, and set values in maps.
 Android project generation emits
 Kotlin service/class adapters and JNI for synchronous, non-throwing `Bool`,
@@ -195,9 +197,12 @@ maps, and arrays containing maps or sets. Nested map values and top-level maps
 may be nullable and preserve the difference between `null` and an empty map
 through JNI. Generated adapters convert these shapes with headless C++
 compilation and optional host-JVM round-trip coverage.
-Floating-point keys, byte-array sets, optional collection elements, and
-collection shapes outside that subset remain unsupported to preserve Kotlin/C++
-map semantics.
+Nullable primitive/string/byte array elements and compatible nullable integer
+set elements round-trip as `null` through Kotlin and C++ `std::optional`.
+Floating-point keys and byte-array sets remain unsupported because their C++
+ordering/equality semantics differ from Kotlin maps and sets; broader
+platform-specific collection combinations remain unsupported until their
+native collection semantics are defined.
 Both C++ platforms support non-throwing async scalar, optional scalar,
 `String`, and `Bytes` service and native-class methods. iOS also maps declared
 typed errors from C++ `NexaResult` values for async scalar/string/byte results,
@@ -410,10 +415,13 @@ component. App and screen ownership scope `OnDisappear` cleanup: a screen cannot
 dispose an app-owned object that may still be used by another route. Compose
 scopes screen state to each back-stack entry, and SwiftUI destinations use a
 unique route identity with route-owned state. Native route parameters remain
-scalar, and resources reused after teardown are not modeled yet. Borrowed
-component parameters keep the same identity through nested component calls and
-cannot be disposed by the child. Implementations should clear callbacks they
-retain.
+scalar. App-owned native-class state remains outside the navigation host, so
+multiple routes can borrow one resource while the app owns its lifetime; dispose
+it from app-level `OnDisappear`. The
+`examples/plugins/video-player-route-sharing.nx` sample exercises this pattern
+on both targets. Borrowed component parameters keep the same identity through
+nested component calls and cannot be disposed by the child. Implementations
+should clear callbacks they retain.
 Typed error variants and payload binding are supported in `.nx`;
 throwing calls require an explicit `try`/`catch` recovery block.
 Constructor parameter defaults in the IDL are also reserved; use an explicit

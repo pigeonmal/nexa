@@ -145,7 +145,10 @@ the owning app or screen remains responsible for disposal. Screen
 app-owned instance still used by another route. Each screen destination has its
 own state lifetime: Compose scopes state to its back-stack entry, and SwiftUI
 uses a unique route identity for each destination. Route parameters stay scalar;
-reusing resources across separate route lifetimes remains open.
+an app-owned native-class binding stays above the navigation host and can be
+borrowed by multiple screens. Only the app's `OnDisappear` may dispose that
+shared resource. The `video-player-route-sharing.nx` example and both backend
+tests cover this lifetime pattern.
 Plugin implementations should clear callbacks they retain. C++ contracts,
 opt-in source compilation, and direct Swift/C++ ownership are implemented.
 Both platforms adapt synchronous and non-throwing async scalar, optional scalar,
@@ -165,12 +168,14 @@ iOS bridges optional primitive, string, and byte values; flat primitive,
 string, and byte arrays; compatible sets; recursively nested arrays; and maps
 with supported keys and nested collection values. Swift `String`/`Data`
 conversions are explicit, and vector façades preserve compatible `std::set`
-semantics. Android bridges optional scalars, nested arrays, compatible sets,
+semantics. iOS also converts arrays of compatible sets through nested vector
+façades. Android bridges optional scalars, nested arrays, compatible sets,
 maps with primitive/string keys and recursively nested primitive, string, byte,
-array, set, or map values, including nullable nested-map values and nullable
-outer maps. JNI uses length-aware string/byte conversions and preserves
-unsigned bit patterns. Platform-specific
-collection combinations outside those supported shapes remain open.
+array, set, or map values, including nullable scalar map values, optional scalar
+collection elements, nullable nested-map values, and nullable outer maps. JNI
+uses length-aware string/byte conversions and preserves unsigned bit patterns.
+collection combinations outside those supported shapes are rejected until
+their native semantics and regression coverage are defined.
 
 ## Migration map
 
@@ -215,10 +220,10 @@ type-check generated Swift `Data` to C++ byte-vector adapters and set facades.
    results. Android supports async typed errors with non-optional primitive,
    string, and byte payloads. Native-class C++ events are supported on both
    platforms; collection combinations outside the covered shapes remain open.
-   Android map keys exclude floating-point values; optional maps are supported
-   as outer maps and map values, but optional collection elements remain open.
-2. Reuse native resources across separate route lifetimes; route parameters
-   currently stay scalar.
+   Android map keys exclude floating-point values to avoid C++ ordering
+   mismatches around NaN and signed zero. Nullable scalar map values and
+   optional primitive/string/byte array elements have JNI round-trip coverage;
+   compatible nullable integer set elements are covered as well.
 
 The VideoPlayer example includes headless Swift and Android/JVM smoke tests for
 independent instance behavior and deterministic disposal using fake media

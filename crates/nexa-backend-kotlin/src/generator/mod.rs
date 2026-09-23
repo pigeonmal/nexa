@@ -224,7 +224,8 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
 mod tests {
     use super::generate;
     use nexa_ir::{
-        Component, Expr, Module, Node, NumericType, Screen, ScreenId, State, TextStyle, Type,
+        Action, Component, Expr, Module, Node, NumericType, Screen, ScreenId, State, TextStyle,
+        Type,
     };
 
     #[test]
@@ -264,36 +265,66 @@ mod tests {
                     mutable: true,
                 },
             ],
-            screens: vec![Screen {
-                id: ScreenId(0),
-                name: "PlayerScreen".to_owned(),
-                parameters: Vec::new(),
-                states: vec![
-                    native_instance_state("player"),
-                    State {
-                        name: "screenCount".to_owned(),
-                        ty: Type::Numeric(NumericType::Int32),
-                        initial: Expr::Number {
-                            raw: "1".to_owned(),
-                            ty: NumericType::Int32,
+            screens: vec![
+                Screen {
+                    id: ScreenId(0),
+                    name: "PlayerScreen".to_owned(),
+                    parameters: Vec::new(),
+                    states: vec![
+                        native_instance_state("player"),
+                        State {
+                            name: "screenCount".to_owned(),
+                            ty: Type::Numeric(NumericType::Int32),
+                            initial: Expr::Number {
+                                raw: "1".to_owned(),
+                                ty: NumericType::Int32,
+                            },
+                            mutable: true,
                         },
-                        mutable: true,
-                    },
-                ],
-                body: vec![Node::NavigationLink {
-                    destination: ScreenId(0),
-                    arguments: Vec::new(),
-                    guard: None,
-                    children: vec![Node::Text {
-                        value: Expr::String("Push another instance".to_owned()),
-                        style: TextStyle::default(),
+                    ],
+                    body: vec![Node::NavigationLink {
+                        destination: ScreenId(1),
+                        arguments: Vec::new(),
+                        guard: None,
+                        children: vec![Node::Text {
+                            value: Expr::String("Push another instance".to_owned()),
+                            style: TextStyle::default(),
+                        }],
                     }],
-                }],
-                status_bar: None,
-                on_appear: None,
-                on_appear_async: false,
-                on_disappear: None,
-            }],
+                    status_bar: None,
+                    on_appear: None,
+                    on_appear_async: false,
+                    on_disappear: None,
+                },
+                Screen {
+                    id: ScreenId(1),
+                    name: "Details".to_owned(),
+                    parameters: Vec::new(),
+                    states: Vec::new(),
+                    body: vec![Node::Button {
+                        label: Expr::String("Play shared player".to_owned()),
+                        icon: None,
+                        loading: None,
+                        disabled: None,
+                        actions: vec![Action::Expression(Expr::NativeCall {
+                            receiver: Some(Box::new(Expr::State(
+                                "appPlayer".to_owned(),
+                                player_type.clone(),
+                            ))),
+                            namespace: "Video".to_owned(),
+                            name: "play".to_owned(),
+                            arguments: Vec::new(),
+                            return_type: Type::Void,
+                            is_async: false,
+                            is_throwing: false,
+                        })],
+                    }],
+                    status_bar: None,
+                    on_appear: None,
+                    on_appear_async: false,
+                    on_disappear: None,
+                },
+            ],
             components: Vec::new(),
             body: vec![Node::NavigationStack {
                 root: ScreenId(0),
@@ -334,6 +365,8 @@ mod tests {
         assert!(kotlin.contains(&format!(
             "val {app_state_name}: VideoPlayer = remember {{ VideoPlayer() }}"
         )));
+        assert!(kotlin.contains("composable(route = \"nexa_screen_1\")"));
+        assert!(kotlin.contains("nexa_appPlayer.play()"));
     }
 
     #[test]

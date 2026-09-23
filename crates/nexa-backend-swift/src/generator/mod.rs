@@ -419,7 +419,8 @@ pub(super) fn render_native_object_state(state: &State, depth: usize, out: &mut 
 mod tests {
     use super::generate;
     use nexa_ir::{
-        Component, Expr, Module, Node, NumericType, Screen, ScreenId, State, TextStyle, Type,
+        Action, Component, Expr, Module, Node, NumericType, Screen, ScreenId, State, TextStyle,
+        Type,
     };
 
     fn native_instance_state(name: &str) -> State {
@@ -536,47 +537,77 @@ mod tests {
                     mutable: true,
                 },
             ],
-            screens: vec![Screen {
-                id: ScreenId(0),
-                name: "PlayerScreen".to_owned(),
-                parameters: Vec::new(),
-                states: vec![
-                    State {
-                        name: "player".to_owned(),
-                        ty: player_type.clone(),
-                        initial: Expr::Call {
-                            name: "Video.VideoPlayer".to_owned(),
-                            arguments: Vec::new(),
-                            return_type: player_type,
-                            is_async: false,
-                            is_constructor: true,
+            screens: vec![
+                Screen {
+                    id: ScreenId(0),
+                    name: "PlayerScreen".to_owned(),
+                    parameters: Vec::new(),
+                    states: vec![
+                        State {
+                            name: "player".to_owned(),
+                            ty: player_type.clone(),
+                            initial: Expr::Call {
+                                name: "Video.VideoPlayer".to_owned(),
+                                arguments: Vec::new(),
+                                return_type: player_type.clone(),
+                                is_async: false,
+                                is_constructor: true,
+                            },
+                            mutable: false,
                         },
-                        mutable: false,
-                    },
-                    State {
-                        name: "screenCount".to_owned(),
-                        ty: Type::Numeric(NumericType::Int32),
-                        initial: Expr::Number {
-                            raw: "1".to_owned(),
-                            ty: NumericType::Int32,
+                        State {
+                            name: "screenCount".to_owned(),
+                            ty: Type::Numeric(NumericType::Int32),
+                            initial: Expr::Number {
+                                raw: "1".to_owned(),
+                                ty: NumericType::Int32,
+                            },
+                            mutable: true,
                         },
-                        mutable: true,
-                    },
-                ],
-                body: vec![Node::NavigationLink {
-                    destination: ScreenId(0),
-                    arguments: Vec::new(),
-                    guard: None,
-                    children: vec![Node::Text {
-                        value: Expr::String("Push another instance".to_owned()),
-                        style: TextStyle::default(),
+                    ],
+                    body: vec![Node::NavigationLink {
+                        destination: ScreenId(1),
+                        arguments: Vec::new(),
+                        guard: None,
+                        children: vec![Node::Text {
+                            value: Expr::String("Push another instance".to_owned()),
+                            style: TextStyle::default(),
+                        }],
                     }],
-                }],
-                status_bar: None,
-                on_appear: None,
-                on_appear_async: false,
-                on_disappear: None,
-            }],
+                    status_bar: None,
+                    on_appear: None,
+                    on_appear_async: false,
+                    on_disappear: None,
+                },
+                Screen {
+                    id: ScreenId(1),
+                    name: "Details".to_owned(),
+                    parameters: Vec::new(),
+                    states: Vec::new(),
+                    body: vec![Node::Button {
+                        label: Expr::String("Play shared player".to_owned()),
+                        icon: None,
+                        loading: None,
+                        disabled: None,
+                        actions: vec![Action::Expression(Expr::NativeCall {
+                            receiver: Some(Box::new(Expr::State(
+                                "appPlayer".to_owned(),
+                                player_type.clone(),
+                            ))),
+                            namespace: "Video".to_owned(),
+                            name: "play".to_owned(),
+                            arguments: Vec::new(),
+                            return_type: Type::Void,
+                            is_async: false,
+                            is_throwing: false,
+                        })],
+                    }],
+                    status_bar: None,
+                    on_appear: None,
+                    on_appear_async: false,
+                    on_disappear: None,
+                },
+            ],
             components: Vec::new(),
             body: vec![Node::NavigationStack {
                 root: ScreenId(0),
@@ -617,8 +648,11 @@ mod tests {
         assert!(screen_source.contains("@Binding private var nexa_sharedCount: Int32"));
         assert!(screen_source.contains("@State private var nexa_screenCount: Int32 = 1"));
         assert!(swift.contains("case screen0(UUID)"));
-        assert!(swift.contains("NexaNavigationRoute.screen0(UUID())"));
+        assert!(swift.contains("case screen1(UUID)"));
+        assert!(swift.contains("NexaNavigationRoute.screen1(UUID())"));
         assert!(swift.contains("case let .screen0(routeIdentity):"));
+        assert!(swift.contains("case let .screen1(routeIdentity):"));
+        assert!(swift.contains("nexa_appPlayer.play()"));
         assert!(swift.contains(".id(routeIdentity)"));
     }
 

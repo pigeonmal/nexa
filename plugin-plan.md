@@ -516,8 +516,11 @@ the caller's instance. Screen `OnDisappear` may dispose only screen-owned
 objects; it cannot release an app-owned object another route may still use.
 Route parameters stay scalar. Each navigation destination now has independent
 route-scoped state; SwiftUI uses a unique route identity, and Compose scopes
-state to its back-stack entry. Reusing resources across separate route
-lifetimes remains an open part of the model.
+state to its back-stack entry. App-owned native-class state stays above the
+navigation host and screens borrow the same instance across route transitions.
+Only app-level `OnDisappear` can dispose that resource.
+`examples/plugins/video-player-route-sharing.nx` and backend/compiler tests
+cover shared use and disposal ownership; route parameters remain scalar.
 
 ---
 
@@ -1946,6 +1949,8 @@ classes with owned references. Swift wrappers explicitly convert `String` and
 primitive, string, and byte values through generated `std::optional` helpers.
 Flat `Array` values of primitives, strings, and bytes use generated C++
 `std::vector` aliases and explicit Swift collection conversion.
+Nested arrays may contain compatible sets; arrays of sets use vector façades
+and explicit conversion helpers on iOS.
 Boolean, integer, and byte `Set` values use vector façades around C++
 `std::set`; floating-point and string sets are rejected because their Swift
 equality semantics do not match C++ ordering. Flat `Map` values use generated
@@ -1955,8 +1960,9 @@ arrays with compatible leaves, or recursively nested maps with supported keys.
 Android maps support primitive or string
 keys and primitive, string, or byte values, plus recursively nested arrays,
 compatible sets, and maps, including arrays of maps or sets. Nullable nested
-map values and optional outer maps preserve `null` separately from an empty map
-through Kotlin and C++ `std::optional`. Nested
+map values, scalar map values, optional array/set elements, and optional outer
+maps preserve `null` separately from empty values through Kotlin and C++
+`std::optional`. Nested
 `Array` values with primitive, string, or byte leaves use recursive adapters on
 both platforms.
 Both platforms adapt non-throwing async scalar, optional scalar, string, and
@@ -1973,7 +1979,9 @@ string, and byte payloads through JNI. Native-class events use typed,
 instance-scoped callbacks on both platforms. Swift delivers events on the main
 actor; Android posts them to the main looper. Callback replacement and
 disposal deactivate pending deliveries and release retained callback state.
-Collection combinations outside the supported map-value cases remain open.
+The supported collection combinations are explicit and platform-specific;
+generators reject unlisted shapes until their cross-platform semantics and
+regression coverage are defined.
 The optional `cpp.standard` manifest field selects the minimum C++17, C++20,
 or C++23 level required by reachable C++ sources; generated iOS and Android
 targets use the highest declared level, defaulting to C++20.
@@ -1995,18 +2003,15 @@ instances, property/method forwarding, one-time disposal, and use-after-dispose
 rejection. It also round-trips flat maps through services and native-class
 constructors, properties, and methods, including unsigned carriers, plus typed
 C++ error cases through service and native-class calls.
-Remaining host integration includes:
-
-```text
-Collection nesting outside the supported map-value cases remains open. Android
-native-class events have a host-JVM JNI round-trip test for independent
-instances, callback replacement/clearing, byte/string payload conversion, and
-native-thread delivery. iOS generated adapters typecheck event conversion and
-the generated Xcode project compiles and links a C++ event implementation.
-Android maps exclude floating-point keys and optional collection elements.
-Optional map values and outer nullable maps, nested arrays, arrays of maps or
-sets, and recursively nested maps have generated JNI round-trip coverage.
-```
+Host integration coverage includes Android native-class event JNI round trips
+for independent instances, callback replacement/clearing, byte/string payload
+conversion, and native-thread delivery. iOS generated adapters typecheck event
+conversion, and the generated Xcode project compiles and links a C++ event
+implementation. Android nullable primitive, string, and byte array elements;
+nullable integer set elements; and optional scalar, array, or set map values
+have generated JNI round-trip coverage. Optional outer maps, nested arrays,
+arrays of maps or sets, and recursively nested maps are also covered. Android
+maps reject floating-point keys, and other unlisted shapes fail generation.
 
 Do not expose JNI to normal plugin authors.
 
@@ -2039,11 +2044,12 @@ app, screen, and custom component
 scopes use persistent target-native storage across recompositions; borrowed
 component parameters pass the same reference through nested calls. Screen-level
 `OnDisappear` cleanup is checked against app/screen ownership, preventing a
-route from disposing an app-owned instance. Compose stores each screen state in
+route from disposing an app-owned instance; a two-screen example checks shared
+app-owned resource use on both backends. Compose stores each screen state in
 its back-stack entry; SwiftUI gives each destination a UUID-backed identity and
 a separate state-owning view. Repeated route instances retain independent
-screen state. Route parameters remain scalar; reusing resources across separate
-route lifetimes remains open.
+screen state. Route parameters remain scalar; app-owned resources can be
+borrowed across route lifetimes and disposed when the app disappears.
 The optional C++ phase has IDL contracts,
 opt-in source compilation, direct iOS adapters, and generated Android JNI for
 synchronous methods, non-throwing async values, and async typed errors on
@@ -2077,13 +2083,14 @@ Android `Map` JNI smoke tests round-trip String/signed-integer maps and unsigned
 integer maps through services, plus native-class constructors, properties, and
 methods. Floating-point map keys and byte-array sets remain rejected by the
 generated adapter. Android supports flat primitive, string, and byte arrays,
-compatible sets, maps with primitive, string, or byte values, recursively
-nested arrays, arrays of maps or sets, recursively nested maps, and optional
-outer or nested maps. The iOS map adapter typechecks
+optional scalar collection elements, compatible sets, maps with primitive,
+string, or byte values, recursively nested arrays, arrays of maps or sets,
+recursively nested maps, and optional outer or nested maps. The iOS map adapter typechecks
 every supported key family, scalar and collection values, and nested maps
 through service and native-class APIs; byte-key and byte-value cases exercise
-Data conversion. It also typechecks numeric, string, byte, and compatible set
-map values with distinct generated adapter names. Android generator tests cover
+Data conversion. The iOS collection matrix also compiles array-of-set adapters.
+It typechecks numeric, string, byte, and compatible set map values with
+distinct generated adapter names. Android generator tests cover
 scalar byte-map values, nullable unsigned-key maps including null and empty
 values, nested maps, and map values containing primitive arrays, reference
 arrays, and compatible sets; the headless C++ check compiles JNI adapters for
@@ -2094,8 +2101,9 @@ also cover nested Boolean/numeric arrays, strings, bytes, empty rows, and empty
 outer arrays. Async service and native-class collection calls now run method
 invocation and conversion on the existing background async path. Android and
 iOS C++ native-class event adapters now support typed, instance-scoped callback
-delivery. Broader collection combinations outside the supported map-value
-cases remain open.
+delivery. The supported collection combinations are explicit, tested, and
+platform-specific; generators reject any unlisted shape pending semantic rules
+and dedicated regression coverage.
 Network pinning uses the same case-insensitive 64-character SHA-256 hash of
 DER-encoded SPKI on both platforms. iOS validates system trust before matching
 any certificate in the server chain; its generated DER parser has a headless

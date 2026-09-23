@@ -341,12 +341,18 @@ fn type_matrix_idl(include_android_nested_map: bool) -> String {
         }
     }
     idl.push_str(
-        "    fn echoMapFloat32(values: Map<Bool, Float32>) -> Map<Bool, Float32>\n    fn echoMapFloat64(values: Map<Int8, Float64>) -> Map<Int8, Float64>\n    fn echoMapString(values: Map<Int16, String>) -> Map<Int16, String>\n    fn echoBytesMap(values: Map<Int32, Bytes>) -> Map<Int32, Bytes>\n    fn echoArrayMap(values: Map<Int32, Array<Int32>>) -> Map<Int32, Array<Int32>>\n    fn echoStringArrayMap(values: Map<Int32, Array<String>>) -> Map<Int32, Array<String>>\n    fn echoBytesArrayMap(values: Map<Int32, Array<Bytes>>) -> Map<Int32, Array<Bytes>>\n    fn echoSetMap(values: Map<Int32, Set<UInt32>>) -> Map<Int32, Set<UInt32>>\n",
+        "    fn echoMapFloat32(values: Map<Bool, Float32>) -> Map<Bool, Float32>\n    fn echoMapFloat64(values: Map<Int8, Float64>) -> Map<Int8, Float64>\n    fn echoMapString(values: Map<Int16, String>) -> Map<Int16, String>\n    fn echoBytesMap(values: Map<Int32, Bytes>) -> Map<Int32, Bytes>\n    fn echoArrayMap(values: Map<Int32, Array<Int32>>) -> Map<Int32, Array<Int32>>\n    fn echoStringArrayMap(values: Map<Int32, Array<String>>) -> Map<Int32, Array<String>>\n    fn echoBytesArrayMap(values: Map<Int32, Array<Bytes>>) -> Map<Int32, Array<Bytes>>\n    fn echoSetMap(values: Map<Int32, Set<UInt32>>) -> Map<Int32, Set<UInt32>>\n    fn echoArraySet(values: Array<Set<UInt32>>) -> Array<Set<UInt32>>\n",
     );
     idl.push_str("    fn echoNestedArrayMap(values: Map<Int32, Array<Array<Int32>>>) -> Map<Int32, Array<Array<Int32>>>\n");
     if include_android_nested_map {
+        for ty in CXX_PRIMITIVE_TYPES {
+            idl.push_str(&format!(
+                "    fn echoOptionalArray{0}(values: Array<{1}?>) -> Array<{1}?>\n",
+                ty.suffix, ty.idl
+            ));
+        }
         idl.push_str(
-            "    fn echoNestedMap(values: Map<Int32, Map<String, Bytes>>) -> Map<Int32, Map<String, Bytes>>\n    fn echoOptionalMap(values: Map<UInt32, Bytes>?) -> Map<UInt32, Bytes>?\n    fn echoArrayMapValues(values: Map<Int32, Array<Map<String, Array<Int32>>>>) -> Map<Int32, Array<Map<String, Array<Int32>>>>\n    fn echoArraySetValues(values: Map<Int32, Array<Set<UInt32>>>) -> Map<Int32, Array<Set<UInt32>>>\n    fn echoMapArray(values: Array<Map<String, Array<Int32>>>) -> Array<Map<String, Array<Int32>>>\n",
+            "    fn echoOptionalSet(values: Set<UInt32?>) -> Set<UInt32?>\n    fn echoNullableValueMap(values: Map<Int32, Int32?>) -> Map<Int32, Int32?>\n    fn echoNullableArrayMap(values: Map<Int32, Array<Int32?>>) -> Map<Int32, Array<Int32?>>\n    fn echoNullableSetMap(values: Map<Int32, Set<UInt32?>>) -> Map<Int32, Set<UInt32?>>\n    fn echoNestedMap(values: Map<Int32, Map<String, Bytes>>) -> Map<Int32, Map<String, Bytes>>\n    fn echoOptionalMap(values: Map<UInt32, Bytes>?) -> Map<UInt32, Bytes>?\n    fn echoArrayMapValues(values: Map<Int32, Array<Map<String, Array<Int32>>>>) -> Map<Int32, Array<Map<String, Array<Int32>>>>\n    fn echoArraySetValues(values: Map<Int32, Array<Set<UInt32>>>) -> Map<Int32, Array<Set<UInt32>>>\n    fn echoMapArray(values: Array<Map<String, Array<Int32>>>) -> Array<Map<String, Array<Int32>>>\n",
         );
         idl.push_str("    fn echoOptionalNestedMap(values: Map<Int32, Map<String, Bytes>?>) -> Map<Int32, Map<String, Bytes>?>\n");
     }
@@ -363,6 +369,12 @@ fn type_matrix_cpp_source(include_android_nested_map: bool) -> String {
             "{0} echo{1}({0} value) noexcept {{ return value; }}\nstd::optional<{0}> maybe{1}(std::optional<{0}> value) noexcept {{ return value; }}\nstd::vector<{0}> echoArray{1}(std::vector<{0}> values) noexcept {{ return values; }}\nstd::vector<std::vector<{0}>> echoNestedArray{1}(std::vector<std::vector<{0}>> values) noexcept {{ return values; }}\n",
             ty.cpp, ty.suffix
         ));
+        if include_android_nested_map {
+            source.push_str(&format!(
+                "std::vector<std::optional<{0}>> echoOptionalArray{1}(std::vector<std::optional<{0}>> values) noexcept {{ return values; }}\n",
+                ty.cpp, ty.suffix
+            ));
+        }
         if !matches!(ty.idl, "Float32" | "Float64" | "String" | "Bytes") {
             source.push_str(&format!(
                 "std::map<{0}, {0}> echoMap{1}(std::map<{0}, {0}> values) noexcept {{ return values; }}\nstd::set<{0}> echoSet{1}(std::set<{0}> values) noexcept {{ return values; }}\n",
@@ -371,10 +383,11 @@ fn type_matrix_cpp_source(include_android_nested_map: bool) -> String {
         }
     }
     source.push_str(
-        "std::map<bool, float> echoMapFloat32(std::map<bool, float> values) noexcept { return values; }\nstd::map<std::int8_t, double> echoMapFloat64(std::map<std::int8_t, double> values) noexcept { return values; }\nstd::map<std::int16_t, std::string> echoMapString(std::map<std::int16_t, std::string> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::uint8_t>> echoBytesMap(std::map<std::int32_t, std::vector<std::uint8_t>> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::int32_t>> echoArrayMap(std::map<std::int32_t, std::vector<std::int32_t>> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::string>> echoStringArrayMap(std::map<std::int32_t, std::vector<std::string>> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::vector<std::uint8_t>>> echoBytesArrayMap(std::map<std::int32_t, std::vector<std::vector<std::uint8_t>>> values) noexcept { return values; }\nstd::map<std::int32_t, std::set<std::uint32_t>> echoSetMap(std::map<std::int32_t, std::set<std::uint32_t>> values) noexcept { return values; }\n",
+        "std::map<bool, float> echoMapFloat32(std::map<bool, float> values) noexcept { return values; }\nstd::map<std::int8_t, double> echoMapFloat64(std::map<std::int8_t, double> values) noexcept { return values; }\nstd::map<std::int16_t, std::string> echoMapString(std::map<std::int16_t, std::string> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::uint8_t>> echoBytesMap(std::map<std::int32_t, std::vector<std::uint8_t>> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::int32_t>> echoArrayMap(std::map<std::int32_t, std::vector<std::int32_t>> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::string>> echoStringArrayMap(std::map<std::int32_t, std::vector<std::string>> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::vector<std::uint8_t>>> echoBytesArrayMap(std::map<std::int32_t, std::vector<std::vector<std::uint8_t>>> values) noexcept { return values; }\nstd::map<std::int32_t, std::set<std::uint32_t>> echoSetMap(std::map<std::int32_t, std::set<std::uint32_t>> values) noexcept { return values; }\nstd::vector<std::set<std::uint32_t>> echoArraySet(std::vector<std::set<std::uint32_t>> values) noexcept { return values; }\n",
     );
     source.push_str("std::map<std::int32_t, std::vector<std::vector<std::int32_t>>> echoNestedArrayMap(std::map<std::int32_t, std::vector<std::vector<std::int32_t>>> values) noexcept { return values; }\n");
     if include_android_nested_map {
+        source.push_str("std::set<std::optional<std::uint32_t>> echoOptionalSet(std::set<std::optional<std::uint32_t>> values) noexcept { return values; }\nstd::map<std::int32_t, std::optional<std::int32_t>> echoNullableValueMap(std::map<std::int32_t, std::optional<std::int32_t>> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::optional<std::int32_t>>> echoNullableArrayMap(std::map<std::int32_t, std::vector<std::optional<std::int32_t>>> values) noexcept { return values; }\nstd::map<std::int32_t, std::set<std::optional<std::uint32_t>>> echoNullableSetMap(std::map<std::int32_t, std::set<std::optional<std::uint32_t>>> values) noexcept { return values; }\n");
         source.push_str("std::map<std::int32_t, std::vector<std::map<std::string, std::vector<std::int32_t>>>> echoArrayMapValues(std::map<std::int32_t, std::vector<std::map<std::string, std::vector<std::int32_t>>>> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::set<std::uint32_t>>> echoArraySetValues(std::map<std::int32_t, std::vector<std::set<std::uint32_t>>> values) noexcept { return values; }\nstd::vector<std::map<std::string, std::vector<std::int32_t>>> echoMapArray(std::vector<std::map<std::string, std::vector<std::int32_t>>> values) noexcept { return values; }\n");
         source.push_str("std::map<std::int32_t, std::map<std::string, std::vector<std::uint8_t>>> echoNestedMap(std::map<std::int32_t, std::map<std::string, std::vector<std::uint8_t>>> values) noexcept { return values; }\n");
         source.push_str("std::optional<std::map<std::uint32_t, std::vector<std::uint8_t>>> echoOptionalMap(std::optional<std::map<std::uint32_t, std::vector<std::uint8_t>>> values) noexcept { return values; }\n");
@@ -464,6 +477,28 @@ fn type_matrix_kotlin_smoke() -> String {
             "    val array{0} = {1}\n",
             ty.suffix, ty.array_value
         ));
+        let optional_element = if ty.idl == "String" {
+            "text"
+        } else if ty.idl == "Bytes" {
+            "bytes"
+        } else {
+            ty.scalar_value
+        };
+        source.push_str(&format!(
+            "    val optionalArray{0}: List<{1}?> = listOf(null, {2}, {2})\n    val returnedOptionalArray{0} = TypesPlugin.echoOptionalArray{0}(optionalArray{0})\n",
+            ty.suffix, ty.kotlin, optional_element
+        ));
+        if ty.idl == "Bytes" {
+            source.push_str(&format!(
+                "    check(returnedOptionalArray{0}.size == optionalArray{0}.size && returnedOptionalArray{0}.indices.all {{ index -> val actual = returnedOptionalArray{0}[index]; val expected = optionalArray{0}[index]; if (actual == null || expected == null) actual == expected else actual.contentEquals(expected) }})\n",
+                ty.suffix
+            ));
+        } else {
+            source.push_str(&format!(
+                "    check(returnedOptionalArray{0} == optionalArray{0})\n",
+                ty.suffix
+            ));
+        }
         if ty.idl == "Bytes" {
             source.push_str(&format!(
                 "    val returnedBytes = TypesPlugin.echoArrayBytes(arrayBytes)\n    check(returnedBytes.size == arrayBytes.size && returnedBytes.indices.all {{ returnedBytes[it].contentEquals(arrayBytes[it]) }})\n"
@@ -513,6 +548,9 @@ fn type_matrix_kotlin_smoke() -> String {
     source.push_str(
         "    val nestedArrayMap: Map<Int, List<List<Int>>> = mapOf(1 to listOf(listOf(Int.MIN_VALUE, Int.MAX_VALUE), emptyList()), 2 to emptyList())\n    check(TypesPlugin.echoNestedArrayMap(nestedArrayMap) == nestedArrayMap)\n    val arrayMapValues: Map<Int, List<Map<String, List<Int>>>> = mapOf(1 to listOf(mapOf(\"edge\" to listOf(Int.MIN_VALUE, Int.MAX_VALUE), \"empty\" to emptyList())), 2 to emptyList())\n    check(TypesPlugin.echoArrayMapValues(arrayMapValues) == arrayMapValues)\n    val arraySetValues: Map<Int, List<Set<UInt>>> = mapOf(1 to listOf(setOf(0u, UInt.MAX_VALUE), emptySet()), 2 to emptyList())\n    check(TypesPlugin.echoArraySetValues(arraySetValues) == arraySetValues)\n    val mapArray: List<Map<String, List<Int>>> = listOf(mapOf(\"numbers\" to listOf(Int.MIN_VALUE, Int.MAX_VALUE)), emptyMap())\n    check(TypesPlugin.echoMapArray(mapArray) == mapArray)\n",
     );
+    source.push_str(
+        "    val nullableValueMap: Map<Int, Int?> = mapOf(1 to null, 2 to Int.MIN_VALUE, 3 to Int.MAX_VALUE)\n    check(TypesPlugin.echoNullableValueMap(nullableValueMap) == nullableValueMap)\n    val nullableUIntSet: Set<UInt?> = setOf(null, 0u, UInt.MAX_VALUE)\n    check(TypesPlugin.echoOptionalSet(nullableUIntSet) == nullableUIntSet)\n    val nullableArrayMap: Map<Int, List<Int?>> = mapOf(1 to listOf(null, Int.MIN_VALUE, Int.MAX_VALUE), 2 to emptyList())\n    check(TypesPlugin.echoNullableArrayMap(nullableArrayMap) == nullableArrayMap)\n    val nullableSetMap: Map<Int, Set<UInt?>> = mapOf(1 to setOf(null, 0u, UInt.MAX_VALUE), 2 to emptySet())\n    check(TypesPlugin.echoNullableSetMap(nullableSetMap) == nullableSetMap)\n",
+    );
     source.push_str("}\n");
     source
 }
@@ -545,7 +583,7 @@ fn type_matrix_swift_probe() -> String {
         }
     }
     source.push_str(
-        "    _ = api.echoMapFloat32(values: [false: 1.25])\n    _ = api.echoMapFloat64(values: [-1: 2.5])\n    _ = api.echoMapString(values: [-2: \"Nexa\"])\n    _ = api.echoBytesMap(values: [1: bytes])\n    _ = api.echoArrayMap(values: [1: [Int32.min, 0, Int32.max], 2: []])\n    _ = api.echoStringArrayMap(values: [1: [\"\", \"Nexa 🚀\"], 2: []])\n    _ = api.echoBytesArrayMap(values: [1: [Data([0, 255]), Data()], 2: []])\n    _ = api.echoSetMap(values: [1: Set([UInt32.min, UInt32.max])])\n",
+        "    _ = api.echoMapFloat32(values: [false: 1.25])\n    _ = api.echoMapFloat64(values: [-1: 2.5])\n    _ = api.echoMapString(values: [-2: \"Nexa\"])\n    _ = api.echoBytesMap(values: [1: bytes])\n    _ = api.echoArrayMap(values: [1: [Int32.min, 0, Int32.max], 2: []])\n    _ = api.echoStringArrayMap(values: [1: [\"\", \"Nexa 🚀\"], 2: []])\n    _ = api.echoBytesArrayMap(values: [1: [Data([0, 255]), Data()], 2: []])\n    _ = api.echoSetMap(values: [1: Set([UInt32.min, UInt32.max])])\n    _ = api.echoArraySet(values: [Set([UInt32.min, UInt32.max]), []])\n",
     );
     source.push_str("    _ = api.echoNestedArrayMap(values: [1: [[Int32.min, Int32.max], []]])\n");
     source.push_str("}\n");
@@ -2599,6 +2637,10 @@ fn generated_android_cpp_adapters_roundtrip_primitive_nullable_and_collection_ma
             "generated Android binding is missing Array<{}> mapping",
             ty.idl
         );
+        assert!(generated_kotlin.contains(&format!(
+            "echoOptionalArray{}(values: List<{}?>): List<{}?>",
+            ty.suffix, ty.kotlin, ty.kotlin
+        )));
     }
 
     assert!(generated_kotlin.contains(
@@ -2635,6 +2677,18 @@ fn generated_android_cpp_adapters_roundtrip_primitive_nullable_and_collection_ma
     ));
     assert!(generated_kotlin.contains(
         "override fun echoOptionalMap(values: Map<UInt, ByteArray>?): Map<UInt, ByteArray>?"
+    ));
+    assert!(generated_kotlin.contains(
+        "external fun service_Types_echoNullableValueMap(values: Map<Int, Int?>): Map<Int, Int?>"
+    ));
+    assert!(generated_kotlin.contains(
+        "external fun service_Types_echoOptionalSet(values: Array<Long?>): Array<Long?>"
+    ));
+    assert!(generated_kotlin.contains(
+        "external fun service_Types_echoNullableArrayMap(values: Map<Int, Array<Int?>>): Map<Int, Array<Int?>>"
+    ));
+    assert!(generated_kotlin.contains(
+        "external fun service_Types_echoNullableSetMap(values: Map<Int, Array<Long?>>): Map<Int, Array<Long?>>"
     ));
     assert!(
         generated_kotlin.contains(

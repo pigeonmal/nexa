@@ -1334,20 +1334,27 @@ fn android_cpp_type(ty: &TypeRef) -> Option<String> {
         if ty.name == "Set" && !android_set_element_is_supported(element) {
             return None;
         }
-        if ty.optional || element.optional {
+        if ty.optional {
             return None;
         }
         if ty.name == "Set" {
             if android_primitive_array(element).is_none()
                 && android_reference_array_element(element).is_none()
+                && !element.optional
             {
                 return None;
             }
-            return Some(format!("std::set<{}>", android_cpp_value(element)?.cpp));
+            return Some(format!("std::set<{}>", android_cpp_type(element)?));
         }
         return Some(format!("std::vector<{}>", android_cpp_type(element)?));
     }
-    android_cpp_value(ty).map(|value| value.cpp.to_owned())
+    android_cpp_value(ty).map(|value| {
+        if ty.optional {
+            format!("std::optional<{}>", value.cpp)
+        } else {
+            value.cpp.to_owned()
+        }
+    })
 }
 
 fn android_set_element_is_supported(ty: &TypeRef) -> bool {
@@ -1363,12 +1370,11 @@ fn android_set_element_is_supported(ty: &TypeRef) -> bool {
             | "UInt32"
             | "UInt64"
             | "String"
-    ) && !ty.optional
-        && ty.arguments.is_empty()
+    ) && ty.arguments.is_empty()
 }
 
 fn android_map_element_is_supported(ty: &TypeRef, is_key: bool) -> bool {
-    !ty.optional
+    (!is_key || !ty.optional)
         && ty.arguments.is_empty()
         && matches!(
             ty.name.as_str(),
@@ -1393,7 +1399,7 @@ fn android_map_value_is_supported(ty: &TypeRef) -> bool {
         return android_map_is_supported(ty);
     }
     if android_map_element_is_supported(ty, false)
-        || (ty.name == "Bytes" && !ty.optional && ty.arguments.is_empty())
+        || (ty.name == "Bytes" && ty.arguments.is_empty())
     {
         return true;
     }
@@ -1403,9 +1409,6 @@ fn android_map_value_is_supported(ty: &TypeRef) -> bool {
     let [element] = ty.arguments.as_slice() else {
         return false;
     };
-    if element.optional {
-        return false;
-    }
     if ty.name == "Set" {
         return android_set_element_is_supported(element);
     }
@@ -1438,7 +1441,7 @@ fn android_jni_type(ty: &TypeRef) -> Option<String> {
         let [element] = ty.arguments.as_slice() else {
             return None;
         };
-        if ty.optional || element.optional {
+        if ty.optional {
             return None;
         }
         if let Some(array) = android_primitive_array(element) {
@@ -1714,6 +1717,7 @@ fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
         let element = &ty.arguments[0];
         if ty.name == "Array" && matches!(element.name.as_str(), "Array" | "Set")
             || (ty.name == "Array" && android_cpp_map_type(element).is_some())
+            || element.optional
         {
             return format!(
                 "{value}.map {{ nexaNestedCollection -> {} }}.toTypedArray()",
@@ -1788,11 +1792,17 @@ fn kotlin_from_jni_expression(expression: String, ty: &TypeRef) -> String {
         let element = &ty.arguments[0];
         if ty.name == "Array" && matches!(element.name.as_str(), "Array" | "Set")
             || (ty.name == "Array" && android_cpp_map_type(element).is_some())
+            || element.optional
         {
-            return format!(
+            let converted = format!(
                 "{expression}.map {{ nexaNestedCollection -> {} }}",
                 kotlin_from_jni_expression("nexaNestedCollection".to_owned(), element)
             );
+            return if ty.name == "Set" {
+                format!("{converted}.toSet()")
+            } else {
+                converted
+            };
         }
         let Some(_array) = android_primitive_array(element) else {
             debug_assert!(android_reference_array_element(element).is_some());
@@ -2784,9 +2794,11 @@ fn render_jni_array_argument_conversion(
     local: &str,
 ) -> String {
     let element = &ty.arguments[0];
-    if ty.name == "Array"
+    if (ty.name == "Array"
         && (matches!(element.name.as_str(), "Array" | "Set")
-            || android_cpp_map_type(element).is_some())
+            || android_cpp_map_type(element).is_some()
+            || element.optional))
+        || (ty.name == "Set" && element.optional)
     {
         return render_jni_nested_array_argument_conversion(out, ty, value, failure_return, local);
     }
@@ -2802,11 +2814,24 @@ fn render_jni_nested_array_argument_conversion(
 ) -> String {
     let element = &ty.arguments[0];
     let cpp_type = android_cpp_type(ty).expect("validated nested array type");
+    let is_set = ty.name == "Set";
+    let reserve = if is_set {
+        String::new()
+    } else {
+        format!("{local}.reserve(static_cast<std::size_t>({local}Length));\n        ")
+    };
+    let null_element_check = if element.optional {
+        String::new()
+    } else {
+        format!(
+            "            if ({local}Element == nullptr) {{\n                throwIllegalState(env, \"non-null nested Nexa collection contained null\");\n                {failure_return}\n            }}\n"
+        )
+    };
     out.push_str(&format!(
-        "        if ({value} == nullptr) {{\n            throwIllegalState(env, \"non-null Nexa array was null at the JNI boundary\");\n            {failure_return}\n        }}\n        const jsize {local}Length = env->GetArrayLength(static_cast<jobjectArray>({value}));\n        if (env->ExceptionCheck()) {failure_return}\n        {cpp_type} {local};\n        {local}.reserve(static_cast<std::size_t>({local}Length));\n        for (jsize {local}Index = 0; {local}Index < {local}Length; ++{local}Index) {{\n            auto {local}Element = env->GetObjectArrayElement(static_cast<jobjectArray>({value}), {local}Index);\n            if (env->ExceptionCheck()) {failure_return}\n            if ({local}Element == nullptr) {{\n                throwIllegalState(env, \"non-null nested Nexa array was null at the JNI boundary\");\n                {failure_return}\n            }}\n"
+        "        if ({value} == nullptr) {{\n            throwIllegalState(env, \"non-null Nexa collection was null at the JNI boundary\");\n            {failure_return}\n        }}\n        const jsize {local}Length = env->GetArrayLength(static_cast<jobjectArray>({value}));\n        if (env->ExceptionCheck()) {failure_return}\n        {cpp_type} {local};\n        {reserve}for (jsize {local}Index = 0; {local}Index < {local}Length; ++{local}Index) {{\n            auto {local}Element = env->GetObjectArrayElement(static_cast<jobjectArray>({value}), {local}Index);\n            if (env->ExceptionCheck()) {failure_return}\n{null_element_check}"
     ));
     let element_local = format!("{local}ElementValue");
-    let element_value = if android_cpp_map_type(element).is_some() {
+    let element_value = if element.name == "Map" {
         render_jni_map_argument_conversion(
             out,
             element,
@@ -2814,7 +2839,7 @@ fn render_jni_nested_array_argument_conversion(
             failure_return,
             &element_local,
         )
-    } else {
+    } else if matches!(element.name.as_str(), "Array" | "Set") {
         render_jni_array_argument_conversion(
             out,
             element,
@@ -2822,9 +2847,22 @@ fn render_jni_nested_array_argument_conversion(
             failure_return,
             &element_local,
         )
+    } else {
+        render_jni_optional_argument_conversion(
+            out,
+            element,
+            &format!("{local}Element"),
+            failure_return,
+            &element_local,
+        )
+    };
+    let append = if is_set {
+        format!("{local}.insert(std::move({element_value}));")
+    } else {
+        format!("{local}.push_back(std::move({element_value}));")
     };
     out.push_str(&format!(
-        "            {local}.push_back(std::move({element_value}));\n            env->DeleteLocalRef({local}Element);\n            if (env->ExceptionCheck()) {failure_return}\n        }}\n"
+        "            {append}\n            if ({local}Element != nullptr) env->DeleteLocalRef({local}Element);\n            if (env->ExceptionCheck()) {failure_return}\n        }}\n"
     ));
     format!("std::move({local})")
 }
@@ -3039,9 +3077,10 @@ fn render_android_jni_map_converter(
         };
         let collection_type = android_cpp_type(ty)
             .expect("validated Android map collection has a C++ representation");
-        if ty.name == "Array"
+        if matches!(ty.name.as_str(), "Array" | "Set")
             && (matches!(element.name.as_str(), "Array" | "Set")
-                || android_cpp_map_type(element).is_some())
+                || android_cpp_map_type(element).is_some()
+                || element.optional)
         {
             let element_class = android_jni_class_descriptor(element)
                 .expect("validated nested Android collection has a JNI descriptor");
@@ -3052,13 +3091,29 @@ fn render_android_jni_map_converter(
                 to_java,
                 failure_return,
             );
+            let set_reserve = ty.name != "Set";
+            let reserve = if set_reserve {
+                "            output.reserve(static_cast<std::size_t>(length));\n"
+            } else {
+                ""
+            };
+            let null_check = if element.optional {
+                ""
+            } else {
+                "                if (element.get() == nullptr) { throwIllegalState(env, \"non-null Nexa nested collection contained null\"); throw std::runtime_error(\"null JNI nested collection element\"); }\n"
+            };
+            let append = if ty.name == "Set" {
+                "output.insert(std::move(value));"
+            } else {
+                "output.push_back(std::move(value));"
+            };
             return if to_java {
                 format!(
                     "[&](const {collection_type}& values) -> jobject {{\n            if (values.size() > static_cast<std::size_t>(std::numeric_limits<jsize>::max())) throw std::length_error(\"native plugin collection is too large for JNI\");\n            const auto length = static_cast<jsize>(values.size());\n            ScopedLocalRef<jclass> elementClass(env, env->FindClass(\"{element_class}\"));\n            requireJniMapOperation(env, \"unable to resolve JNI nested collection element type\");\n            ScopedLocalRef<jobjectArray> output(env, env->NewObjectArray(length, elementClass.get(), nullptr));\n            requireJniMapOperation(env, \"unable to allocate JNI nested collection\");\n            jsize index = 0;\n            for (const auto& value : values) {{\n                ScopedLocalRef<jobject> element(env, {converter}(value));\n                requireJniMapOperation(env, \"unable to convert native nested collection element\");\n                env->SetObjectArrayElement(output.get(), index++, element.get());\n                requireJniMapOperation(env, \"unable to populate JNI nested collection\");\n            }}\n            return output.release();\n        }}"
                 )
             } else {
                 format!(
-                    "[&](jobject raw) -> {collection_type} {{\n            if (raw == nullptr) {{ throwIllegalState(env, \"non-null Nexa nested collection was null at the JNI boundary\"); throw std::runtime_error(\"null JNI nested collection\"); }}\n            auto input = static_cast<jobjectArray>(raw);\n            const jsize length = env->GetArrayLength(input);\n            requireJniMapOperation(env, \"unable to read JNI nested collection length\");\n            {collection_type} output;\n            output.reserve(static_cast<std::size_t>(length));\n            for (jsize index = 0; index < length; ++index) {{\n                ScopedLocalRef<jobject> element(env, env->GetObjectArrayElement(input, index));\n                requireJniMapOperation(env, \"unable to read JNI nested collection element\");\n                if (element.get() == nullptr) {{ throwIllegalState(env, \"non-null Nexa nested collection contained null\"); throw std::runtime_error(\"null JNI nested collection element\"); }}\n                auto value = {converter}(element.get());\n                requireJniMapOperation(env, \"unable to convert JNI nested collection element\");\n                output.push_back(std::move(value));\n            }}\n            return output;\n        }}"
+                    "[&](jobject raw) -> {collection_type} {{\n            if (raw == nullptr) {{ throwIllegalState(env, \"non-null Nexa nested collection was null at the JNI boundary\"); throw std::runtime_error(\"null JNI nested collection\"); }}\n            auto input = static_cast<jobjectArray>(raw);\n            const jsize length = env->GetArrayLength(input);\n            requireJniMapOperation(env, \"unable to read JNI nested collection length\");\n            {collection_type} output;\n{reserve}            for (jsize index = 0; index < length; ++index) {{\n                ScopedLocalRef<jobject> element(env, env->GetObjectArrayElement(input, index));\n                requireJniMapOperation(env, \"unable to read JNI nested collection element\");\n{null_check}                auto value = {converter}(element.get());\n                requireJniMapOperation(env, \"unable to convert JNI nested collection element\");\n                {append}\n            }}\n            return output;\n        }}"
                 )
             };
         }
@@ -3134,6 +3189,61 @@ fn render_android_jni_map_converter(
         );
     }
     let scalar = android_cpp_value(ty).expect("validated Android map scalar");
+    if ty.optional {
+        let cpp_type = android_cpp_type(ty).expect("validated nullable map scalar");
+        if matches!(ty.name.as_str(), "String" | "Bytes") {
+            let (class, converter) = if ty.name == "String" {
+                ("jstring", "String")
+            } else {
+                ("jbyteArray", "Bytes")
+            };
+            return if to_java {
+                format!(
+                    "[&](const {cpp_type}& value) -> jobject {{ if (!value) return nullptr; return toJni{converter}(env, *value); }}"
+                )
+            } else {
+                format!(
+                    "[&](jobject raw) -> {cpp_type} {{ if (raw == nullptr) return std::nullopt; return fromJni{converter}(env, static_cast<{class}>(raw)); }}"
+                )
+            };
+        }
+        let boxed = android_boxed_primitive(&ty.name)
+            .expect("validated nullable map primitive has a boxed JNI type");
+        let class_name = format!("{name}Class");
+        let method_name = format!("{name}Method");
+        let (lookup, lambda) = if to_java {
+            let carrier = if scalar.unsigned && ty.name == "UInt64" {
+                "std::bit_cast<jlong>(static_cast<std::uint64_t>(*value))".to_owned()
+            } else if scalar.unsigned {
+                "static_cast<jlong>(*value)".to_owned()
+            } else {
+                format!("static_cast<{}>(*value)", boxed.jni_primitive)
+            };
+            (
+                format!(
+                    "        jclass {class_name} = env->FindClass(\"{}\");\n        if ({class_name} == nullptr) {failure_return}\n        jmethodID {method_name} = env->GetStaticMethodID({class_name}, \"valueOf\", \"{}\");\n        if ({method_name} == nullptr) {failure_return}\n",
+                    boxed.class_name, boxed.value_of_signature
+                ),
+                format!(
+                    "[&](const {cpp_type}& value) -> jobject {{ if (!value) return nullptr; return env->CallStaticObjectMethod({class_name}, {method_name}, {carrier}); }}"
+                ),
+            )
+        } else {
+            (
+                format!(
+                    "        jclass {class_name} = env->FindClass(\"{}\");\n        if ({class_name} == nullptr) {failure_return}\n        jmethodID {method_name} = env->GetMethodID({class_name}, \"{}\", \"{}\");\n        if ({method_name} == nullptr) {failure_return}\n",
+                    boxed.class_name, boxed.unbox_method, boxed.unbox_signature
+                ),
+                format!(
+                    "[&](jobject raw) -> {cpp_type} {{ if (raw == nullptr) return std::nullopt; auto carrier = env->{call}(raw, {method_name}); return static_cast<{cpp}>(carrier); }}",
+                    call = boxed.unbox_call,
+                    cpp = scalar.cpp
+                ),
+            )
+        };
+        out.push_str(&lookup);
+        return lambda;
+    }
     if ty.name == "String" {
         return if to_java {
             "[&](const std::string& value) -> jobject { return toJniString(env, value); }"
@@ -3286,16 +3396,16 @@ fn render_jni_return(out: &mut String, ty: &TypeRef, expression: &str) {
     }
     if matches!(ty.name.as_str(), "Array" | "Set") {
         let element = &ty.arguments[0];
-        if ty.name == "Array"
+        if (ty.name == "Array"
             && (matches!(element.name.as_str(), "Array" | "Set")
-                || android_cpp_map_type(element).is_some())
+                || android_cpp_map_type(element).is_some()
+                || element.optional))
+            || (ty.name == "Set" && element.optional)
         {
             render_jni_nested_array_return(out, ty, expression);
             return;
         }
-        let cpp_element = android_cpp_value(element)
-            .expect("validated collection element")
-            .cpp;
+        let cpp_element = android_cpp_type(element).expect("validated collection element");
         if ty.name == "Set" {
             out.push_str(&format!(
                 "        auto nexaArraySetValues = {expression};\n        std::vector<{cpp_element}> nexaArrayValues(nexaArraySetValues.begin(), nexaArraySetValues.end());\n"
@@ -3378,8 +3488,18 @@ fn render_jni_nested_array_return(out: &mut String, ty: &TypeRef, expression: &s
     let element = &ty.arguments[0];
     let element_class = android_jni_class_descriptor(element)
         .expect("validated nested array element has a JNI array class");
+    if ty.name == "Set" {
+        let element_type = android_cpp_type(element).expect("validated set element type");
+        out.push_str(&format!(
+            "        auto nexaNestedArraySetValues = {expression};\n        std::vector<{element_type}> nexaNestedArrayValues(nexaNestedArraySetValues.begin(), nexaNestedArraySetValues.end());\n"
+        ));
+    } else {
+        out.push_str(&format!(
+            "        auto nexaNestedArrayValues = {expression};\n"
+        ));
+    }
     out.push_str(&format!(
-        "        auto nexaNestedArrayValues = {expression};\n        if (nexaNestedArrayValues.size() > static_cast<std::size_t>(std::numeric_limits<jsize>::max())) throw std::length_error(\"native plugin array is too large for JNI\");\n        const auto nexaNestedArrayLength = static_cast<jsize>(nexaNestedArrayValues.size());\n        jclass nexaNestedArrayElementClass = env->FindClass(\"{element_class}\");\n        if (nexaNestedArrayElementClass == nullptr) return nullptr;\n        auto nexaNestedArrayOutput = env->NewObjectArray(nexaNestedArrayLength, nexaNestedArrayElementClass, nullptr);\n        env->DeleteLocalRef(nexaNestedArrayElementClass);\n        if (nexaNestedArrayOutput == nullptr) return nullptr;\n        for (jsize nexaNestedArrayIndex = 0; nexaNestedArrayIndex < nexaNestedArrayLength; ++nexaNestedArrayIndex) {{\n            auto nexaNestedArrayElement = [&]() -> jobject {{\n"
+        "        if (nexaNestedArrayValues.size() > static_cast<std::size_t>(std::numeric_limits<jsize>::max())) throw std::length_error(\"native plugin array is too large for JNI\");\n        const auto nexaNestedArrayLength = static_cast<jsize>(nexaNestedArrayValues.size());\n        jclass nexaNestedArrayElementClass = env->FindClass(\"{element_class}\");\n        if (nexaNestedArrayElementClass == nullptr) return nullptr;\n        auto nexaNestedArrayOutput = env->NewObjectArray(nexaNestedArrayLength, nexaNestedArrayElementClass, nullptr);\n        env->DeleteLocalRef(nexaNestedArrayElementClass);\n        if (nexaNestedArrayOutput == nullptr) return nullptr;\n        for (jsize nexaNestedArrayIndex = 0; nexaNestedArrayIndex < nexaNestedArrayLength; ++nexaNestedArrayIndex) {{\n            auto nexaNestedArrayElement = [&]() -> jobject {{\n"
     ));
     render_jni_return(
         out,
@@ -3392,6 +3512,11 @@ fn render_jni_nested_array_return(out: &mut String, ty: &TypeRef, expression: &s
 }
 
 fn android_jni_class_descriptor(ty: &TypeRef) -> Option<String> {
+    if ty.optional {
+        if let Some(boxed) = android_boxed_primitive(&ty.name) {
+            return Some(format!("L{};", boxed.class_name));
+        }
+    }
     match ty.name.as_str() {
         "Bool" => Some("Z".to_owned()),
         "Int8" | "UInt8" => Some("B".to_owned()),
@@ -3689,10 +3814,7 @@ fn swift_cpp_map_value_supported(ty: &TypeRef) -> bool {
     if let Some(base) = swift_cpp_base_type(ty) {
         return base != "Void";
     }
-    // The map entry bridge currently uses C++ value fields. Boolean vectors
-    // have a distinct vector<bool> representation and need their own proxy.
     swift_cpp_array_swift_type(ty).is_some()
-        && swift_cpp_array_leaf(ty).is_some_and(|leaf| leaf.name != "Bool")
 }
 
 fn swift_cpp_array_swift_type(ty: &TypeRef) -> Option<String> {
@@ -3706,6 +3828,9 @@ fn swift_cpp_array_swift_type(ty: &TypeRef) -> Option<String> {
     if element.name == "Array" {
         swift_cpp_array_leaf(element)?;
         return Some(format!("[{}]", swift_cpp_array_swift_type(element)?));
+    }
+    if element.name == "Set" {
+        return Some(format!("[{}]", swift_cpp_value_type(element)?));
     }
     let swift_type = swift_cpp_base_type(element)?;
     (swift_type != "Void").then(|| format!("[{swift_type}]"))
@@ -3733,7 +3858,7 @@ fn swift_cpp_nested_array_supported(ty: &TypeRef) -> bool {
         && ty
             .arguments
             .first()
-            .is_some_and(|element| element.name == "Array")
+            .is_some_and(|element| matches!(element.name.as_str(), "Array" | "Set"))
         && swift_cpp_array_swift_type(ty).is_some()
 }
 
@@ -3906,6 +4031,15 @@ fn swift_cpp_array_argument_expression(
             byte_buffer_type,
         );
         format!("{value}.map {{ nexaNestedArray in {nested} }}")
+    } else if element.name == "Set" {
+        let nested = swift_cpp_argument_value(
+            element,
+            "nexaNestedCollection",
+            idl,
+            namespace,
+            byte_buffer_type,
+        );
+        format!("{value}.map {{ nexaNestedCollection in {nested} }}")
     } else {
         match element.name.as_str() {
             "Bool" => format!("{value}.map {{ UInt8($0 ? 1 : 0) }}"),
@@ -4003,9 +4137,9 @@ fn swift_cpp_array_result_expression(
     let alias = cpp_swift_array_alias_name_for_type(idl, ty);
     let copied = format!("Array({namespace}.{alias}({call}))");
     let element = &ty.arguments[0];
-    if element.name == "Array" {
-        let nested = swift_cpp_array_result_expression(element, "nexaNestedArray", idl, namespace);
-        format!("{copied}.map {{ nexaNestedArray in {nested} }}")
+    if matches!(element.name.as_str(), "Array" | "Set") {
+        let nested = swift_cpp_result_expression(element, "nexaNestedCollection", idl, namespace);
+        format!("{copied}.map {{ nexaNestedCollection in {nested} }}")
     } else {
         match element.name.as_str() {
             "Bool" => format!("{copied}.map {{ $0 != 0 }}"),
@@ -4297,12 +4431,18 @@ fn render_swift_array_aliases(out: &mut String, idl: &PluginIdl) {
             }
         }
     }
-    arrays.reverse();
+    arrays.sort_by_key(|array| {
+        let depends_on_set_facade = array
+            .arguments
+            .first()
+            .is_some_and(|element| element.name == "Set");
+        (swift_cpp_array_depth(array), depends_on_set_facade)
+    });
     for array in arrays {
         out.push_str(&format!(
             "using {} = {};\n",
             cpp_swift_array_alias_name_for_type(idl, &array),
-            cpp_swift_array_facade_type(&array)
+            cpp_swift_array_facade_type(&array, idl)
         ));
     }
     let mut bool_facades = arrays_with_bool_facades(idl);
@@ -4310,15 +4450,25 @@ fn render_swift_array_aliases(out: &mut String, idl: &PluginIdl) {
     for array in bool_facades {
         render_swift_array_conversion_adapters(out, idl, &array);
     }
+    let mut set_facades = arrays_with_nested_set_facades(idl);
+    set_facades.sort_by_key(swift_cpp_array_depth);
+    for array in set_facades {
+        render_swift_array_conversion_adapters(out, idl, &array);
+    }
     if !out.ends_with("\n\n") && out.ends_with('\n') {
         out.push('\n');
     }
 }
 
-fn cpp_swift_array_facade_type(ty: &TypeRef) -> String {
+fn cpp_swift_array_facade_type(ty: &TypeRef, idl: &PluginIdl) -> String {
     let element = &ty.arguments[0];
     if element.name == "Array" {
-        format!("std::vector<{}>", cpp_swift_array_facade_type(element))
+        format!("std::vector<{}>", cpp_swift_array_facade_type(element, idl))
+    } else if element.name == "Set" {
+        format!(
+            "std::vector<{}>",
+            cpp_swift_array_alias_name(idl, &element.arguments[0].name)
+        )
     } else if element.name == "Bool" {
         "std::vector<std::uint8_t>".to_owned()
     } else {
@@ -4331,6 +4481,40 @@ fn arrays_with_bool_facades(idl: &PluginIdl) -> Vec<TypeRef> {
     let mut add = |ty: &TypeRef| {
         if swift_cpp_array_swift_type(ty).is_some()
             && swift_cpp_array_leaf(ty).is_some_and(|leaf| leaf.name == "Bool")
+            && !arrays.iter().any(|existing| existing == ty)
+        {
+            arrays.push(ty.clone());
+        }
+    };
+    for interface in &idl.interfaces {
+        for constructor in &interface.constructors {
+            for parameter in &constructor.parameters {
+                collect_swift_array_types(&parameter.ty, &mut add);
+            }
+        }
+        for property in &interface.properties {
+            collect_swift_array_types(&property.ty, &mut add);
+        }
+        for method in &interface.methods {
+            for parameter in &method.parameters {
+                collect_swift_array_types(&parameter.ty, &mut add);
+            }
+            collect_swift_array_types(&method.return_type, &mut add);
+        }
+        for event in &interface.events {
+            for parameter in &event.parameters {
+                collect_swift_array_types(&parameter.ty, &mut add);
+            }
+        }
+    }
+    arrays
+}
+
+fn arrays_with_nested_set_facades(idl: &PluginIdl) -> Vec<TypeRef> {
+    let mut arrays = Vec::new();
+    let mut add = |ty: &TypeRef| {
+        if swift_cpp_nested_array_supported(ty)
+            && ty.arguments[0].name == "Set"
             && !arrays.iter().any(|existing| existing == ty)
         {
             arrays.push(ty.clone());
@@ -4375,7 +4559,7 @@ fn collect_swift_array_types(ty: &TypeRef, add: &mut impl FnMut(&TypeRef)) {
         if let Some(element) = ty
             .arguments
             .first()
-            .filter(|element| element.name == "Array")
+            .filter(|element| matches!(element.name.as_str(), "Array" | "Set"))
         {
             collect_swift_array_types(element, add);
         }
@@ -4411,6 +4595,16 @@ fn cpp_swift_array_convert_element(
             "{}(std::move({element}))",
             cpp_swift_array_conversion_name(idl, nested, direction)
         )
+    } else if nested.name == "Set" {
+        let element_type = cpp_type(&nested.arguments[0]);
+        if to_native {
+            format!("std::set<{element_type}>({element}.begin(), {element}.end())")
+        } else {
+            format!(
+                "{}({element}.begin(), {element}.end())",
+                cpp_swift_array_alias_name(idl, &nested.arguments[0].name)
+            )
+        }
     } else if to_native {
         format!("static_cast<bool>({element})")
     } else {
@@ -4480,6 +4674,12 @@ fn cpp_swift_map_value_for_entry(ty: &TypeRef, value: &str, idl: &PluginIdl) -> 
             "{}({value})",
             cpp_swift_map_conversion_name(idl, ty, "ToEntries")
         ),
+        "Array" if swift_cpp_nested_array_supported(ty) && ty.arguments[0].name == "Set" => {
+            format!(
+                "{}({value})",
+                cpp_swift_array_conversion_name(idl, ty, "FromNative")
+            )
+        }
         "Set" => {
             let facade = cpp_swift_collection_bridge_type(ty, idl);
             format!("{facade}({value}.begin(), {value}.end())")
@@ -4794,6 +4994,14 @@ fn render_cpp_swift_event_copy_adapter(
             "{}({value})",
             cpp_swift_array_conversion_name(idl, ty, "FromNative")
         )
+    } else if ty.name == "Array"
+        && swift_cpp_nested_array_supported(ty)
+        && ty.arguments[0].name == "Set"
+    {
+        format!(
+            "{}({value})",
+            cpp_swift_array_conversion_name(idl, ty, "FromNative")
+        )
     } else if swift_cpp_needs_vector_bridge(ty) {
         format!("{return_type}({value}.begin(), {value}.end())")
     } else {
@@ -5053,6 +5261,14 @@ fn render_cpp_swift_collection_property_adapter(
         out.push_str(&format!(
             "    {bridge_type} {get_adapter}() const noexcept {{ return {from_native}({getter}()); }}\n"
         ));
+    } else if property.ty.name == "Array"
+        && swift_cpp_nested_array_supported(&property.ty)
+        && property.ty.arguments[0].name == "Set"
+    {
+        let from_native = cpp_swift_array_conversion_name(idl, &property.ty, "FromNative");
+        out.push_str(&format!(
+            "    {bridge_type} {get_adapter}() const noexcept {{ return {from_native}({getter}()); }}\n"
+        ));
     } else {
         out.push_str(&format!(
             "    {bridge_type} {get_adapter}() const noexcept {{ auto value = {getter}(); return {bridge_type}(value.begin(), value.end()); }}\n"
@@ -5153,6 +5369,12 @@ fn cpp_swift_collection_argument(ty: &TypeRef, argument: &str, idl: &PluginIdl) 
                 cpp_swift_array_conversion_name(idl, ty, "ToNative")
             )
         }
+        "Array" if swift_cpp_nested_array_supported(ty) && ty.arguments[0].name == "Set" => {
+            format!(
+                "{}({argument})",
+                cpp_swift_array_conversion_name(idl, ty, "ToNative")
+            )
+        }
         "Array" if swift_cpp_nested_array_supported(ty) => argument.to_owned(),
         "Array" if swift_cpp_needs_vector_bridge(ty) => {
             format!("std::vector<bool>({argument}.begin(), {argument}.end())")
@@ -5177,6 +5399,12 @@ fn render_cpp_swift_collection_result(
     } else if swift_cpp_needs_vector_bridge(ty) {
         let alias = cpp_swift_collection_bridge_type(ty, idl);
         if ty.name == "Array" && swift_cpp_array_leaf(ty).is_some_and(|leaf| leaf.name == "Bool") {
+            let from_native = cpp_swift_array_conversion_name(idl, ty, "FromNative");
+            out.push_str(&format!("{prefix}return {from_native}({expression});\n"));
+        } else if ty.name == "Array"
+            && swift_cpp_nested_array_supported(ty)
+            && ty.arguments[0].name == "Set"
+        {
             let from_native = cpp_swift_array_conversion_name(idl, ty, "FromNative");
             out.push_str(&format!("{prefix}return {from_native}({expression});\n"));
         } else {
@@ -6680,8 +6908,8 @@ mod tests {
 
         for unsupported in [
             "Map<Float64, Int32>",
+            "Map<Float32, Int32>",
             "Map<Bytes, Int32>",
-            "Map<String, Int32?>",
             "Map<String?, Int32>",
         ] {
             let idl = nexa_plugin_idl::parse(&format!(
