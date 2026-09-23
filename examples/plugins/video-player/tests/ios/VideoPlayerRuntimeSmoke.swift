@@ -22,10 +22,10 @@ public protocol VideoPlayerSpec {
     var volume: Double { get set }
     var onEnded: (() -> Void)? { get set }
 
-    func prepare(url: String) async throws(PlayerError)
+    func prepare(_ url: String) async throws(PlayerError)
     func play()
     func pause()
-    func seek(position: Double)
+    func seek(_ position: Double)
     func dispose()
 }
 
@@ -86,8 +86,8 @@ struct VideoPlayerRuntimeSmoke {
         first.volume = 0.25
         second.volume = 0.75
 
-        async let firstPrepare: Void = first.prepare(url: "https://media.example/first.mp4")
-        async let secondPrepare: Void = second.prepare(url: "https://media.example/second.mp4")
+        async let firstPrepare: Void = first.prepare("https://media.example/first.mp4")
+        async let secondPrepare: Void = second.prepare("https://media.example/second.mp4")
         try await firstPrepare
         try await secondPrepare
 

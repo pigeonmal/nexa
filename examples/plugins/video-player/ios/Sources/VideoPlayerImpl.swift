@@ -105,7 +105,7 @@ public final class VideoPlayerImpl: VideoPlayerSpec {
         }
     }
 
-    public func prepare(url: String) async throws(PlayerError) {
+    public func prepare(_ url: String) async throws(PlayerError) {
         prepareGeneration &+= 1
         let generation = prepareGeneration
         guard !isDisposed else {
@@ -144,7 +144,7 @@ public final class VideoPlayerImpl: VideoPlayerSpec {
         state = .paused
     }
 
-    public func seek(position: Double) {
+    public func seek(_ position: Double) {
         guard !isDisposed else { return }
         engine.seek(position: position)
     }

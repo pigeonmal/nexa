@@ -140,10 +140,10 @@ use nexa_codegen::plugin::bindings_cpp::{render, render_android_adapters, render
         assert!(
             adapters.contains("private final class NexaCppFutureWork<Output>: @unchecked Sendable")
         );
-        assert!(adapters.contains("public func echoAsync(value: Int32) async -> Int32"));
-        assert!(adapters.contains("public func echoOptionalAsync(value: Int32?) async -> Int32?"));
-        assert!(adapters.contains("public func echoTextAsync(value: String) async -> String"));
-        assert!(adapters.contains("public func echoBytesAsync(value: Data) async -> Data"));
+        assert!(adapters.contains("public func echoAsync(_ value: Int32) async -> Int32"));
+        assert!(adapters.contains("public func echoOptionalAsync(_ value: Int32?) async -> Int32?"));
+        assert!(adapters.contains("public func echoTextAsync(_ value: String) async -> String"));
+        assert!(adapters.contains("public func echoBytesAsync(_ value: Data) async -> Data"));
         assert!(adapters.contains("public func flush() async -> Void"));
         assert!(adapters.contains("return await withCheckedContinuation"));
         assert!(adapters.contains("public func currentValue() async -> Int32"));
@@ -186,7 +186,7 @@ use nexa_codegen::plugin::bindings_cpp::{render, render_android_adapters, render
         let adapters = render_swift_adapters(&async_collection, "dev.example.cpp-plugin")
             .expect("async collection signatures should use the existing vector converters");
         assert!(adapters.contains("public func history() async -> [Int32]"));
-        assert!(adapters.contains("public func count(values: [Int32]) async -> Int32"));
+        assert!(adapters.contains("public func count(_ values: [Int32]) async -> Int32"));
 
         let events = nexa_plugin_idl::parse(
             "native class Watcher { init() event changed(value: Int32) fn dispose() }",
@@ -228,22 +228,22 @@ use nexa_codegen::plugin::bindings_cpp::{render, render_android_adapters, render
         assert!(
             cpp.contains("static NexaCppOptionalInt321 someInt32(std::int32_t value) noexcept")
         );
-        assert!(adapters.contains("public func find(key: Int32?) -> Int32?"));
+        assert!(adapters.contains("public func find(_ key: Int32?) -> Int32?"));
         assert!(adapters.contains(
             "key.map { plugin_dev.plugin_example.plugin_cpp_dash_plugin.NexaCppOptionalBridge.someInt32($0) } ?? plugin_dev.plugin_example.plugin_cpp_dash_plugin.NexaCppOptionalBridge.noneInt32()"
         ));
         assert!(adapters.contains(
             "return Optional(fromCxx: plugin_dev.plugin_example.plugin_cpp_dash_plugin.Lookup.find("
         ));
-        assert!(adapters.contains("public func maybeText(value: String?) -> String?"));
+        assert!(adapters.contains("public func maybeText(_ value: String?) -> String?"));
         assert!(adapters.contains("value.map { plugin_dev.plugin_example.plugin_cpp_dash_plugin.NexaCppOptionalBridge.someString(std.string($0)) }"));
         assert!(adapters.contains("Optional(fromCxx: plugin_dev.plugin_example.plugin_cpp_dash_plugin.Lookup.maybeText(")
             && adapters.contains(".map { String($0) }"));
         assert!(adapters.contains("value.map { plugin_dev.plugin_example.plugin_cpp_dash_plugin.NexaCppOptionalBridge.someBytes(plugin_dev.plugin_example.plugin_cpp_dash_plugin.NexaCppByteBuffer($0)) }"));
         assert!(adapters.contains(".map { Data($0) }"));
-        assert!(adapters.contains("required public init(initial: Int32?)"));
+        assert!(adapters.contains("required public init(_ initial: Int32?)"));
         assert!(cpp.contains("using NexaCppArrayInt32 = std::vector<std::int32_t>;"));
-        assert!(adapters.contains("public func echoValues(values: [Int32]) -> [Int32]"));
+        assert!(adapters.contains("public func echoValues(_ values: [Int32]) -> [Int32]"));
         assert!(adapters.contains(
             "plugin_dev.plugin_example.plugin_cpp_dash_plugin.NexaCppArrayInt32(values)"
         ));
@@ -301,7 +301,7 @@ use nexa_codegen::plugin::bindings_cpp::{render, render_android_adapters, render
         assert!(cpp.contains("nexaSwiftAdapterSetvalues(NexaCppArrayInt32 value) noexcept"));
         assert!(cpp.contains("nexaMakeBasketForSwift(NexaCppArrayInt32 values) noexcept"));
 
-        assert!(adapters.contains("public func integers(values: Set<Int32>) -> Set<Int32>"));
+        assert!(adapters.contains("public func integers(_ values: Set<Int32>) -> Set<Int32>"));
         assert!(adapters.contains(
             "plugin_dev.plugin_example.plugin_cpp_dash_plugin.nexaSwiftAdapter_Lookup_integers("
         ));
@@ -309,7 +309,7 @@ use nexa_codegen::plugin::bindings_cpp::{render, render_android_adapters, render
         assert!(adapters.contains(
             "return Set(Array(plugin_dev.plugin_example.plugin_cpp_dash_plugin.NexaCppArrayInt32("
         ));
-        assert!(adapters.contains("public func payloads(values: Set<Data>) -> Set<Data>"));
+        assert!(adapters.contains("public func payloads(_ values: Set<Data>) -> Set<Data>"));
         assert!(adapters.contains(
             "values.map { plugin_dev.plugin_example.plugin_cpp_dash_plugin.NexaCppByteBuffer($0) }"
         ));
@@ -317,10 +317,10 @@ use nexa_codegen::plugin::bindings_cpp::{render, render_android_adapters, render
             "Set(Array(plugin_dev.plugin_example.plugin_cpp_dash_plugin.NexaCppArrayBytes("
         ));
         assert!(adapters.contains(".map { Data($0) }"));
-        assert!(adapters.contains("required public init(values: Set<Int32>)"));
+        assert!(adapters.contains("required public init(_ values: Set<Int32>)"));
         assert!(adapters.contains("nexaCppObject.nexaSwiftAdapterGetvalues()"));
         assert!(adapters.contains("nexaCppObject.nexaSwiftAdapterSetvalues("));
-        assert!(adapters.contains("public func transform(values: Set<Int32>) -> Set<Int32>"));
+        assert!(adapters.contains("public func transform(_ values: Set<Int32>) -> Set<Int32>"));
 
         for unsupported in ["Set<String>", "Set<Float64>", "Set<Int32?>"] {
             let unsupported_idl = nexa_plugin_idl::parse(&format!(

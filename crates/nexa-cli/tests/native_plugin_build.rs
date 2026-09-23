@@ -690,7 +690,7 @@ fn generated_typed_error_contracts_typecheck_with_swift_when_available() {
     let implementation = temp.0.join("VideoPlayerImpl.swift");
     fs::write(
         &implementation,
-        "@MainActor public final class VideoPlayerImpl: VideoPlayerSpec {\n    required public init() {}\n    public func prepare(url: String, playbackRate: Double) async throws(PlayerError) {}\n}\n",
+        "@MainActor public final class VideoPlayerImpl: VideoPlayerSpec {\n    required public init() {}\n    public func prepare(_ url: String, _ playbackRate: Double) async throws(PlayerError) {}\n}\n",
     )
     .expect("Swift implementation should be written");
 
@@ -710,7 +710,7 @@ fn generated_typed_error_contracts_typecheck_with_swift_when_available() {
 
     fs::write(
         &implementation,
-        "@MainActor public final class VideoPlayerImpl: VideoPlayerSpec {\n    required public init() {}\n    public func prepare(url: String, playbackRate: Float) async throws(PlayerError) {}\n}\n",
+        "@MainActor public final class VideoPlayerImpl: VideoPlayerSpec {\n    required public init() {}\n    public func prepare(_ url: String, _ playbackRate: Float) async throws(PlayerError) {}\n}\n",
     )
     .expect("invalid Swift implementation should be written");
     let rejected = Command::new("swiftc")

@@ -290,13 +290,7 @@ fn native_call(
             name,
             arguments
                 .iter()
-                .map(|(argument_name, value)| {
-                    format!(
-                        "{}: {}",
-                        argument_name,
-                        expression_with_locals(value, locals)
-                    )
-                })
+                .map(|(_, value)| expression_with_locals(value, locals))
                 .collect::<Vec<_>>()
                 .join(", ")
         );
@@ -379,9 +373,7 @@ fn native_call(
             name,
             arguments
                 .iter()
-                .map(|(argument_name, value)| {
-                    format!("{argument_name}: {}", expression_with_locals(value, locals))
-                })
+                .map(|(_, value)| expression_with_locals(value, locals))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
@@ -507,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn native_instance_calls_keep_the_receiver_and_swift_argument_labels() {
+    fn native_instance_calls_keep_the_receiver_and_use_positional_arguments() {
         let call = Expr::NativeCall {
             receiver: Some(Box::new(Expr::State(
                 "player".to_owned(),
@@ -526,7 +518,7 @@ mod tests {
 
         assert_eq!(
             expression(&Expr::Await(Box::new(call))),
-            "await nexa_player.prepare(url: \"clip.mp4\")"
+            "await nexa_player.prepare(\"clip.mp4\")"
         );
     }
 }

@@ -733,8 +733,8 @@ mod tests {
             "onTapped: {",
             "nexa_tapped = true",
             "nexa_secondTapped = true",
-            "await nexa_player1.prepare(url:",
-            "await nexa_player2.prepare(url:",
+            "await nexa_player1.prepare(\"",
+            "await nexa_player2.prepare(\"",
             "nexa_player1.volume = Double(0.5)",
             "nexa_player2.volume = Double(0.25)",
             "nexa_player1.dispose()",
@@ -750,7 +750,7 @@ mod tests {
             assert!(swift.contains(fragment), "missing Swift output: {fragment}");
         }
         assert!(swift.contains("do {"));
-        assert!(swift.contains("try await nexa_player1.prepare(url:"));
+        assert!(swift.contains("try await nexa_player1.prepare(\""));
         assert!(swift.contains("} catch let error as PlayerError {"));
         assert!(swift.contains("case .invalidUrl:"));
         assert!(swift.contains("case let .decodingFailed(nexa_message):"));

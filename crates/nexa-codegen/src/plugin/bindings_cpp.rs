@@ -4218,7 +4218,7 @@ fn swift_cpp_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
         .iter()
         .map(|parameter| {
             format!(
-                "{}: {}",
+                "_ {}: {}",
                 parameter.name,
                 swift_cpp_value_type(&parameter.ty).expect("validated parameter value")
             )

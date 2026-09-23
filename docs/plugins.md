@@ -115,7 +115,7 @@ std::future<std::int64_t> runHeavyJob(int32_t threads, double precision) noexcep
 
 Import the plugin at the top of your `.nx` file:
 
-Plugin service methods accept positional arguments in `.nxid` declaration order or named arguments when you prefer explicit labels.
+Plugin service methods and native class methods use positional arguments in `.nxid` declaration order. Generated Swift bindings also omit external argument labels; `fn add(a: Int32, b: Int32)` becomes `func add(_ a: Int32, _ b: Int32)` in Swift.
 
 ```nexa
 plugin "fast-engine" as FastEngine

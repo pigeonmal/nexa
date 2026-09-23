@@ -542,7 +542,7 @@ fn kotlin_contract_name(interface: &Interface) -> String {
 fn swift_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
     parameters
         .iter()
-        .map(|parameter| format!("{}: {}", parameter.name, swift_type(&parameter.ty)))
+        .map(|parameter| format!("_ {}: {}", parameter.name, swift_type(&parameter.ty)))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -754,7 +754,7 @@ mod tests {
         assert!(swift.contains("case invalidUrl"));
         assert!(swift.contains("case decodingFailed(message: String)"));
         assert!(swift.contains(
-            "func prepare(url: String, playbackRate: Double) async throws(PlayerError) -> Void"
+            "func prepare(_ url: String, _ playbackRate: Double) async throws(PlayerError) -> Void"
         ));
         assert!(swift.contains("func currentSource() async throws(PlayerError) -> String"));
 

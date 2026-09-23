@@ -978,7 +978,7 @@ pub(super) fn lower_expr(
                 if !named_arguments.is_empty() {
                     return Err(CompileError::new(
                         *span,
-                        "named arguments are only supported by native class methods",
+                        "named arguments are not supported for this method call",
                     ));
                 }
                 lower_collection_transform(
@@ -1809,58 +1809,28 @@ fn lower_plugin_call(
         ));
     }
     require_expected(expected, &signature.return_type, span)?;
-    let ordered_arguments = if named_arguments.is_empty() {
-        if arguments.len() != signature.parameters.len() {
-            return Err(CompileError::new(
-                span,
-                format!(
-                    "plugin method `{qualified_name}` expects {} argument(s), found {}",
-                    signature.parameters.len(),
-                    arguments.len()
-                ),
-            ));
-        }
-        signature
-            .parameters
-            .iter()
-            .zip(arguments.iter())
-            .map(|((name, ty), argument)| (name, ty, argument))
-            .collect::<Vec<_>>()
-    } else {
-        let known = signature
-            .parameters
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect::<HashSet<_>>();
-        if let Some(unknown) = named_arguments
-            .keys()
-            .find(|name| !known.contains(name.as_str()))
-        {
-            return Err(CompileError::new(
-                span,
-                format!("unknown argument `{unknown}` for plugin method `{qualified_name}`"),
-            ));
-        }
-        signature
-            .parameters
-            .iter()
-            .map(|(name, ty)| {
-                named_arguments
-                    .get(name)
-                    .map(|argument| (name, ty, argument))
-                    .ok_or_else(|| {
-                        CompileError::new(
-                            span,
-                            format!("plugin method `{qualified_name}` requires `{name}`"),
-                        )
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?
-    };
+    if !named_arguments.is_empty() {
+        return Err(CompileError::new(
+            span,
+            "Nexa plugin calls use positional arguments in declaration order",
+        ));
+    }
+    if arguments.len() != signature.parameters.len() {
+        return Err(CompileError::new(
+            span,
+            format!(
+                "plugin method `{qualified_name}` expects {} argument(s), found {}",
+                signature.parameters.len(),
+                arguments.len()
+            ),
+        ));
+    }
     let mut lowered = Vec::with_capacity(signature.parameters.len());
-    for (argument_name, argument_type, argument) in ordered_arguments {
+    for ((argument_name, argument_type), argument) in
+        signature.parameters.iter().zip(arguments.iter())
+    {
         lowered.push((
-            argument_name.to_owned(),
+            argument_name.clone(),
             lower_expr(
                 argument,
                 Some(argument_type),
@@ -1941,7 +1911,13 @@ fn lower_plugin_method_call(
             format!("method `{name}` is not available on `{class}`"),
         ));
     }
-    if named_arguments.is_empty() && arguments.len() != signature.parameters.len() {
+    if !named_arguments.is_empty() {
+        return Err(CompileError::new(
+            span,
+            "Nexa plugin calls use positional arguments in declaration order",
+        ));
+    }
+    if arguments.len() != signature.parameters.len() {
         return Err(CompileError::new(
             span,
             format!(
@@ -1951,46 +1927,6 @@ fn lower_plugin_method_call(
             ),
         ));
     }
-    let ordered_arguments = if named_arguments.is_empty() {
-        signature
-            .parameters
-            .iter()
-            .zip(arguments.iter())
-            .map(|((_, ty), argument)| (argument, ty))
-            .collect::<Vec<_>>()
-    } else {
-        let known = signature
-            .parameters
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect::<HashSet<_>>();
-        if let Some(unknown) = named_arguments
-            .keys()
-            .find(|argument_name| !known.contains(argument_name.as_str()))
-        {
-            return Err(CompileError::new(
-                span,
-                format!("unknown argument `{unknown}` for native class method `{class}.{name}`"),
-            ));
-        }
-        signature
-            .parameters
-            .iter()
-            .map(|(parameter_name, ty)| {
-                named_arguments
-                    .get(parameter_name)
-                    .map(|argument| (argument, ty))
-                    .ok_or_else(|| {
-                        CompileError::new(
-                            span,
-                            format!(
-                                "native class method `{class}.{name}` requires `{parameter_name}`"
-                            ),
-                        )
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?
-    };
     if signature.is_async && !awaited {
         return Err(CompileError::new(
             span,
@@ -2011,9 +1947,13 @@ fn lower_plugin_method_call(
     }
     require_expected(expected, &signature.return_type, span)?;
     let receiver = lower_expr(base, Some(&base_type), symbols, functions, allow_await)?;
-    let lowered = ordered_arguments
+    let lowered = signature
+        .parameters
         .iter()
-        .map(|(argument, ty)| lower_expr(argument, Some(ty), symbols, functions, allow_await))
+        .zip(arguments.iter())
+        .map(|((_, ty), argument)| {
+            lower_expr(argument, Some(ty), symbols, functions, allow_await)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Expr::NativeCall {
         receiver: Some(Box::new(receiver)),
