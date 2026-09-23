@@ -219,7 +219,11 @@ Android posts them to the main looper. Replacing or disposing a callback
 deactivates pending deliveries and releases retained callback state.
 Android optional C++ values support `Bool`, signed and unsigned integers,
 floating-point, `String`, and `Bytes`. Generated R8 rules
-preserve JNI lookup names. Plugin authors implement the generated C++ contract
+preserve JNI lookup names and the IDL enum/struct members inspected by JNI.
+Both C++ adapters marshal IDL enums and structs passed as scalar parameters or
+results. Android struct fields may be required primitive, string, byte, enum,
+or nested supported struct values; optional and collection-valued named fields
+remain rejected by generation. Plugin authors implement the generated C++ contract
 and do not write JNI. On a target using C++ adapters, platform source files may
 provide UI/native-component implementations, but should not also define the
 generated service plugin object or `<NativeClass>Impl` types.
@@ -469,8 +473,8 @@ Native-class and native-component event subscriptions are direct and
 instance-scoped. Native-class parameters on custom components are borrowed;
 the component cannot dispose its caller's object, and the containing view keeps
 the object live until disappearance. Package installation/version resolution,
-complete runtime coverage for native object instances, and broader generated
-C++ adapters remain planned work. See
+complete runtime coverage for native object instances, and additional
+platform-specific C++ collection combinations remain follow-up work. See
 [plugin-architecture.md](plugin-architecture.md)
 for the current architecture report and migration map, and `plugin-plan.md` for
 the full design and test matrix.

@@ -2103,7 +2103,12 @@ invocation and conversion on the existing background async path. Android and
 iOS C++ native-class event adapters now support typed, instance-scoped callback
 delivery. The supported collection combinations are explicit, tested, and
 platform-specific; generators reject any unlisted shape pending semantic rules
-and dedicated regression coverage.
+and dedicated regression coverage. C++ headless type matrices also exercise
+every built-in scalar family, IDL enum round trips, and IDL struct round trips
+on iOS and Android. The Android host-JVM test checks struct fields containing
+primitives, strings, bytes, and nested enums; JNI-visible named classes and
+members receive targeted R8 keep rules. Optional and collection-valued named
+struct fields remain unsupported on Android and are rejected during generation.
 Network pinning uses the same case-insensitive 64-character SHA-256 hash of
 DER-encoded SPKI on both platforms. iOS validates system trust before matching
 any certificate in the server chain; its generated DER parser has a headless

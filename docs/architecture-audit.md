@@ -257,12 +257,10 @@ made.
 
 ## Remaining architectural work
 
-Add C++ event contracts on both platforms and broaden nested `Set`/`Map`
-combinations. Android and iOS typed-error adapters translate supported
-`NexaResult` failures into native exception/error cases, and async methods now
-use the existing collection adapters on the background execution path.
-Recursive `Array` adapters now have iOS Swift/C++ typecheck and Android
-Kotlin/JNI runtime coverage, and flat-map adapters have per-platform type
-coverage. Navigation gives each screen destination independent native state and
-a unique Swift route identity; reusing native resources across separate route
-lifetimes remains open. Direct Swift/Kotlin remains the default path.
+Broader platform-specific C++ collection combinations remain follow-up work
+beyond the shapes listed in `docs/plugins.md`; generators reject unlisted forms
+until their semantics and regression coverage are defined. C++ events and
+typed-error adapters are implemented on both platforms, and async methods use
+the existing collection adapters on the background execution path. Navigation
+supports independent per-route state and app-owned native resources borrowed
+across route lifetimes. Direct Swift/Kotlin remains the default path.

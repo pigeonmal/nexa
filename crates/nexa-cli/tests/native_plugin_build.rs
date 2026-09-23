@@ -323,7 +323,10 @@ const CXX_PRIMITIVE_TYPES: &[PrimitiveTypeCase] = &[
 ];
 
 fn type_matrix_idl(include_android_nested_map: bool) -> String {
-    let mut idl = String::from("service Types {\n    fn ping()\n");
+    let mut idl = String::from(
+        "enum MediaMode { idle playing }\nstruct MediaStats { frameCount: Int32 active: Bool title: String payload: Bytes mode: MediaMode }\n",
+    );
+    idl.push_str("service Types {\n    fn ping()\n");
     for ty in CXX_PRIMITIVE_TYPES {
         idl.push_str(&format!(
             "    fn echo{0}(value: {1}) -> {1}\n    fn maybe{0}(value: {1}?) -> {1}?\n    fn echoArray{0}(values: Array<{1}>) -> Array<{1}>\n    fn echoNestedArray{0}(values: Array<Array<{1}>>) -> Array<Array<{1}>>\n",
@@ -342,6 +345,9 @@ fn type_matrix_idl(include_android_nested_map: bool) -> String {
     }
     idl.push_str(
         "    fn echoMapFloat32(values: Map<Bool, Float32>) -> Map<Bool, Float32>\n    fn echoMapFloat64(values: Map<Int8, Float64>) -> Map<Int8, Float64>\n    fn echoMapString(values: Map<Int16, String>) -> Map<Int16, String>\n    fn echoBytesMap(values: Map<Int32, Bytes>) -> Map<Int32, Bytes>\n    fn echoArrayMap(values: Map<Int32, Array<Int32>>) -> Map<Int32, Array<Int32>>\n    fn echoStringArrayMap(values: Map<Int32, Array<String>>) -> Map<Int32, Array<String>>\n    fn echoBytesArrayMap(values: Map<Int32, Array<Bytes>>) -> Map<Int32, Array<Bytes>>\n    fn echoSetMap(values: Map<Int32, Set<UInt32>>) -> Map<Int32, Set<UInt32>>\n    fn echoArraySet(values: Array<Set<UInt32>>) -> Array<Set<UInt32>>\n",
+    );
+    idl.push_str(
+        "    fn echoMediaMode(value: MediaMode) -> MediaMode\n    fn echoMediaStats(value: MediaStats) -> MediaStats\n",
     );
     idl.push_str("    fn echoNestedArrayMap(values: Map<Int32, Array<Array<Int32>>>) -> Map<Int32, Array<Array<Int32>>>\n");
     if include_android_nested_map {
@@ -363,6 +369,9 @@ fn type_matrix_idl(include_android_nested_map: bool) -> String {
 fn type_matrix_cpp_source(include_android_nested_map: bool) -> String {
     let mut source = String::from(
         "#include \"NexaPluginBindings.hpp\"\n#include <cstdint>\n#include <optional>\n#include <string>\n#include <utility>\n#include <vector>\nnamespace plugin_dev::plugin_example::plugin_cpp_dash_type_dash_matrix {\nnamespace Types {\nvoid ping() noexcept {}\n",
+    );
+    source.push_str(
+        "MediaMode echoMediaMode(MediaMode value) noexcept { return value; }\nMediaStats echoMediaStats(MediaStats value) noexcept { return value; }\n",
     );
     for ty in CXX_PRIMITIVE_TYPES {
         source.push_str(&format!(
@@ -432,7 +441,7 @@ fn type_matrix_plugin(temp: &TempProject, include_android_nested_map: bool) -> (
 
 fn type_matrix_kotlin_smoke() -> String {
     let mut source = String::from(
-        "package com.nexa.cpptypematrixandroid\n\nfun main() {\n    val text = \"Nexa 🚀\"\n    val bytes = byteArrayOf(0, -1, 127, -128)\n    TypesPlugin.ping()\n",
+        "package com.nexa.cpptypematrixandroid\n\nfun main() {\n    val text = \"Nexa 🚀\"\n    val bytes = byteArrayOf(0, -1, 127, -128)\n    TypesPlugin.ping()\n    check(TypesPlugin.echoMediaMode(MediaMode.playing) == MediaMode.playing)\n    val mediaStats = MediaStats(Int.MIN_VALUE, true, text, bytes, MediaMode.playing)\n    val returnedMediaStats = TypesPlugin.echoMediaStats(mediaStats)\n    check(returnedMediaStats.frameCount == mediaStats.frameCount && returnedMediaStats.active == mediaStats.active && returnedMediaStats.title == mediaStats.title && returnedMediaStats.payload.contentEquals(mediaStats.payload) && returnedMediaStats.mode == mediaStats.mode)\n",
     );
     for ty in CXX_PRIMITIVE_TYPES {
         let value = if ty.idl == "String" {
@@ -584,6 +593,9 @@ fn type_matrix_swift_probe() -> String {
     }
     source.push_str(
         "    _ = api.echoMapFloat32(values: [false: 1.25])\n    _ = api.echoMapFloat64(values: [-1: 2.5])\n    _ = api.echoMapString(values: [-2: \"Nexa\"])\n    _ = api.echoBytesMap(values: [1: bytes])\n    _ = api.echoArrayMap(values: [1: [Int32.min, 0, Int32.max], 2: []])\n    _ = api.echoStringArrayMap(values: [1: [\"\", \"Nexa 🚀\"], 2: []])\n    _ = api.echoBytesArrayMap(values: [1: [Data([0, 255]), Data()], 2: []])\n    _ = api.echoSetMap(values: [1: Set([UInt32.min, UInt32.max])])\n    _ = api.echoArraySet(values: [Set([UInt32.min, UInt32.max]), []])\n",
+    );
+    source.push_str(
+        "    _ = api.echoMediaMode(value: .playing)\n    let mediaStats = MediaStats(frameCount: Int32.max, active: true, title: text, payload: bytes, mode: .playing)\n    _ = api.echoMediaStats(value: mediaStats)\n",
     );
     source.push_str("    _ = api.echoNestedArrayMap(values: [1: [[Int32.min, Int32.max], []]])\n");
     source.push_str("}\n");
@@ -2611,10 +2623,16 @@ fn generated_android_cpp_adapters_roundtrip_primitive_nullable_and_collection_ma
         fs::read_to_string(&bindings).expect("generated Android C++ bindings should be staged");
     let gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
         .expect("generated Android Gradle configuration should be readable");
+    let proguard = fs::read_to_string(output.join("android/app/proguard-rules.pro"))
+        .expect("generated Android shrinker rules should be readable");
     assert!(
         !gradle.contains("kotlinx-coroutines-android"),
         "synchronous C++ plugins should not pull in coroutine dependencies"
     );
+    assert!(proguard.contains("-keep class com.nexa.cpptypematrixandroid.MediaMode { *; }"));
+    assert!(proguard.contains("-keep class com.nexa.cpptypematrixandroid.MediaStats { *; }"));
+    assert!(generated_kotlin.contains("public enum class MediaMode"));
+    assert!(generated_kotlin.contains("public data class MediaStats"));
     for ty in CXX_PRIMITIVE_TYPES {
         assert!(
             generated_kotlin.contains(&format!("echo{}(value: {})", ty.suffix, ty.kotlin)),

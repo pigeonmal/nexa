@@ -694,7 +694,7 @@ mod tests {
     };
 
     use super::{
-        PluginPackage, idl, typecheck_kotlin_implementation, typecheck_swift_implementation,
+        PluginPackage, idl, init, typecheck_kotlin_implementation, typecheck_swift_implementation,
         validate_package_sources,
     };
 
@@ -722,6 +722,77 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn native_plugin_init_creates_a_valid_typed_scaffold() {
+        let output = TempPackage::new();
+        let args = vec![
+            "dev.example.media".to_owned(),
+            "--out".to_owned(),
+            output.0.display().to_string(),
+            "--name".to_owned(),
+            "Media".to_owned(),
+        ];
+
+        init(&args).expect("native plugin init should create its scaffold");
+
+        let manifest_source = fs::read_to_string(output.0.join("plugin.config.nx"))
+            .expect("native scaffold should include its manifest");
+        let manifest =
+            idl::manifest::parse(&manifest_source).expect("generated native manifest should parse");
+        assert_eq!(manifest.id, "dev.example.media");
+        assert!(output.0.join("ios/Sources/Media.swift").is_file());
+        assert!(
+            output
+                .0
+                .join("android/src/main/kotlin/com/nexa/plugin/devexamplemedia/Media.kt")
+                .is_file()
+        );
+        let native_source = fs::read_to_string(output.0.join("native.nxid"))
+            .expect("native scaffold should include its IDL");
+        let contract = idl::parse(&native_source).expect("generated native IDL should parse");
+        assert_eq!(contract.interfaces.len(), 1);
+        assert_eq!(contract.interfaces[0].name, "Media");
+
+        let package = PluginPackage {
+            root: output.0.clone(),
+            manifest,
+            native_path: Some(output.0.join("native.nxid")),
+        };
+        validate_package_sources(&package)
+            .expect("generated native source roots should satisfy the manifest");
+    }
+
+    #[test]
+    fn pure_plugin_init_creates_a_checkable_source_package() {
+        let output = TempPackage::new();
+        let args = vec![
+            "dev.example.design".to_owned(),
+            "--kind".to_owned(),
+            "pure".to_owned(),
+            "--out".to_owned(),
+            output.0.display().to_string(),
+        ];
+
+        init(&args).expect("pure plugin init should create its scaffold");
+
+        let manifest_source = fs::read_to_string(output.0.join("plugin.config.nx"))
+            .expect("pure scaffold should include its manifest");
+        let manifest =
+            idl::manifest::parse(&manifest_source).expect("generated pure manifest should parse");
+        assert_eq!(manifest.id, "dev.example.design");
+        assert!(output.0.join("plugin.nx").is_file());
+        assert!(output.0.join("assets").is_dir());
+        assert!(!output.0.join("native.nxid").exists());
+
+        let package = PluginPackage {
+            root: output.0.clone(),
+            manifest,
+            native_path: None,
+        };
+        validate_package_sources(&package)
+            .expect("generated pure source graph should satisfy the manifest");
     }
 
     #[test]

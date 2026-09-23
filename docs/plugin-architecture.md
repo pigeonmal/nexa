@@ -185,7 +185,7 @@ their native semantics and regression coverage are defined.
 | `interfaces.nxid` and opaque type names | `native.nxid` with structured value types and native declarations | `nexa-plugin-idl`, generated bindings | Implemented; opaque `type Name` syntax is now removed. |
 | Singleton assumption for every native API | Stateless `service` and concrete `native class` instances | semantic expression lowering, both backends | Constructors, direct methods, mutable properties, instance-scoped class events, per-entry route state, and multi-instance example implemented; callback disposal checks follow app/screen ownership and borrowed component identities. |
 | One generic interface for native UI | Qualified `native component` declarations | semantic lowering, both component generators | Required and defaulted properties, declared child slots, direct wrappers, and per-call event subscriptions implemented. |
-| Hand-authored C bridge | Generated Swift/Kotlin contracts and direct calls | `plugin/bindings.rs`, project plugin copying | Normal C ABI path removed; optional C++ adapters cover synchronous scalar, optional, string, and byte values plus flat arrays and compatible sets on iOS, and optional values, flat arrays, compatible sets, and flat scalar/string maps on Android. |
+| Hand-authored C bridge | Generated Swift/Kotlin contracts and direct calls | `plugin/bindings.rs`, project plugin copying | Normal C ABI path removed; optional C++ adapters bridge IDL enums and structs as scalar arguments/results on both platforms, alongside the documented scalar and collection shapes. |
 | Implicit native build defaults | Manifest-declared C++ language minimum | plugin manifest, IR, Xcode and CMake generation | `cpp.standard` validates C++17/20/23 and applies the highest reachable requirement to generated iOS and Android targets; default remains C++20. |
 | Package sources inferred from fixed folders | Manifest-declared source globs and asset paths | manifest parser, project plugin copier, cache | Implemented; Android currently requires one implementation package per plugin. |
 | Host dependencies inferred ad hoc | Typed SwiftPM/Maven declarations, iOS frameworks and XCFrameworks, Android HTTPS repositories and AARs, platform resources, privacy manifests, R8 rules, and platform minima | IR plugin metadata, `project/templates.rs`, plugin artifact copying | Implemented with conflict checks and package-bound path validation; native package managers write lockfiles during dependency resolution. |
@@ -208,22 +208,19 @@ rejected. Typed Kotlin error payloads also compile when their IDL field is named
 generated VideoPlayer Android host is assembled with Gradle when an API 37 SDK
 and a cached or installed Gradle distribution are available. Android C++
 adapters are exercised by a host-JVM JNI smoke test, including embedded NUL and
-supplementary Unicode strings; the generated bridge and implementation are
-cross-compiled and linked with the NDK when available. Xcode builds also
-type-check generated Swift `Data` to C++ byte-vector adapters and set facades.
+supplementary Unicode strings, IDL enum values, and structs with scalar, string,
+byte, and enum fields; the generated bridge and implementation are
+cross-compiled and linked with the NDK when available. Xcode builds type-check
+generated Swift `Data` to C++ byte-vector adapters, set facades, and IDL
+enum/struct values.
 
 ## Remaining work
 
-1. Complete the remaining generated C++ host adapter cases. Both platforms
-   support non-throwing async scalar, optional scalar, string, and byte methods;
-   iOS also translates declared typed errors for supported scalar/string/byte
-   results. Android supports async typed errors with non-optional primitive,
-   string, and byte payloads. Native-class C++ events are supported on both
-   platforms; collection combinations outside the covered shapes remain open.
-   Android map keys exclude floating-point values to avoid C++ ordering
-   mismatches around NaN and signed zero. Nullable scalar map values and
-   optional primitive/string/byte array elements have JNI round-trip coverage;
-   compatible nullable integer set elements are covered as well.
+Broader platform-specific collection combinations remain open beyond the
+documented and tested shapes. Android map keys exclude floating-point values to
+avoid C++ ordering mismatches around NaN and signed zero. Nullable scalar map
+values and optional primitive/string/byte array elements have JNI round-trip
+coverage; compatible nullable integer set elements are covered as well.
 
 The VideoPlayer example includes headless Swift and Android/JVM smoke tests for
 independent instance behavior and deterministic disposal using fake media

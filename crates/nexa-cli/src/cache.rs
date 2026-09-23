@@ -401,10 +401,13 @@ mod tests {
     use std::{
         fs,
         path::PathBuf,
+        sync::atomic::{AtomicUsize, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
 
     use super::key;
+
+    static TEMP_PROJECT_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 
     struct TempProject(PathBuf);
 
@@ -414,8 +417,11 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .expect("system clock should be after the epoch")
                 .as_nanos();
-            let root = std::env::temp_dir()
-                .join(format!("nexa-cache-test-{}-{unique}", std::process::id()));
+            let sequence = TEMP_PROJECT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "nexa-cache-test-{}-{unique}-{sequence}",
+                std::process::id()
+            ));
             fs::create_dir_all(&root).expect("temporary project should be created");
             Self(root)
         }

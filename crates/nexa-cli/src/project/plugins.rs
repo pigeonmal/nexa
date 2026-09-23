@@ -333,6 +333,17 @@ pub(super) fn android_plugin_proguard_rules(
                 plugin.namespace
             ));
             let contract = nexa_plugin_idl::parse_file(Path::new(&plugin.idl_path))?;
+            let marshalled_types = android_jni_marshalled_named_types(&contract);
+            for ty in contract.types.iter().filter(|ty| {
+                marshalled_types.contains(&ty.name)
+                    && matches!(
+                        ty.kind,
+                        nexa_plugin_idl::NamedTypeKind::Struct
+                            | nexa_plugin_idl::NamedTypeKind::Enum
+                    )
+            }) {
+                output.push_str(&format!("-keep class {package}.{} {{ *; }}\n", ty.name));
+            }
             for interface in contract
                 .interfaces
                 .iter()
@@ -384,6 +395,62 @@ pub(super) fn android_plugin_proguard_rules(
         }
     }
     Ok(output)
+}
+
+fn android_jni_marshalled_named_types(
+    contract: &nexa_plugin_idl::PluginIdl,
+) -> std::collections::BTreeSet<String> {
+    fn enqueue_type(ty: &nexa_plugin_idl::TypeRef, pending: &mut Vec<String>) {
+        pending.push(ty.name.clone());
+        for argument in &ty.arguments {
+            enqueue_type(argument, pending);
+        }
+    }
+
+    let mut pending = Vec::new();
+    for interface in contract.interfaces.iter().filter(|interface| {
+        matches!(
+            interface.kind,
+            nexa_plugin_idl::InterfaceKind::Service | nexa_plugin_idl::InterfaceKind::NativeClass
+        )
+    }) {
+        for constructor in &interface.constructors {
+            for parameter in &constructor.parameters {
+                enqueue_type(&parameter.ty, &mut pending);
+            }
+        }
+        for property in &interface.properties {
+            enqueue_type(&property.ty, &mut pending);
+        }
+        for event in &interface.events {
+            for parameter in &event.parameters {
+                enqueue_type(&parameter.ty, &mut pending);
+            }
+        }
+        for method in &interface.methods {
+            enqueue_type(&method.return_type, &mut pending);
+            for parameter in &method.parameters {
+                enqueue_type(&parameter.ty, &mut pending);
+            }
+        }
+    }
+
+    let mut reachable = std::collections::BTreeSet::new();
+    while let Some(name) = pending.pop() {
+        if !reachable.insert(name.clone()) {
+            continue;
+        }
+        if let Some(named) = contract
+            .types
+            .iter()
+            .find(|ty| ty.name == name && ty.kind == nexa_plugin_idl::NamedTypeKind::Struct)
+        {
+            for field in &named.fields {
+                enqueue_type(&field.ty, &mut pending);
+            }
+        }
+    }
+    reachable
 }
 
 fn copy_plugin_resource(

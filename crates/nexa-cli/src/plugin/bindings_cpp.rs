@@ -100,6 +100,7 @@ pub(crate) fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<
     let byte_buffer_type = format!("{namespace}.{}", cpp_byte_buffer_alias_name(idl));
     let optional_bridge = format!("{namespace}.{}", cpp_optional_bridge_name(idl));
     let mut out = String::from("import CxxStdlib\nimport Foundation\n\n");
+    render_swift_cpp_named_value_helpers(&mut out, idl, &namespace, &byte_buffer_type);
     if idl
         .interfaces
         .iter()
@@ -534,6 +535,7 @@ pub(crate) fn render_android_adapters(
                 if let Some(constructor) = constructor {
                     for parameter in &constructor.parameters {
                         ensure_android_cpp_value(
+                            idl,
                             &interface.name,
                             &parameter.name,
                             &parameter.ty,
@@ -544,6 +546,7 @@ pub(crate) fn render_android_adapters(
                 for event in &interface.events {
                     for parameter in &event.parameters {
                         ensure_android_cpp_value(
+                            idl,
                             &interface.name,
                             &parameter.name,
                             &parameter.ty,
@@ -573,7 +576,13 @@ pub(crate) fn render_android_adapters(
                     );
                 }
                 for property in &interface.properties {
-                    ensure_android_cpp_value(&interface.name, &property.name, &property.ty, false)?;
+                    ensure_android_cpp_value(
+                        idl,
+                        &interface.name,
+                        &property.name,
+                        &property.ty,
+                        false,
+                    )?;
                 }
                 let dispose = interface
                     .methods
@@ -732,6 +741,7 @@ pub(crate) fn render_android_adapters(
     kotlin_output.push_str(&kotlin_implementations);
     let mut jni_output = render_android_jni_prelude(plugin_id);
     render_android_jni_error_converters(&mut jni_output, idl, package, plugin_index);
+    render_android_jni_named_value_helpers(&mut jni_output, idl, package);
     jni_output.push_str(&jni);
     Ok((kotlin_output, jni_output))
 }
@@ -1142,7 +1152,7 @@ fn validate_android_cpp_method(
     }
     let success_type = android_cpp_method_success_type(method);
     for parameter in &method.parameters {
-        ensure_android_cpp_value(interface, &parameter.name, &parameter.ty, false)?;
+        ensure_android_cpp_value(idl, interface, &parameter.name, &parameter.ty, false)?;
     }
     if is_dispose {
         if !method.parameters.is_empty()
@@ -1155,7 +1165,7 @@ fn validate_android_cpp_method(
             ));
         }
     } else {
-        ensure_android_cpp_value(interface, &method.name, success_type, true)?;
+        ensure_android_cpp_value(idl, interface, &method.name, success_type, true)?;
     }
     Ok(())
 }
@@ -1181,18 +1191,68 @@ fn android_cpp_method_success_type(method: &Method) -> &TypeRef {
 }
 
 fn ensure_android_cpp_value(
+    idl: &PluginIdl,
     interface: &str,
     member: &str,
     ty: &TypeRef,
     allow_void: bool,
 ) -> Result<(), String> {
-    if android_cpp_type(ty).is_some() && (allow_void || !android_cpp_is_void(ty)) {
+    let named_scalar = android_cpp_named_value_type(idl, ty).is_some();
+    let collections_with_named_values = !named_scalar && android_cpp_contains_named_value(idl, ty);
+    let requires_named_declaration = ty.arguments.is_empty()
+        && android_cpp_value(ty).is_none()
+        && !matches!(
+            ty.name.as_str(),
+            "Array" | "Set" | "Map" | "Pair" | "Triple" | "Result"
+        );
+    let named_type_is_supported = !requires_named_declaration
+        || android_cpp_named_value_type(idl, ty)
+            .is_some_and(|named| !ty.optional && android_cpp_named_value_supported(idl, named));
+    if android_cpp_type(ty).is_some()
+        && named_type_is_supported
+        && !collections_with_named_values
+        && (allow_void || !android_cpp_is_void(ty))
+    {
         return Ok(());
     }
     Err(format!(
         "Android C++ adapters support primitive, `String`, `Bytes`, nested `Array` values, compatible `Set` values, flat primitive/string `Map` values, and maps with array or compatible set values; `{interface}.{member}` uses unsupported type `{}`",
         ty.name
     ))
+}
+
+fn android_cpp_named_value_type<'a>(idl: &'a PluginIdl, ty: &TypeRef) -> Option<&'a NamedType> {
+    if !ty.arguments.is_empty() {
+        return None;
+    }
+    idl.types.iter().find(|named| {
+        named.name == ty.name && matches!(named.kind, NamedTypeKind::Struct | NamedTypeKind::Enum)
+    })
+}
+
+fn android_cpp_named_value_supported(idl: &PluginIdl, ty: &NamedType) -> bool {
+    match ty.kind {
+        NamedTypeKind::Enum => !ty.cases.is_empty() && ty.cases.len() <= 256,
+        NamedTypeKind::Struct => ty.fields.iter().all(|field| {
+            let field_type = &field.ty;
+            if android_cpp_value(field_type).is_some_and(|value| !value.optional) {
+                return true;
+            }
+            !field_type.optional
+                && android_cpp_named_value_type(idl, field_type)
+                    .is_some_and(|nested| android_cpp_named_value_supported(idl, nested))
+        }),
+        NamedTypeKind::Error => false,
+    }
+}
+
+fn android_cpp_contains_named_value(idl: &PluginIdl, ty: &TypeRef) -> bool {
+    if android_cpp_named_value_type(idl, ty).is_some() {
+        return true;
+    }
+    ty.arguments
+        .iter()
+        .any(|argument| android_cpp_contains_named_value(idl, argument))
 }
 
 #[derive(Clone, Copy)]
@@ -1348,13 +1408,15 @@ fn android_cpp_type(ty: &TypeRef) -> Option<String> {
         }
         return Some(format!("std::vector<{}>", android_cpp_type(element)?));
     }
-    android_cpp_value(ty).map(|value| {
-        if ty.optional {
+    if let Some(value) = android_cpp_value(ty) {
+        return Some(if ty.optional {
             format!("std::optional<{}>", value.cpp)
         } else {
             value.cpp.to_owned()
-        }
-    })
+        });
+    }
+    (ty.arguments.is_empty() && !matches!(ty.name.as_str(), "Pair" | "Triple" | "Result"))
+        .then(|| cpp_type(ty))
 }
 
 fn android_set_element_is_supported(ty: &TypeRef) -> bool {
@@ -1447,12 +1509,17 @@ fn android_jni_type(ty: &TypeRef) -> Option<String> {
         if let Some(array) = android_primitive_array(element) {
             return Some(array.jni_array.to_owned());
         }
-        if android_jni_class_descriptor(element).is_none() {
+        if !android_jni_reference_class_available(element) {
             return None;
         }
         return Some("jobjectArray".to_owned());
     }
-    android_cpp_value(ty).map(|value| value.jni.to_owned())
+    android_cpp_value(ty)
+        .map(|value| value.jni.to_owned())
+        .or_else(|| {
+            (ty.arguments.is_empty() && !matches!(ty.name.as_str(), "Pair" | "Triple" | "Result"))
+                .then(|| "jobject".to_owned())
+        })
 }
 
 fn android_reference_array_element(ty: &TypeRef) -> Option<AndroidValue> {
@@ -1548,7 +1615,7 @@ fn android_kotlin_type(ty: &TypeRef, jni_carrier: bool) -> String {
                 if let Some(array) = android_primitive_array(element) {
                     return array.kotlin_array.to_owned();
                 }
-                if android_jni_class_descriptor(element).is_some() {
+                if android_jni_reference_class_available(element) {
                     return format!("Array<{}>", android_kotlin_type(element, true));
                 }
             }
@@ -1558,7 +1625,14 @@ fn android_kotlin_type(ty: &TypeRef, jni_carrier: bool) -> String {
             return format!("List<{}>", android_kotlin_type(&ty.arguments[0], false));
         }
     }
-    let scalar = android_cpp_value(ty).expect("validated Android value");
+    let Some(scalar) = android_cpp_value(ty) else {
+        let base = ty.name.clone();
+        return if ty.optional {
+            format!("{base}?")
+        } else {
+            base
+        };
+    };
     let base = if jni_carrier {
         scalar.jni_kotlin
     } else {
@@ -1754,6 +1828,9 @@ fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
             array.kotlin_array.trim_end_matches("Array")
         );
     }
+    if android_cpp_value(ty).is_none() {
+        return value.to_owned();
+    }
     let scalar = android_cpp_value(ty).expect("validated Android value");
     if ty.optional && scalar.unsigned {
         // A nullable signed Long carrier preserves every UInt64 bit pattern and null.
@@ -1828,6 +1905,9 @@ fn kotlin_from_jni_expression(expression: String, ty: &TypeRef) -> String {
             return format!("{expression}.map {{ it.{conversion}() }}");
         }
         return format!("{expression}.asList()");
+    }
+    if android_cpp_value(ty).is_none() {
+        return expression;
     }
     let scalar = android_cpp_value(ty).expect("validated Android value");
     if ty.optional && scalar.unsigned {
@@ -2358,7 +2438,7 @@ fn render_jni_event_setter(
     let descriptor = event
         .parameters
         .iter()
-        .map(|parameter| android_jni_callback_descriptor(&parameter.ty))
+        .map(|parameter| android_jni_callback_descriptor(&parameter.ty, package))
         .collect::<String>();
     let setter = cpp_setter_name(&nexa_plugin_idl::event_callback_property(&event.name));
     out.push_str(&format!(
@@ -2423,7 +2503,7 @@ fn render_jni_event_setter(
     out.push_str("}\n\n");
 }
 
-fn android_jni_callback_descriptor(ty: &TypeRef) -> String {
+fn android_jni_callback_descriptor(ty: &TypeRef, package: &str) -> String {
     if android_cpp_map_type(ty).is_some() {
         return "Ljava/util/Map;".to_owned();
     }
@@ -2433,9 +2513,11 @@ fn android_jni_callback_descriptor(ty: &TypeRef) -> String {
             let code = android_primitive_descriptor(element);
             return format!("[{code}");
         }
-        return format!("[{}", android_jni_callback_descriptor(element));
+        return format!("[{}", android_jni_callback_descriptor(element, package));
     }
-    let scalar = android_cpp_value(ty).expect("validated event callback type");
+    let Some(scalar) = android_cpp_value(ty) else {
+        return format!("L{}/{};", package.replace('.', "/"), ty.name);
+    };
     if ty.optional {
         return match ty.name.as_str() {
             "String" => "Ljava/lang/String;".to_owned(),
@@ -2669,6 +2751,168 @@ fn render_android_jni_error_converters(
     out.push_str("} // namespace\n");
 }
 
+fn render_android_jni_named_value_helpers(out: &mut String, idl: &PluginIdl, package: &str) {
+    let types = idl
+        .types
+        .iter()
+        .filter(|ty| {
+            matches!(ty.kind, NamedTypeKind::Struct | NamedTypeKind::Enum)
+                && android_cpp_named_value_supported(idl, ty)
+        })
+        .collect::<Vec<_>>();
+    if types.is_empty() {
+        return;
+    }
+    out.push_str("\nnamespace {\n");
+    for ty in &types {
+        let name = cpp_identifier(&ty.name);
+        out.push_str(&format!(
+            "{name} nexaFromJni{name}(JNIEnv* env, jobject raw);\njobject nexaToJni{name}(JNIEnv* env, const {name}& value);\n"
+        ));
+    }
+    for ty in types {
+        let name = cpp_identifier(&ty.name);
+        let class_name = format!("{}/{}", package.replace('.', "/"), ty.name);
+        match ty.kind {
+            NamedTypeKind::Enum => {
+                let values_descriptor = format!("()[L{};", class_name);
+                out.push_str(&format!(
+                    "{name} nexaFromJni{name}(JNIEnv* env, jobject raw) {{\n    if (raw == nullptr) {{ throwIllegalState(env, \"non-null Nexa enum was null at the JNI boundary\"); throw std::runtime_error(\"null JNI enum\"); }}\n    ScopedLocalRef<jclass> enumClass(env, env->FindClass(\"{class_name}\"));\n    if (enumClass.get() == nullptr) throw std::runtime_error(\"unable to resolve Kotlin enum class\");\n    jmethodID ordinalMethod = env->GetMethodID(enumClass.get(), \"ordinal\", \"()I\");\n    if (ordinalMethod == nullptr) throw std::runtime_error(\"unable to resolve Kotlin enum ordinal\");\n    const jint ordinal = env->CallIntMethod(raw, ordinalMethod);\n    if (env->ExceptionCheck()) throw std::runtime_error(\"unable to read Kotlin enum ordinal\");\n    if (ordinal < 0 || ordinal >= {}) {{ throwIllegalState(env, \"Kotlin enum ordinal is outside the IDL definition\"); throw std::runtime_error(\"invalid JNI enum ordinal\"); }}\n    return static_cast<{name}>(ordinal);\n}}\n\njobject nexaToJni{name}(JNIEnv* env, const {name}& value) {{\n    const auto ordinal = static_cast<std::uint8_t>(value);\n    if (ordinal >= {}) {{ throwIllegalState(env, \"native enum value is outside the IDL definition\"); return nullptr; }}\n    ScopedLocalRef<jclass> enumClass(env, env->FindClass(\"{class_name}\"));\n    if (enumClass.get() == nullptr) return nullptr;\n    jmethodID valuesMethod = env->GetStaticMethodID(enumClass.get(), \"values\", \"{values_descriptor}\");\n    if (valuesMethod == nullptr) return nullptr;\n    ScopedLocalRef<jobjectArray> values(env, static_cast<jobjectArray>(env->CallStaticObjectMethod(enumClass.get(), valuesMethod)));\n    if (values.get() == nullptr || env->ExceptionCheck()) return nullptr;\n    return env->GetObjectArrayElement(values.get(), static_cast<jsize>(ordinal));\n}}\n\n",
+                    ty.cases.len(),
+                    ty.cases.len()
+                ));
+            }
+            NamedTypeKind::Struct => {
+                let descriptor = ty
+                    .fields
+                    .iter()
+                    .map(|field| android_jni_callback_descriptor(&field.ty, package))
+                    .collect::<String>();
+                let mut constructor_descriptor = format!("({descriptor})V");
+                if ty.fields.is_empty() {
+                    constructor_descriptor = "()V".to_owned();
+                }
+                out.push_str(&format!(
+                    "{name} nexaFromJni{name}(JNIEnv* env, jobject raw) {{\n    if (raw == nullptr) {{ throwIllegalState(env, \"non-null Nexa struct was null at the JNI boundary\"); throw std::runtime_error(\"null JNI struct\"); }}\n    ScopedLocalRef<jclass> valueClass(env, env->FindClass(\"{class_name}\"));\n    if (valueClass.get() == nullptr) throw std::runtime_error(\"unable to resolve Kotlin data class\");\n    {name} result{{}};\n"
+                ));
+                for (index, field) in ty.fields.iter().enumerate() {
+                    let field_name = cpp_identifier(&field.name);
+                    let getter = android_kotlin_getter_name(&field.name);
+                    let signature = android_jni_callback_descriptor(&field.ty, package);
+                    let jni_type =
+                        android_jni_type(&field.ty).expect("supported struct field has a JNI type");
+                    let method = android_jni_call_method(&jni_type);
+                    out.push_str(&format!(
+                        "    jmethodID getter{index} = env->GetMethodID(valueClass.get(), \"{getter}\", \"(){signature}\");\n    if (getter{index} == nullptr) throw std::runtime_error(\"unable to resolve Kotlin data-class getter\");\n"
+                    ));
+                    if android_jni_type_is_reference(&jni_type) {
+                        out.push_str(&format!(
+                            "    ScopedLocalRef<jobject> field{index}(env, env->{method}(raw, getter{index}));\n    if (env->ExceptionCheck()) throw std::runtime_error(\"unable to read Kotlin data-class field\");\n"
+                        ));
+                    } else {
+                        out.push_str(&format!(
+                            "    const {jni_type} field{index} = env->{method}(raw, getter{index});\n    if (env->ExceptionCheck()) throw std::runtime_error(\"unable to read Kotlin data-class field\");\n"
+                        ));
+                    }
+                    let conversion = android_jni_to_cpp_field(&field.ty, index);
+                    out.push_str(&format!("    result.{field_name} = {conversion};\n"));
+                }
+                out.push_str("    return result;\n}\n\n");
+                out.push_str(&format!(
+                    "jobject nexaToJni{name}(JNIEnv* env, const {name}& value) {{\n    ScopedLocalRef<jclass> valueClass(env, env->FindClass(\"{class_name}\"));\n    if (valueClass.get() == nullptr) return nullptr;\n    jmethodID constructor = env->GetMethodID(valueClass.get(), \"<init>\", \"{constructor_descriptor}\");\n    if (constructor == nullptr) return nullptr;\n    std::array<jvalue, {}> arguments{{}};\n",
+                    ty.fields.len()
+                ));
+                for (index, field) in ty.fields.iter().enumerate() {
+                    let field_name = cpp_identifier(&field.name);
+                    let jni_type =
+                        android_jni_type(&field.ty).expect("supported struct field has a JNI type");
+                    let conversion =
+                        android_cpp_to_jni_field(&field.ty, &format!("value.{field_name}"));
+                    if android_jni_type_is_reference(&jni_type) {
+                        out.push_str(&format!(
+                            "    ScopedLocalRef<jobject> argument{index}(env, {conversion});\n    if (env->ExceptionCheck()) return nullptr;\n    arguments[{index}].l = argument{index}.get();\n"
+                        ));
+                    } else {
+                        let field = android_jvalue_field(&jni_type);
+                        out.push_str(&format!("    arguments[{index}].{field} = {conversion};\n"));
+                    }
+                }
+                out.push_str("    return env->NewObjectA(valueClass.get(), constructor, arguments.data());\n}\n\n");
+            }
+            NamedTypeKind::Error => unreachable!("errors are not Android value types"),
+        }
+    }
+    out.push_str("} // namespace\n");
+}
+
+fn android_jni_to_cpp_field(ty: &TypeRef, index: usize) -> String {
+    if let Some(value) = android_cpp_value(ty) {
+        return match ty.name.as_str() {
+            "String" => format!("fromJniString(env, static_cast<jstring>(field{index}.get()))"),
+            "Bytes" => format!("fromJniBytes(env, static_cast<jbyteArray>(field{index}.get()))"),
+            _ if value.unsigned => format!("std::bit_cast<{}>(field{index})", value.cpp),
+            _ => format!("static_cast<{}>(field{index})", value.cpp),
+        };
+    }
+    format!(
+        "nexaFromJni{}(env, field{index}.get())",
+        cpp_identifier(&ty.name)
+    )
+}
+
+fn android_cpp_to_jni_field(ty: &TypeRef, expression: &str) -> String {
+    if let Some(value) = android_cpp_value(ty) {
+        return match ty.name.as_str() {
+            "String" => format!("toJniString(env, {expression})"),
+            "Bytes" => format!("toJniBytes(env, {expression})"),
+            _ if value.unsigned => format!("std::bit_cast<{}>({expression})", value.jni),
+            _ => format!("static_cast<{}>({expression})", value.jni),
+        };
+    }
+    format!("nexaToJni{}(env, {expression})", cpp_identifier(&ty.name))
+}
+
+fn android_jni_call_method(jni_type: &str) -> &'static str {
+    match jni_type {
+        "jboolean" => "CallBooleanMethod",
+        "jbyte" => "CallByteMethod",
+        "jshort" => "CallShortMethod",
+        "jint" => "CallIntMethod",
+        "jlong" => "CallLongMethod",
+        "jfloat" => "CallFloatMethod",
+        "jdouble" => "CallDoubleMethod",
+        _ => "CallObjectMethod",
+    }
+}
+
+fn android_jni_type_is_reference(jni_type: &str) -> bool {
+    matches!(jni_type, "jobject" | "jstring" | "jbyteArray")
+}
+
+fn android_jvalue_field(jni_type: &str) -> &'static str {
+    match jni_type {
+        "jboolean" => "z",
+        "jbyte" => "b",
+        "jshort" => "s",
+        "jint" => "i",
+        "jlong" => "j",
+        "jfloat" => "f",
+        "jdouble" => "d",
+        _ => "l",
+    }
+}
+
+fn android_kotlin_getter_name(field_name: &str) -> String {
+    let mut characters = field_name.chars();
+    let is_property_getter =
+        field_name.starts_with("is") && field_name.chars().nth(2).is_some_and(char::is_uppercase);
+    match characters.next() {
+        Some(_) if is_property_getter => field_name.to_owned(),
+        Some(first) => format!("get{}{}", first.to_uppercase(), characters.as_str()),
+        None => "get".to_owned(),
+    }
+}
+
 fn android_cpp_referenced_errors(idl: &PluginIdl) -> Vec<&nexa_plugin_idl::NamedType> {
     let names = idl
         .interfaces
@@ -2750,7 +2994,15 @@ fn render_jni_argument_conversions(
                     &local,
                 );
             }
-            let scalar = android_cpp_value(&parameter.ty).expect("validated JNI parameter");
+            let Some(scalar) = android_cpp_value(&parameter.ty) else {
+                let name = cpp_identifier(&parameter.ty.name);
+                let local = format!("nexaJniNamedArgument{index}");
+                out.push_str(&format!(
+                    "        auto {local} = nexaFromJni{name}(env, {});\n        if (env->ExceptionCheck()) {failure_return}\n",
+                    parameter.name
+                ));
+                return format!("std::move({local})");
+            };
             if scalar.optional {
                 render_jni_optional_argument_conversion(
                     out,
@@ -3438,7 +3690,13 @@ fn render_jni_return(out: &mut String, ty: &TypeRef, expression: &str) {
         ));
         return;
     }
-    let scalar = android_cpp_value(ty).expect("validated Android scalar");
+    let Some(scalar) = android_cpp_value(ty) else {
+        let name = cpp_identifier(&ty.name);
+        out.push_str(&format!(
+            "        return nexaToJni{name}(env, {expression});\n"
+        ));
+        return;
+    };
     if scalar.optional {
         out.push_str("        return [&]() -> jobject {\n");
         out.push_str(&format!(
@@ -3509,6 +3767,31 @@ fn render_jni_nested_array_return(out: &mut String, ty: &TypeRef, expression: &s
     out.push_str(
         "            }();\n            if (env->ExceptionCheck()) return nullptr;\n            env->SetObjectArrayElement(nexaNestedArrayOutput, nexaNestedArrayIndex, nexaNestedArrayElement);\n            if (nexaNestedArrayElement != nullptr) env->DeleteLocalRef(nexaNestedArrayElement);\n            if (env->ExceptionCheck()) return nullptr;\n        }\n        return nexaNestedArrayOutput;\n",
     );
+}
+
+fn android_jni_reference_class_available(ty: &TypeRef) -> bool {
+    if android_boxed_primitive(&ty.name).is_some() && ty.optional {
+        return true;
+    }
+    matches!(
+        ty.name.as_str(),
+        "Bool"
+            | "Int8"
+            | "Int16"
+            | "Int32"
+            | "Int64"
+            | "UInt8"
+            | "UInt16"
+            | "UInt32"
+            | "UInt64"
+            | "Float32"
+            | "Float64"
+            | "String"
+            | "Bytes"
+            | "Map"
+            | "Array"
+            | "Set"
+    ) || (ty.arguments.is_empty() && android_cpp_value(ty).is_none())
 }
 
 fn android_jni_class_descriptor(ty: &TypeRef) -> Option<String> {
@@ -3719,7 +4002,7 @@ fn swift_cpp_value_type(ty: &TypeRef) -> Option<String> {
     if ty.name == "Array" {
         return swift_cpp_array_swift_type(ty);
     }
-    let base = swift_cpp_base_type(ty)?;
+    let base = swift_cpp_value_base_type(ty)?;
     if ty.optional {
         if base == "Void" {
             return None;
@@ -3751,6 +4034,30 @@ fn swift_cpp_base_type(ty: &TypeRef) -> Option<&'static str> {
         "Bytes" => Some("Data"),
         _ => None,
     }
+}
+
+fn swift_cpp_value_base_type(ty: &TypeRef) -> Option<String> {
+    if let Some(base) = swift_cpp_base_type(ty) {
+        return Some(base.to_owned());
+    }
+    if ty.arguments.is_empty()
+        && !matches!(
+            ty.name.as_str(),
+            "Array" | "Set" | "Map" | "Pair" | "Triple" | "Result"
+        )
+    {
+        return Some(ty.name.clone());
+    }
+    None
+}
+
+fn swift_cpp_named_value_type<'a>(idl: &'a PluginIdl, ty: &TypeRef) -> Option<&'a NamedType> {
+    if ty.optional || !ty.arguments.is_empty() {
+        return None;
+    }
+    idl.types.iter().find(|named| {
+        named.name == ty.name && matches!(named.kind, NamedTypeKind::Struct | NamedTypeKind::Enum)
+    })
 }
 
 fn swift_cpp_set_element_type(ty: &TypeRef) -> Option<&'static str> {
@@ -3811,7 +4118,7 @@ fn swift_cpp_map_value_supported(ty: &TypeRef) -> bool {
     if swift_cpp_supported_set(ty) {
         return true;
     }
-    if let Some(base) = swift_cpp_base_type(ty) {
+    if let Some(base) = swift_cpp_value_base_type(ty) {
         return base != "Void";
     }
     swift_cpp_array_swift_type(ty).is_some()
@@ -3832,7 +4139,7 @@ fn swift_cpp_array_swift_type(ty: &TypeRef) -> Option<String> {
     if element.name == "Set" {
         return Some(format!("[{}]", swift_cpp_value_type(element)?));
     }
-    let swift_type = swift_cpp_base_type(element)?;
+    let swift_type = swift_cpp_value_base_type(element)?;
     (swift_type != "Void").then(|| format!("[{swift_type}]"))
 }
 
@@ -3846,7 +4153,7 @@ fn swift_cpp_array_leaf(ty: &TypeRef) -> Option<&TypeRef> {
     }
     if element.name == "Array" {
         swift_cpp_array_leaf(element)
-    } else if swift_cpp_base_type(element).is_some_and(|base| base != "Void") {
+    } else if swift_cpp_value_base_type(element).is_some_and(|base| base != "Void") {
         Some(element)
     } else {
         None
@@ -3971,7 +4278,7 @@ fn swift_cpp_argument_value(
             let (key, value_type) = swift_cpp_map_types(ty).expect("validated Swift C++ map value");
             let entry = format!("{namespace}.{}", cpp_swift_map_entry_name(idl, ty));
             let entries = format!("{namespace}.{}", cpp_swift_map_entries_name(idl, ty));
-            let key_value = swift_cpp_map_value_argument(key, "$0.key", byte_buffer_type);
+            let key_value = swift_cpp_map_value_argument(key, "$0.key", idl, byte_buffer_type);
             let mapped_value =
                 swift_cpp_argument_value(value_type, "$0.value", idl, namespace, byte_buffer_type);
             format!("{entries}({value}.map {{ {entry}({key_value}, {mapped_value}) }})")
@@ -3987,6 +4294,10 @@ fn swift_cpp_argument_value(
                 "Bool" => format!("{value}.map {{ UInt8($0 ? 1 : 0) }}"),
                 "String" => format!("{value}.map {{ std.string($0) }}"),
                 "Bytes" => format!("{value}.map {{ {byte_buffer_type}($0) }}"),
+                _ if swift_cpp_named_value_type(idl, element).is_some() => format!(
+                    "{value}.map {{ nexaSwiftToCpp{}($0) }}",
+                    cpp_identifier(&element.name)
+                ),
                 _ => value.to_owned(),
             };
             format!(
@@ -4005,6 +4316,9 @@ fn swift_cpp_argument_value(
                 "{namespace}.{}({converted})",
                 cpp_swift_array_alias_name(idl, &element.name)
             )
+        }
+        _ if swift_cpp_named_value_type(idl, ty).is_some() => {
+            format!("nexaSwiftToCpp{}({value})", cpp_identifier(&ty.name))
         }
         _ => value.to_owned(),
     }
@@ -4045,16 +4359,28 @@ fn swift_cpp_array_argument_expression(
             "Bool" => format!("{value}.map {{ UInt8($0 ? 1 : 0) }}"),
             "String" => format!("{value}.map {{ std.string($0) }}"),
             "Bytes" => format!("{value}.map {{ {byte_buffer_type}($0) }}"),
+            _ if swift_cpp_named_value_type(idl, element).is_some() => format!(
+                "{value}.map {{ nexaSwiftToCpp{}($0) }}",
+                cpp_identifier(&element.name)
+            ),
             _ => value.to_owned(),
         }
     };
     format!("{alias}({converted})")
 }
 
-fn swift_cpp_map_value_argument(ty: &TypeRef, value: &str, byte_buffer_type: &str) -> String {
+fn swift_cpp_map_value_argument(
+    ty: &TypeRef,
+    value: &str,
+    idl: &PluginIdl,
+    byte_buffer_type: &str,
+) -> String {
     match ty.name.as_str() {
         "String" => format!("std.string({value})"),
         "Bytes" => format!("{byte_buffer_type}({value})"),
+        _ if swift_cpp_named_value_type(idl, ty).is_some() => {
+            format!("nexaSwiftToCpp{}({value})", cpp_identifier(&ty.name))
+        }
         _ => value.to_owned(),
     }
 }
@@ -4069,6 +4395,12 @@ fn swift_cpp_result_expression(
         let converted = match ty.name.as_str() {
             "String" => "String($0)",
             "Bytes" => "Data($0)",
+            _ if swift_cpp_named_value_type(idl, ty).is_some() => {
+                return format!(
+                    "Optional(fromCxx: {call}).map {{ nexaSwiftFromCpp{}($0) }}",
+                    cpp_identifier(&ty.name)
+                );
+            }
             _ => "$0",
         };
         if converted == "$0" {
@@ -4123,6 +4455,9 @@ fn swift_cpp_result_expression(
                 };
                 format!("Set({converted})")
             }
+            _ if swift_cpp_named_value_type(idl, ty).is_some() => {
+                format!("nexaSwiftFromCpp{}({call})", cpp_identifier(&ty.name))
+            }
             _ => call.to_owned(),
         }
     }
@@ -4145,6 +4480,10 @@ fn swift_cpp_array_result_expression(
             "Bool" => format!("{copied}.map {{ $0 != 0 }}"),
             "String" => format!("{copied}.map {{ String($0) }}"),
             "Bytes" => format!("{copied}.map {{ Data($0) }}"),
+            _ if swift_cpp_named_value_type(idl, element).is_some() => format!(
+                "{copied}.map {{ nexaSwiftFromCpp{}($0) }}",
+                cpp_identifier(&element.name)
+            ),
             _ => copied,
         }
     }
@@ -4824,6 +5163,86 @@ fn render_swift_cpp_error_bridges(out: &mut String, idl: &PluginIdl) {
             }
         }
         out.push_str("};\n\n");
+    }
+}
+
+fn render_swift_cpp_named_value_helpers(
+    out: &mut String,
+    idl: &PluginIdl,
+    namespace: &str,
+    byte_buffer_type: &str,
+) {
+    let optional_bridge = format!("{namespace}.{}", cpp_optional_bridge_name(idl));
+    for ty in idl
+        .types
+        .iter()
+        .filter(|ty| matches!(ty.kind, NamedTypeKind::Struct | NamedTypeKind::Enum))
+    {
+        let name = cpp_identifier(&ty.name);
+        let cxx_type = format!("{namespace}.{name}");
+        match ty.kind {
+            NamedTypeKind::Enum => {
+                out.push_str(&format!(
+                    "private func nexaSwiftToCpp{name}(_ value: {name}) -> {cxx_type} {{\n    switch value {{\n"
+                ));
+                for case in &ty.cases {
+                    let case_name = cpp_identifier(&case.name);
+                    out.push_str(&format!(
+                        "    case .{case_name}: return {cxx_type}.{case_name}\n"
+                    ));
+                }
+                out.push_str("    }\n}\n");
+                out.push_str(&format!(
+                    "private func nexaSwiftFromCpp{name}(_ value: {cxx_type}) -> {name} {{\n    switch value {{\n"
+                ));
+                for case in &ty.cases {
+                    let case_name = cpp_identifier(&case.name);
+                    out.push_str(&format!("    case .{case_name}: return .{case_name}\n"));
+                }
+                out.push_str(&format!(
+                    "    @unknown default: preconditionFailure(\"invalid C++ {name} case\")\n    }}\n}}\n\n"
+                ));
+            }
+            NamedTypeKind::Struct => {
+                let swift_fields = ty
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        let cpp_field = cpp_identifier(&field.name);
+                        let converted = swift_cpp_result_expression(
+                            &field.ty,
+                            &format!("value.{cpp_field}"),
+                            idl,
+                            namespace,
+                        );
+                        format!("{}: {converted}", field.name)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                out.push_str(&format!(
+                    "private func nexaSwiftToCpp{name}(_ value: {name}) -> {cxx_type} {{\n    var result = {cxx_type}()\n"
+                ));
+                for field in &ty.fields {
+                    let converted = swift_cpp_argument_expression(
+                        &field.ty,
+                        &format!("value.{}", field.name),
+                        idl,
+                        namespace,
+                        byte_buffer_type,
+                        &optional_bridge,
+                    );
+                    out.push_str(&format!(
+                        "    result.{} = {converted}\n",
+                        cpp_identifier(&field.name)
+                    ));
+                }
+                out.push_str("    return result\n}\n");
+                out.push_str(&format!(
+                    "private func nexaSwiftFromCpp{name}(_ value: {cxx_type}) -> {name} {{\n    {name}({swift_fields})\n}}\n\n"
+                ));
+            }
+            NamedTypeKind::Error => unreachable!(),
+        }
     }
 }
 
@@ -6456,6 +6875,71 @@ mod tests {
         assert!(jni.contains(
             "return std::bit_cast<jlong>(static_cast<std::uint64_t>((*handle)->echoUnsigned"
         ));
+    }
+
+    #[test]
+    fn android_cpp_adapters_bridge_named_values_and_reject_unimplemented_shapes() {
+        let idl = nexa_plugin_idl::parse(
+            r#"
+            enum MediaMode { idle playing }
+            struct MediaStats {
+                frameCount: Int32
+                active: Bool
+                title: String
+                payload: Bytes
+                mode: MediaMode
+            }
+            service Media {
+                fn echoMode(value: MediaMode) -> MediaMode
+                fn echoStats(value: MediaStats) -> MediaStats
+            }
+            "#,
+        )
+        .expect("named-value Android contract should parse");
+        let (kotlin, jni) =
+            render_android_adapters(&idl, "dev.example.media", "Media", "dev.example.app", 0)
+                .expect("Android should bridge supported enum and struct values");
+        assert!(
+            kotlin.contains("external fun service_Media_echoMode(value: MediaMode): MediaMode")
+        );
+        assert!(
+            kotlin.contains("external fun service_Media_echoStats(value: MediaStats): MediaStats")
+        );
+        assert!(jni.contains("nexaFromJniMediaMode(env, value)"));
+        assert!(jni.contains("nexaToJniMediaStats(env, Media::echoStats"));
+        assert!(jni.contains("getFrameCount"));
+        assert!(jni.contains("getPayload"));
+        assert!(jni.contains("ordinal"));
+
+        for unsupported in ["MediaMode?", "Array<MediaMode>"] {
+            let unsupported_idl = nexa_plugin_idl::parse(&format!(
+                "enum MediaMode {{ idle playing }} service Media {{ fn echo(value: {unsupported}) -> {unsupported} }}"
+            ))
+            .expect("unsupported named-value shape should parse as IDL");
+            let error = render_android_adapters(
+                &unsupported_idl,
+                "dev.example.media",
+                "Media",
+                "dev.example.app",
+                0,
+            )
+            .expect_err("unimplemented named-value shapes must be rejected");
+            assert!(error.contains("unsupported type"));
+        }
+
+        let optional_field = nexa_plugin_idl::parse(
+            "enum MediaMode { idle playing } struct MediaStats { mode: MediaMode? } service Media { fn echo(value: MediaStats) -> MediaStats }",
+        )
+        .expect("optional named struct field should parse as IDL");
+        let error = render_android_adapters(
+            &optional_field,
+            "dev.example.media",
+            "Media",
+            "dev.example.app",
+            0,
+        )
+        .expect_err("unsupported optional named fields must be rejected");
+        assert!(error.contains("unsupported type"));
     }
 
     #[test]
