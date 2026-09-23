@@ -102,6 +102,8 @@ pub struct Program {
 pub struct Config {
     pub permissions: Vec<PermissionConfig>,
     pub plugins: Vec<PluginConfigDecl>,
+    pub ios_min_version: Option<String>,
+    pub android_min_sdk: Option<u32>,
     pub span: Span,
 }
 

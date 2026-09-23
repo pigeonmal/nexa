@@ -60,6 +60,8 @@ impl Parser {
         let mut has_permissions = false;
         let mut plugins = Vec::new();
         let mut has_plugins = false;
+        let mut ios_min_version = None;
+        let mut android_min_sdk = None;
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             if self.word_is("permissions") {
                 if has_permissions {
@@ -73,8 +75,40 @@ impl Parser {
                 }
                 has_plugins = true;
                 plugins = self.config_plugins_decl()?;
+            } else if self.word_is("ios") {
+                self.expect_word("ios")?;
+                self.expect(Kind::LBrace, "expected `{` after `ios`")?;
+                self.expect_word("minVersion")?;
+                self.expect(Kind::Colon, "expected `:` after `minVersion`")?;
+                let token = self.advance().clone();
+                let Kind::String(value) = token.kind else {
+                    return Err(CompileError::new(
+                        token.span,
+                        "ios minVersion must be a quoted string",
+                    ));
+                };
+                ios_min_version = Some(value);
+                self.expect(Kind::RBrace, "expected `}` to close config ios")?;
+            } else if self.word_is("android") {
+                self.expect_word("android")?;
+                self.expect(Kind::LBrace, "expected `{` after `android`")?;
+                self.expect_word("minSdk")?;
+                self.expect(Kind::Colon, "expected `:` after `minSdk`")?;
+                let token = self.advance().clone();
+                let Kind::Number(value) = token.kind else {
+                    return Err(CompileError::new(
+                        token.span,
+                        "android minSdk must be an integer",
+                    ));
+                };
+                android_min_sdk = Some(value.parse().map_err(|_| {
+                    CompileError::new(token.span, "android minSdk must be an integer")
+                })?);
+                self.expect(Kind::RBrace, "expected `}` to close config android")?;
             } else {
-                return self.error_here("expected a `permissions` or `plugins` block in config");
+                return self.error_here(
+                    "expected a `permissions`, `plugins`, `ios`, or `android` block in config",
+                );
             }
         }
         self.expect(Kind::RBrace, "expected `}` to close config")?;
@@ -85,6 +119,8 @@ impl Parser {
         Ok(Config {
             permissions,
             plugins,
+            ios_min_version,
+            android_min_sdk,
             span,
         })
     }

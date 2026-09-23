@@ -27,6 +27,8 @@ pub(super) struct ResolvedPluginOption {
 pub(super) struct ProjectConfig {
     permissions: Vec<(Permission, String)>,
     plugins: Vec<PluginConfig>,
+    pub(super) ios_min_version: String,
+    pub(super) android_min_sdk: u32,
 }
 
 impl ProjectConfig {
@@ -67,6 +69,8 @@ impl ProjectConfig {
         Ok(Self {
             permissions,
             plugins,
+            ios_min_version: config.ios_min_version.unwrap_or_else(|| "16.0".to_owned()),
+            android_min_sdk: config.android_min_sdk.unwrap_or(24),
         })
     }
 
@@ -75,6 +79,8 @@ impl ProjectConfig {
         Ok(Self {
             permissions: Vec::new(),
             plugins,
+            ios_min_version: "16.0".to_owned(),
+            android_min_sdk: 24,
         })
     }
 
@@ -87,7 +93,11 @@ impl ProjectConfig {
     }
 
     pub(super) fn render(&self) -> String {
-        let mut output = String::from("config {\n    permissions {\n");
+        let mut output = format!(
+            "config {{\n    ios {{ minVersion: {} }}\n    android {{ minSdk: {} }}\n    permissions {{\n",
+            nexa_config_string(&self.ios_min_version),
+            self.android_min_sdk
+        );
         for (index, (permission, message)) in self.permissions.iter().enumerate() {
             output.push_str("        ");
             output.push_str(permission_name(*permission));
@@ -201,7 +211,9 @@ pub(super) fn load_plugin_definitions(entry: &Path) -> Result<Vec<PluginDefiniti
 }
 
 pub(super) fn render_template(plugin_definitions: &[PluginDefinition]) -> String {
-    let mut output = String::from("config {\n    permissions {}\n");
+    let mut output = String::from(
+        "config {\n    ios { minVersion: \"16.0\" }\n    android { minSdk: 24 }\n    permissions {}\n",
+    );
     let configured_plugins = plugin_definitions
         .iter()
         .filter(|definition| !definition.idl.config.is_empty())

@@ -432,7 +432,7 @@ fn generate_ios(
         &root
             .join("ios")
             .join(format!("{app_name}.xcodeproj/project.pbxproj")),
-        &templates::ios_project_file(
+        &templates::ios_project_file_with_config(
             app_name,
             has_assets,
             has_plugin_resources,
@@ -441,6 +441,7 @@ fn generate_ios(
             &cpp_sources,
             &xcframeworks,
             &module.plugins,
+            config,
         )?,
     )?;
     write_if_changed(
@@ -537,7 +538,13 @@ fn generate_android(
     )?;
     write_if_changed(
         &root.join("android/app/build.gradle.kts"),
-        &templates::android_app_gradle(&package, project_features, &module.plugins, &local_aars)?,
+        &templates::android_app_gradle_with_config(
+            &package,
+            project_features,
+            &module.plugins,
+            &local_aars,
+            config,
+        )?,
     )?;
     write_if_changed(
         &root.join("android/app/proguard-rules.pro"),

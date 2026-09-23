@@ -192,8 +192,12 @@ fn pbx_identifier(index: usize) -> String {
     format!("BB{:022X}", index)
 }
 
-fn minimum_ios_version(plugins: &[nexa_ir::Plugin]) -> Result<String, String> {
-    let mut minimum = vec![17_u32, 0];
+fn minimum_ios_version(configured: &str, plugins: &[nexa_ir::Plugin]) -> Result<String, String> {
+    let mut minimum = configured
+        .split('.')
+        .map(str::parse::<u32>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| format!("invalid iOS minimum version `{configured}`"))?;
     for version in plugins
         .iter()
         .filter_map(|plugin| plugin.ios_min_version.as_deref())
@@ -254,6 +258,7 @@ fn merge_maven_dependencies(plugins: &[nexa_ir::Plugin]) -> Result<Vec<String>, 
     Ok(dependencies)
 }
 
+#[cfg(test)]
 pub(super) fn ios_project_file(
     app_name: &str,
     has_assets: bool,
@@ -263,6 +268,30 @@ pub(super) fn ios_project_file(
     cpp_sources: &[String],
     xcframeworks: &[String],
     plugins: &[nexa_ir::Plugin],
+) -> Result<String, String> {
+    ios_project_file_with_config(
+        app_name,
+        has_assets,
+        has_plugin_resources,
+        generated_sources,
+        plugin_sources,
+        cpp_sources,
+        xcframeworks,
+        plugins,
+        &ProjectConfig::from_defaults(&[])?,
+    )
+}
+
+pub(super) fn ios_project_file_with_config(
+    app_name: &str,
+    has_assets: bool,
+    has_plugin_resources: bool,
+    generated_sources: &[String],
+    plugin_sources: &[String],
+    cpp_sources: &[String],
+    xcframeworks: &[String],
+    plugins: &[nexa_ir::Plugin],
+    config: &ProjectConfig,
 ) -> Result<String, String> {
     let packages = merge_swift_packages(plugins)?;
     let frameworks = merge_ios_frameworks(plugins);
@@ -350,7 +379,7 @@ pub(super) fn ios_project_file(
             &format!("buildPhases = ( AA0000000000000000000008, AA0000000000000000000009, AA000000000000000000000A, {embed_phase_id} );"),
         );
     }
-    let minimum_version = minimum_ios_version(plugins)?;
+    let minimum_version = minimum_ios_version(&config.ios_min_version, plugins)?;
     project = project.replace(
         "IPHONEOS_DEPLOYMENT_TARGET = 17.0",
         &format!("IPHONEOS_DEPLOYMENT_TARGET = {minimum_version}"),
@@ -799,19 +828,36 @@ pub(super) fn android_manifest(
     )
 }
 
+#[cfg(test)]
 pub(super) fn android_app_gradle(
     package: &str,
     features: nexa_backend_kotlin::KotlinProjectFeatures,
     plugins: &[nexa_ir::Plugin],
     local_aars: &[String],
 ) -> Result<String, String> {
+    android_app_gradle_with_config(
+        package,
+        features,
+        plugins,
+        local_aars,
+        &ProjectConfig::from_defaults(&[])?,
+    )
+}
+
+pub(super) fn android_app_gradle_with_config(
+    package: &str,
+    features: nexa_backend_kotlin::KotlinProjectFeatures,
+    plugins: &[nexa_ir::Plugin],
+    local_aars: &[String],
+    config: &ProjectConfig,
+) -> Result<String, String> {
     let maven_dependencies = merge_maven_dependencies(plugins)?;
     let minimum_sdk = plugins
         .iter()
         .filter_map(|plugin| plugin.android_min_sdk)
         .max()
-        .unwrap_or(26)
-        .max(26);
+        .unwrap_or(config.android_min_sdk)
+        .max(config.android_min_sdk);
     let cpp_native_build = if plugins.iter().any(|plugin| !plugin.cpp_sources.is_empty()) {
         "\n    externalNativeBuild { cmake { path = file(\"src/main/cpp/CMakeLists.txt\"); version = \"3.22.1\" } }"
     } else {
@@ -854,7 +900,7 @@ pub(super) fn android_app_gradle(
         dependencies.push_str(&format!("    implementation(files(\"libs/{aar}\"))\n"));
     }
     Ok(format!(
-        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{package}\"; minSdk = {minimum_sdk}; targetSdk = 37; versionCode = 1; versionName = \"1.0\" }}\n    buildFeatures {{ compose = true }}{cpp_native_build}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencyLocking {{\n    lockAllConfigurations()\n}}\n\ndependencies {{\n{dependencies}}}\n"
+        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 36\n    defaultConfig {{ applicationId = \"{package}\"; minSdk = {minimum_sdk}; targetSdk = 36; versionCode = 1; versionName = \"1.0\" }}\n    buildFeatures {{ compose = true }}{cpp_native_build}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencyLocking {{\n    lockAllConfigurations()\n}}\n\ndependencies {{\n{dependencies}}}\n"
     ))
 }
 
