@@ -278,7 +278,7 @@ pub(crate) fn render_android_adapters(
         match interface.kind {
             InterfaceKind::Service => {
                 for method in &interface.methods {
-                    validate_android_cpp_method(&interface.name, method, false)?;
+                    validate_android_cpp_method(idl, &interface.name, method, false)?;
                     if !service_methods.insert(method.name.clone()) {
                         return Err(format!(
                             "Android C++ adapters do not support duplicate service method name `{}`",
@@ -340,9 +340,14 @@ pub(crate) fn render_android_adapters(
                         interface.name
                     ));
                 };
-                validate_android_cpp_method(&interface.name, dispose, true)?;
+                validate_android_cpp_method(idl, &interface.name, dispose, true)?;
                 for method in &interface.methods {
-                    validate_android_cpp_method(&interface.name, method, method.name == "dispose")?;
+                    validate_android_cpp_method(
+                        idl,
+                        &interface.name,
+                        method,
+                        method.name == "dispose",
+                    )?;
                 }
 
                 let create_name = format!("create_{}", interface.name);
@@ -445,6 +450,8 @@ pub(crate) fn render_android_adapters(
     kotlin_output.push_str(&native_declarations);
     kotlin_output.push_str("}\n\n");
 
+    render_android_error_factory(&mut kotlin_output, idl, plugin_index);
+
     if !service_interfaces.is_empty() {
         let contracts = service_interfaces
             .iter()
@@ -473,6 +480,7 @@ pub(crate) fn render_android_adapters(
 
     kotlin_output.push_str(&kotlin_implementations);
     let mut jni_output = render_android_jni_prelude(plugin_id);
+    render_android_jni_error_converters(&mut jni_output, idl, package, plugin_index);
     jni_output.push_str(&jni);
     Ok((kotlin_output, jni_output))
 }
@@ -480,6 +488,7 @@ pub(crate) fn render_android_adapters(
 fn render_android_jni_prelude(plugin_id: &str) -> String {
     const PRELUDE: &str = r#"#include <jni.h>
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstdint>
 #include <exception>
@@ -768,15 +777,36 @@ jobject toJniMap(JNIEnv* env, const Map& input, KeyConverter&& convertKey, Value
 }
 
 fn validate_android_cpp_method(
+    idl: &PluginIdl,
     interface: &str,
     method: &Method,
     is_dispose: bool,
 ) -> Result<(), String> {
-    if method.throws.is_some() || method.return_type.name == "Result" {
-        return Err(format!(
-            "Android C++ adapters do not yet support typed throwing methods; `{interface}.{}` declares `throws` or returns `Result`",
-            method.name
-        ));
+    if let Some(error_type) = android_cpp_method_error_type(method) {
+        let Some(error) = idl
+            .types
+            .iter()
+            .find(|ty| ty.kind == NamedTypeKind::Error && ty.name == error_type.name)
+        else {
+            return Err(format!(
+                "Android C++ adapters cannot resolve typed error `{}` for `{interface}.{}`",
+                error_type.name, method.name
+            ));
+        };
+        for case in &error.cases {
+            for parameter in &case.parameters {
+                if parameter.ty.optional
+                    || !parameter.ty.arguments.is_empty()
+                    || parameter.ty.name == "Void"
+                    || android_cpp_value(&parameter.ty).is_none()
+                {
+                    return Err(format!(
+                        "Android C++ typed errors support non-optional primitive, `String`, and `Bytes` payloads; `{interface}.{}` error case `{}.{}` uses `{}`",
+                        method.name, error.name, case.name, parameter.ty.name
+                    ));
+                }
+            }
+        }
     }
     if method.is_async
         && method
@@ -789,7 +819,8 @@ fn validate_android_cpp_method(
             method.name
         ));
     }
-    if method.is_async && android_cpp_is_collection(&method.return_type) {
+    let success_type = android_cpp_method_success_type(method);
+    if method.is_async && android_cpp_is_collection(success_type) {
         return Err(format!(
             "Android C++ async adapters do not yet support collection returns; `{interface}.{}` uses an async collection contract",
             method.name
@@ -809,9 +840,29 @@ fn validate_android_cpp_method(
             ));
         }
     } else {
-        ensure_android_cpp_value(interface, &method.name, &method.return_type, true)?;
+        ensure_android_cpp_value(interface, &method.name, success_type, true)?;
     }
     Ok(())
+}
+
+fn android_cpp_method_error_type(method: &Method) -> Option<&TypeRef> {
+    method.throws.as_ref().or_else(|| {
+        (method.return_type.name == "Result")
+            .then(|| method.return_type.arguments.get(1))
+            .flatten()
+    })
+}
+
+fn android_cpp_method_success_type(method: &Method) -> &TypeRef {
+    if method.return_type.name == "Result" {
+        method
+            .return_type
+            .arguments
+            .first()
+            .expect("validated Result type has a success type")
+    } else {
+        &method.return_type
+    }
 }
 
 fn android_cpp_is_collection(ty: &TypeRef) -> bool {
@@ -1228,7 +1279,7 @@ fn render_kotlin_native_declaration(out: &mut String, method: &Method, native_na
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let return_type = android_kotlin_type(&method.return_type, true);
+    let return_type = android_kotlin_type(android_cpp_method_success_type(method), true);
     out.push_str(&format!(
         "    external fun {native_name}({parameters}): {return_type}\n"
     ));
@@ -1243,7 +1294,7 @@ fn render_kotlin_class_native_declaration(out: &mut String, method: &Method, nat
             android_kotlin_type(&parameter.ty, true)
         )
     }));
-    let return_type = android_kotlin_type(&method.return_type, true);
+    let return_type = android_kotlin_type(android_cpp_method_success_type(method), true);
     out.push_str(&format!(
         "    external fun {native_name}({}): {return_type}\n",
         parameters.join(", ")
@@ -1296,13 +1347,14 @@ fn render_kotlin_service_adapter(
         .map(|parameter| kotlin_to_jni_expression(&parameter.name, &parameter.ty))
         .collect::<Vec<_>>()
         .join(", ");
-    let return_type = android_kotlin_type(&method.return_type, false);
+    let success_type = android_cpp_method_success_type(method);
+    let return_type = android_kotlin_type(success_type, false);
     if method.is_async {
         let native_call = format!("{bindings_class}.{native_name}({arguments})");
         let expression = if return_type == "Unit" {
             native_call
         } else {
-            kotlin_from_jni_expression(native_call, &method.return_type)
+            kotlin_from_jni_expression(native_call, success_type)
         };
         out.push_str(&format!(
             "    override suspend fun {}({parameters}): {return_type} = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {{ {expression} }}\n",
@@ -1317,7 +1369,7 @@ fn render_kotlin_service_adapter(
         ));
     } else {
         let native_call = format!("{bindings_class}.{native_name}({arguments})");
-        let result = kotlin_from_jni_expression(native_call, &method.return_type);
+        let result = kotlin_from_jni_expression(native_call, success_type);
         out.push_str(&format!(
             "    override fun {}({parameters}): {return_type} = {result}\n",
             method.name
@@ -1547,7 +1599,8 @@ fn render_kotlin_cpp_class(
             )
             .collect::<Vec<_>>()
             .join(", ");
-        let return_type = android_kotlin_type(&method.return_type, false);
+        let success_type = android_cpp_method_success_type(method);
+        let return_type = android_kotlin_type(success_type, false);
         let native_name = format!("call_{}_{}", interface.name, method.name);
         if method.is_async {
             let call = if return_type == "Unit" {
@@ -1555,7 +1608,7 @@ fn render_kotlin_cpp_class(
             } else {
                 let native_call =
                     format!("NexaPlugin{plugin_index}_CppBindings.{native_name}({arguments})");
-                kotlin_from_jni_expression(native_call, &method.return_type)
+                kotlin_from_jni_expression(native_call, success_type)
             };
             out.push_str(&format!(
                 "    override suspend fun {}({parameters}): {return_type} = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {{ synchronized(this) {{ {call} }} }}\n",
@@ -1568,7 +1621,7 @@ fn render_kotlin_cpp_class(
             out.push_str("    @Synchronized\n");
             let native_call =
                 format!("NexaPlugin{plugin_index}_CppBindings.{native_name}({arguments})");
-            let result = kotlin_from_jni_expression(native_call, &method.return_type);
+            let result = kotlin_from_jni_expression(native_call, success_type);
             out.push_str(&format!(
                 "    override fun {}({parameters}): {return_type} = {result}\n",
                 method.name
@@ -1588,7 +1641,8 @@ fn render_jni_service_method(
 ) {
     let symbol = jni_symbol(package, class_name, native_name);
     let parameters = jni_parameter_declarations(&method.parameters);
-    let return_type = android_jni_type(&method.return_type).expect("validated Android type");
+    let success_type = android_cpp_method_success_type(method);
+    let return_type = android_jni_type(success_type).expect("validated Android type");
     let method_name = cpp_identifier(&method.name);
     let prefix = if parameters.is_empty() {
         String::new()
@@ -1613,10 +1667,18 @@ fn render_jni_service_method(
     } else {
         call
     };
-    if android_cpp_is_void(&method.return_type) {
+    if let Some(error_type) = android_cpp_method_error_type(method) {
+        render_jni_typed_error_result(
+            out,
+            success_type,
+            error_type,
+            &call,
+            jni_failure_return(&return_type),
+        );
+    } else if android_cpp_is_void(success_type) {
         out.push_str(&format!("        {call};\n"));
     } else {
-        render_jni_return(out, &method.return_type, &call);
+        render_jni_return(out, success_type, &call);
     }
     render_jni_boundary_end(out);
     out.push_str("}\n\n");
@@ -1772,7 +1834,8 @@ fn render_jni_class_method(
         cpp_namespace(plugin_id),
         cpp_identifier(&interface.name)
     );
-    let return_type = android_jni_type(&method.return_type).expect("validated method type");
+    let success_type = android_cpp_method_success_type(method);
+    let return_type = android_jni_type(success_type).expect("validated method type");
     let failure_return = jni_failure_return(&return_type);
     let symbol = jni_symbol(package, class_name, native_name);
     let mut parameters = String::from("jlong rawHandle");
@@ -1802,10 +1865,12 @@ fn render_jni_class_method(
     } else {
         call
     };
-    if android_cpp_is_void(&method.return_type) {
+    if let Some(error_type) = android_cpp_method_error_type(method) {
+        render_jni_typed_error_result(out, success_type, error_type, &call, failure_return);
+    } else if android_cpp_is_void(success_type) {
         out.push_str(&format!("        {call};\n"));
     } else {
-        render_jni_return(out, &method.return_type, &call);
+        render_jni_return(out, success_type, &call);
     }
     render_jni_boundary_end(out);
     out.push_str("}\n\n");
@@ -1851,6 +1916,221 @@ fn jni_failure_return(return_type: &str) -> &'static str {
         "return;"
     } else {
         "return {};"
+    }
+}
+
+fn render_jni_typed_error_result(
+    out: &mut String,
+    success_type: &TypeRef,
+    error_type: &TypeRef,
+    expression: &str,
+    failure_return: &str,
+) {
+    let error_name = cpp_identifier(&error_type.name);
+    out.push_str(&format!(
+        "        auto nexaCppTypedResult = {expression};\n        if (!nexaCppTypedResult.has_value()) {{\n            nexaCppThrowError{error_name}(env, nexaCppTypedResult.error());\n            {failure_return}\n        }}\n"
+    ));
+    if android_cpp_is_void(success_type) {
+        return;
+    }
+    render_jni_return(out, success_type, "nexaCppTypedResult.value()");
+}
+
+fn render_android_error_factory(out: &mut String, idl: &PluginIdl, plugin_index: usize) {
+    let errors = android_cpp_referenced_errors(idl);
+    if errors.is_empty() {
+        return;
+    }
+    out.push_str(&format!(
+        "internal object NexaPlugin{plugin_index}_CppErrorFactory {{\n"
+    ));
+    for error in errors {
+        for (case_index, case) in error.cases.iter().enumerate() {
+            let parameters = case
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    format!(
+                        "{}: {}",
+                        cpp_identifier(&parameter.name),
+                        android_kotlin_type(&parameter.ty, true)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let arguments = case
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    let name = cpp_identifier(&parameter.name);
+                    match parameter.ty.name.as_str() {
+                        "UInt8" => format!("{name}.toUByte()"),
+                        "UInt16" => format!("{name}.toUShort()"),
+                        "UInt32" => format!("{name}.toUInt()"),
+                        "UInt64" => format!("{name}.toULong()"),
+                        _ => name,
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let method = android_cpp_error_factory_method(&error.name, case_index);
+            let case_name = cpp_identifier(&case.name);
+            let value = if case.parameters.is_empty() {
+                format!("{}.{}", error.name, case_name)
+            } else {
+                format!("{}.{}({arguments})", error.name, case_name)
+            };
+            out.push_str(&format!(
+                "    @JvmStatic public fun {method}({parameters}): {} = {value}\n",
+                error.name
+            ));
+        }
+    }
+    out.push_str("}\n\n");
+}
+
+fn render_android_jni_error_converters(
+    out: &mut String,
+    idl: &PluginIdl,
+    package: &str,
+    plugin_index: usize,
+) {
+    let errors = android_cpp_referenced_errors(idl);
+    if errors.is_empty() {
+        return;
+    }
+    let factory_class = format!(
+        "{}/NexaPlugin{plugin_index}_CppErrorFactory",
+        package.replace('.', "/")
+    );
+    out.push_str("\nnamespace {\n");
+    for error in errors {
+        let error_name = cpp_identifier(&error.name);
+        let return_signature = format!("L{}/{};", package.replace('.', "/"), error.name);
+        out.push_str(&format!(
+            "void nexaCppThrowError{error_name}(JNIEnv* env, const {error_name}& error) {{\n    ScopedLocalRef<jclass> factoryClass(env, env->FindClass(\"{factory_class}\"));\n    if (factoryClass.get() == nullptr) return;\n    switch (error.value.index()) {{\n"
+        ));
+        for (case_index, case) in error.cases.iter().enumerate() {
+            let method_name = android_cpp_error_factory_method(&error.name, case_index);
+            let parameters_signature = case
+                .parameters
+                .iter()
+                .map(|parameter| android_jni_signature(&parameter.ty))
+                .collect::<String>();
+            let method_signature = format!("({parameters_signature}){return_signature}");
+            out.push_str(&format!(
+                "    case {case_index}: {{\n        jmethodID factoryMethod = env->GetStaticMethodID(factoryClass.get(), \"{method_name}\", \"{method_signature}\");\n        if (factoryMethod == nullptr) return;\n        std::array<jvalue, {}> arguments{{}};\n",
+                case.parameters.len().max(1)
+            ));
+            for (parameter_index, parameter) in case.parameters.iter().enumerate() {
+                let case_type = cpp_case_type_name(&case.name);
+                let value = format!(
+                    "std::get<{error_name}::{case_type}>(error.value).{}",
+                    cpp_identifier(&parameter.name)
+                );
+                let scalar = android_cpp_value(&parameter.ty)
+                    .expect("validated Android typed error payload");
+                match parameter.ty.name.as_str() {
+                    "String" | "Bytes" => {
+                        let converter = if parameter.ty.name == "String" {
+                            "toJniString"
+                        } else {
+                            "toJniBytes"
+                        };
+                        out.push_str(&format!(
+                            "        ScopedLocalRef<jobject> argument{parameter_index}(env, {converter}(env, {value}));\n        if (env->ExceptionCheck()) return;\n        arguments[{parameter_index}].l = argument{parameter_index}.get();\n"
+                        ));
+                    }
+                    _ => {
+                        let carrier = if scalar.unsigned {
+                            match parameter.ty.name.as_str() {
+                                "UInt8" => format!(
+                                    "std::bit_cast<jbyte>(static_cast<std::uint8_t>({value}))"
+                                ),
+                                "UInt16" => format!(
+                                    "std::bit_cast<jshort>(static_cast<std::uint16_t>({value}))"
+                                ),
+                                "UInt32" => format!(
+                                    "std::bit_cast<jint>(static_cast<std::uint32_t>({value}))"
+                                ),
+                                "UInt64" => format!(
+                                    "std::bit_cast<jlong>(static_cast<std::uint64_t>({value}))"
+                                ),
+                                _ => unreachable!("only unsigned integer payloads are unsigned"),
+                            }
+                        } else {
+                            format!("static_cast<{}>({value})", scalar.jni)
+                        };
+                        let field = match scalar.jni {
+                            "jboolean" => "z",
+                            "jbyte" => "b",
+                            "jshort" => "s",
+                            "jint" => "i",
+                            "jlong" => "j",
+                            "jfloat" => "f",
+                            "jdouble" => "d",
+                            _ => unreachable!("validated error scalar has a JNI primitive"),
+                        };
+                        out.push_str(&format!(
+                            "        arguments[{parameter_index}].{field} = {carrier};\n"
+                        ));
+                    }
+                }
+            }
+            out.push_str(&format!(
+                "        ScopedLocalRef<jobject> typedError(env, env->CallStaticObjectMethodA(factoryClass.get(), factoryMethod, arguments.data()));\n        if (env->ExceptionCheck()) return;\n        if (typedError.get() == nullptr) {{ throwIllegalState(env, \"Kotlin typed-error factory returned null\"); return; }}\n        env->Throw(static_cast<jthrowable>(typedError.get()));\n        return;\n    }}\n"
+            ));
+        }
+        out.push_str(&format!(
+            "    default: throwIllegalState(env, \"native plugin returned an unknown {error_name} variant\"); return;\n    }}\n}}\n\n"
+        ));
+    }
+    out.push_str("} // namespace\n");
+}
+
+fn android_cpp_referenced_errors(idl: &PluginIdl) -> Vec<&nexa_plugin_idl::NamedType> {
+    let names = idl
+        .interfaces
+        .iter()
+        .filter(|interface| {
+            matches!(
+                interface.kind,
+                InterfaceKind::Service | InterfaceKind::NativeClass
+            )
+        })
+        .flat_map(|interface| &interface.methods)
+        .filter_map(android_cpp_method_error_type)
+        .map(|ty| ty.name.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    names
+        .into_iter()
+        .filter_map(|name| {
+            idl.types
+                .iter()
+                .find(|ty| ty.kind == NamedTypeKind::Error && ty.name == name)
+        })
+        .collect()
+}
+
+fn android_cpp_error_factory_method(error_name: &str, case_index: usize) -> String {
+    format!("create{}Case{case_index}", cpp_identifier(error_name))
+}
+
+fn android_jni_signature(ty: &TypeRef) -> String {
+    match android_jni_type(ty)
+        .expect("validated Android typed error payload")
+        .as_str()
+    {
+        "jboolean" => "Z".to_owned(),
+        "jbyte" => "B".to_owned(),
+        "jshort" => "S".to_owned(),
+        "jint" => "I".to_owned(),
+        "jlong" => "J".to_owned(),
+        "jfloat" => "F".to_owned(),
+        "jdouble" => "D".to_owned(),
+        "jstring" => "Ljava/lang/String;".to_owned(),
+        "jbyteArray" => "[B".to_owned(),
+        _ => unreachable!("validated Android typed error payload has a JNI type"),
     }
 }
 
@@ -5093,18 +5373,47 @@ mod tests {
         assert!(error.contains("collection parameters"));
 
         let throwing = nexa_plugin_idl::parse(
-            "error Failure { rejected } service Clock { async fn read() throws Failure }",
+            r#"error Failure { rejected, malformed(code: UInt32, message: String, payload: Bytes) }
+            service Clock {
+                async fn read() throws Failure
+                async fn readValue() -> Result<Int32, Failure>
+            }"#,
         )
         .expect("throwing native IDL should parse");
-        let error = render_android_adapters(
+        let (kotlin, jni) = render_android_adapters(
             &throwing,
             "dev.example.cpp-plugin",
             "Clock",
             "dev.example.app",
             0,
         )
-        .expect_err("typed throwing signatures should fail generation");
-        assert!(error.contains("typed throwing methods"));
+        .expect("Android should bridge typed C++ errors into Kotlin exceptions");
+        assert!(
+            kotlin
+                .contains("@JvmStatic public fun createFailureCase0(): Failure = Failure.rejected")
+        );
+        assert!(kotlin.contains("createFailureCase1(code: Int, message: String, payload: ByteArray): Failure = Failure.malformed(code.toUInt(), message, payload)"));
+        assert!(kotlin.contains("override suspend fun read(): Unit"));
+        assert!(kotlin.contains("override suspend fun readValue(): Int"));
+        assert!(jni.contains("NexaPlugin0_CppErrorFactory"));
+        assert!(jni.contains(
+            "createFailureCase1\", \"(ILjava/lang/String;[B)Ldev/example/app/Failure;\""
+        ));
+        assert!(jni.contains("nexaCppThrowErrorFailure(env, nexaCppTypedResult.error())"));
+
+        let bad_error_payload = nexa_plugin_idl::parse(
+            "error Failure { rejected(payload: Array<Int32>) } service Clock { async fn read() throws Failure }",
+        )
+        .expect("typed collection error payload should parse");
+        let error = render_android_adapters(
+            &bad_error_payload,
+            "dev.example.cpp-plugin",
+            "Clock",
+            "dev.example.app",
+            0,
+        )
+        .expect_err("unsupported typed-error payloads must fail generation");
+        assert!(error.contains("typed errors support"));
 
         let events = nexa_plugin_idl::parse(
             "native class Watcher { init() event changed(value: Int32) fn dispose() }",

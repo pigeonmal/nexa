@@ -332,6 +332,30 @@ pub(super) fn android_plugin_proguard_rules(
                 "\n# Keep JNI lookup names for C++ plugin `{}` ({plugin_index}).\n-keep class {package}.NexaPlugin{plugin_index}_CppBindings {{ *; }}\n",
                 plugin.namespace
             ));
+            let contract = nexa_plugin_idl::parse_file(Path::new(&plugin.idl_path))?;
+            let errors = contract
+                .interfaces
+                .iter()
+                .flat_map(|interface| &interface.methods)
+                .filter_map(|method| {
+                    method.throws.as_ref().or_else(|| {
+                        (method.return_type.name == "Result")
+                            .then(|| method.return_type.arguments.get(1))
+                            .flatten()
+                    })
+                })
+                .map(|ty| ty.name.as_str())
+                .collect::<std::collections::BTreeSet<_>>();
+            if !errors.is_empty() {
+                output.push_str(&format!(
+                    "-keep class {package}.NexaPlugin{plugin_index}_CppErrorFactory {{ *; }}\n"
+                ));
+                for error in errors {
+                    output.push_str(&format!(
+                        "-keep class {package}.{error} {{ *; }}\n-keep class {package}.{error}$* {{ *; }}\n"
+                    ));
+                }
+            }
         }
         for rule in &plugin.android_proguard_rules {
             let source = validate_plugin_artifact(&package_root, rule, "pro", false)?;

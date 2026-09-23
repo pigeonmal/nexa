@@ -1646,13 +1646,19 @@ fn generated_android_cpp_plugin_uses_jni_adapters_and_compiles_with_ndk_when_ava
     .expect("plugin manifest should be written");
     fs::write(
         plugin.join("native.nxid"),
-        r#"service Counter {
+        r#"error LookupError {
+    missing
+    malformed(code: UInt32, message: String, payload: Bytes)
+}
+service Counter {
     fn increment(value: Int32) -> Int32
     async fn incrementAsync(value: Int32) -> Int32
     async fn maybeAsync(value: Int32?) -> Int32?
     async fn echoTextAsync(value: String) -> String
     async fn echoBytesAsync(value: Bytes) -> Bytes
     async fn pingAsync()
+    async fn read(value: Bool) throws LookupError
+    async fn readValue(value: Int32) -> Result<Int32, LookupError>
     fn echoIntegers(values: Array<Int32>) -> Array<Int32>
     fn echoUnsigned(values: Array<UInt32>) -> Array<UInt32>
     fn echoDoubles(values: Array<Float64>) -> Array<Float64>
@@ -1702,6 +1708,7 @@ native class Meter {
     property maybePayload: Bytes?
     property metrics: Map<String, Int32>
     fn add(amount: Float64) -> Float64
+    async fn validate(value: Bool) throws LookupError
     fn echo(value: String) -> String
     fn echoBytes(value: Bytes) -> Bytes
     fn echoUnsigned(value: UInt64) -> UInt64
@@ -1744,6 +1751,16 @@ std::future<std::optional<std::int32_t>> maybeAsync(std::optional<std::int32_t> 
 std::future<std::string> echoTextAsync(std::string value) noexcept { return readyFuture(std::move(value)); }
 std::future<std::vector<std::uint8_t>> echoBytesAsync(std::vector<std::uint8_t> value) noexcept { return readyFuture(std::move(value)); }
 std::future<void> pingAsync() noexcept { return readyFuture(); }
+std::future<NexaResult<void, LookupError>> read(bool value) noexcept {
+    if (!value) return readyFuture(NexaResult<void, LookupError>::success());
+    return readyFuture(NexaResult<void, LookupError>::failure(
+        LookupError{LookupError::Value{LookupError::MalformedCase{UINT32_MAX, "bad input", {0, 255}}}}));
+}
+std::future<NexaResult<std::int32_t, LookupError>> readValue(std::int32_t value) noexcept {
+    if (value >= 0) return readyFuture(NexaResult<std::int32_t, LookupError>::success(value));
+    return readyFuture(NexaResult<std::int32_t, LookupError>::failure(
+        LookupError{LookupError::Value{LookupError::MissingCase{}}}));
+}
 std::vector<std::int32_t> echoIntegers(std::vector<std::int32_t> values) noexcept { return values; }
 std::vector<std::uint32_t> echoUnsigned(std::vector<std::uint32_t> values) noexcept { return values; }
 std::vector<double> echoDoubles(std::vector<double> values) noexcept { return values; }
@@ -1805,6 +1822,11 @@ public:
     std::map<std::string, std::int32_t> getMetrics() const noexcept override { return metrics_; }
     void setMetrics(std::map<std::string, std::int32_t> value) noexcept override { metrics_ = std::move(value); }
     double add(double amount) noexcept override { value_ += amount; return value_; }
+    std::future<NexaResult<void, LookupError>> validate(bool value) noexcept override {
+        if (!value) return readyFuture(NexaResult<void, LookupError>::success());
+        return readyFuture(NexaResult<void, LookupError>::failure(
+            LookupError{LookupError::Value{LookupError::MissingCase{}}}));
+    }
     std::string echo(std::string value) noexcept override { return value; }
     std::vector<std::uint8_t> echoBytes(std::vector<std::uint8_t> value) noexcept override { return value; }
     std::uint64_t echoUnsigned(std::uint64_t value) noexcept override { return value; }
@@ -1866,6 +1888,14 @@ std::unique_ptr<MeterSpec> makeMeterImpl(double initial, std::string label, std:
     assert!(bindings.contains("override suspend fun echoTextAsync(value: String): String"));
     assert!(bindings.contains("override suspend fun echoBytesAsync(value: ByteArray): ByteArray"));
     assert!(bindings.contains("override suspend fun pingAsync(): Unit"));
+    assert!(bindings.contains("@Throws(LookupError::class)"));
+    assert!(bindings.contains("override suspend fun read(value: Boolean): Unit"));
+    assert!(bindings.contains("override suspend fun readValue(value: Int): Int"));
+    assert!(bindings.contains("override suspend fun validate(value: Boolean): Unit"));
+    assert!(bindings.contains("internal object NexaPlugin0_CppErrorFactory"));
+    assert!(bindings.contains(
+        "createLookupErrorCase1(code: Int, message: String, payload: ByteArray): LookupError"
+    ));
     assert!(bindings.contains("kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO)"));
     assert!(bindings.contains(
         "override suspend fun currentValue(): Double = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { synchronized(this) { NexaPlugin0_CppBindings.call_Meter_currentValue(requireNativeHandle()) } }"
@@ -1936,6 +1966,7 @@ std::unique_ptr<MeterSpec> makeMeterImpl(double initial, std::string label, std:
         .expect("generated C++ JNI adapters should be readable");
     assert!(jni.contains("auto nexaCppFuture = Counter::incrementAsync"));
     assert!(jni.contains("nexaCppFuture.get()"));
+    assert!(jni.contains("nexaCppThrowErrorLookupError(env, nexaCppTypedResult.error())"));
 
     let kotlinc = kotlin_compiler();
     let kotlin_jar = temp.0.join("NexaPluginBindings.jar");
@@ -1957,6 +1988,24 @@ fun main() = runBlocking {
     val asyncBytes = byteArrayOf(0, -1, 42)
     check(CounterPlugin.instance.echoBytesAsync(asyncBytes).contentEquals(asyncBytes))
     CounterPlugin.instance.pingAsync()
+    CounterPlugin.instance.read(false)
+    val malformed = try {
+        CounterPlugin.instance.read(true)
+        error("read(true) should throw the typed error")
+    } catch (error: LookupError.malformed) {
+        error
+    }
+    check(malformed.code == UInt.MAX_VALUE)
+    check(malformed.message == "bad input")
+    check(malformed.payload.contentEquals(byteArrayOf(0, -1)))
+    check(CounterPlugin.instance.readValue(42) == 42)
+    val missing: LookupError? = try {
+        CounterPlugin.instance.readValue(-1)
+        error("readValue(-1) should throw the typed error")
+    } catch (error: LookupError) {
+        error
+    }
+    check(missing === LookupError.missing)
     check(CounterPlugin.instance.echoIntegers(listOf(Int.MIN_VALUE, -1, 0, 42, Int.MAX_VALUE)) == listOf(Int.MIN_VALUE, -1, 0, 42, Int.MAX_VALUE))
     check(CounterPlugin.instance.echoIntegers(emptyList()).isEmpty())
     check(CounterPlugin.instance.echoUnsigned(listOf(0u, 1u, UInt.MAX_VALUE)) == listOf(0u, 1u, UInt.MAX_VALUE))
@@ -2085,6 +2134,14 @@ fun main() = runBlocking {
     check(second.label == "second")
     first.value = 4.0
     check(first.add(3.0) == 7.0)
+    first.validate(false)
+    val classError: LookupError? = try {
+        first.validate(true)
+        error("validate(true) should throw the typed error")
+    } catch (error: LookupError) {
+        error
+    }
+    check(classError === LookupError.missing)
     check(second.value == 11.0)
     first.clear()
     check(first.value == 0.0)
@@ -2162,6 +2219,11 @@ fun <T> runBlocking(block: suspend () -> T): T {
     assert!(
         proguard.contains("-keep class com.nexa.androidcppjnitest.NexaPlugin0_CppBindings { *; }")
     );
+    assert!(
+        proguard
+            .contains("-keep class com.nexa.androidcppjnitest.NexaPlugin0_CppErrorFactory { *; }")
+    );
+    assert!(proguard.contains("-keep class com.nexa.androidcppjnitest.LookupError$* { *; }"));
 
     let native_root = output.join("android/app/src/main/cpp");
     let sdk = env::var_os("ANDROID_HOME")

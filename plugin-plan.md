@@ -1964,11 +1964,11 @@ byte methods (including `Void`) from C++ futures. Swift waits away from the
 main queue;
 Android uses `Dispatchers.IO` and includes the coroutine dependency only when a
 reachable C++ plugin needs it. Async collection signatures fail with a
-generation diagnostic. iOS adapts declared typed errors from the C++
-`NexaResult` contract for async
-scalar, string, and byte results; error payloads support primitive, string, and
-byte values. Android typed errors, C++ events, and collection combinations
-outside the supported map-value cases remain open.
+generation diagnostic. Both platforms adapt declared async typed errors from
+the C++ `NexaResult` contract for scalar, string, and byte results. Android
+maps failures to Kotlin sealed exception cases and preserves non-optional
+primitive, string, and byte payloads through JNI. C++ events and collection
+combinations outside the supported map-value cases remain open.
 The optional `cpp.standard` manifest field selects the minimum C++17, C++20,
 or C++23 level required by reachable C++ sources; generated iOS and Android
 targets use the highest declared level, defaulting to C++20.
@@ -1988,13 +1988,13 @@ the NDK. Where a JDK and Kotlin compiler are available, a host JVM smoke test
 loads the generated library and checks service calls, two independent native
 instances, property/method forwarding, one-time disposal, and use-after-dispose
 rejection. It also round-trips flat maps through services and native-class
-constructors, properties, and methods, including unsigned carriers.
+constructors, properties, and methods, including unsigned carriers, plus typed
+C++ error cases through service and native-class calls.
 Remaining host integration includes:
 
 ```text
-Android typed throwing/event adapters, iOS event adapters, async
-collection signatures, and collection nesting outside the supported map-value
-cases remain open.
+Android and iOS C++ event adapters, async collection signatures, and
+collection nesting outside the supported map-value cases remain open.
 Android maps exclude floating-point keys and optional maps nested as map values;
 outer nullable maps and recursively nested non-null maps are covered by the
 generated JNI matrix.
@@ -2038,8 +2038,10 @@ screen state. Route parameters remain scalar; reusing resources across separate
 route lifetimes remains open.
 The optional C++ phase has IDL contracts,
 opt-in source compilation, direct iOS adapters, and generated Android JNI for
-synchronous methods and non-throwing async scalar, optional scalar, string,
-and byte methods on services and native classes, with explicit disposal. Async
+synchronous methods, non-throwing async values, and async typed errors on
+services and native classes, with explicit disposal. Android maps C++ errors
+to declared Kotlin exception variants for non-optional primitive, string, and
+byte payloads. Async
 Kotlin wrappers wait on `Dispatchers.IO`, and coroutine dependencies are
 feature-gated from reachable C++ plugin contracts. Swift bridges non-throwing
 async scalar, optional scalar,
@@ -2080,9 +2082,9 @@ these shapes. The optional host JVM matrix round-trips these maps when
 `kotlinc` is available. Generated iOS
 typechecking and Android host JNI runtime tests
 also cover nested Boolean/numeric arrays, strings, bytes, empty rows, and empty
-outer arrays. Android typed throwing/event adapters, iOS event adapters, async
-collection signatures, and broader collection
-combinations outside the supported map-value cases remain open.
+outer arrays. Android and iOS C++ event adapters, async collection signatures,
+and broader collection combinations outside the supported map-value cases
+remain open.
 Network pinning uses the same case-insensitive 64-character SHA-256 hash of
 DER-encoded SPKI on both platforms. iOS validates system trust before matching
 any certificate in the server chain; its generated DER parser has a headless

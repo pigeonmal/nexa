@@ -204,7 +204,9 @@ with primitive, string, and byte error payloads. iOS waits on C++ futures away
 from the main queue; Android exposes Kotlin `suspend` methods and runs blocking
 JNI/future work on `Dispatchers.IO`. The coroutine dependency is added only
 for reachable C++ plugins that need it. Async collection signatures fail during
-generation. Android typed errors and C++ events remain unsupported.
+generation. Android maps C++ `NexaResult` failures to the declared Kotlin
+sealed exception cases for non-optional primitive, string, and byte payloads.
+C++ event adapters remain unsupported.
 Android optional C++ values support `Bool`, signed and unsigned integers,
 floating-point, `String`, and `Bytes`. Generated R8 rules
 preserve JNI lookup names. Plugin authors implement the generated C++ contract
