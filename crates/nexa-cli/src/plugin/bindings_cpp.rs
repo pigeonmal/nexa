@@ -1008,6 +1008,12 @@ void requireJniMapOperation(JNIEnv* env, const char* message) {
     if (env->ExceptionCheck()) throw std::runtime_error(message);
 }
 
+template <class T>
+inline constexpr bool isOptionalMapValue = false;
+
+template <class T>
+inline constexpr bool isOptionalMapValue<std::optional<T>> = true;
+
 template <class Map, class KeyConverter, class ValueConverter>
 Map fromJniMap(JNIEnv* env, jobject input, KeyConverter&& convertKey, ValueConverter&& convertValue) {
     if (input == nullptr) {
@@ -1046,12 +1052,23 @@ Map fromJniMap(JNIEnv* env, jobject input, KeyConverter&& convertKey, ValueConve
         requireJniMapOperation(env, "unable to read JNI map key");
         ScopedLocalRef<jobject> value(env, env->CallObjectMethod(entry.get(), valueMethod));
         requireJniMapOperation(env, "unable to read JNI map value");
-        if (key.get() == nullptr || value.get() == nullptr) {
-            throwIllegalState(env, "non-null Nexa map entry contained null at the JNI boundary");
-            throw std::runtime_error("null JNI map entry");
+        if (key.get() == nullptr) {
+            throwIllegalState(env, "non-null Nexa map key was null at the JNI boundary");
+            throw std::runtime_error("null JNI map key");
         }
         auto convertedKey = convertKey(key.get());
         requireJniMapOperation(env, "unable to convert JNI map key");
+        if (value.get() == nullptr) {
+            if constexpr (isOptionalMapValue<std::invoke_result_t<ValueConverter, jobject>>) {
+                auto convertedValue = convertValue(nullptr);
+                requireJniMapOperation(env, "unable to convert nullable JNI map value");
+                output.insert_or_assign(std::move(convertedKey), std::move(convertedValue));
+                continue;
+            } else {
+                throwIllegalState(env, "non-null Nexa map value was null at the JNI boundary");
+                throw std::runtime_error("null JNI map value");
+            }
+        }
         auto convertedValue = convertValue(value.get());
         requireJniMapOperation(env, "unable to convert JNI map value");
         output.insert_or_assign(std::move(convertedKey), std::move(convertedValue));
@@ -1328,12 +1345,6 @@ fn android_cpp_type(ty: &TypeRef) -> Option<String> {
             }
             return Some(format!("std::set<{}>", android_cpp_value(element)?.cpp));
         }
-        if android_primitive_array(element).is_none()
-            && android_reference_array_element(element).is_none()
-            && element.name != "Array"
-        {
-            return None;
-        }
         return Some(format!("std::vector<{}>", android_cpp_type(element)?));
     }
     android_cpp_value(ty).map(|value| value.cpp.to_owned())
@@ -1379,7 +1390,7 @@ fn android_map_element_is_supported(ty: &TypeRef, is_key: bool) -> bool {
 
 fn android_map_value_is_supported(ty: &TypeRef) -> bool {
     if ty.name == "Map" {
-        return !ty.optional && android_map_is_supported(ty);
+        return android_map_is_supported(ty);
     }
     if android_map_element_is_supported(ty, false)
         || (ty.name == "Bytes" && !ty.optional && ty.arguments.is_empty())
@@ -1395,10 +1406,10 @@ fn android_map_value_is_supported(ty: &TypeRef) -> bool {
     if element.optional {
         return false;
     }
-    if ty.name == "Set" && element.name != "String" {
-        return android_primitive_array(element).is_some();
+    if ty.name == "Set" {
+        return android_set_element_is_supported(element);
     }
-    android_primitive_array(element).is_some() || android_reference_array_element(element).is_some()
+    android_map_value_is_supported(element)
 }
 
 fn android_cpp_map_type(ty: &TypeRef) -> Option<(&TypeRef, &TypeRef)> {
@@ -1433,7 +1444,7 @@ fn android_jni_type(ty: &TypeRef) -> Option<String> {
         if let Some(array) = android_primitive_array(element) {
             return Some(array.jni_array.to_owned());
         }
-        if android_reference_array_element(element).is_none() && element.name != "Array" {
+        if android_jni_class_descriptor(element).is_none() {
             return None;
         }
         return Some("jobjectArray".to_owned());
@@ -1534,10 +1545,7 @@ fn android_kotlin_type(ty: &TypeRef, jni_carrier: bool) -> String {
                 if let Some(array) = android_primitive_array(element) {
                     return array.kotlin_array.to_owned();
                 }
-                if android_reference_array_element(element).is_some() {
-                    return format!("Array<{}>", android_kotlin_type(element, false));
-                }
-                if element.name == "Array" {
+                if android_jni_class_descriptor(element).is_some() {
                     return format!("Array<{}>", android_kotlin_type(element, true));
                 }
             }
@@ -1704,10 +1712,12 @@ fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
     }
     if matches!(ty.name.as_str(), "Array" | "Set") {
         let element = &ty.arguments[0];
-        if ty.name == "Array" && element.name == "Array" {
+        if ty.name == "Array" && matches!(element.name.as_str(), "Array" | "Set")
+            || (ty.name == "Array" && android_cpp_map_type(element).is_some())
+        {
             return format!(
-                "{value}.map {{ nexaNestedArray -> {} }}.toTypedArray()",
-                kotlin_to_jni_expression("nexaNestedArray", element)
+                "{value}.map {{ nexaNestedCollection -> {} }}.toTypedArray()",
+                kotlin_to_jni_expression("nexaNestedCollection", element)
             );
         }
         let Some(array) = android_primitive_array(element) else {
@@ -1776,10 +1786,12 @@ fn kotlin_from_jni_expression(expression: String, ty: &TypeRef) -> String {
     }
     if matches!(ty.name.as_str(), "Array" | "Set") {
         let element = &ty.arguments[0];
-        if ty.name == "Array" && element.name == "Array" {
+        if ty.name == "Array" && matches!(element.name.as_str(), "Array" | "Set")
+            || (ty.name == "Array" && android_cpp_map_type(element).is_some())
+        {
             return format!(
-                "{expression}.map {{ nexaNestedArray -> {} }}",
-                kotlin_from_jni_expression("nexaNestedArray".to_owned(), element)
+                "{expression}.map {{ nexaNestedCollection -> {} }}",
+                kotlin_from_jni_expression("nexaNestedCollection".to_owned(), element)
             );
         }
         let Some(_array) = android_primitive_array(element) else {
@@ -2771,7 +2783,11 @@ fn render_jni_array_argument_conversion(
     failure_return: &str,
     local: &str,
 ) -> String {
-    if ty.name == "Array" && ty.arguments[0].name == "Array" {
+    let element = &ty.arguments[0];
+    if ty.name == "Array"
+        && (matches!(element.name.as_str(), "Array" | "Set")
+            || android_cpp_map_type(element).is_some())
+    {
         return render_jni_nested_array_argument_conversion(out, ty, value, failure_return, local);
     }
     render_jni_array_argument_conversion_flat(out, ty, value, failure_return, local)
@@ -2790,13 +2806,23 @@ fn render_jni_nested_array_argument_conversion(
         "        if ({value} == nullptr) {{\n            throwIllegalState(env, \"non-null Nexa array was null at the JNI boundary\");\n            {failure_return}\n        }}\n        const jsize {local}Length = env->GetArrayLength(static_cast<jobjectArray>({value}));\n        if (env->ExceptionCheck()) {failure_return}\n        {cpp_type} {local};\n        {local}.reserve(static_cast<std::size_t>({local}Length));\n        for (jsize {local}Index = 0; {local}Index < {local}Length; ++{local}Index) {{\n            auto {local}Element = env->GetObjectArrayElement(static_cast<jobjectArray>({value}), {local}Index);\n            if (env->ExceptionCheck()) {failure_return}\n            if ({local}Element == nullptr) {{\n                throwIllegalState(env, \"non-null nested Nexa array was null at the JNI boundary\");\n                {failure_return}\n            }}\n"
     ));
     let element_local = format!("{local}ElementValue");
-    let element_value = render_jni_array_argument_conversion(
-        out,
-        element,
-        &format!("{local}Element"),
-        failure_return,
-        &element_local,
-    );
+    let element_value = if android_cpp_map_type(element).is_some() {
+        render_jni_map_argument_conversion(
+            out,
+            element,
+            &format!("{local}Element"),
+            failure_return,
+            &element_local,
+        )
+    } else {
+        render_jni_array_argument_conversion(
+            out,
+            element,
+            &format!("{local}Element"),
+            failure_return,
+            &element_local,
+        )
+    };
     out.push_str(&format!(
         "            {local}.push_back(std::move({element_value}));\n            env->DeleteLocalRef({local}Element);\n            if (env->ExceptionCheck()) {failure_return}\n        }}\n"
     ));
@@ -2985,14 +3011,26 @@ fn render_android_jni_map_converter(
             to_java,
             failure_return,
         );
-        return if to_java {
-            format!(
+        return match (to_java, ty.optional) {
+            (true, true) => format!(
+                "[&](const {cpp_type}& value) -> jobject {{ if (!value.has_value()) return nullptr; return toJniMap(env, *value, {key_converter}, {value_converter}); }}"
+            ),
+            (false, true) => {
+                let map_type = format!(
+                    "std::map<{}, {}>",
+                    android_cpp_type(key).expect("validated nested Android map key"),
+                    android_cpp_type(value).expect("validated nested Android map value")
+                );
+                format!(
+                    "[&](jobject raw) -> {cpp_type} {{ if (raw == nullptr) return std::nullopt; return fromJniMap<{map_type}>(env, raw, {key_converter}, {value_converter}); }}"
+                )
+            }
+            (true, false) => format!(
                 "[&](const {cpp_type}& value) -> jobject {{ return toJniMap(env, value, {key_converter}, {value_converter}); }}"
-            )
-        } else {
-            format!(
+            ),
+            (false, false) => format!(
                 "[&](jobject raw) -> {cpp_type} {{ return fromJniMap<{cpp_type}>(env, raw, {key_converter}, {value_converter}); }}"
-            )
+            ),
         };
     }
     if matches!(ty.name.as_str(), "Array" | "Set") {
@@ -3001,6 +3039,29 @@ fn render_android_jni_map_converter(
         };
         let collection_type = android_cpp_type(ty)
             .expect("validated Android map collection has a C++ representation");
+        if ty.name == "Array"
+            && (matches!(element.name.as_str(), "Array" | "Set")
+                || android_cpp_map_type(element).is_some())
+        {
+            let element_class = android_jni_class_descriptor(element)
+                .expect("validated nested Android collection has a JNI descriptor");
+            let converter = render_android_jni_map_converter(
+                out,
+                element,
+                &format!("{name}Element"),
+                to_java,
+                failure_return,
+            );
+            return if to_java {
+                format!(
+                    "[&](const {collection_type}& values) -> jobject {{\n            if (values.size() > static_cast<std::size_t>(std::numeric_limits<jsize>::max())) throw std::length_error(\"native plugin collection is too large for JNI\");\n            const auto length = static_cast<jsize>(values.size());\n            ScopedLocalRef<jclass> elementClass(env, env->FindClass(\"{element_class}\"));\n            requireJniMapOperation(env, \"unable to resolve JNI nested collection element type\");\n            ScopedLocalRef<jobjectArray> output(env, env->NewObjectArray(length, elementClass.get(), nullptr));\n            requireJniMapOperation(env, \"unable to allocate JNI nested collection\");\n            jsize index = 0;\n            for (const auto& value : values) {{\n                ScopedLocalRef<jobject> element(env, {converter}(value));\n                requireJniMapOperation(env, \"unable to convert native nested collection element\");\n                env->SetObjectArrayElement(output.get(), index++, element.get());\n                requireJniMapOperation(env, \"unable to populate JNI nested collection\");\n            }}\n            return output.release();\n        }}"
+                )
+            } else {
+                format!(
+                    "[&](jobject raw) -> {collection_type} {{\n            if (raw == nullptr) {{ throwIllegalState(env, \"non-null Nexa nested collection was null at the JNI boundary\"); throw std::runtime_error(\"null JNI nested collection\"); }}\n            auto input = static_cast<jobjectArray>(raw);\n            const jsize length = env->GetArrayLength(input);\n            requireJniMapOperation(env, \"unable to read JNI nested collection length\");\n            {collection_type} output;\n            output.reserve(static_cast<std::size_t>(length));\n            for (jsize index = 0; index < length; ++index) {{\n                ScopedLocalRef<jobject> element(env, env->GetObjectArrayElement(input, index));\n                requireJniMapOperation(env, \"unable to read JNI nested collection element\");\n                if (element.get() == nullptr) {{ throwIllegalState(env, \"non-null Nexa nested collection contained null\"); throw std::runtime_error(\"null JNI nested collection element\"); }}\n                auto value = {converter}(element.get());\n                requireJniMapOperation(env, \"unable to convert JNI nested collection element\");\n                output.push_back(std::move(value));\n            }}\n            return output;\n        }}"
+                )
+            };
+        }
         let Some(array) = android_primitive_array(element) else {
             android_reference_array_element(element)
                 .expect("validated Android map collection has a reference element");
@@ -3225,7 +3286,10 @@ fn render_jni_return(out: &mut String, ty: &TypeRef, expression: &str) {
     }
     if matches!(ty.name.as_str(), "Array" | "Set") {
         let element = &ty.arguments[0];
-        if ty.name == "Array" && element.name == "Array" {
+        if ty.name == "Array"
+            && (matches!(element.name.as_str(), "Array" | "Set")
+                || android_cpp_map_type(element).is_some())
+        {
             render_jni_nested_array_return(out, ty, expression);
             return;
         }
@@ -3338,6 +3402,7 @@ fn android_jni_class_descriptor(ty: &TypeRef) -> Option<String> {
         "Float64" => Some("D".to_owned()),
         "String" => Some("Ljava/lang/String;".to_owned()),
         "Bytes" => Some("[B".to_owned()),
+        "Map" => Some("Ljava/util/Map;".to_owned()),
         "Array" => {
             let [element] = ty.arguments.as_slice() else {
                 return None;
@@ -3356,6 +3421,18 @@ fn android_jni_class_descriptor(ty: &TypeRef) -> Option<String> {
                 Some(format!("[{descriptor}"))
             } else {
                 Some(format!("[{}", android_jni_class_descriptor(element)?))
+            }
+        }
+        "Set" => {
+            let [element] = ty.arguments.as_slice() else {
+                return None;
+            };
+            if android_primitive_array(element).is_some() {
+                Some(format!("[{}", android_jni_class_descriptor(element)?))
+            } else if android_reference_array_element(element).is_some() {
+                Some(format!("[{}", android_jni_class_descriptor(element)?))
+            } else {
+                None
             }
         }
         _ => None,
@@ -6334,10 +6411,10 @@ mod tests {
         );
         assert!(kotlin.contains("override fun find(ids: List<List<Int>>): List<List<Int>>"));
         assert!(kotlin.contains(
-            "ids.map { nexaNestedArray -> nexaNestedArray.toIntArray() }.toTypedArray()"
+            "ids.map { nexaNestedCollection -> nexaNestedCollection.toIntArray() }.toTypedArray()"
         ));
         assert!(
-            kotlin.contains(").map { nexaNestedArray -> nexaNestedArray.asList() }"),
+            kotlin.contains(").map { nexaNestedCollection -> nexaNestedCollection.asList() }"),
             "nested Kotlin return conversion is missing:\n{kotlin}"
         );
         assert!(jni.contains("std::vector<std::vector<std::int32_t>> nexaJniArrayArgument0"));

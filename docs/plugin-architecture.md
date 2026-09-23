@@ -166,9 +166,10 @@ string, and byte arrays; compatible sets; recursively nested arrays; and maps
 with supported keys and nested collection values. Swift `String`/`Data`
 conversions are explicit, and vector façades preserve compatible `std::set`
 semantics. Android bridges optional scalars, nested arrays, compatible sets,
-maps with primitive/string keys and supported primitive, string, byte, array,
-set, or nested-map values, and nullable outer maps. JNI uses length-aware
-string/byte conversions and preserves unsigned bit patterns. Platform-specific
+maps with primitive/string keys and recursively nested primitive, string, byte,
+array, set, or map values, including nullable nested-map values and nullable
+outer maps. JNI uses length-aware string/byte conversions and preserves
+unsigned bit patterns. Platform-specific
 collection combinations outside those supported shapes remain open.
 
 ## Migration map
@@ -213,9 +214,9 @@ type-check generated Swift `Data` to C++ byte-vector adapters and set facades.
    iOS also translates declared typed errors for supported scalar/string/byte
    results. Android supports async typed errors with non-optional primitive,
    string, and byte payloads. Native-class C++ events are supported on both
-   platforms; collection combinations outside the covered shapes remain open. Android map keys
-   exclude floating-point values, and nullable maps are
-   supported only at the outer map level.
+   platforms; collection combinations outside the covered shapes remain open.
+   Android map keys exclude floating-point values; optional maps are supported
+   as outer maps and map values, but optional collection elements remain open.
 2. Reuse native resources across separate route lifetimes; route parameters
    currently stay scalar.
 

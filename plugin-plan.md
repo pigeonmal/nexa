@@ -1953,10 +1953,10 @@ entry vectors around `std::map` on iOS; supported keys are Boolean, integer,
 and bytes, while values may be scalar, string, bytes, compatible sets, nested
 arrays with compatible leaves, or recursively nested maps with supported keys.
 Android maps support primitive or string
-keys and primitive, string, or byte values, plus arrays of primitive, string,
-or byte values, compatible primitive or string sets, and recursively nested
-maps. Android outer maps may be optional; Kotlin preserves `null` separately from an
-empty map and C++ carries the distinction through `std::optional`. Nested
+keys and primitive, string, or byte values, plus recursively nested arrays,
+compatible sets, and maps, including arrays of maps or sets. Nullable nested
+map values and optional outer maps preserve `null` separately from an empty map
+through Kotlin and C++ `std::optional`. Nested
 `Array` values with primitive, string, or byte leaves use recursive adapters on
 both platforms.
 Both platforms adapt non-throwing async scalar, optional scalar, string, and
@@ -2003,9 +2003,9 @@ native-class events have a host-JVM JNI round-trip test for independent
 instances, callback replacement/clearing, byte/string payload conversion, and
 native-thread delivery. iOS generated adapters typecheck event conversion and
 the generated Xcode project compiles and links a C++ event implementation.
-Android maps exclude floating-point keys and optional maps nested as map values;
-outer nullable maps and recursively nested non-null maps are covered by the
-generated JNI matrix.
+Android maps exclude floating-point keys and optional collection elements.
+Optional map values and outer nullable maps, nested arrays, arrays of maps or
+sets, and recursively nested maps have generated JNI round-trip coverage.
 ```
 
 Do not expose JNI to normal plugin authors.
@@ -2077,8 +2077,9 @@ Android `Map` JNI smoke tests round-trip String/signed-integer maps and unsigned
 integer maps through services, plus native-class constructors, properties, and
 methods. Floating-point map keys and byte-array sets remain rejected by the
 generated adapter. Android supports flat primitive, string, and byte arrays,
-compatible sets, maps with primitive, string, or byte values, array/set values,
-recursively nested maps, and optional outer maps. The iOS map adapter typechecks
+compatible sets, maps with primitive, string, or byte values, recursively
+nested arrays, arrays of maps or sets, recursively nested maps, and optional
+outer or nested maps. The iOS map adapter typechecks
 every supported key family, scalar and collection values, and nested maps
 through service and native-class APIs; byte-key and byte-value cases exercise
 Data conversion. It also typechecks numeric, string, byte, and compatible set
@@ -2086,8 +2087,8 @@ map values with distinct generated adapter names. Android generator tests cover
 scalar byte-map values, nullable unsigned-key maps including null and empty
 values, nested maps, and map values containing primitive arrays, reference
 arrays, and compatible sets; the headless C++ check compiles JNI adapters for
-these shapes. The optional host JVM matrix round-trips these maps when
-`kotlinc` is available. Generated iOS
+these shapes, including nested collection combinations. The optional host JVM
+matrix round-trips these maps when `kotlinc` is available. Generated iOS
 typechecking and Android host JNI runtime tests
 also cover nested Boolean/numeric arrays, strings, bytes, empty rows, and empty
 outer arrays. Async service and native-class collection calls now run method

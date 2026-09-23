@@ -190,13 +190,14 @@ integer, and String elements through JNI array carriers and C++ `std::set`.
 Floating-point and byte-array sets remain unsupported because their Kotlin and
 C++ equality/order semantics differ. Android `Map` keys support primitive or
 String types; map values support primitive, string, or byte values, arrays of
-primitive/string/byte values, compatible primitive or string sets, and
-recursively nested maps. Top-level maps may be nullable and preserve the
-difference between `null` and an empty map through JNI. Generated adapters
-convert these shapes with headless C++ compilation and optional host-JVM
-round-trip coverage.
-Floating-point keys, byte-array sets, optional nested maps, and collection shapes
-outside that subset remain unsupported to preserve Kotlin/C++ map semantics.
+primitive/string/byte values, compatible sets, recursively nested arrays and
+maps, and arrays containing maps or sets. Nested map values and top-level maps
+may be nullable and preserve the difference between `null` and an empty map
+through JNI. Generated adapters convert these shapes with headless C++
+compilation and optional host-JVM round-trip coverage.
+Floating-point keys, byte-array sets, optional collection elements, and
+collection shapes outside that subset remain unsupported to preserve Kotlin/C++
+map semantics.
 Both C++ platforms support non-throwing async scalar, optional scalar,
 `String`, and `Bytes` service and native-class methods. iOS also maps declared
 typed errors from C++ `NexaResult` values for async scalar/string/byte results,
