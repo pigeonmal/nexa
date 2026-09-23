@@ -63,6 +63,8 @@ pub(super) fn validate_manifest_sources(
         )?;
     }
 
+    let canonical_package_root = fs::canonicalize(package_root)
+        .map_err(|error| format!("{}: {error}", package_root.display()))?;
     for asset in &manifest.assets {
         let path = package_root.join(asset);
         let wildcard_index = path.components().position(|component| {
@@ -83,6 +85,13 @@ pub(super) fn validate_manifest_sources(
             return Err(format!(
                 "declared plugin asset path `{asset}` does not exist under {}",
                 package_root.display()
+            ));
+        }
+        let canonical_prefix = fs::canonicalize(&existing_prefix)
+            .map_err(|error| format!("{}: {error}", existing_prefix.display()))?;
+        if !canonical_prefix.starts_with(&canonical_package_root) {
+            return Err(format!(
+                "declared plugin asset `{asset}` resolves outside the plugin package"
             ));
         }
     }
@@ -626,6 +635,8 @@ pub(super) fn plugin_platform_sources(
     manifest: &PluginManifest,
     ios: bool,
 ) -> Result<Vec<PathBuf>, String> {
+    let canonical_root = fs::canonicalize(package_root)
+        .map_err(|error| format!("{}: {error}", package_root.display()))?;
     let (platform, sources, fallback, extension) = if ios {
         ("iOS", &manifest.ios.sources, "ios/Sources", "swift")
     } else {
@@ -653,7 +664,16 @@ pub(super) fn plugin_platform_sources(
                 "declared {platform} plugin source pattern `{source}` matches no .{extension} files"
             ));
         }
-        files.extend(matches.into_iter().map(|(file, _)| file));
+        for (file, _) in matches {
+            let canonical = fs::canonicalize(&file)
+                .map_err(|error| format!("{}: {error}", file.display()))?;
+            if !canonical.starts_with(&canonical_root) {
+                return Err(format!(
+                    "declared {platform} plugin source `{source}` resolves outside the plugin package"
+                ));
+            }
+            files.push(file);
+        }
     }
     files.sort();
     files.dedup();
@@ -800,9 +820,31 @@ pub(super) fn copy_plugin_assets(
         if !source_root.is_dir() {
             continue;
         }
+        let canonical_source_root = fs::canonicalize(source_root)
+            .map_err(|error| format!("{}: {error}", source_root.display()))?;
+        if let Some(package_root) = &assets.package_root {
+            let canonical_package_root = fs::canonicalize(package_root)
+                .map_err(|error| format!("{}: {error}", package_root))?;
+            if !canonical_source_root.starts_with(&canonical_package_root) {
+                return Err(format!(
+                    "plugin asset root `{}` resolves outside the plugin package `{}`",
+                    source_root.display(),
+                    package_root
+                ));
+            }
+        }
         let mut files = Vec::new();
         collect_files(source_root, "", &mut files)?;
         for source in files {
+            let canonical_source = fs::canonicalize(&source)
+                .map_err(|error| format!("{}: {error}", source.display()))?;
+            if !canonical_source.starts_with(&canonical_source_root) {
+                return Err(format!(
+                    "plugin asset `{}` resolves outside its asset root `{}`",
+                    source.display(),
+                    source_root.display()
+                ));
+            }
             let relative = source.strip_prefix(source_root).map_err(|_| {
                 format!(
                     "plugin asset is outside its asset root: {}",
@@ -1471,6 +1513,8 @@ pub(super) fn native_plugin_sources(
     let plugin_root = Path::new(&plugin.idl_path)
         .parent()
         .ok_or_else(|| format!("invalid plugin IDL path `{}`", plugin.idl_path))?;
+    let canonical_plugin_root = fs::canonicalize(plugin_root)
+        .map_err(|error| format!("{}: {error}", plugin_root.display()))?;
     let patterns = if relative_root.starts_with("ios/") {
         &plugin.ios_sources
     } else {
@@ -1487,6 +1531,18 @@ pub(super) fn native_plugin_sources(
         files.extend(expand_source_pattern(&pattern, extension, plugin_root)?);
     }
 
+    for (file, _) in &files {
+        let canonical = fs::canonicalize(file)
+            .map_err(|error| format!("{}: {error}", file.display()))?;
+        if !canonical.starts_with(&canonical_plugin_root) {
+            return Err(format!(
+                "plugin source `{}` resolves outside the plugin package `{}`",
+                file.display(),
+                plugin_root.display()
+            ));
+        }
+    }
+
     files.sort_by(|left, right| left.0.cmp(&right.0));
     files.dedup_by(|left, right| left.0 == right.0);
     Ok(files)
@@ -1497,28 +1553,36 @@ fn expand_source_pattern(
     extension: &str,
     fallback_root: &Path,
 ) -> Result<Vec<(PathBuf, PathBuf)>, String> {
-    if pattern.is_file() {
-        let matches = pattern
-            .extension()
-            .and_then(|value| value.to_str())
-            .is_some_and(|value| value == extension);
-        return Ok(matches
-            .then(|| {
-                (
-                    pattern.to_path_buf(),
-                    pattern.parent().unwrap_or(fallback_root).to_path_buf(),
-                )
-            })
-            .into_iter()
-            .collect());
-    }
-    if pattern.is_dir() {
-        let mut files = Vec::new();
-        collect_files(pattern, extension, &mut files)?;
-        return Ok(files
-            .into_iter()
-            .map(|file| (file, pattern.to_path_buf()))
-            .collect());
+    if let Ok(metadata) = fs::symlink_metadata(pattern) {
+        if metadata.file_type().is_symlink() {
+            return Err(format!(
+                "plugin traversal rejected symlink `{}`",
+                pattern.display()
+            ));
+        }
+        if metadata.is_file() {
+            let matches = pattern
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value == extension);
+            return Ok(matches
+                .then(|| {
+                    (
+                        pattern.to_path_buf(),
+                        pattern.parent().unwrap_or(fallback_root).to_path_buf(),
+                    )
+                })
+                .into_iter()
+                .collect());
+        }
+        if metadata.is_dir() {
+            let mut files = Vec::new();
+            collect_files(pattern, extension, &mut files)?;
+            return Ok(files
+                .into_iter()
+                .map(|file| (file, pattern.to_path_buf()))
+                .collect());
+        }
     }
 
     let components = pattern
@@ -1556,6 +1620,15 @@ fn collect_matching_pattern(
     source_root: &Path,
     files: &mut Vec<(PathBuf, PathBuf)>,
 ) -> Result<(), String> {
+    if fs::symlink_metadata(current)
+        .map(|meta| meta.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(format!(
+            "plugin traversal rejected symlink `{}`",
+            current.display()
+        ));
+    }
     let Some(component) = components.first() else {
         if current.is_file()
             && current
@@ -1574,6 +1647,15 @@ fn collect_matching_pattern(
                 fs::read_dir(current).map_err(|error| format!("{}: {error}", current.display()))?
             {
                 let entry = entry.map_err(|error| format!("{}: {error}", current.display()))?;
+                let file_type = entry
+                    .file_type()
+                    .map_err(|error| format!("{}: {error}", current.display()))?;
+                if file_type.is_symlink() {
+                    return Err(format!(
+                        "plugin traversal rejected symlink `{}`",
+                        entry.path().display()
+                    ));
+                }
                 collect_matching_pattern(&entry.path(), components, extension, source_root, files)?;
             }
         }
@@ -1585,6 +1667,15 @@ fn collect_matching_pattern(
                 fs::read_dir(current).map_err(|error| format!("{}: {error}", current.display()))?
             {
                 let entry = entry.map_err(|error| format!("{}: {error}", current.display()))?;
+                let file_type = entry
+                    .file_type()
+                    .map_err(|error| format!("{}: {error}", current.display()))?;
+                if file_type.is_symlink() {
+                    return Err(format!(
+                        "plugin traversal rejected symlink `{}`",
+                        entry.path().display()
+                    ));
+                }
                 let name = entry.file_name();
                 let Some(name) = name.to_str() else {
                     continue;
@@ -1664,6 +1755,61 @@ fn wildcard_matches(pattern: &str, value: &str) -> bool {
     pattern_index == pattern.len()
 }
 
+fn collect_files(
+    directory: &Path,
+    extension: &str,
+    files: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(directory)
+        .map_err(|error| format!("{}: {error}", directory.display()))?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "plugin traversal rejected symlink `{}`",
+            directory.display()
+        ));
+    }
+    for entry in
+        fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?
+    {
+        let entry = entry.map_err(|error| format!("{}: {error}", directory.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        if file_type.is_symlink() {
+            return Err(format!(
+                "plugin traversal rejected symlink `{}`",
+                path.display()
+            ));
+        }
+        if file_type.is_dir() {
+            collect_files(&path, extension, files)?;
+        } else if file_type.is_file()
+            && (extension.is_empty()
+                || path.extension().and_then(|value| value.to_str()) == Some(extension))
+        {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn sanitize_asset_name(value: &str) -> String {
+    let mut result = String::with_capacity(value.len());
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() {
+            result.push(character.to_ascii_lowercase());
+        } else {
+            result.push('_');
+        }
+    }
+    if result.is_empty() {
+        "asset".to_owned()
+    } else {
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -1675,8 +1821,8 @@ mod tests {
     use super::{
         android_plugin_proguard_rules, copy_android_plugin_artifacts,
         copy_android_plugin_cpp_sources, copy_android_plugin_resources, copy_ios_plugin_artifacts,
-        copy_ios_plugin_cpp_sources, copy_ios_plugin_resources, validate_manifest_sources,
-        wildcard_matches,
+        copy_ios_plugin_cpp_sources, copy_ios_plugin_resources, copy_plugin_assets,
+        native_plugin_sources, validate_manifest_sources, wildcard_matches,
     };
 
     struct TempProject(PathBuf);
@@ -1935,7 +2081,6 @@ mod tests {
             b"second AAR payload"
         );
 
-        let mut module = module;
         module.plugins[0].ios_resources = vec![
             fs::canonicalize(&ios_resource)
                 .expect("iOS resource path should canonicalize")
@@ -1976,41 +2121,169 @@ mod tests {
                 .contains("-keep class com.example.sdk.** { *; }")
         );
     }
-}
 
-fn collect_files(
-    directory: &Path,
-    extension: &str,
-    files: &mut Vec<PathBuf>,
-) -> Result<(), String> {
-    for entry in
-        fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?
-    {
-        let entry = entry.map_err(|error| format!("{}: {error}", directory.display()))?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_files(&path, extension, files)?;
-        } else if extension.is_empty()
-            || path.extension().and_then(|value| value.to_str()) == Some(extension)
-        {
-            files.push(path);
-        }
-    }
-    Ok(())
-}
+    #[test]
+    #[cfg(unix)]
+    fn source_discovery_rejects_traversal_symlinks() {
+        let temporary = TempProject::new();
+        let package = temporary.0.join("plugin-symlink");
+        let sources = package.join("ios/Sources");
+        fs::create_dir_all(&sources).expect("sources directory created");
+        let external = temporary.0.join("external-secret");
+        fs::create_dir_all(&external).expect("external directory created");
+        fs::write(external.join("Secret.swift"), "// secret").expect("secret file written");
+        std::os::unix::fs::symlink(&external, sources.join("SymlinkDir")).expect("symlink created");
 
-fn sanitize_asset_name(value: &str) -> String {
-    let mut result = String::with_capacity(value.len());
-    for character in value.chars() {
-        if character.is_ascii_alphanumeric() {
-            result.push(character.to_ascii_lowercase());
-        } else {
-            result.push('_');
-        }
+        let plugin = nexa_ir::Plugin {
+            idl_path: package.join("native.nxid").display().to_string(),
+            namespace: "demo".to_string(),
+            ios_sources: vec![],
+            android_sources: vec![],
+            cpp_sources: vec![],
+            cpp_headers: vec![],
+            cpp_standard: None,
+            ios_min_version: None,
+            android_min_sdk: None,
+            ios_frameworks: vec![],
+            ios_xcframeworks: vec![],
+            ios_resources: vec![],
+            ios_privacy_manifest: None,
+            swift_packages: vec![],
+            maven_dependencies: vec![],
+            android_aars: vec![],
+            android_resources: vec![],
+            android_proguard_rules: vec![],
+            android_maven_repositories: vec![],
+            ios_usage_descriptions: vec![],
+            ios_entitlements: vec![],
+            ios_linker_flags: vec![],
+            android_permissions: vec![],
+        };
+        fs::write(package.join("native.nxid"), "namespace demo {}").expect("idl written");
+
+        let result = native_plugin_sources(&plugin, "ios/Sources", "swift");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("plugin traversal rejected symlink"));
     }
-    if result.is_empty() {
-        "asset".to_owned()
-    } else {
-        result
+
+    #[test]
+    fn source_discovery_rejects_files_escaping_package_bounds() {
+        let temporary = TempProject::new();
+        let package = temporary.0.join("plugin-bounds");
+        fs::create_dir_all(&package).expect("package directory created");
+        let outside = temporary.0.join("Outside.swift");
+        fs::write(&outside, "// outside").expect("outside file written");
+        fs::write(package.join("native.nxid"), "namespace demo {}").expect("idl written");
+
+        let plugin = nexa_ir::Plugin {
+            idl_path: package.join("native.nxid").display().to_string(),
+            namespace: "demo".to_string(),
+            ios_sources: vec![outside.display().to_string()],
+            android_sources: vec![],
+            cpp_sources: vec![],
+            cpp_headers: vec![],
+            cpp_standard: None,
+            ios_min_version: None,
+            android_min_sdk: None,
+            ios_frameworks: vec![],
+            ios_xcframeworks: vec![],
+            ios_resources: vec![],
+            ios_privacy_manifest: None,
+            swift_packages: vec![],
+            maven_dependencies: vec![],
+            android_aars: vec![],
+            android_resources: vec![],
+            android_proguard_rules: vec![],
+            android_maven_repositories: vec![],
+            ios_usage_descriptions: vec![],
+            ios_entitlements: vec![],
+            ios_linker_flags: vec![],
+            android_permissions: vec![],
+        };
+
+        let result = native_plugin_sources(&plugin, "ios/Sources", "swift");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("resolves outside the plugin package"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn asset_discovery_rejects_asset_root_linked_outside_package() {
+        let temporary = TempProject::new();
+        let package = temporary.0.join("plugin-assets");
+        fs::create_dir_all(&package).expect("package directory created");
+        let external_assets = temporary.0.join("external-assets");
+        fs::create_dir_all(&external_assets).expect("external assets created");
+        fs::write(external_assets.join("logo.png"), b"png").expect("image written");
+        let linked_root = package.join("linked-assets");
+        std::os::unix::fs::symlink(&external_assets, &linked_root).expect("symlink created");
+
+        let module = nexa_ir::Module {
+            app_name: "DemoApp".to_string(),
+            plugins: vec![],
+            plugin_assets: vec![nexa_ir::PluginAsset {
+                root: linked_root.display().to_string(),
+                package_root: Some(package.display().to_string()),
+            }],
+            enums: vec![],
+            structs: vec![],
+            functions: vec![],
+            states: vec![],
+            screens: vec![],
+            components: vec![],
+            body: vec![],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let result = copy_plugin_assets(&temporary.0, "DemoApp", &module);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("resolves outside the plugin package"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn asset_discovery_rejects_traversal_symlinks() {
+        let temporary = TempProject::new();
+        let package = temporary.0.join("plugin-asset-symlink");
+        let assets = package.join("assets");
+        fs::create_dir_all(&assets).expect("assets directory created");
+        let outside = temporary.0.join("secret-file.txt");
+        fs::write(&outside, "secret").expect("outside file written");
+        std::os::unix::fs::symlink(&outside, assets.join("symlink.txt")).expect("symlink created");
+
+        let module = nexa_ir::Module {
+            app_name: "DemoApp".to_string(),
+            plugins: vec![],
+            plugin_assets: vec![nexa_ir::PluginAsset {
+                root: assets.display().to_string(),
+                package_root: Some(package.display().to_string()),
+            }],
+            enums: vec![],
+            structs: vec![],
+            functions: vec![],
+            states: vec![],
+            screens: vec![],
+            components: vec![],
+            body: vec![],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let result = copy_plugin_assets(&temporary.0, "DemoApp", &module);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("plugin traversal rejected symlink"));
     }
 }

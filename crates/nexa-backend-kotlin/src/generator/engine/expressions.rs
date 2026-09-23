@@ -206,6 +206,9 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         Expr::Contains {
             value, collection, ..
         } => format!("({} in {})", render(value), render(collection)),
+        Expr::ResultOk { value, .. } => format!("NexaResult.Success({})", render(value)),
+        Expr::ResultErr { error, .. } => format!("NexaResult.Failure({})", render(error)),
+        Expr::Try { expr, .. } => format!("{}.getOrThrow()", render(expr)),
     }
 }
 

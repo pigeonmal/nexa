@@ -96,6 +96,9 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
         Expr::Not(value) | Expr::Await(value) | Expr::TryAwait(value) => {
             collect_expression_state_names(value, names)
         }
+        Expr::ResultOk { value, .. } => collect_expression_state_names(value, names),
+        Expr::ResultErr { error, .. } => collect_expression_state_names(error, names),
+        Expr::Try { expr, .. } => collect_expression_state_names(expr, names),
         Expr::Index {
             collection, index, ..
         } => {
@@ -212,7 +215,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
         }
         Expr::Closure { body, .. } => is_pure_expression(body),
         Expr::NativeCall { .. } => false,
-        Expr::Await(_) | Expr::TryAwait(_) => false,
+        Expr::Await(_) | Expr::TryAwait(_) | Expr::Try { .. } => false,
         Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
             is_pure_expression(left) && is_pure_expression(right)
         }
@@ -220,6 +223,8 @@ fn is_pure_expression(expression: &Expr) -> bool {
             value, collection, ..
         } => is_pure_expression(value) && is_pure_expression(collection),
         Expr::Not(value) => is_pure_expression(value),
+        Expr::ResultOk { value, .. } => is_pure_expression(value),
+        Expr::ResultErr { error, .. } => is_pure_expression(error),
         Expr::Index {
             collection, index, ..
         } => is_pure_expression(collection) && is_pure_expression(index),
@@ -335,10 +340,10 @@ fn collect_node_function_references(
     used: &mut HashSet<String>,
 ) {
     nexa_ir::walk::walk_ir(nodes, &mut |_| {}, &mut |expression| {
-        if let Expr::Call { name, .. } = expression {
-            if declared.contains(name.as_str()) {
-                used.insert(name.clone());
-            }
+        if let Expr::Call { name, .. } = expression
+            && declared.contains(name.as_str())
+        {
+            used.insert(name.clone());
         }
     });
 }
@@ -349,10 +354,10 @@ fn collect_expression_function_references(
     used: &mut HashSet<String>,
 ) {
     nexa_ir::walk::walk_expression(expression, &mut |expression| {
-        if let Expr::Call { name, .. } = expression {
-            if declared.contains(name.as_str()) {
-                used.insert(name.clone());
-            }
+        if let Expr::Call { name, .. } = expression
+            && declared.contains(name.as_str())
+        {
+            used.insert(name.clone());
         }
     });
 }
@@ -575,10 +580,10 @@ fn prune_unused_plugins(module: &mut Module) {
     let mut used = HashSet::new();
     let mut used_by_component = HashSet::new();
     let mut collect_node = |node: &nexa_ir::Node| {
-        if let nexa_ir::Node::NativeComponentCall { namespace, .. } = node {
-            if declared.contains(namespace.as_str()) {
-                used_by_component.insert(namespace.clone());
-            }
+        if let nexa_ir::Node::NativeComponentCall { namespace, .. } = node
+            && declared.contains(namespace.as_str())
+        {
+            used_by_component.insert(namespace.clone());
         }
     };
     let mut collect = |expression: &Expr| match expression {
@@ -712,7 +717,9 @@ fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
         nexa_ir::Type::Optional(inner)
         | nexa_ir::Type::Array(inner)
         | nexa_ir::Type::Set(inner) => collect_type_struct_names(inner, used),
-        nexa_ir::Type::Map(key, value) | nexa_ir::Type::Pair(key, value) => {
+        nexa_ir::Type::Map(key, value)
+        | nexa_ir::Type::Pair(key, value)
+        | nexa_ir::Type::Result(key, value) => {
             collect_type_struct_names(key, used);
             collect_type_struct_names(value, used);
         }
@@ -783,6 +790,24 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
         | Expr::IsCompactHeight => {}
+        Expr::ResultOk {
+            value_type,
+            error_type,
+            ..
+        }
+        | Expr::ResultErr {
+            value_type,
+            error_type,
+            ..
+        }
+        | Expr::Try {
+            value_type,
+            error_type,
+            ..
+        } => {
+            collect_type_struct_names(value_type, used);
+            collect_type_struct_names(error_type, used);
+        }
     }
 }
 
@@ -1086,9 +1111,8 @@ fn collect_expression_state_references(expression: &Expr, used: &mut HashSet<Str
 fn optimize_nodes(nodes: Vec<Node>) -> Vec<Node> {
     let mut optimized = Vec::with_capacity(nodes.len());
     for node in nodes {
-        match optimize_node(node) {
-            Some(node) => optimized.push(node),
-            None => {}
+        if let Some(node) = optimize_node(node) {
+            optimized.push(node);
         }
     }
     optimized
@@ -1644,6 +1668,33 @@ fn fold_expression(expression: Expr) -> Expr {
             }
         }
         Expr::Await(value) => Expr::Await(Box::new(fold_expression(*value))),
+        Expr::ResultOk {
+            value,
+            value_type,
+            error_type,
+        } => Expr::ResultOk {
+            value: Box::new(fold_expression(*value)),
+            value_type,
+            error_type,
+        },
+        Expr::ResultErr {
+            error,
+            value_type,
+            error_type,
+        } => Expr::ResultErr {
+            error: Box::new(fold_expression(*error)),
+            value_type,
+            error_type,
+        },
+        Expr::Try {
+            expr,
+            value_type,
+            error_type,
+        } => Expr::Try {
+            expr: Box::new(fold_expression(*expr)),
+            value_type,
+            error_type,
+        },
         Expr::Interpolation(parts) => Expr::Interpolation(
             parts
                 .into_iter()

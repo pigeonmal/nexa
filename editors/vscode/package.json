@@ -1,0 +1,79 @@
+{
+  "name": "nexa-vscode",
+  "displayName": "Nexa Language Support",
+  "description": "Language support and Language Server Protocol integration for Nexa (.nx)",
+  "version": "0.1.0",
+  "publisher": "nexa-lang",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Snippets"
+  ],
+  "keywords": [
+    "nexa",
+    "mobile",
+    "swift",
+    "kotlin",
+    "transpiler"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "nexa",
+        "aliases": [
+          "Nexa",
+          "nexa"
+        ],
+        "extensions": [
+          ".nx"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nexa",
+        "scopeName": "source.nexa",
+        "path": "./syntaxes/nexa.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Nexa",
+      "properties": {
+        "nexa.lsp.serverPath": {
+          "type": "string",
+          "default": "nexa-lsp",
+          "description": "Path to the nexa-lsp language server binary."
+        },
+        "nexa.lsp.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the Nexa language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -b",
+    "watch": "tsc -b -w"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.3.3"
+  }
+}

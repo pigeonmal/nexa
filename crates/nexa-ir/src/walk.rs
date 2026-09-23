@@ -395,6 +395,9 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             walk_expression(right, visit);
         }
         Expr::Await(value) | Expr::TryAwait(value) => walk_expression(value, visit),
+        Expr::ResultOk { value, .. } => walk_expression(value, visit),
+        Expr::ResultErr { error, .. } => walk_expression(error, visit),
+        Expr::Try { expr, .. } => walk_expression(expr, visit),
         Expr::Interpolation(parts) => {
             for part in parts {
                 if let InterpolatedPart::Value(value) = part {
@@ -667,7 +670,7 @@ mod tests {
         assert_eq!(callback_kinds, ["subscription", "nested", "component"]);
 
         let mut outer_states = Vec::new();
-        walk_callback_expressions(&nodes_button_actions(&nodes[0]), &mut |expression| {
+        walk_callback_expressions(nodes_button_actions(&nodes[0]), &mut |expression| {
             if let Expr::State(name, _) = expression {
                 outer_states.push(name.clone());
             }

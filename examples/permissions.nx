@@ -1,8 +1,0 @@
-app PermissionsExample {
-    body {
-        Column(spacing: 12, padding: 20) {
-            Text("Permissions are configured in nexa.config.nx")
-            Text("The host project receives native platform declarations")
-        }
-    }
-}

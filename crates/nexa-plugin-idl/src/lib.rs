@@ -364,7 +364,7 @@ impl Parser {
         };
         let mut has_config = false;
         while !self.at_end() {
-            match self.peek_identifier().as_deref() {
+            match self.peek_identifier() {
                 Some("struct") => result.types.push(self.parse_struct_type()?),
                 Some("enum") => result.types.push(self.parse_enum_type()?),
                 Some("error") => result.types.push(self.parse_error_type()?),
@@ -445,10 +445,12 @@ impl Parser {
                 .consume(TokenKind::Equal)
                 .then(|| self.parse_literal())
                 .transpose()?;
-            if !self.consume(TokenKind::Comma) && !self.consume(TokenKind::Semicolon) {
-                if !self.peek_kind(TokenKind::RightBrace) && !self.peek_is_identifier() {
-                    return self.error("expected `,`, `;`, or `}` after field");
-                }
+            if !self.consume(TokenKind::Comma)
+                && !self.consume(TokenKind::Semicolon)
+                && !self.peek_kind(TokenKind::RightBrace)
+                && !self.peek_is_identifier()
+            {
+                return self.error("expected `,`, `;`, or `}` after field");
             }
             fields.push(Field { name, ty, default });
         }
@@ -466,10 +468,12 @@ impl Parser {
                 Vec::new()
             };
             cases.push(Variant { name, parameters });
-            if !self.consume(TokenKind::Comma) && !self.consume(TokenKind::Semicolon) {
-                if !self.peek_kind(TokenKind::RightBrace) && !self.peek_is_identifier() {
-                    return self.error("expected `,`, `;`, or `}` after case");
-                }
+            if !self.consume(TokenKind::Comma)
+                && !self.consume(TokenKind::Semicolon)
+                && !self.peek_kind(TokenKind::RightBrace)
+                && !self.peek_is_identifier()
+            {
+                return self.error("expected `,`, `;`, or `}` after case");
             }
         }
         Ok(cases)
@@ -489,7 +493,7 @@ impl Parser {
 
     fn parse_native_declaration(&mut self) -> Result<Interface, String> {
         self.expect_identifier("native")?;
-        let kind = match self.peek_identifier().as_deref() {
+        let kind = match self.peek_identifier() {
             Some("class") => {
                 self.cursor += 1;
                 InterfaceKind::NativeClass
@@ -519,7 +523,7 @@ impl Parser {
             if self.at_end() {
                 return self.error("expected `}` to close native declaration");
             }
-            match self.peek_identifier().as_deref() {
+            match self.peek_identifier() {
                 Some("init") => constructors.push(self.parse_constructor()?),
                 Some("readonly") | Some("property") | Some("prop") => {
                     properties.push(self.parse_property()?)
@@ -923,13 +927,13 @@ impl Parser {
                 return Err(format!("duplicate config option `{}`", option.name));
             }
             validate_config_type(&option.ty, &option.name)?;
-            if let Some(default) = &option.default {
-                if !literal_matches_type(default, &option.ty) {
-                    return Err(format!(
-                        "default for config option `{}` does not match `{}`",
-                        option.name, option.ty.name
-                    ));
-                }
+            if let Some(default) = &option.default
+                && !literal_matches_type(default, &option.ty)
+            {
+                return Err(format!(
+                    "default for config option `{}` does not match `{}`",
+                    option.name, option.ty.name
+                ));
             }
         }
         Ok(())

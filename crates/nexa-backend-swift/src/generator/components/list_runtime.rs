@@ -66,14 +66,14 @@ private let nexaFastSectionedCellReuseIdentifier = "NexaFastSectionedCell"
 private let nexaFastSectionedHeaderReuseIdentifier = "NexaFastSectionedHeader"
 
 @available(iOS 16.0, *)
-private struct NexaFastSectionedList<RowContent: View>: UIViewRepresentable {
+private struct NexaFastSectionedList<RowContent: View, HeaderContent: View = EmptyView>: UIViewRepresentable {
     let sectionCount: Int
     let sectionCounts: [Int]
     let rowHeight: CGFloat?
     let rowKey: ((Int, Int) -> AnyHashable)?
     let isRefreshing: Bool
     let onRefresh: (() -> Void)?
-    let headerContent: ((Int) -> AnyView)?
+    let headerContent: ((Int) -> HeaderContent)?
     let rowContent: (Int, Int) -> RowContent
 
     init(
@@ -83,7 +83,7 @@ private struct NexaFastSectionedList<RowContent: View>: UIViewRepresentable {
         rowKey: ((Int, Int) -> AnyHashable)? = nil,
         isRefreshing: Bool = false,
         onRefresh: (() -> Void)? = nil,
-        headerContent: ((Int) -> AnyView)? = nil,
+        headerContent: ((Int) -> HeaderContent)? = nil,
         @ViewBuilder rowContent: @escaping (Int, Int) -> RowContent
     ) {
         self.sectionCount = max(0, sectionCount)
@@ -177,7 +177,7 @@ private struct NexaFastSectionedList<RowContent: View>: UIViewRepresentable {
         var rowHeight: CGFloat?
         var rowKey: ((Int, Int) -> AnyHashable)?
         var refreshController: NexaFastListRefreshController?
-        var headerContent: ((Int) -> AnyView)?
+        var headerContent: ((Int) -> HeaderContent)?
         var rowContent: (Int, Int) -> RowContent
 
         init(
@@ -185,7 +185,7 @@ private struct NexaFastSectionedList<RowContent: View>: UIViewRepresentable {
             sectionCounts: [Int],
             rowHeight: CGFloat?,
             rowKey: ((Int, Int) -> AnyHashable)?,
-            headerContent: ((Int) -> AnyView)?,
+            headerContent: ((Int) -> HeaderContent)?,
             rowContent: @escaping (Int, Int) -> RowContent
         ) {
             self.sectionCount = sectionCount
@@ -252,7 +252,7 @@ private let nexaFastListHeaderReuseIdentifier = "NexaFastListHeader"
 
 // <nexa:list-runtime-vertical:begin>
 @available(iOS 16.0, *)
-private struct NexaFastList<RowContent: View>: UIViewRepresentable {
+private struct NexaFastList<RowContent: View, HeaderContent: View = EmptyView>: UIViewRepresentable {
     let rowCount: Int
     let rowHeight: CGFloat?
     let rowKey: ((Int) -> AnyHashable)?
@@ -265,7 +265,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
     let onScroll: (() -> Void)?
     // <nexa:scroll-events-field:end>
     // <nexa:sticky-header-field:begin>
-    let headerContent: (() -> AnyView)?
+    let headerContent: (() -> HeaderContent)?
     // <nexa:sticky-header-field:end>
     let rowContent: (Int) -> RowContent
 
@@ -282,7 +282,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         onScroll: (() -> Void)? = nil,
         // <nexa:scroll-events-init-parameter:end>
         // <nexa:sticky-header-init-parameter:begin>
-        headerContent: (() -> AnyView)? = nil,
+        headerContent: (() -> HeaderContent)? = nil,
         // <nexa:sticky-header-init-parameter:end>
         @ViewBuilder rowContent: @escaping (Int) -> RowContent
     ) {
@@ -411,7 +411,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
         var onScroll: (() -> Void)?
         // <nexa:scroll-events-coordinator-field:end>
         // <nexa:sticky-header-coordinator-field:begin>
-        var headerContent: (() -> AnyView)?
+        var headerContent: (() -> HeaderContent)?
         // <nexa:sticky-header-coordinator-field:end>
         var lastEndReachedRowCount: Int?
         var lastReportedScrollPosition: Int?
@@ -428,7 +428,7 @@ private struct NexaFastList<RowContent: View>: UIViewRepresentable {
             onScroll: (() -> Void)?,
             // <nexa:scroll-events-coordinator-init-parameter:end>
             // <nexa:sticky-header-coordinator-init-parameter:begin>
-            headerContent: (() -> AnyView)?,
+            headerContent: (() -> HeaderContent)?,
             // <nexa:sticky-header-coordinator-init-parameter:end>
             rowContent: @escaping (Int) -> RowContent
         ) {

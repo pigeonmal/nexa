@@ -168,7 +168,7 @@ fn render_sectioned_list(
         indent(out, depth + 1);
         out.push_str("headerContent: { sectionPosition in\n");
         indent(out, depth + 2);
-        out.push_str("AnyView(VStack(spacing: 0) {\n");
+        out.push_str("VStack(spacing: 0) {\n");
         indent(out, depth + 3);
         out.push_str(&format!(
             "let {}: Int32 = Int32(clamping: sectionPosition)\n",
@@ -177,7 +177,7 @@ fn render_sectioned_list(
         render_children(header, module, depth + 3, out);
         out.push('\n');
         indent(out, depth + 2);
-        out.push_str("})\n");
+        out.push_str("}\n");
         indent(out, depth + 1);
         out.push_str("},\n");
     }
@@ -281,11 +281,11 @@ fn open_list(
             debug_assert!(matches!(axis, ListAxis::Vertical));
             out.push_str(", headerContent: {\n");
             indent(out, depth + 1);
-            out.push_str("AnyView(VStack(spacing: 0) {\n");
+            out.push_str("VStack(spacing: 0) {\n");
             render_children(sticky_header, module, depth + 2, out);
             out.push('\n');
             indent(out, depth + 1);
-            out.push_str("})\n");
+            out.push_str("}\n");
             indent(out, depth);
             out.push('}');
         }

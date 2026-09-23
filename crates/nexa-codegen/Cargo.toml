@@ -6,3 +6,4 @@ license.workspace = true
 
 [dependencies]
 nexa-ir = { path = "../nexa-ir" }
+nexa-plugin-idl = { path = "../nexa-plugin-idl" }

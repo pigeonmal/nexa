@@ -63,11 +63,58 @@ pub mod names {
     }
 }
 
+pub mod plugin;
+
+/// Supported compilation target platforms for Nexa code generation and scaffolding.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum TargetPlatform {
+    Ios,
+    Android,
+    MacOs,
+    Windows,
+    Web,
+}
+
+impl TargetPlatform {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ios => "ios",
+            Self::Android => "android",
+            Self::MacOs => "macos",
+            Self::Windows => "windows",
+            Self::Web => "web",
+        }
+    }
+}
+
+/// Generated source and asset bundle produced by a target backend.
+#[derive(Clone, Debug, Default)]
+pub struct TargetOutput {
+    /// Primary compiled source code (e.g. Swift view file or Kotlin Compose file).
+    pub primary_source: String,
+    /// Destination relative file path for the primary source.
+    pub source_filename: String,
+    /// Additional auxiliary source files generated for the target (path, content).
+    pub auxiliary_files: Vec<(String, String)>,
+}
+
 /// Converts typed, platform-independent IR into a native source file.
 pub trait Backend {
     fn name(&self) -> &'static str;
     fn file_extension(&self) -> &'static str;
     fn generate(&self, module: &Module) -> String;
+}
+
+/// Extended backend target contract defining full platform generation capabilities.
+pub trait BackendTarget: Backend {
+    fn platform(&self) -> TargetPlatform;
+    fn generate_target(&self, module: &Module) -> TargetOutput {
+        TargetOutput {
+            primary_source: self.generate(module),
+            source_filename: format!("App.{}", self.file_extension()),
+            auxiliary_files: Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

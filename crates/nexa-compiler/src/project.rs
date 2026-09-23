@@ -232,7 +232,7 @@ fn load_file(
                 // through the existing project graph keeps component/function
                 // reachability and diagnostics identical to local imports.
                 load_file(
-                    &source,
+                    source,
                     false,
                     Some((&source.display().to_string(), plugin.span)),
                     active,
@@ -247,13 +247,13 @@ fn load_file(
                         .map(|path| path.display().to_string());
                 }
             }
-            if pure_source.is_some()
+            if let Some(source) = &pure_source
                 && manifest
                     .as_ref()
                     .is_some_and(|manifest| manifest.native.is_none())
             {
                 plugin.pure = true;
-                plugin.path = pure_source.expect("checked above").display().to_string();
+                plugin.path = source.display().to_string();
                 continue;
             }
             let idl_path = if declared_path.is_dir() {
@@ -271,8 +271,7 @@ fn load_file(
                     )
                     .with_file(canonical_path.display().to_string())
                 })?;
-                let path = declared_path.join(native);
-                path
+                declared_path.join(native)
             } else {
                 declared_path
             };

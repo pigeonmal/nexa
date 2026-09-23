@@ -124,6 +124,7 @@ pub(crate) struct Features {
     pub(crate) uses_mutable_int_state: bool,
     pub(crate) uses_mutable_long_state: bool,
     pub(crate) uses_mutable_float_state: bool,
+    pub(crate) uses_mutable_double_state: bool,
     pub(crate) uses_mutable_generic_state: bool,
     component_theme: HashSet<String>,
     components_using_navigation: HashSet<String>,
@@ -418,6 +419,10 @@ impl Features {
             nexa_ir::Type::Numeric(nexa_ir::NumericType::Float32) => {
                 self.uses_mutable_state = true;
                 self.uses_mutable_float_state = true;
+            }
+            nexa_ir::Type::Numeric(nexa_ir::NumericType::Float64) => {
+                self.uses_mutable_state = true;
+                self.uses_mutable_double_state = true;
             }
             nexa_ir::Type::Array(_) => {
                 self.uses_mutable_collection = true;

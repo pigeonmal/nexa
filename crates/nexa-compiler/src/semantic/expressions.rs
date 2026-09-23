@@ -577,7 +577,7 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
                 || step.as_deref().is_some_and(references_state)
         }
         ast::Expr::Coalesce(left, right, _) => references_state(left) || references_state(right),
-        ast::Expr::Await(value, _) => references_state(value),
+        ast::Expr::Await(value, _) | ast::Expr::Try { expr: value, .. } => references_state(value),
         ast::Expr::Interpolation(parts, _) => parts.iter().any(|part| match part {
             ast::StringPart::Name(_) => true,
             ast::StringPart::Expression(expression) => references_state(expression),
@@ -1281,6 +1281,30 @@ pub(super) fn lower_expr(
                 Ok(Expr::Await(Box::new(call)))
             }
         }
+        ast::Expr::Try { expr: inner, span } => {
+            let lowered = lower_expr(inner, None, symbols, functions, allow_await)?;
+            let ty = infer_expr_type(inner, symbols, functions).ok_or_else(|| {
+                CompileError::new(*span, "cannot infer type of expression for `?` operator")
+            })?;
+            let (val_ty, err_ty) = match ty {
+                Type::Result(v, e) => (*v, *e),
+                other => {
+                    return Err(CompileError::new(
+                        *span,
+                        format!(
+                            "the `?` operator can only be applied to `Result` values, found `{}`",
+                            other.swift()
+                        ),
+                    ));
+                }
+            };
+            require_expected(expected, &val_ty, *span)?;
+            Ok(Expr::Try {
+                expr: Box::new(lowered),
+                value_type: val_ty,
+                error_type: err_ty,
+            })
+        }
     }
 }
 
@@ -1351,8 +1375,7 @@ fn lower_collection_transform(
         ));
     };
     let initial_type = initial
-        .map(|value| infer_expr_type(value, symbols, functions))
-        .flatten();
+        .and_then(|value| infer_expr_type(value, symbols, functions));
     let lowered_initial = match initial {
         Some(value) => Some(Box::new(lower_expr(
             value,
@@ -1503,6 +1526,44 @@ fn lower_call(
     allow_await: bool,
     awaited: bool,
 ) -> Result<Expr, CompileError> {
+    if name == "Ok" {
+        if arguments.len() != 1 {
+            return Err(CompileError::new(span, "`Ok` expects exactly 1 argument"));
+        }
+        let (expected_val, expected_err) = match expected {
+            Some(Type::Result(v, e)) => (Some(v.as_ref()), Some(e.as_ref())),
+            _ => (None, None),
+        };
+        let lowered_val = lower_expr(&arguments[0], expected_val, symbols, functions, allow_await)?;
+        let val_ty = infer_expr_type(&arguments[0], symbols, functions).unwrap_or(Type::Void);
+        let err_ty = expected_err.cloned().unwrap_or(Type::String);
+        let result_ty = Type::Result(Box::new(val_ty.clone()), Box::new(err_ty.clone()));
+        require_expected(expected, &result_ty, span)?;
+        return Ok(Expr::ResultOk {
+            value: Box::new(lowered_val),
+            value_type: val_ty,
+            error_type: err_ty,
+        });
+    }
+    if name == "Err" {
+        if arguments.len() != 1 {
+            return Err(CompileError::new(span, "`Err` expects exactly 1 argument"));
+        }
+        let (expected_val, expected_err) = match expected {
+            Some(Type::Result(v, e)) => (Some(v.as_ref()), Some(e.as_ref())),
+            _ => (None, None),
+        };
+        let lowered_err = lower_expr(&arguments[0], expected_err, symbols, functions, allow_await)?;
+        let err_ty = infer_expr_type(&arguments[0], symbols, functions).unwrap_or(Type::String);
+        let val_ty = expected_val.cloned().unwrap_or(Type::Void);
+        let result_ty = Type::Result(Box::new(val_ty.clone()), Box::new(err_ty.clone()));
+        require_expected(expected, &result_ty, span)?;
+        return Ok(Expr::ResultErr {
+            error: Box::new(lowered_err),
+            value_type: val_ty,
+            error_type: err_ty,
+        });
+    }
     let Some(signature) = functions.get(name) else {
         return Err(CompileError::new(
             span,
@@ -2189,7 +2250,9 @@ fn is_equatable_type(ty: &Type) -> bool {
         Type::Optional(inner) => is_equatable_type(inner),
         Type::Array(element) | Type::Set(element) => is_equatable_type(element),
         Type::Map(key, value) => is_equatable_type(key) && is_equatable_type(value),
-        Type::Pair(first, second) => is_equatable_type(first) && is_equatable_type(second),
+        Type::Pair(first, second) | Type::Result(first, second) => {
+            is_equatable_type(first) && is_equatable_type(second)
+        }
         Type::Triple(first, second, third) => {
             is_equatable_type(first) && is_equatable_type(second) && is_equatable_type(third)
         }
@@ -2235,9 +2298,19 @@ pub(super) fn infer_expr_type(
                     .map(|(ty, _)| ty.clone())
             }
         }
-        ast::Expr::Call(name, _, _) => functions
-            .get(name)
-            .map(|signature| signature.return_type.clone()),
+        ast::Expr::Call(name, args, _) => {
+            if name == "Ok" && args.len() == 1 {
+                infer_expr_type(&args[0], symbols, functions)
+                    .map(|v| Type::Result(Box::new(v), Box::new(Type::String)))
+            } else if name == "Err" && args.len() == 1 {
+                infer_expr_type(&args[0], symbols, functions)
+                    .map(|e| Type::Result(Box::new(Type::Void), Box::new(e)))
+            } else {
+                functions
+                    .get(name)
+                    .map(|signature| signature.return_type.clone())
+            }
+        }
         ast::Expr::QualifiedCall {
             namespace, name, ..
         } => match (namespace.as_str(), name.as_str()) {
@@ -2340,6 +2413,10 @@ pub(super) fn infer_expr_type(
             }
         }
         ast::Expr::Await(value, _) => infer_expr_type(value, symbols, functions),
+        ast::Expr::Try { expr, .. } => match infer_expr_type(expr, symbols, functions)? {
+            Type::Result(value_type, _) => Some(*value_type),
+            _ => None,
+        },
         ast::Expr::ThemeToken(_, _) => None,
         ast::Expr::Closure { .. } => None,
         ast::Expr::Add(left_expr, right_expr, _) => {
@@ -2437,7 +2514,7 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
         ast::TypeSyntax::Generic(name, arguments, span) => {
             let expected_arity = match name.as_str() {
                 "Array" | "Set" => 1,
-                "Map" | "Pair" => 2,
+                "Map" | "Pair" | "Result" => 2,
                 "Triple" => 3,
                 _ => {
                     return Err(CompileError::new(
@@ -2452,6 +2529,7 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
                     "Set" => "Set<String>",
                     "Map" => "Map<String, Int32>",
                     "Pair" => "Pair<String, Int32>",
+                    "Result" => "Result<String, String>",
                     "Triple" => "Triple<String, Int32, Bool>",
                     _ => unreachable!(),
                 };
@@ -2483,6 +2561,13 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
                 "Pair" => {
                     let mut types = types.into_iter();
                     Ok(Type::Pair(
+                        Box::new(types.next().unwrap()),
+                        Box::new(types.next().unwrap()),
+                    ))
+                }
+                "Result" => {
+                    let mut types = types.into_iter();
+                    Ok(Type::Result(
                         Box::new(types.next().unwrap()),
                         Box::new(types.next().unwrap()),
                     ))
@@ -2630,6 +2715,10 @@ pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
             Box::new(resolve_struct_type(first, structs)),
             Box::new(resolve_struct_type(second, structs)),
         ),
+        Type::Result(value, error) => Type::Result(
+            Box::new(resolve_struct_type(value, structs)),
+            Box::new(resolve_struct_type(error, structs)),
+        ),
         Type::Triple(first, second, third) => Type::Triple(
             Box::new(resolve_struct_type(first, structs)),
             Box::new(resolve_struct_type(second, structs)),
@@ -2697,7 +2786,7 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
             require_hashable_key(key, span, "Map keys")?;
             validate_type_constraints(value, span)
         }
-        Type::Pair(first, second) => {
+        Type::Pair(first, second) | Type::Result(first, second) => {
             validate_type_constraints(first, span)?;
             validate_type_constraints(second, span)
         }
@@ -2853,6 +2942,9 @@ pub(super) fn type_name(ty: &Type) -> String {
         Type::Plugin { namespace, name } => format!("{namespace}.{name}"),
         Type::NetworkResponse => "NetworkResponse".to_owned(),
         Type::Struct { name, .. } => name.clone(),
+        Type::Result(value, error) => {
+            format!("Result<{}, {}>", type_name(value), type_name(error))
+        }
         Type::Optional(inner) => format!("{}?", type_name(inner)),
     }
 }

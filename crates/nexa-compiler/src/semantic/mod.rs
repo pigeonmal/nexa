@@ -473,7 +473,10 @@ pub fn lower_with_warnings(
                         .as_deref()
                         .is_some_and(|source| Path::new(source).starts_with(plugin_root))
                 });
-            is_reachable.then_some(nexa_ir::PluginAsset { root: assets_path })
+            is_reachable.then_some(nexa_ir::PluginAsset {
+                root: assets_path,
+                package_root: Some(plugin_root.display().to_string()),
+            })
         })
         .collect();
     let mut module = Module {
@@ -1267,7 +1270,7 @@ fn validate_type_names(
         Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) => {
             validate_type_names(inner, enum_names, span)
         }
-        Type::Map(key, value) | Type::Pair(key, value) => {
+        Type::Map(key, value) | Type::Pair(key, value) | Type::Result(key, value) => {
             validate_type_names(key, enum_names, span)?;
             validate_type_names(value, enum_names, span)
         }

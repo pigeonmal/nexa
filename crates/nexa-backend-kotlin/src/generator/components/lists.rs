@@ -62,6 +62,12 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "kotlinx.coroutines.flow.collect",
     );
     imports.add(
+        features.uses_list_end_reached
+            || features.uses_list_scroll_position
+            || features.uses_list_scroll_events,
+        "kotlinx.coroutines.flow.distinctUntilChanged",
+    );
+    imports.add(
         features.uses_list_end_reached || features.uses_linear_list_end_reached,
         "androidx.compose.runtime.getValue",
     );
@@ -516,7 +522,7 @@ fn render_list_observers(
         out.push_str(&format!("LaunchedEffect({list_state}, {list_count}) {{\n"));
         indent(out, depth + 1);
         out.push_str(&format!(
-            "snapshotFlow {{ {list_state}.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }}.collect {{ lastVisible ->\n"
+            "snapshotFlow {{ {list_state}.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }}.distinctUntilChanged().collect {{ lastVisible ->\n"
         ));
         indent(out, depth + 2);
         out.push_str(&format!(
@@ -544,7 +550,7 @@ fn render_list_observers(
         out.push_str(&format!("LaunchedEffect({list_state}) {{\n"));
         indent(out, depth + 1);
         out.push_str(&format!(
-            "snapshotFlow {{ {list_state}.firstVisibleItemIndex }}.collect {{ firstVisible ->\n"
+            "snapshotFlow {{ {list_state}.firstVisibleItemIndex }}.distinctUntilChanged().collect {{ firstVisible ->\n"
         ));
         indent(out, depth + 2);
         if let Some(scroll_position) = scroll_position.as_deref() {

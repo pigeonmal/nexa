@@ -1,0 +1,13 @@
+plugin {
+    schema: 2
+    id: "dev.nexa.fast-math"
+    version: "0.1.0"
+    sources {
+        native: "native.nxid"
+    }
+    cpp {
+        standard: "c++20"
+        sources: ["cpp/Sources/**"]
+        headers: ["cpp/include/**"]
+    }
+}

@@ -46,6 +46,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.runtime.mutableFloatStateOf",
     );
     imports.add(
+        features.uses_mutable_double_state,
+        "androidx.compose.runtime.mutableDoubleStateOf",
+    );
+    imports.add(
         features.uses_mutable_generic_state,
         "androidx.compose.runtime.mutableStateOf",
     );
@@ -68,6 +72,9 @@ pub(crate) fn kotlin_state_initializer(state: &nexa_ir::State) -> String {
         }
         Type::Numeric(NumericType::Float32) => {
             format!("mutableFloatStateOf({})", expression(&state.initial))
+        }
+        Type::Numeric(NumericType::Float64) => {
+            format!("mutableDoubleStateOf({})", expression(&state.initial))
         }
         _ => format!(
             "mutableStateOf<{}>({})",

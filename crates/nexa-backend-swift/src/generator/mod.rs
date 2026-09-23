@@ -34,7 +34,7 @@ pub(super) fn generate(module: &Module) -> String {
     }
     for declaration in &module.enums {
         out.push_str(&format!(
-            "private enum {}: String {{\n",
+            "private enum {}: String, Error {{\n",
             nexa_codegen::names::enum_name(&declaration.name)
         ));
         for case in &declaration.cases {
@@ -419,8 +419,8 @@ pub(super) fn render_native_object_state(state: &State, depth: usize, out: &mut 
 mod tests {
     use super::generate;
     use nexa_ir::{
-        Action, Component, Expr, Module, Node, NumericType, Screen, ScreenId, State, TextStyle,
-        Type,
+        Action, Component, Expr, Function, Module, Node, NumericType, Screen, ScreenId, State,
+        TextStyle, Type,
     };
 
     fn native_instance_state(name: &str) -> State {
@@ -694,5 +694,82 @@ mod tests {
         assert!(swift.contains(&format!(
             "@StateObject private var __nexaNativeObjectStorage_{state_name} = NexaNativeObjectStorage {{ VideoPlayer() }}"
         )));
+    }
+
+    #[test]
+    fn generates_result_and_try_in_swift() {
+        let err_type = Type::Enum("AppError".to_owned());
+        let module = Module {
+            app_name: "ResultApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: vec![nexa_ir::EnumDecl {
+                name: "AppError".to_owned(),
+                cases: vec!["NotFound".to_owned(), "Unauthorized".to_owned()],
+            }],
+            structs: Vec::new(),
+            functions: vec![
+                Function {
+                    name: "fetchCode".to_owned(),
+                    is_async: false,
+                    parameters: Vec::new(),
+                    locals: Vec::new(),
+                    return_type: Type::Result(
+                        Box::new(Type::Numeric(NumericType::Int32)),
+                        Box::new(err_type.clone()),
+                    ),
+                    body: Expr::ResultOk {
+                        value: Box::new(Expr::Number {
+                            raw: "42".to_owned(),
+                            ty: NumericType::Int32,
+                        }),
+                        value_type: Type::Numeric(NumericType::Int32),
+                        error_type: err_type.clone(),
+                    },
+                },
+                Function {
+                    name: "compute".to_owned(),
+                    is_async: false,
+                    parameters: Vec::new(),
+                    locals: Vec::new(),
+                    return_type: Type::Result(
+                        Box::new(Type::Numeric(NumericType::Int32)),
+                        Box::new(err_type.clone()),
+                    ),
+                    body: Expr::Try {
+                        expr: Box::new(Expr::Call {
+                            name: "fetchCode".to_owned(),
+                            arguments: Vec::new(),
+                            return_type: Type::Result(
+                                Box::new(Type::Numeric(NumericType::Int32)),
+                                Box::new(err_type.clone()),
+                            ),
+                            is_async: false,
+                            is_constructor: false,
+                        }),
+                        value_type: Type::Numeric(NumericType::Int32),
+                        error_type: err_type.clone(),
+                    },
+                },
+            ],
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+        assert!(swift.contains("private enum NexaAppError: String, Error {"));
+        assert!(swift.contains("Result<Int32, NexaAppError>"));
+        assert!(swift.contains(".success(42)"));
+        assert!(swift.contains("try nexa_fn_fetchCode().get()"));
     }
 }

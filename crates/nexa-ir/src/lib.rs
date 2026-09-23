@@ -76,6 +76,7 @@ pub struct SwiftPackage {
 #[derive(Clone, Debug)]
 pub struct PluginAsset {
     pub root: String,
+    pub package_root: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -258,6 +259,7 @@ pub enum Type {
     Bool,
     Numeric(NumericType),
     Optional(Box<Type>),
+    Result(Box<Type>, Box<Type>),
     Array(Box<Type>),
     Set(Box<Type>),
     Map(Box<Type>, Box<Type>),
@@ -357,6 +359,21 @@ pub enum Expr {
     Await(Box<Expr>),
     /// An async throwing call inside an explicit Nexa try/catch action.
     TryAwait(Box<Expr>),
+    ResultOk {
+        value: Box<Expr>,
+        value_type: Type,
+        error_type: Type,
+    },
+    ResultErr {
+        error: Box<Expr>,
+        value_type: Type,
+        error_type: Type,
+    },
+    Try {
+        expr: Box<Expr>,
+        value_type: Type,
+        error_type: Type,
+    },
     IsRegularWidth,
     IsCompactWidth,
     IsRegularHeight,
@@ -825,6 +842,7 @@ impl Type {
             Self::Bool => "Bool".to_owned(),
             Self::Numeric(n) => n.swift().to_owned(),
             Self::Optional(inner) => format!("{}?", inner.swift()),
+            Self::Result(val, err) => format!("Result<{}, {}>", val.swift(), err.swift()),
             Self::Array(element) => format!("[{}]", element.swift()),
             Self::Set(element) => format!("Set<{}>", element.swift()),
             Self::Map(key, value) => format!("[{}: {}]", key.swift(), value.swift()),
@@ -845,6 +863,7 @@ impl Type {
             Self::Bool => "Boolean".to_owned(),
             Self::Numeric(n) => n.kotlin().to_owned(),
             Self::Optional(inner) => format!("{}?", inner.kotlin()),
+            Self::Result(val, err) => format!("NexaResult<{}, {}>", val.kotlin(), err.kotlin()),
             Self::Array(element) => format!("List<{}>", element.kotlin()),
             Self::Set(element) => format!("Set<{}>", element.kotlin()),
             Self::Map(key, value) => format!("Map<{}, {}>", key.kotlin(), value.kotlin()),

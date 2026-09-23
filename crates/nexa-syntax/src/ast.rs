@@ -572,6 +572,10 @@ pub enum Expr {
     Null(Span),
     Coalesce(Box<Expr>, Box<Expr>, Span),
     Await(Box<Expr>, Span),
+    Try {
+        expr: Box<Expr>,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -624,7 +628,8 @@ impl Expr {
             | Self::Range { span: s, .. }
             | Self::Null(s)
             | Self::Coalesce(_, _, s)
-            | Self::Await(_, s) => *s,
+            | Self::Await(_, s)
+            | Self::Try { span: s, .. } => *s,
         }
     }
 }

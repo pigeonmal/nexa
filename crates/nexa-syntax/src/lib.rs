@@ -1,3 +1,10 @@
+#![allow(
+    clippy::large_enum_variant,
+    clippy::collapsible_if,
+    clippy::type_complexity,
+    clippy::while_let_on_iterator
+)]
+
 pub mod ast;
 mod lexer;
 mod parser;

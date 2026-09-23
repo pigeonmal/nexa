@@ -71,6 +71,34 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
             || module.on_background.is_some(),
     }));
     out.push_str("// nexa-unit:types\n");
+    if module_uses_result(module) {
+        out.push_str(
+            r#"public sealed class NexaResult<out T, out E> {
+    public data class Success<out T>(val value: T) : NexaResult<T, Nothing>()
+    public data class Failure<out E>(val error: E) : NexaResult<Nothing, E>()
+
+    public val isSuccess: Boolean get() = this is Success
+    public val isFailure: Boolean get() = this is Failure
+
+    public fun getOrNull(): T? = when (this) {
+        is Success -> value
+        is Failure -> null
+    }
+
+    public fun errorOrNull(): E? = when (this) {
+        is Success -> null
+        is Failure -> error
+    }
+
+    public fun getOrThrow(): T = when (this) {
+        is Success -> value
+        is Failure -> throw RuntimeException("Unhandled NexaResult error: $error")
+    }
+}
+
+"#,
+        );
+    }
     for declaration in &module.enums {
         out.push_str(&format!(
             "private enum class {} {{ {} }}\n\n",
@@ -220,12 +248,45 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
     out
 }
 
+fn type_has_result(ty: &nexa_ir::Type) -> bool {
+    match ty {
+        nexa_ir::Type::Result(_, _) => true,
+        nexa_ir::Type::Optional(inner)
+        | nexa_ir::Type::Array(inner)
+        | nexa_ir::Type::Set(inner) => type_has_result(inner),
+        nexa_ir::Type::Map(k, v) | nexa_ir::Type::Pair(k, v) => {
+            type_has_result(k) || type_has_result(v)
+        }
+        nexa_ir::Type::Triple(a, b, c) => {
+            type_has_result(a) || type_has_result(b) || type_has_result(c)
+        }
+        nexa_ir::Type::Struct { fields, .. } => fields.iter().any(|(_, f)| type_has_result(f)),
+        _ => false,
+    }
+}
+
+fn module_uses_result(module: &Module) -> bool {
+    module.functions.iter().any(|f| {
+        type_has_result(&f.return_type)
+            || f.parameters.iter().any(|p| type_has_result(&p.ty))
+            || f.locals.iter().any(|l| type_has_result(&l.ty))
+    }) || module.states.iter().any(|s| type_has_result(&s.ty))
+        || module
+            .structs
+            .iter()
+            .any(|s| s.fields.iter().any(|field| type_has_result(&field.ty)))
+        || module.components.iter().any(|c| {
+            c.parameters.iter().any(|p| type_has_result(&p.ty))
+                || c.states.iter().any(|s| type_has_result(&s.ty))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::generate;
     use nexa_ir::{
-        Action, Component, Expr, Module, Node, NumericType, Screen, ScreenId, State, TextStyle,
-        Type,
+        Action, Component, Expr, Function, Module, Node, NumericType, Screen, ScreenId, State,
+        TextStyle, Type,
     };
 
     #[test]
@@ -422,5 +483,82 @@ mod tests {
         assert!(kotlin.contains(&format!(
             "val {state_name}: VideoPlayer = remember {{ VideoPlayer() }}"
         )));
+    }
+
+    #[test]
+    fn generates_result_and_try_in_kotlin() {
+        let err_type = Type::Enum("AppError".to_owned());
+        let module = Module {
+            app_name: "ResultApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: vec![nexa_ir::EnumDecl {
+                name: "AppError".to_owned(),
+                cases: vec!["NotFound".to_owned(), "Unauthorized".to_owned()],
+            }],
+            structs: Vec::new(),
+            functions: vec![
+                Function {
+                    name: "fetchCode".to_owned(),
+                    is_async: false,
+                    parameters: Vec::new(),
+                    locals: Vec::new(),
+                    return_type: Type::Result(
+                        Box::new(Type::Numeric(NumericType::Int32)),
+                        Box::new(err_type.clone()),
+                    ),
+                    body: Expr::ResultOk {
+                        value: Box::new(Expr::Number {
+                            raw: "42".to_owned(),
+                            ty: NumericType::Int32,
+                        }),
+                        value_type: Type::Numeric(NumericType::Int32),
+                        error_type: err_type.clone(),
+                    },
+                },
+                Function {
+                    name: "compute".to_owned(),
+                    is_async: false,
+                    parameters: Vec::new(),
+                    locals: Vec::new(),
+                    return_type: Type::Result(
+                        Box::new(Type::Numeric(NumericType::Int32)),
+                        Box::new(err_type.clone()),
+                    ),
+                    body: Expr::Try {
+                        expr: Box::new(Expr::Call {
+                            name: "fetchCode".to_owned(),
+                            arguments: Vec::new(),
+                            return_type: Type::Result(
+                                Box::new(Type::Numeric(NumericType::Int32)),
+                                Box::new(err_type.clone()),
+                            ),
+                            is_async: false,
+                            is_constructor: false,
+                        }),
+                        value_type: Type::Numeric(NumericType::Int32),
+                        error_type: err_type.clone(),
+                    },
+                },
+            ],
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        assert!(kotlin.contains("public sealed class NexaResult<out T, out E> {"));
+        assert!(kotlin.contains("NexaResult<Int, NexaAppError>"));
+        assert!(kotlin.contains("NexaResult.Success(42)"));
+        assert!(kotlin.contains("nexa_fn_fetchCode().getOrThrow()"));
     }
 }

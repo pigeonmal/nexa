@@ -101,13 +101,13 @@ fn validate_bounds(
     minimum_name: &str,
     maximum_name: &str,
 ) -> Result<(), CompileError> {
-    if let (Some(minimum), Some(maximum)) = (minimum, maximum) {
-        if minimum > maximum {
-            return Err(CompileError::new(
-                span,
-                format!("`{minimum_name}` cannot be greater than `{maximum_name}`"),
-            ));
-        }
+    if let (Some(minimum), Some(maximum)) = (minimum, maximum)
+        && minimum > maximum
+    {
+        return Err(CompileError::new(
+            span,
+            format!("`{minimum_name}` cannot be greater than `{maximum_name}`"),
+        ));
     }
     Ok(())
 }

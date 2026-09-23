@@ -84,11 +84,11 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             step,
         } => match step {
             Some(step) => format!(
-                "stride(from: {}, {}: {}, by: {})",
+                "stride(from: {}, {}: {}, by: Int({}))",
                 range_bound(start, locals),
                 if *inclusive { "through" } else { "to" },
                 range_bound(end, locals),
-                format!("Int({})", range_bound(step, locals))
+                range_bound(step, locals)
             ),
             None => format!(
                 "{}{}{}",
@@ -270,6 +270,9 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             };
             format!("{}.contains({})", receiver, render(value))
         }
+        Expr::ResultOk { value, .. } => format!(".success({})", render(value)),
+        Expr::ResultErr { error, .. } => format!(".failure({})", render(error)),
+        Expr::Try { expr, .. } => format!("try {}.get()", render(expr)),
     }
 }
 
@@ -386,19 +389,19 @@ fn native_call(
 }
 
 fn is_optional_expression(expr: &Expr) -> bool {
-    match expr {
+    matches!(
+        expr,
         Expr::State(_, Type::Optional(_))
-        | Expr::Member {
-            field_type: Type::Optional(_),
-            ..
-        }
-        | Expr::Index {
-            element_type: Type::Optional(_),
-            ..
-        }
-        | Expr::Null(_) => true,
-        _ => false,
-    }
+            | Expr::Member {
+                field_type: Type::Optional(_),
+                ..
+            }
+            | Expr::Index {
+                element_type: Type::Optional(_),
+                ..
+            }
+            | Expr::Null(_)
+    )
 }
 
 fn range_bound(expr: &Expr, locals: &[String]) -> String {

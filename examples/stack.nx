@@ -1,9 +1,0 @@
-app StackDemo {
-    body {
-        Stack(alignment: Center, minWidth: 220, minHeight: 120, background: "#F3F4F6") {
-            Text("Overlay content")
-            Button("Action") {
-            }
-        }
-    }
-}

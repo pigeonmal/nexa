@@ -1,0 +1,6 @@
+service FastMath {
+    fn add(a: Int32, b: Int32) -> Int32
+    fn multiply(a: Int32, b: Int32) -> Int32
+    fn computeHash(data: Bytes) -> Int64
+    async fn heavyCalculation(input: Int32) -> Int64
+}

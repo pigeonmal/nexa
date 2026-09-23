@@ -1,0 +1,41 @@
+component TaskRow(title: String, isDone: Bool) {
+    body {
+        Row(spacing: 12) {
+            Text(title)
+            if isDone {
+                Text("(Completed)")
+            } else {
+                Text("(Pending)")
+            }
+        }
+    }
+}
+
+app TodoApp {
+    enum Priority {
+        low,
+        medium,
+        high
+    }
+
+    state newTitle: String = ""
+    state activeCount: Int32 = 0
+
+    body {
+        Column(spacing: 16) {
+            Text("Nexa Task Manager")
+
+            Row(spacing: 8) {
+                TextInput(value: newTitle, placeholder: "Enter task name...")
+                Button("Add Task") {
+                    activeCount = activeCount + 1
+                    newTitle = ""
+                }
+            }
+
+            TaskRow(title: "Build Nexa Core", isDone: true)
+            TaskRow(title: "Write Documentation", isDone: false)
+            TaskRow(title: "Ship VS Code Extension", isDone: true)
+        }
+    }
+}

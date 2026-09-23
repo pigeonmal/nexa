@@ -6,8 +6,7 @@ use std::{
     process::Command,
 };
 
-mod bindings;
-mod bindings_cpp;
+use nexa_codegen::plugin::{bindings, bindings_cpp};
 use nexa_plugin_idl::{self as idl, manifest::PluginManifest};
 
 /// Render the platform contract used by generated native projects. Keeping
@@ -174,7 +173,7 @@ fn check(args: &[String]) -> Result<(), String> {
         );
         return Ok(());
     };
-    let parsed = idl::parse_file(&path)?;
+    let parsed = idl::parse_file(path)?;
     if let Some(result) = typecheck_swift_implementation(&package, &parsed)? {
         println!("{result}");
     }
@@ -551,13 +550,13 @@ fn plugin_package_from(path: PathBuf) -> Result<PluginPackage, String> {
     let manifest_path = root.join("plugin.config.nx");
     let manifest = idl::manifest::parse_file(&manifest_path)?;
     let native_path = manifest.native.as_ref().map(|relative| root.join(relative));
-    if let Some(native_path) = &native_path {
-        if !native_path.is_file() {
-            return Err(format!(
-                "plugin native contract does not exist: {}",
-                native_path.display()
-            ));
-        }
+    if let Some(native_path) = &native_path
+        && !native_path.is_file()
+    {
+        return Err(format!(
+            "plugin native contract does not exist: {}",
+            native_path.display()
+        ));
     }
     Ok(PluginPackage {
         root,
@@ -682,6 +681,16 @@ fn android_stub(package: &str, type_name: &str) -> String {
     format!(
         "package {package}\n\nobject {type_name}Plugin {{\n    val instance: {type_name}Plugin = this\n}}\n"
     )
+}
+
+fn write_if_absent(path: &Path, contents: &str) -> Result<(), String> {
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+    }
+    fs::write(path, contents).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 #[cfg(test)]
@@ -986,14 +995,4 @@ mod tests {
             "unexpected diagnostic: {error}"
         );
     }
-}
-
-fn write_if_absent(path: &Path, contents: &str) -> Result<(), String> {
-    if path.exists() {
-        return Ok(());
-    }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
-    }
-    fs::write(path, contents).map_err(|error| format!("{}: {error}", path.display()))
 }

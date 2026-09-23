@@ -1,0 +1,59 @@
+app ComponentShowcase {
+    state email: String = ""
+    state password: String = ""
+    state biography: String = ""
+    state notifications: Bool = false
+    state taps: Int32 = 0
+
+    body {
+        KeyboardAware(dismiss: Interactive) {
+            Column(spacing: 16, padding: 20, background: "#F4F5F7", cornerRadius: 16) {
+                Text("Nexa UI Component Showcase")
+
+                TextInput(
+                    value: email,
+                    placeholder: "Email address",
+                    keyboard: Email,
+                    autocorrect: false,
+                    capitalization: None
+                )
+
+                TextInput(
+                    value: password,
+                    placeholder: "Password",
+                    secure: true,
+                    autocorrect: false,
+                    capitalization: None
+                )
+
+                TextInput(
+                    value: biography,
+                    placeholder: "Biography",
+                    multiline: true,
+                    capitalization: Sentences
+                )
+
+                Switch(value: notifications, label: "Enable push notifications")
+
+                Pressable(disabled: false) {
+                    Row(spacing: 8) {
+                        Text("Interactive Card Taps:")
+                        Text(taps)
+                    }
+                }.onPress {
+                    taps = taps + 1
+                }
+
+                Row(spacing: 12) {
+                    Button("Reset All") {
+                        email = ""
+                        password = ""
+                        biography = ""
+                        notifications = false
+                        taps = 0
+                    }
+                }
+            }
+        }
+    }
+}

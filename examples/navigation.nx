@@ -7,10 +7,10 @@ app NavigationDemo {
         }
 
         Column(spacing: 12) {
-            Text("Home")
+            Text("Home Screen")
             Text(visits)
             NavigationLink(destination: Profile) {
-                Text("Open profile")
+                Text("Open Profile")
             }
         }
     }
@@ -21,7 +21,7 @@ app NavigationDemo {
         StatusBar(style: Light, hidden: false)
 
         Column(spacing: 12) {
-            Text("Profile")
+            Text("User Profile")
             Text(visits)
             Text(profileVisits)
             Button("Increment visits") {

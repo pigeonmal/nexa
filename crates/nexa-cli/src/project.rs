@@ -123,9 +123,9 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     let mut cache_key = cache::key_with_extra(&input, project_target, &[config_path.as_path()])
         .map_err(|error| format!("project cache: {error}"))?;
     if project_cache_is_current(&output, &app_name, target, &cache_key) {
-        if let Some(warnings) = cache::restore_warnings(&input, &cache_key)
-            .map_err(|error| format!("project cache: {error}"))?
-        {
+        let cached_warnings = cache::restore_warnings(&input, &cache_key)
+            .map_err(|error| format!("project cache: {error}"))?;
+        if let Some(warnings) = cached_warnings {
             for warning in &warnings {
                 eprintln!("{warning}");
             }

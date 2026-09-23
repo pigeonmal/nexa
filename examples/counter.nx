@@ -2,11 +2,21 @@ app Counter {
     state count: Int32 = 0
 
     body {
-        Column(spacing: 12, alignment: Start) {
-            Text("Tap count")
+        Column(spacing: 16) {
+            Text("Nexa Counter Demo")
             Text(count)
-            Button("Increment") {
-                count = count + 1
+
+            Row(spacing: 12) {
+                Button("Increment") {
+                    count = count + 1
+                }
+                Button("Reset") {
+                    count = 0
+                }
+            }
+
+            if count > 10 {
+                Text("Double digits reached!")
             }
         }
     }

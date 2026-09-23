@@ -1,7 +1,0 @@
-app LayoutBounds {
-    body {
-        Column(minWidth: 120, maxWidth: 320, minHeight: 48, maxHeight: 240, padding: 12) {
-            Text("Bounded")
-        }
-    }
-}

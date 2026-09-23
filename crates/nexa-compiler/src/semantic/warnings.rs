@@ -821,7 +821,9 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
         | ast::Expr::Pair(left, right, _) => {
             expression_references_name(left, name) || expression_references_name(right, name)
         }
-        ast::Expr::Not(value, _) | ast::Expr::Await(value, _) => {
+        ast::Expr::Not(value, _)
+        | ast::Expr::Await(value, _)
+        | ast::Expr::Try { expr: value, .. } => {
             expression_references_name(value, name)
         }
         ast::Expr::Array(values, _) => values
@@ -985,7 +987,9 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
             walk_expression(left, names, used);
             walk_expression(right, names, used);
         }
-        ast::Expr::Await(value, _) => walk_expression(value, names, used),
+        ast::Expr::Await(value, _) | ast::Expr::Try { expr: value, .. } => {
+            walk_expression(value, names, used);
+        }
         ast::Expr::Interpolation(parts, _) => {
             for part in parts {
                 match part {

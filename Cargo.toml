@@ -7,6 +7,7 @@ members = [
     "crates/nexa-compiler",
     "crates/nexa-diagnostics",
     "crates/nexa-ir",
+    "crates/nexa-lsp",
     "crates/nexa-plugin-idl",
     "crates/nexa-syntax",
 ]
