@@ -75,6 +75,7 @@ fn generated_ios_cpp_map_adapters_typecheck_service_and_native_class_maps_when_s
     fn echoNumbers(values: Map<Int32, String>) -> Map<Int32, String>
     fn echoPayloads(values: Map<Bytes, Bytes>) -> Map<Bytes, Bytes>
     fn echoPayloadSets(values: Map<Int32, Set<Bytes>>) -> Map<Int32, Set<Bytes>>
+    fn echoNestedMaps(values: Map<Int32, Map<Int32, Bytes>>) -> Map<Int32, Map<Int32, Bytes>>
     fn echoNestedNumbers(values: Map<Int32, Array<Int32>>) -> Map<Int32, Array<Int32>>
     fn echoNestedLabels(values: Map<Int32, Array<String>>) -> Map<Int32, Array<String>>
     fn echoNestedIntegers(values: Array<Array<Int32>>) -> Array<Array<Int32>>
@@ -86,8 +87,10 @@ native class Store {
     init(entries: Map<Int32, String>, payloads: Map<Bytes, Bytes>, history: Array<Array<Int32>>)
     property entries: Map<Int32, String>
     property payloads: Map<Bytes, Bytes>
+    property nestedPayloads: Map<Int32, Map<Int32, Bytes>>
     property history: Array<Array<Int32>>
     fn echo(entries: Map<Int32, String>) -> Map<Int32, String>
+    fn echoNestedMaps(values: Map<Int32, Map<Int32, Bytes>>) -> Map<Int32, Map<Int32, Bytes>>
     fn echoHistory(values: Array<Array<Int32>>) -> Array<Array<Int32>>
     fn dispose()
 }
@@ -150,6 +153,8 @@ func mapAdapterProbe() {
     _ = LookupPlugin.shared.echoNumbers(values: numbers)
     _ = LookupPlugin.shared.echoPayloads(values: payloads)
     _ = LookupPlugin.shared.echoPayloadSets(values: [1: Set([Data([0, 1]), Data()])])
+    let nestedPayloadMap: [Int32: [Int32: Data]] = [1: [10: Data([0, 1]), 11: Data()], 2: [:]]
+    _ = LookupPlugin.shared.echoNestedMaps(values: nestedPayloadMap)
     let nestedNumbers: [Int32: [Int32]] = [1: [Int32.min, 0, Int32.max], 2: []]
     let nestedLabels: [Int32: [String]] = [1: ["Nexa 🚀", ""], 2: []]
     _ = LookupPlugin.shared.echoNestedNumbers(values: nestedNumbers)
@@ -167,9 +172,12 @@ func mapAdapterProbe() {
     store.entries = numbers
     _ = store.payloads
     store.payloads = payloads
+    _ = store.nestedPayloads
+    store.nestedPayloads = nestedPayloadMap
     _ = store.history
     store.history = nestedIntegers
     _ = store.echo(entries: numbers)
+    _ = store.echoNestedMaps(values: nestedPayloadMap)
     _ = store.echoHistory(values: nestedIntegers)
     store.dispose()
 }

@@ -1950,14 +1950,15 @@ Boolean, integer, and byte `Set` values use vector façades around C++
 `std::set`; floating-point and string sets are rejected because their Swift
 equality semantics do not match C++ ordering. Flat `Map` values use generated
 entry vectors around `std::map` on iOS; supported keys are Boolean, integer,
-and bytes, while values may be scalar, string, bytes, compatible sets, or
-nested arrays with compatible leaves. Android maps support primitive or string
+and bytes, while values may be scalar, string, bytes, compatible sets, nested
+arrays with compatible leaves, or recursively nested maps with supported keys.
+Android maps support primitive or string
 keys and primitive, string, or byte values, plus arrays of primitive, string,
 or byte values, compatible primitive or string sets, and recursively nested
 maps. Nested `Array` values with primitive, string, or byte leaves use
 recursive adapters on both platforms.
-Async, throwing, and event adapters remain unsupported; nested maps on iOS and
-collection combinations outside the supported map-value cases remain open.
+Async, throwing, and event adapters remain unsupported; collection combinations
+outside the supported map-value cases remain open.
 The optional `cpp.standard` manifest field selects the minimum C++17, C++20,
 or C++23 level required by reachable C++ sources; generated iOS and Android
 targets use the highest declared level, defaulting to C++20.
@@ -2049,12 +2050,11 @@ integer maps through services, plus native-class constructors, properties, and
 methods. Floating-point map keys, byte-array sets, and optional maps remain
 rejected by the generated adapter. Android supports flat primitive, string, and
 byte arrays, compatible sets, maps with primitive, string, or byte values,
-array/set values, and recursively nested maps. The iOS
-map adapter typechecks every supported key family and scalar/string value in a
-generated Swift/C++ matrix, including native-class construction, methods, and
-mutable properties; a byte-key/byte-value map and byte-set case exercise Data
-conversion. It also typechecks numeric, string, byte, and compatible set map
-values with distinct generated adapter names. Android generator tests cover
+array/set values, and recursively nested maps. The iOS map adapter typechecks
+every supported key family, scalar and collection values, and nested maps
+through service and native-class APIs; byte-key and byte-value cases exercise
+Data conversion. It also typechecks numeric, string, byte, and compatible set
+map values with distinct generated adapter names. Android generator tests cover
 scalar byte-map values, nested maps, and map values containing primitive
 arrays, reference arrays, and compatible sets; the headless C++ check compiles
 JNI adapters for these shapes. The optional host JVM matrix round-trips numeric,
@@ -2062,8 +2062,8 @@ string, byte, and set map values when `kotlinc` is available. Generated iOS
 typechecking and Android host JNI runtime tests
 also cover nested Boolean/numeric arrays, strings, bytes, empty rows, and empty
 outer arrays. Async, error, and event adapters remain open on both C++ bridge
-targets; nested map support remains open on iOS, along with broader collection
-combinations outside the supported map-value cases.
+targets, along with broader collection combinations outside the supported
+map-value cases.
 Network pinning uses the same case-insensitive 64-character SHA-256 hash of
 DER-encoded SPKI on both platforms. iOS validates system trust before matching
 any certificate in the server chain; its generated DER parser has a headless

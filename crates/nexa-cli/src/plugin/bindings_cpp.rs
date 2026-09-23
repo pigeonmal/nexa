@@ -2570,6 +2570,9 @@ fn swift_cpp_map_types(ty: &TypeRef) -> Option<(&TypeRef, &TypeRef)> {
 }
 
 fn swift_cpp_map_value_supported(ty: &TypeRef) -> bool {
+    if ty.name == "Map" {
+        return swift_cpp_map_types(ty).is_some();
+    }
     if swift_cpp_supported_set(ty) {
         return true;
     }
@@ -3168,25 +3171,20 @@ fn cpp_swift_array_conversion_name(idl: &PluginIdl, ty: &TypeRef, direction: &st
 
 fn render_swift_map_adapters(out: &mut String, idl: &PluginIdl) {
     let mut maps = Vec::new();
-    let mut add = |ty: &TypeRef| {
-        if swift_cpp_map_types(ty).is_some() && !maps.iter().any(|existing| existing == ty) {
-            maps.push(ty.clone());
-        }
-    };
     for interface in &idl.interfaces {
         for constructor in &interface.constructors {
             for parameter in &constructor.parameters {
-                add(&parameter.ty);
+                collect_swift_map_types(&parameter.ty, &mut maps);
             }
         }
         for property in &interface.properties {
-            add(&property.ty);
+            collect_swift_map_types(&property.ty, &mut maps);
         }
         for method in &interface.methods {
             for parameter in &method.parameters {
-                add(&parameter.ty);
+                collect_swift_map_types(&parameter.ty, &mut maps);
             }
-            add(&method.return_type);
+            collect_swift_map_types(&method.return_type, &mut maps);
         }
     }
 
@@ -3207,12 +3205,26 @@ fn render_swift_map_adapters(out: &mut String, idl: &PluginIdl) {
     }
 }
 
+fn collect_swift_map_types(ty: &TypeRef, maps: &mut Vec<TypeRef>) {
+    for argument in &ty.arguments {
+        collect_swift_map_types(argument, maps);
+    }
+    if swift_cpp_map_types(ty).is_some() && !maps.iter().any(|existing| existing == ty) {
+        maps.push(ty.clone());
+    }
+}
+
 fn cpp_swift_map_value_for_entry(ty: &TypeRef, value: &str, idl: &PluginIdl) -> String {
-    if ty.name == "Set" {
-        let facade = cpp_swift_collection_bridge_type(ty, idl);
-        format!("{facade}({value}.begin(), {value}.end())")
-    } else {
-        format!("std::move({value})")
+    match ty.name.as_str() {
+        "Map" => format!(
+            "{}({value})",
+            cpp_swift_map_conversion_name(idl, ty, "ToEntries")
+        ),
+        "Set" => {
+            let facade = cpp_swift_collection_bridge_type(ty, idl);
+            format!("{facade}({value}.begin(), {value}.end())")
+        }
+        _ => format!("std::move({value})"),
     }
 }
 
@@ -4397,7 +4409,7 @@ mod tests {
             "Map<Float64, Int32>",
             "Map<Int32?, String>",
             "Map<Int32, String?>",
-            "Map<Int32, Map<Int32, String>>",
+            "Map<Int32, Map<String, String>>",
             "Map<Int32, String>?",
         ] {
             let idl = nexa_plugin_idl::parse(&format!(

@@ -168,10 +168,10 @@ between Swift `Data` and `std::vector<uint8_t>`. iOS C++ adapters bridge
 `Set<Bool>`, integer sets, and `Set<Bytes>` through generated vector facades
 around the C++ `std::set` contract. They reject floating-point sets (NaN
 ordering) and string sets (Swift's canonical-equivalence equality differs from
-bytewise C++ ordering). iOS map adapters also accept supported scalar keys with
-primitive, string, byte, compatible-set, or nested-array values through
-generated entry vectors; generated Swift/C++ typechecks cover numeric, string,
-byte, and set values in maps.
+bytewise C++ ordering). iOS map adapters also accept recursively nested maps
+with supported key types, plus primitive, string, byte, compatible-set, or
+nested-array values through generated entry vectors. Generated Swift/C++
+typechecks cover nested maps and numeric, string, byte, and set values in maps.
 Android project generation emits
 Kotlin service/class adapters and JNI for synchronous, non-throwing `Bool`,
 signed and unsigned integer, floating-point values, plus `String` and `Bytes`.
