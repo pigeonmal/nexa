@@ -322,7 +322,7 @@ const CXX_PRIMITIVE_TYPES: &[PrimitiveTypeCase] = &[
     },
 ];
 
-fn type_matrix_idl() -> String {
+fn type_matrix_idl(include_android_nested_map: bool) -> String {
     let mut idl = String::from("service Types {\n    fn ping()\n");
     for ty in CXX_PRIMITIVE_TYPES {
         idl.push_str(&format!(
@@ -341,13 +341,18 @@ fn type_matrix_idl() -> String {
         }
     }
     idl.push_str(
-        "    fn echoMapFloat32(values: Map<Bool, Float32>) -> Map<Bool, Float32>\n    fn echoMapFloat64(values: Map<Int8, Float64>) -> Map<Int8, Float64>\n    fn echoMapString(values: Map<Int16, String>) -> Map<Int16, String>\n",
+        "    fn echoMapFloat32(values: Map<Bool, Float32>) -> Map<Bool, Float32>\n    fn echoMapFloat64(values: Map<Int8, Float64>) -> Map<Int8, Float64>\n    fn echoMapString(values: Map<Int16, String>) -> Map<Int16, String>\n    fn echoBytesMap(values: Map<Int32, Bytes>) -> Map<Int32, Bytes>\n    fn echoArrayMap(values: Map<Int32, Array<Int32>>) -> Map<Int32, Array<Int32>>\n    fn echoStringArrayMap(values: Map<Int32, Array<String>>) -> Map<Int32, Array<String>>\n    fn echoBytesArrayMap(values: Map<Int32, Array<Bytes>>) -> Map<Int32, Array<Bytes>>\n    fn echoSetMap(values: Map<Int32, Set<UInt32>>) -> Map<Int32, Set<UInt32>>\n",
     );
+    if include_android_nested_map {
+        idl.push_str(
+            "    fn echoNestedMap(values: Map<Int32, Map<String, Bytes>>) -> Map<Int32, Map<String, Bytes>>\n",
+        );
+    }
     idl.push_str("}\n");
     idl
 }
 
-fn type_matrix_cpp_source() -> String {
+fn type_matrix_cpp_source(include_android_nested_map: bool) -> String {
     let mut source = String::from(
         "#include \"NexaPluginBindings.hpp\"\n#include <cstdint>\n#include <optional>\n#include <string>\n#include <utility>\n#include <vector>\nnamespace plugin_dev::plugin_example::plugin_cpp_dash_type_dash_matrix {\nnamespace Types {\nvoid ping() noexcept {}\n",
     );
@@ -364,13 +369,16 @@ fn type_matrix_cpp_source() -> String {
         }
     }
     source.push_str(
-        "std::map<bool, float> echoMapFloat32(std::map<bool, float> values) noexcept { return values; }\nstd::map<std::int8_t, double> echoMapFloat64(std::map<std::int8_t, double> values) noexcept { return values; }\nstd::map<std::int16_t, std::string> echoMapString(std::map<std::int16_t, std::string> values) noexcept { return values; }\n",
+        "std::map<bool, float> echoMapFloat32(std::map<bool, float> values) noexcept { return values; }\nstd::map<std::int8_t, double> echoMapFloat64(std::map<std::int8_t, double> values) noexcept { return values; }\nstd::map<std::int16_t, std::string> echoMapString(std::map<std::int16_t, std::string> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::uint8_t>> echoBytesMap(std::map<std::int32_t, std::vector<std::uint8_t>> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::int32_t>> echoArrayMap(std::map<std::int32_t, std::vector<std::int32_t>> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::string>> echoStringArrayMap(std::map<std::int32_t, std::vector<std::string>> values) noexcept { return values; }\nstd::map<std::int32_t, std::vector<std::vector<std::uint8_t>>> echoBytesArrayMap(std::map<std::int32_t, std::vector<std::vector<std::uint8_t>>> values) noexcept { return values; }\nstd::map<std::int32_t, std::set<std::uint32_t>> echoSetMap(std::map<std::int32_t, std::set<std::uint32_t>> values) noexcept { return values; }\n",
     );
+    if include_android_nested_map {
+        source.push_str("std::map<std::int32_t, std::map<std::string, std::vector<std::uint8_t>>> echoNestedMap(std::map<std::int32_t, std::map<std::string, std::vector<std::uint8_t>>> values) noexcept { return values; }\n");
+    }
     source.push_str("}\n}\n");
     source
 }
 
-fn type_matrix_plugin(temp: &TempProject) -> (PathBuf, PathBuf) {
+fn type_matrix_plugin(temp: &TempProject, include_android_nested_map: bool) -> (PathBuf, PathBuf) {
     let plugin = temp.0.join("cpp-plugin");
     fs::create_dir_all(plugin.join("cpp/Sources"))
         .expect("C++ type-matrix source directory should be created");
@@ -386,10 +394,13 @@ fn type_matrix_plugin(temp: &TempProject) -> (PathBuf, PathBuf) {
 "#,
     )
     .expect("C++ type-matrix manifest should be written");
-    fs::write(plugin.join("native.nxid"), type_matrix_idl())
-        .expect("C++ type-matrix IDL should be written");
+    fs::write(
+        plugin.join("native.nxid"),
+        type_matrix_idl(include_android_nested_map),
+    )
+    .expect("C++ type-matrix IDL should be written");
     let cpp = plugin.join("cpp/Sources/Plugin.cpp");
-    fs::write(&cpp, type_matrix_cpp_source())
+    fs::write(&cpp, type_matrix_cpp_source(include_android_nested_map))
         .expect("C++ type-matrix implementation should be written");
     let entry = temp.0.join("main.nx");
     fs::write(
@@ -488,7 +499,7 @@ fn type_matrix_kotlin_smoke() -> String {
         }
     }
     source.push_str(
-        "    val mapFloat32 = mapOf(false to -1.25f, true to Float.MAX_VALUE)\n    check(TypesPlugin.echoMapFloat32(mapFloat32) == mapFloat32)\n    val mapFloat64 = mapOf(Byte.MIN_VALUE to -1.25, Byte.MAX_VALUE to Double.MAX_VALUE)\n    check(TypesPlugin.echoMapFloat64(mapFloat64) == mapFloat64)\n    val mapString = mapOf(Short.MIN_VALUE to text)\n    check(TypesPlugin.echoMapString(mapString) == mapString)\n",
+        "    val mapFloat32 = mapOf(false to -1.25f, true to Float.MAX_VALUE)\n    check(TypesPlugin.echoMapFloat32(mapFloat32) == mapFloat32)\n    val mapFloat64 = mapOf(Byte.MIN_VALUE to -1.25, Byte.MAX_VALUE to Double.MAX_VALUE)\n    check(TypesPlugin.echoMapFloat64(mapFloat64) == mapFloat64)\n    val mapString = mapOf(Short.MIN_VALUE to text)\n    check(TypesPlugin.echoMapString(mapString) == mapString)\n    val byteMap = mapOf(1 to bytes, 2 to byteArrayOf())\n    val returnedByteMap = TypesPlugin.echoBytesMap(byteMap)\n    check(returnedByteMap.keys == byteMap.keys && returnedByteMap.all { (key, value) -> value.contentEquals(byteMap.getValue(key)) })\n    check(TypesPlugin.echoBytesMap(emptyMap()).isEmpty())\n    val arrayMap = mapOf(1 to listOf(Int.MIN_VALUE, 0, Int.MAX_VALUE), 2 to emptyList())\n    check(TypesPlugin.echoArrayMap(arrayMap) == arrayMap)\n    check(TypesPlugin.echoArrayMap(emptyMap()).isEmpty())\n    val stringArrayMap = mapOf(1 to listOf(\"\", text), 2 to emptyList())\n    check(TypesPlugin.echoStringArrayMap(stringArrayMap) == stringArrayMap)\n    val bytesArrayMap = mapOf(1 to listOf(bytes, byteArrayOf()), 2 to emptyList())\n    val returnedBytesArrayMap = TypesPlugin.echoBytesArrayMap(bytesArrayMap)\n    check(returnedBytesArrayMap.keys == bytesArrayMap.keys && returnedBytesArrayMap.all { (key, values) -> values.size == bytesArrayMap.getValue(key).size && values.indices.all { values[it].contentEquals(bytesArrayMap.getValue(key)[it]) } })\n    val setMap = mapOf(1 to setOf(0u, UInt.MAX_VALUE), Int.MIN_VALUE to emptySet())\n    check(TypesPlugin.echoSetMap(setMap) == setMap)\n    check(TypesPlugin.echoSetMap(emptyMap()).isEmpty())\n    val nestedByteMap = mapOf(7 to mapOf(\"payload\" to bytes, \"empty\" to byteArrayOf()), 8 to emptyMap())\n    val returnedNestedByteMap = TypesPlugin.echoNestedMap(nestedByteMap)\n    check(returnedNestedByteMap.keys == nestedByteMap.keys && returnedNestedByteMap.all { (outerKey, values) -> values.keys == nestedByteMap.getValue(outerKey).keys && values.all { (innerKey, value) -> value.contentEquals(nestedByteMap.getValue(outerKey).getValue(innerKey)) } })\n    check(TypesPlugin.echoNestedMap(emptyMap()).isEmpty())\n",
     );
     source.push_str("}\n");
     source
@@ -522,7 +533,7 @@ fn type_matrix_swift_probe() -> String {
         }
     }
     source.push_str(
-        "    _ = api.echoMapFloat32(values: [false: 1.25])\n    _ = api.echoMapFloat64(values: [-1: 2.5])\n    _ = api.echoMapString(values: [-2: \"Nexa\"])\n",
+        "    _ = api.echoMapFloat32(values: [false: 1.25])\n    _ = api.echoMapFloat64(values: [-1: 2.5])\n    _ = api.echoMapString(values: [-2: \"Nexa\"])\n    _ = api.echoBytesMap(values: [1: bytes])\n    _ = api.echoArrayMap(values: [1: [Int32.min, 0, Int32.max], 2: []])\n    _ = api.echoStringArrayMap(values: [1: [\"\", \"Nexa 🚀\"], 2: []])\n    _ = api.echoBytesArrayMap(values: [1: [Data([0, 255]), Data()], 2: []])\n    _ = api.echoSetMap(values: [1: Set([UInt32.min, UInt32.max])])\n",
     );
     source.push_str("}\n");
     source
@@ -2227,7 +2238,7 @@ fn generated_ios_cpp_adapters_typecheck_primitive_nullable_and_collection_matrix
     }
 
     let temp = TempProject::new("ios-cpp-type-matrix");
-    let (entry, _) = type_matrix_plugin(&temp);
+    let (entry, _) = type_matrix_plugin(&temp, false);
     let output = temp.0.join("Generated");
     let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
         .arg("generate")
@@ -2298,7 +2309,7 @@ fn generated_ios_cpp_adapters_typecheck_primitive_nullable_and_collection_matrix
 fn generated_android_cpp_adapters_roundtrip_primitive_nullable_and_collection_matrix_when_toolchains_are_available()
  {
     let temp = TempProject::new("android-cpp-type-matrix");
-    let (entry, _) = type_matrix_plugin(&temp);
+    let (entry, _) = type_matrix_plugin(&temp, true);
     let output = temp.0.join("Generated");
     let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
         .arg("generate")
@@ -2341,6 +2352,79 @@ fn generated_android_cpp_adapters_roundtrip_primitive_nullable_and_collection_ma
             )),
             "generated Android binding is missing Array<{}> mapping",
             ty.idl
+        );
+    }
+
+    assert!(generated_kotlin.contains(
+        "external fun service_Types_echoArrayMap(values: Map<Int, IntArray>): Map<Int, IntArray>"
+    ));
+    assert!(
+        generated_kotlin.contains(
+            "override fun echoArrayMap(values: Map<Int, List<Int>>): Map<Int, List<Int>>"
+        )
+    );
+    assert!(generated_kotlin.contains("nexaMapValue.toIntArray()"));
+    assert!(generated_kotlin.contains(
+        "external fun service_Types_echoBytesMap(values: Map<Int, ByteArray>): Map<Int, ByteArray>"
+    ));
+    assert!(
+        generated_kotlin.contains(
+            "override fun echoBytesMap(values: Map<Int, ByteArray>): Map<Int, ByteArray>"
+        )
+    );
+    assert!(generated_kotlin.contains(
+        "external fun service_Types_echoNestedMap(values: Map<Int, Map<String, ByteArray>>): Map<Int, Map<String, ByteArray>>"
+    ));
+    assert!(generated_kotlin.contains(
+        "override fun echoNestedMap(values: Map<Int, Map<String, ByteArray>>): Map<Int, Map<String, ByteArray>>"
+    ));
+    assert!(generated_kotlin.contains(
+        "external fun service_Types_echoStringArrayMap(values: Map<Int, Array<String>>): Map<Int, Array<String>>"
+    ));
+    assert!(generated_kotlin.contains(
+        "override fun echoStringArrayMap(values: Map<Int, List<String>>): Map<Int, List<String>>"
+    ));
+    assert!(generated_kotlin.contains(
+        "external fun service_Types_echoBytesArrayMap(values: Map<Int, Array<ByteArray>>): Map<Int, Array<ByteArray>>"
+    ));
+    assert!(generated_kotlin.contains(
+        "override fun echoBytesArrayMap(values: Map<Int, List<ByteArray>>): Map<Int, List<ByteArray>>"
+    ));
+    assert!(generated_kotlin.contains(
+        "external fun service_Types_echoSetMap(values: Map<Int, IntArray>): Map<Int, IntArray>"
+    ));
+    assert!(
+        generated_kotlin
+            .contains("override fun echoSetMap(values: Map<Int, Set<UInt>>): Map<Int, Set<UInt>>")
+    );
+
+    if command_available("clang++", &["--version"])
+        && let Some(java_home) = env::var_os("JAVA_HOME").map(PathBuf::from)
+    {
+        let native_root = output.join("android/app/src/main/cpp");
+        let platform_include = if cfg!(target_os = "macos") {
+            "darwin"
+        } else if cfg!(target_os = "windows") {
+            "win32"
+        } else {
+            "linux"
+        };
+        let checked = Command::new("clang++")
+            .args(["-std=c++20", "-fsyntax-only", "-I"])
+            .arg(java_home.join("include"))
+            .arg("-I")
+            .arg(java_home.join("include").join(platform_include))
+            .arg("-I")
+            .arg(native_root.join("Plugin0"))
+            .arg(native_root.join("Plugin0/NexaPluginJni.cpp"))
+            .arg(native_root.join("Plugin0/cpp/Sources/Plugin.cpp"))
+            .output()
+            .expect("host C++ compiler should start when available");
+        assert!(
+            checked.status.success(),
+            "generated Android JNI map-of-arrays adapters failed to compile:\n{}\n{}",
+            String::from_utf8_lossy(&checked.stdout),
+            String::from_utf8_lossy(&checked.stderr)
         );
     }
 

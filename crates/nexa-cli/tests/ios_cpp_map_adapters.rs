@@ -74,6 +74,9 @@ fn generated_ios_cpp_map_adapters_typecheck_service_and_native_class_maps_when_s
     fn echoPayloadSet(values: Set<Bytes>) -> Set<Bytes>
     fn echoNumbers(values: Map<Int32, String>) -> Map<Int32, String>
     fn echoPayloads(values: Map<Bytes, Bytes>) -> Map<Bytes, Bytes>
+    fn echoPayloadSets(values: Map<Int32, Set<Bytes>>) -> Map<Int32, Set<Bytes>>
+    fn echoNestedNumbers(values: Map<Int32, Array<Int32>>) -> Map<Int32, Array<Int32>>
+    fn echoNestedLabels(values: Map<Int32, Array<String>>) -> Map<Int32, Array<String>>
     fn echoNestedIntegers(values: Array<Array<Int32>>) -> Array<Array<Int32>>
     fn echoNestedBooleans(values: Array<Array<Bool>>) -> Array<Array<Bool>>
     fn echoNestedStrings(values: Array<Array<String>>) -> Array<Array<String>>
@@ -146,6 +149,11 @@ func mapAdapterProbe() {
     let payloads = [Data([0, 1]): Data([255]), Data(): Data()]
     _ = LookupPlugin.shared.echoNumbers(values: numbers)
     _ = LookupPlugin.shared.echoPayloads(values: payloads)
+    _ = LookupPlugin.shared.echoPayloadSets(values: [1: Set([Data([0, 1]), Data()])])
+    let nestedNumbers: [Int32: [Int32]] = [1: [Int32.min, 0, Int32.max], 2: []]
+    let nestedLabels: [Int32: [String]] = [1: ["Nexa 🚀", ""], 2: []]
+    _ = LookupPlugin.shared.echoNestedNumbers(values: nestedNumbers)
+    _ = LookupPlugin.shared.echoNestedLabels(values: nestedLabels)
     let nestedIntegers = [[Int32.min, 0, Int32.max], [], [-1, 7]]
     let nestedBooleans = [[false, true], [], [true]]
     let nestedStrings = [["Nexa 🚀", ""], [], ["last"]]

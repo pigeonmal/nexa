@@ -168,7 +168,11 @@ between Swift `Data` and `std::vector<uint8_t>`. iOS C++ adapters bridge
 `Set<Bool>`, integer sets, and `Set<Bytes>` through generated vector facades
 around the C++ `std::set` contract. They reject floating-point sets (NaN
 ordering) and string sets (Swift's canonical-equivalence equality differs from
-bytewise C++ ordering). Android project generation emits
+bytewise C++ ordering). iOS map adapters also accept supported scalar keys with
+primitive, string, byte, compatible-set, or nested-array values through
+generated entry vectors; generated Swift/C++ typechecks cover numeric, string,
+byte, and set values in maps.
+Android project generation emits
 Kotlin service/class adapters and JNI for synchronous, non-throwing `Bool`,
 signed and unsigned integer, floating-point values, plus `String` and `Bytes`.
 Unsigned Kotlin values use signed primitive carriers at the JNI boundary while
@@ -184,11 +188,14 @@ JNI carriers. `Array<String>` and `Array<Bytes>` use JNI object arrays with
 length-aware conversion and local-reference cleanup. `Set` supports Boolean,
 integer, and String elements through JNI array carriers and C++ `std::set`.
 Floating-point and byte-array sets remain unsupported because their Kotlin and
-C++ equality/order semantics differ. Events, async methods, throwing methods,
-and nested `Set`/`Map` combinations remain unsupported. Flat `Map` values
-support primitive or String keys and values through generated Java map
-conversion. Floating-point keys, byte-array values, optional maps, and nested
-collections are rejected to preserve Kotlin/C++ map semantics.
+C++ equality/order semantics differ. Android `Map` keys support primitive or
+String types; map values support primitive, string, or byte values, arrays of
+primitive/string/byte values, compatible primitive or string sets, and
+recursively nested maps. Generated JNI adapters convert these shapes with
+headless C++ compilation and optional host-JVM round-trip coverage.
+Floating-point keys, byte-array sets, optional maps, and collection shapes
+outside that subset remain unsupported to preserve Kotlin/C++ map semantics.
+C++ event, async, and throwing adapters also remain unsupported.
 Android optional C++ values support `Bool`, signed and unsigned integers,
 floating-point, `String`, and `Bytes`. Generated R8 rules
 preserve JNI lookup names. Plugin authors implement the generated C++ contract

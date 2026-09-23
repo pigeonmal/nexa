@@ -794,7 +794,7 @@ fn ensure_android_cpp_value(
         return Ok(());
     }
     Err(format!(
-        "Android C++ adapters support primitive, `String`, `Bytes`, nested `Array` values, compatible `Set` values, and flat primitive/string `Map` values; `{interface}.{member}` uses unsupported type `{}`",
+        "Android C++ adapters support primitive, `String`, `Bytes`, nested `Array` values, compatible `Set` values, flat primitive/string `Map` values, and maps with array or compatible set values; `{interface}.{member}` uses unsupported type `{}`",
         ty.name
     ))
 }
@@ -916,7 +916,7 @@ fn android_cpp_type(ty: &TypeRef) -> Option<String> {
         };
         if ty.optional
             || !android_map_element_is_supported(key, true)
-            || !android_map_element_is_supported(value, false)
+            || !android_map_value_is_supported(value)
         {
             return None;
         }
@@ -993,15 +993,42 @@ fn android_map_element_is_supported(ty: &TypeRef, is_key: bool) -> bool {
         && (!is_key || !matches!(ty.name.as_str(), "Float32" | "Float64"))
 }
 
+fn android_map_value_is_supported(ty: &TypeRef) -> bool {
+    if ty.name == "Map" {
+        return android_map_is_supported(ty);
+    }
+    if android_map_element_is_supported(ty, false)
+        || (ty.name == "Bytes" && !ty.optional && ty.arguments.is_empty())
+    {
+        return true;
+    }
+    if ty.optional || !matches!(ty.name.as_str(), "Array" | "Set") {
+        return false;
+    }
+    let [element] = ty.arguments.as_slice() else {
+        return false;
+    };
+    if element.optional {
+        return false;
+    }
+    if ty.name == "Set" && element.name != "String" {
+        return android_primitive_array(element).is_some();
+    }
+    android_primitive_array(element).is_some() || android_reference_array_element(element).is_some()
+}
+
 fn android_cpp_map_type(ty: &TypeRef) -> Option<(&TypeRef, &TypeRef)> {
+    android_map_is_supported(ty).then(|| (&ty.arguments[0], &ty.arguments[1]))
+}
+
+fn android_map_is_supported(ty: &TypeRef) -> bool {
     if ty.name != "Map" || ty.optional {
-        return None;
+        return false;
     }
     let [key, value] = ty.arguments.as_slice() else {
-        return None;
+        return false;
     };
-    (android_map_element_is_supported(key, true) && android_map_element_is_supported(value, false))
-        .then_some((key, value))
+    android_map_element_is_supported(key, true) && android_map_value_is_supported(value)
 }
 
 fn android_cpp_is_void(ty: &TypeRef) -> bool {
@@ -1247,10 +1274,10 @@ fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
         if let Some(conversion) = android_cpp_value(key).and_then(|scalar| scalar.kotlin_to_jni) {
             expression = format!("{expression}.mapKeys {{ it.key.{conversion}() }}");
         }
-        if let Some(conversion) =
-            android_cpp_value(map_value).and_then(|scalar| scalar.kotlin_to_jni)
-        {
-            expression = format!("{expression}.mapValues {{ it.value.{conversion}() }}");
+        let converted_value = kotlin_to_jni_expression("nexaMapValue", map_value);
+        if converted_value != "nexaMapValue" {
+            expression =
+                format!("{expression}.mapValues {{ (_, nexaMapValue) -> {converted_value} }}");
         }
         return expression;
     }
@@ -1309,10 +1336,9 @@ fn kotlin_from_jni_expression(expression: String, ty: &TypeRef) -> String {
         if let Some(conversion) = android_cpp_value(key).and_then(|scalar| scalar.kotlin_from_jni) {
             result = format!("{result}.mapKeys {{ it.key.{conversion}() }}");
         }
-        if let Some(conversion) =
-            android_cpp_value(map_value).and_then(|scalar| scalar.kotlin_from_jni)
-        {
-            result = format!("{result}.mapValues {{ it.value.{conversion}() }}");
+        let converted_value = kotlin_from_jni_expression("nexaMapValue".to_owned(), map_value);
+        if converted_value != "nexaMapValue" {
+            result = format!("{result}.mapValues {{ (_, nexaMapValue) -> {converted_value} }}");
         }
         return result;
     }
@@ -1999,6 +2025,109 @@ fn render_android_jni_map_converter(
     to_java: bool,
     failure_return: &str,
 ) -> String {
+    if let Some((key, value)) = android_cpp_map_type(ty) {
+        let cpp_type = android_cpp_type(ty).expect("validated nested Android map type");
+        let key_converter = render_android_jni_map_converter(
+            out,
+            key,
+            &format!("{name}Key"),
+            to_java,
+            failure_return,
+        );
+        let value_converter = render_android_jni_map_converter(
+            out,
+            value,
+            &format!("{name}Value"),
+            to_java,
+            failure_return,
+        );
+        return if to_java {
+            format!(
+                "[&](const {cpp_type}& value) -> jobject {{ return toJniMap(env, value, {key_converter}, {value_converter}); }}"
+            )
+        } else {
+            format!(
+                "[&](jobject raw) -> {cpp_type} {{ return fromJniMap<{cpp_type}>(env, raw, {key_converter}, {value_converter}); }}"
+            )
+        };
+    }
+    if matches!(ty.name.as_str(), "Array" | "Set") {
+        let [element] = ty.arguments.as_slice() else {
+            unreachable!("validated Android map collection has one element type")
+        };
+        let collection_type = android_cpp_type(ty)
+            .expect("validated Android map collection has a C++ representation");
+        let Some(array) = android_primitive_array(element) else {
+            android_reference_array_element(element)
+                .expect("validated Android map collection has a reference element");
+            let element_class = if element.name == "String" {
+                "java/lang/String"
+            } else {
+                "[B"
+            };
+            if to_java {
+                let to_jni = if element.name == "String" {
+                    "toJniString"
+                } else {
+                    "toJniBytes"
+                };
+                return format!(
+                    "[&](const {collection_type}& values) -> jobject {{\n            if (values.size() > static_cast<std::size_t>(std::numeric_limits<jsize>::max())) throw std::length_error(\"native plugin collection is too large for JNI\");\n            const auto length = static_cast<jsize>(values.size());\n            ScopedLocalRef<jclass> elementClass(env, env->FindClass(\"{element_class}\"));\n            requireJniMapOperation(env, \"unable to resolve JNI map collection element type\");\n            ScopedLocalRef<jobjectArray> output(env, env->NewObjectArray(length, elementClass.get(), nullptr));\n            requireJniMapOperation(env, \"unable to allocate JNI map collection\");\n            jsize index = 0;\n            for (const auto& value : values) {{\n                ScopedLocalRef<jobject> element(env, {to_jni}(env, value));\n                requireJniMapOperation(env, \"unable to convert native map collection element\");\n                env->SetObjectArrayElement(output.get(), index++, element.get());\n                requireJniMapOperation(env, \"unable to populate JNI map collection\");\n            }}\n            return output.release();\n        }}"
+                );
+            }
+            let from_jni = if element.name == "String" {
+                "fromJniString"
+            } else {
+                "fromJniBytes"
+            };
+            let reference_type = if element.name == "String" {
+                "jstring"
+            } else {
+                "jbyteArray"
+            };
+            let append = if ty.name == "Set" {
+                "output.insert(std::move(value));"
+            } else {
+                "output.push_back(std::move(value));"
+            };
+            return format!(
+                "[&](jobject raw) -> {collection_type} {{\n            if (raw == nullptr) {{ throwIllegalState(env, \"non-null Nexa map collection was null at the JNI boundary\"); throw std::runtime_error(\"null JNI map collection\"); }}\n            auto input = static_cast<jobjectArray>(raw);\n            const jsize length = env->GetArrayLength(input);\n            requireJniMapOperation(env, \"unable to read JNI map collection length\");\n            {collection_type} output;\n            for (jsize index = 0; index < length; ++index) {{\n                ScopedLocalRef<jobject> element(env, env->GetObjectArrayElement(input, index));\n                requireJniMapOperation(env, \"unable to read JNI map collection element\");\n                if (element.get() == nullptr) {{ throwIllegalState(env, \"non-null Nexa map collection contained null\"); throw std::runtime_error(\"null JNI map collection element\"); }}\n                auto value = {from_jni}(env, static_cast<{reference_type}>(element.get()));\n                requireJniMapOperation(env, \"unable to convert JNI map collection element\");\n                {append}\n            }}\n            return output;\n        }}"
+            );
+        };
+        let scalar = android_cpp_value(element)
+            .expect("validated Android map collection has a native scalar element");
+        if to_java {
+            let carrier = if scalar.unsigned {
+                format!(
+                    "std::bit_cast<{}>(static_cast<{}>(element))",
+                    array.element_jni, scalar.cpp
+                )
+            } else {
+                format!("static_cast<{}>(element)", array.element_jni)
+            };
+            return format!(
+                "[&](const {collection_type}& values) -> jobject {{\n            if (values.size() > static_cast<std::size_t>(std::numeric_limits<jsize>::max())) throw std::length_error(\"native plugin collection is too large for JNI\");\n            const auto length = static_cast<jsize>(values.size());\n            auto output = env->New{}Array(length);\n            if (output == nullptr) return nullptr;\n            std::vector<{}> carrier;\n            carrier.reserve(values.size());\n            for (const auto& element : values) carrier.push_back({carrier});\n            if (length > 0) env->{}(output, 0, length, carrier.data());\n            if (env->ExceptionCheck()) return nullptr;\n            return output;\n        }}",
+                array.kotlin_array.trim_end_matches("Array"),
+                array.element_jni,
+                array.set_region,
+            );
+        }
+
+        let converted = if scalar.unsigned {
+            format!("std::bit_cast<{}>(carrier[index])", scalar.cpp)
+        } else {
+            format!("static_cast<{}>(carrier[index])", scalar.cpp)
+        };
+        let insertion = if ty.name == "Set" {
+            format!("output.insert({converted});")
+        } else {
+            format!("output.push_back({converted});")
+        };
+        return format!(
+            "[&](jobject raw) -> {collection_type} {{\n            if (raw == nullptr) {{ throwIllegalState(env, \"non-null Nexa map collection was null at the JNI boundary\"); throw std::runtime_error(\"null JNI map collection\"); }}\n            auto input = static_cast<{}>(raw);\n            const jsize length = env->GetArrayLength(input);\n            requireJniMapOperation(env, \"unable to read JNI map collection length\");\n            std::vector<{}> carrier(static_cast<std::size_t>(length));\n            if (length > 0) env->{}(input, 0, length, carrier.data());\n            requireJniMapOperation(env, \"unable to read JNI map collection values\");\n            {collection_type} output;\n            for (jsize index = 0; index < length; ++index) {{ {insertion} }}\n            return output;\n        }}",
+            array.jni_array, array.element_jni, array.get_region,
+        );
+    }
     let scalar = android_cpp_value(ty).expect("validated Android map scalar");
     if ty.name == "String" {
         return if to_java {
@@ -2006,6 +2135,15 @@ fn render_android_jni_map_converter(
                 .to_owned()
         } else {
             "[&](jobject raw) -> std::string { return fromJniString(env, static_cast<jstring>(raw)); }".to_owned()
+        };
+    }
+    if ty.name == "Bytes" {
+        return if to_java {
+            "[&](const std::vector<std::uint8_t>& value) -> jobject { return toJniBytes(env, value); }"
+                .to_owned()
+        } else {
+            "[&](jobject raw) -> std::vector<std::uint8_t> { return fromJniBytes(env, static_cast<jbyteArray>(raw)); }"
+                .to_owned()
         };
     }
     let boxed = android_jni_map_boxed_primitive(ty).expect("validated boxed map scalar");
@@ -2326,7 +2464,7 @@ fn ensure_swift_cpp_value(
         return Ok(());
     }
     Err(format!(
-        "C++ Swift adapters support primitive, `String`, `Bytes`, nested `Array` values, compatible `Set` values, and flat `Map` values; `{interface}.{member}` uses `{}`",
+        "C++ Swift adapters support primitive, `String`, `Bytes`, nested `Array` values, compatible `Set` values, and supported-key `Map` values; `{interface}.{member}` uses `{}`",
         ty.name
     ))
 }
@@ -2336,7 +2474,7 @@ fn swift_cpp_value_type(ty: &TypeRef) -> Option<String> {
         return Some(format!(
             "[{}: {}]",
             swift_cpp_base_type(key)?,
-            swift_cpp_base_type(value)?
+            swift_cpp_value_type(value)?
         ));
     }
     if ty.name == "Set" {
@@ -2411,7 +2549,7 @@ fn swift_cpp_map_types(ty: &TypeRef) -> Option<(&TypeRef, &TypeRef)> {
     if key.optional
         || value.optional
         || swift_cpp_base_type(key).is_none()
-        || swift_cpp_base_type(value).is_none()
+        || !swift_cpp_map_value_supported(value)
         || !matches!(
             key.name.as_str(),
             "Bool"
@@ -2429,6 +2567,19 @@ fn swift_cpp_map_types(ty: &TypeRef) -> Option<(&TypeRef, &TypeRef)> {
         return None;
     }
     Some((key, value))
+}
+
+fn swift_cpp_map_value_supported(ty: &TypeRef) -> bool {
+    if swift_cpp_supported_set(ty) {
+        return true;
+    }
+    if let Some(base) = swift_cpp_base_type(ty) {
+        return base != "Void";
+    }
+    // The map entry bridge currently uses C++ value fields. Boolean vectors
+    // have a distinct vector<bool> representation and need their own proxy.
+    swift_cpp_array_swift_type(ty).is_some()
+        && swift_cpp_array_leaf(ty).is_some_and(|leaf| leaf.name != "Bool")
 }
 
 fn swift_cpp_array_swift_type(ty: &TypeRef) -> Option<String> {
@@ -2582,7 +2733,7 @@ fn swift_cpp_argument_value(
             let entries = format!("{namespace}.{}", cpp_swift_map_entries_name(idl, ty));
             let key_value = swift_cpp_map_value_argument(key, "$0.key", byte_buffer_type);
             let mapped_value =
-                swift_cpp_map_value_argument(value_type, "$0.value", byte_buffer_type);
+                swift_cpp_argument_value(value_type, "$0.value", idl, namespace, byte_buffer_type);
             format!("{entries}({value}.map {{ {entry}({key_value}, {mapped_value}) }})")
         }
         "String" => format!("std.string({value})"),
@@ -2685,8 +2836,9 @@ fn swift_cpp_result_expression(
                 // representation. Importing the std::map conversion helper
                 // here would make Swift expect a std::map at the call site.
                 let entries = format!("Array({call})");
-                let key_value = swift_cpp_map_value_result(key, "$0.key");
-                let mapped_value = swift_cpp_map_value_result(value_type, "$0.value");
+                let key_value = swift_cpp_map_key_result(key, "$0.key");
+                let mapped_value =
+                    swift_cpp_result_expression(value_type, "$0.value", idl, namespace);
                 format!(
                     "Dictionary(uniqueKeysWithValues: {entries}.map {{ ({key_value}, {mapped_value}) }})"
                 )
@@ -2749,7 +2901,7 @@ fn swift_cpp_array_result_expression(
     }
 }
 
-fn swift_cpp_map_value_result(ty: &TypeRef, value: &str) -> String {
+fn swift_cpp_map_key_result(ty: &TypeRef, value: &str) -> String {
     match ty.name.as_str() {
         "String" => format!("String({value})"),
         "Bytes" => format!("Data({value})"),
@@ -2879,17 +3031,17 @@ fn render_swift_array_aliases(out: &mut String, idl: &PluginIdl) {
     for interface in &idl.interfaces {
         for constructor in &interface.constructors {
             for parameter in &constructor.parameters {
-                add(&parameter.ty);
+                collect_swift_array_types(&parameter.ty, &mut add);
             }
         }
         for property in &interface.properties {
-            add(&property.ty);
+            collect_swift_array_types(&property.ty, &mut add);
         }
         for method in &interface.methods {
             for parameter in &method.parameters {
-                add(&parameter.ty);
+                collect_swift_array_types(&parameter.ty, &mut add);
             }
-            add(&method.return_type);
+            collect_swift_array_types(&method.return_type, &mut add);
         }
     }
     arrays.reverse();
@@ -2969,6 +3121,10 @@ fn collect_swift_array_types(ty: &TypeRef, add: &mut impl FnMut(&TypeRef)) {
         {
             collect_swift_array_types(element, add);
         }
+    } else if ty.name == "Map" {
+        for argument in &ty.arguments {
+            collect_swift_array_types(argument, add);
+        }
     }
 }
 
@@ -3040,22 +3196,42 @@ fn render_swift_map_adapters(out: &mut String, idl: &PluginIdl) {
         let entries = cpp_swift_map_entries_name(idl, &ty);
         let map_type = cpp_type(&ty);
         let key_type = cpp_type(key);
-        let value_type = cpp_type(value);
+        let value_type = cpp_swift_collection_bridge_type(value, idl);
         let from_entries = cpp_swift_map_conversion_name(idl, &ty, "FromEntries");
         let to_entries = cpp_swift_map_conversion_name(idl, &ty, "ToEntries");
+        let native_value = cpp_swift_collection_argument(value, "entry.value", idl);
+        let bridge_value = cpp_swift_map_value_for_entry(value, "mappedValue", idl);
         out.push_str(&format!(
-            "struct {entry} {{\n    {key_type} key;\n    {value_type} value;\n    {entry}({key_type} keyValue, {value_type} mappedValue) : key(std::move(keyValue)), value(std::move(mappedValue)) {{}}\n}};\nusing {entries} = std::vector<{entry}>;\ninline {map_type} {from_entries}({entries} entries) noexcept {{\n    {map_type} result;\n    for (auto& entry : entries) result.emplace(std::move(entry.key), std::move(entry.value));\n    return result;\n}}\ninline {entries} {to_entries}({map_type} value) noexcept {{\n    {entries} entries;\n    entries.reserve(value.size());\n    for (auto& [key, mappedValue] : value) entries.emplace_back(key, mappedValue);\n    return entries;\n}}\n\n"
+            "struct {entry} {{\n    {key_type} key;\n    {value_type} value;\n    {entry}({key_type} keyValue, {value_type} mappedValue) : key(std::move(keyValue)), value(std::move(mappedValue)) {{}}\n}};\nusing {entries} = std::vector<{entry}>;\ninline {map_type} {from_entries}({entries} entries) noexcept {{\n    {map_type} result;\n    for (auto& entry : entries) result.emplace(std::move(entry.key), {native_value});\n    return result;\n}}\ninline {entries} {to_entries}({map_type} value) noexcept {{\n    {entries} entries;\n    entries.reserve(value.size());\n    for (auto& [key, mappedValue] : value) entries.emplace_back(std::move(key), {bridge_value});\n    return entries;\n}}\n\n"
         ));
     }
 }
 
+fn cpp_swift_map_value_for_entry(ty: &TypeRef, value: &str, idl: &PluginIdl) -> String {
+    if ty.name == "Set" {
+        let facade = cpp_swift_collection_bridge_type(ty, idl);
+        format!("{facade}({value}.begin(), {value}.end())")
+    } else {
+        format!("std::move({value})")
+    }
+}
+
 fn cpp_swift_map_signature(ty: &TypeRef) -> String {
-    let (key, value) = ty.arguments.split_at(1);
-    format!(
-        "{}{}",
-        cpp_identifier(&key[0].name),
-        cpp_identifier(&value[0].name)
-    )
+    ty.arguments
+        .iter()
+        .map(cpp_swift_type_signature)
+        .collect::<String>()
+}
+
+fn cpp_swift_type_signature(ty: &TypeRef) -> String {
+    let mut signature = cpp_identifier(&ty.name);
+    for argument in &ty.arguments {
+        signature.push_str(&cpp_swift_type_signature(argument));
+    }
+    if ty.optional {
+        signature.push_str("Optional");
+    }
+    signature
 }
 
 fn cpp_swift_map_entry_name(idl: &PluginIdl, ty: &TypeRef) -> String {
@@ -4221,7 +4397,6 @@ mod tests {
             "Map<Float64, Int32>",
             "Map<Int32?, String>",
             "Map<Int32, String?>",
-            "Map<Int32, Array<String>>",
             "Map<Int32, Map<Int32, String>>",
             "Map<Int32, String>?",
         ] {
@@ -4231,7 +4406,7 @@ mod tests {
             .expect("unsupported map shape should remain valid IDL");
             let error = render_swift_adapters(&idl, "dev.example.cpp-plugin")
                 .expect_err("unsupported C++ map shapes must fail generation");
-            assert!(error.contains("flat `Map`"), "{error}");
+            assert!(error.contains("supported-key `Map`"), "{error}");
         }
 
         for unsupported in ["Array<Int32?>"] {
@@ -4635,22 +4810,87 @@ mod tests {
         assert!(kotlin.contains(
             "external fun service_Lookup_unsigned(items: Map<Int, Long>): Map<Int, Long>"
         ));
-        assert!(
-            kotlin.contains("items.mapKeys { it.key.toInt() }.mapValues { it.value.toLong() }")
-        );
-        assert!(kotlin.contains(".mapKeys { it.key.toUInt() }.mapValues { it.value.toULong() }"));
+        assert!(kotlin.contains(
+            "items.mapKeys { it.key.toInt() }.mapValues { (_, nexaMapValue) -> nexaMapValue.toLong() }"
+        ));
+        assert!(kotlin.contains(
+            ".mapKeys { it.key.toUInt() }.mapValues { (_, nexaMapValue) -> nexaMapValue.toULong() }"
+        ));
         assert!(jni.contains("std::map<std::uint32_t, std::uint64_t>"));
         assert!(jni.contains("java/lang/Integer"));
         assert!(jni.contains("java/lang/Long"));
 
+        let nested_maps = nexa_plugin_idl::parse(
+            "service Lookup { fn arrays(items: Map<String, Array<Int32>>) -> Map<String, Array<Int32>> fn sets(items: Map<String, Set<UInt32>>) -> Map<String, Set<UInt32>> }",
+        )
+        .expect("maps with collection values should parse");
+        let (kotlin, jni) = render_android_adapters(
+            &nested_maps,
+            "dev.example.cpp-plugin",
+            "Lookup",
+            "dev.example.app",
+            0,
+        )
+        .expect("maps with primitive array and set values should adapt recursively");
+        assert!(kotlin.contains(
+            "external fun service_Lookup_arrays(items: Map<String, IntArray>): Map<String, IntArray>"
+        ));
+        assert!(kotlin.contains(
+            "override fun arrays(items: Map<String, List<Int>>): Map<String, List<Int>>"
+        ));
+        assert!(
+            kotlin.contains("items.mapValues { (_, nexaMapValue) -> nexaMapValue.toIntArray() }")
+        );
+        assert!(kotlin.contains("nexaMapValue.asList()"));
+        assert!(
+            kotlin.contains(
+                "override fun sets(items: Map<String, Set<UInt>>): Map<String, Set<UInt>>"
+            )
+        );
+        assert!(kotlin.contains("nexaMapValue.map { it.toInt() }.toIntArray()"));
+        assert!(kotlin.contains("nexaMapValue.map { it.toUInt() }.toSet()"));
+        assert!(jni.contains("std::map<std::string, std::vector<std::int32_t>>"));
+        assert!(jni.contains("std::map<std::string, std::set<std::uint32_t>>"));
+        assert!(jni.contains("GetIntArrayRegion"));
+        assert!(jni.contains("SetIntArrayRegion"));
+
+        let reference_maps = nexa_plugin_idl::parse(
+            "service Lookup { fn strings(items: Map<Int32, Array<String>>) -> Map<Int32, Array<String>> fn bytes(items: Map<Int32, Array<Bytes>>) -> Map<Int32, Array<Bytes>> fn byteValues(items: Map<Int32, Bytes>) -> Map<Int32, Bytes> fn nested(items: Map<Int32, Map<String, Bytes>>) -> Map<Int32, Map<String, Bytes>> fn labels(items: Map<Int32, Set<String>>) -> Map<Int32, Set<String>> }",
+        )
+        .expect("maps with reference collection values should parse");
+        let (kotlin, jni) = render_android_adapters(
+            &reference_maps,
+            "dev.example.cpp-plugin",
+            "Lookup",
+            "dev.example.app",
+            0,
+        )
+        .expect("string and byte arrays and string sets should adapt as map values");
+        assert!(kotlin.contains("Map<Int, Array<String>>"));
+        assert!(kotlin.contains("Map<Int, Array<ByteArray>>"));
+        assert!(kotlin.contains("Map<Int, ByteArray>"));
+        assert!(kotlin.contains("Map<Int, Map<String, ByteArray>>"));
+        assert!(kotlin.contains("Map<Int, Set<String>>"));
+        assert!(jni.contains("std::map<std::int32_t, std::vector<std::string>>"));
+        assert!(jni.contains("std::map<std::int32_t, std::vector<std::vector<std::uint8_t>>>"));
+        assert!(jni.contains("std::map<std::int32_t, std::vector<std::uint8_t>>"));
+        assert!(
+            jni.contains(
+                "std::map<std::int32_t, std::map<std::string, std::vector<std::uint8_t>>>"
+            )
+        );
+        assert!(jni.contains("toJniBytes(env, value)"));
+        assert!(jni.contains("std::map<std::int32_t, std::set<std::string>>"));
+        assert!(jni.contains("fromJniString(env, static_cast<jstring>(element.get()))"));
+        assert!(jni.contains("fromJniBytes(env, static_cast<jbyteArray>(element.get()))"));
+        assert!(jni.contains("NewObjectArray(length, elementClass.get(), nullptr)"));
+        assert!(jni.contains("fromJniMap<std::map<std::string, std::vector<std::uint8_t>>>"));
+
         for unsupported in [
             "Map<Float64, Int32>",
             "Map<Bytes, Int32>",
-            "Map<String, Bytes>",
             "Map<String, Int32?>",
             "Map<String?, Int32>",
-            "Map<String, Array<Int32>>",
-            "Map<String, Map<String, Int32>>",
             "Map<String, Int32>?",
         ] {
             let idl = nexa_plugin_idl::parse(&format!(
