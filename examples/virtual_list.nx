@@ -1,0 +1,30 @@
+app VirtualListApp {
+    state totalRows: Int32 = 50000
+    state scrollPosition: Int32 = 0
+
+    body {
+        Column(spacing: 12) {
+            Text("Nexa FastList Virtualization (50,000 Rows)")
+            Text(scrollPosition)
+
+            Row(spacing: 8) {
+                Button("Jump to 100") {
+                    scrollPosition = 100
+                }
+                Button("Jump to 1000") {
+                    scrollPosition = 1000
+                }
+                Button("Jump to Top") {
+                    scrollPosition = 0
+                }
+            }
+
+            FastList(count: totalRows, scrollPosition: scrollPosition, rowHeight: 52) { index in
+                Row(spacing: 12, padding: 8) {
+                    Text(index)
+                    Text("Virtualized Row Item")
+                }
+            }
+        }
+    }
+}

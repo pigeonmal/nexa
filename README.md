@@ -141,6 +141,7 @@ Explore real-world examples in [`examples/`](examples/):
 
 - [`counter.nx`](examples/counter.nx): Minimal reactive starter app.
 - [`todo_app.nx`](examples/todo_app.nx): Full task manager with custom components, inputs, and validation.
+- [`virtual_list.nx`](examples/virtual_list.nx): Ultra-high-performance virtualized list of 50,000 items with zero `AnyView` overhead.
 - [`showcase.nx`](examples/showcase.nx): Component catalog covering inputs, switches, cards, and gestures.
 - [`navigation.nx`](examples/navigation.nx): Multi-screen routing with navigation stacks and route parameters.
 - [`plugins/video-player/`](examples/plugins/video-player/): Native Swift & Kotlin plugin with AVPlayer and ExoPlayer.
