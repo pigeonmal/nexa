@@ -30,10 +30,40 @@ pub struct Plugin {
     /// Absolute source roots/globs declared by `plugin.config.nx`.
     pub ios_sources: Vec<String>,
     pub android_sources: Vec<String>,
+    /// Absolute optional C++ implementation source/header globs.
+    pub cpp_sources: Vec<String>,
+    pub cpp_headers: Vec<String>,
+    /// Minimum C++ language standard required by this plugin's native sources.
+    pub cpp_standard: Option<u8>,
     pub ios_min_version: Option<String>,
     pub android_min_sdk: Option<u32>,
+    pub ios_frameworks: Vec<String>,
+    /// Absolute paths to local XCFramework bundles declared by plugins.
+    pub ios_xcframeworks: Vec<String>,
+    /// Absolute paths to plugin-owned resources included in the iOS app bundle.
+    pub ios_resources: Vec<String>,
+    /// Absolute path to the plugin's `PrivacyInfo.xcprivacy` manifest.
+    pub ios_privacy_manifest: Option<String>,
     pub swift_packages: Vec<SwiftPackage>,
     pub maven_dependencies: Vec<String>,
+    /// Absolute paths to local Android AAR artifacts declared by plugins.
+    pub android_aars: Vec<String>,
+    /// Absolute paths to plugin-owned resources packaged as Android assets.
+    pub android_resources: Vec<String>,
+    /// Absolute paths to Android R8/ProGuard rules supplied by the plugin.
+    pub android_proguard_rules: Vec<String>,
+    pub android_maven_repositories: Vec<String>,
+    pub ios_usage_descriptions: Vec<(String, String)>,
+    pub ios_entitlements: Vec<(String, PluginEntitlementValue)>,
+    pub ios_linker_flags: Vec<String>,
+    pub android_permissions: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PluginEntitlementValue {
+    String(String),
+    Bool(bool),
+    Strings(Vec<String>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,6 +76,13 @@ pub struct SwiftPackage {
 #[derive(Clone, Debug)]
 pub struct PluginAsset {
     pub root: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct NativeComponentEventHandler {
+    pub property: String,
+    pub parameters: Vec<String>,
+    pub actions: Vec<Action>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -138,6 +175,28 @@ pub struct State {
     pub ty: Type,
     pub initial: Expr,
     pub mutable: bool,
+}
+
+impl State {
+    /// Whether this binding initializes a native class object.
+    pub fn is_native_class_constructor_binding(&self) -> bool {
+        matches!(&self.ty, Type::Plugin { .. })
+            && matches!(
+                &self.initial,
+                Expr::Call {
+                    is_constructor: true,
+                    return_type,
+                    ..
+                } if return_type == &self.ty
+            )
+    }
+
+    /// Whether this immutable app binding constructs one native class object.
+    /// Such objects need view-identity storage so recomposition does not
+    /// silently replace the native instance.
+    pub fn is_native_class_instance_binding(&self) -> bool {
+        !self.mutable && self.is_native_class_constructor_binding()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -296,6 +355,8 @@ pub enum Expr {
     Null(Type),
     Coalesce(Box<Expr>, Box<Expr>),
     Await(Box<Expr>),
+    /// An async throwing call inside an explicit Nexa try/catch action.
+    TryAwait(Box<Expr>),
     IsRegularWidth,
     IsCompactWidth,
     IsRegularHeight,
@@ -476,6 +537,7 @@ pub enum Node {
         name: String,
         arguments: Vec<(String, Expr)>,
         children: Option<Vec<Node>>,
+        event_handlers: Vec<NativeComponentEventHandler>,
     },
 }
 
@@ -659,6 +721,17 @@ pub enum Action {
         name: String,
         value: Expr,
     },
+    NativePropertyAssign {
+        receiver: Expr,
+        property: String,
+        value: Expr,
+    },
+    NativeEventSubscribe {
+        receiver: Expr,
+        property: String,
+        parameters: Vec<String>,
+        actions: Vec<Action>,
+    },
     CollectionMutation {
         name: String,
         operation: CollectionMutation,
@@ -684,8 +757,23 @@ pub enum Action {
         condition: Expr,
         body: Vec<Action>,
     },
+    TryCatch {
+        body: Vec<Action>,
+        error_catches: Vec<ErrorCatchArm>,
+        catch_body: Option<Vec<Action>>,
+    },
     Break,
     Continue,
+}
+
+#[derive(Clone, Debug)]
+pub struct ErrorCatchArm {
+    pub namespace: String,
+    pub error_type: String,
+    pub variant: String,
+    /// Each payload binding stores its local name, IDL property name, and type.
+    pub parameters: Vec<(String, String, Type)>,
+    pub body: Vec<Action>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -810,4 +898,72 @@ fn native_struct_name(name: &str) -> String {
         result.push_str("Struct");
     }
     result
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::{Expr, State, Type};
+
+    #[test]
+    fn recognizes_immutable_native_class_instances_for_view_storage() {
+        let class = Type::Plugin {
+            namespace: "Video".to_owned(),
+            name: "VideoPlayer".to_owned(),
+        };
+        let binding = State {
+            name: "player".to_owned(),
+            ty: class.clone(),
+            initial: Expr::Call {
+                name: "VideoPlayer".to_owned(),
+                arguments: Vec::new(),
+                return_type: class,
+                is_async: false,
+                is_constructor: true,
+            },
+            mutable: false,
+        };
+
+        assert!(binding.is_native_class_instance_binding());
+    }
+
+    #[test]
+    fn recognizes_mutable_native_class_constructors_without_marking_them_immutable() {
+        let class = Type::Plugin {
+            namespace: "Video".to_owned(),
+            name: "VideoPlayer".to_owned(),
+        };
+        let binding = State {
+            name: "player".to_owned(),
+            ty: class.clone(),
+            initial: Expr::Call {
+                name: "VideoPlayer".to_owned(),
+                arguments: Vec::new(),
+                return_type: class,
+                is_async: false,
+                is_constructor: true,
+            },
+            mutable: true,
+        };
+
+        assert!(binding.is_native_class_constructor_binding());
+        assert!(!binding.is_native_class_instance_binding());
+    }
+
+    #[test]
+    fn does_not_treat_enum_values_as_native_class_instances() {
+        let binding = State {
+            name: "state".to_owned(),
+            ty: Type::Plugin {
+                namespace: "Video".to_owned(),
+                name: "PlayerState".to_owned(),
+            },
+            initial: Expr::EnumValue {
+                enum_name: "PlayerState".to_owned(),
+                case_name: "idle".to_owned(),
+            },
+            mutable: false,
+        };
+
+        assert!(!binding.is_native_class_instance_binding());
+    }
 }

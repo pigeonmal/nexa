@@ -12,6 +12,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "Foundation",
     );
     imports.add(features.uses_network_api, "CryptoKit");
+    imports.add(features.uses_network_api, "Security");
     imports.add(features.uses_remote_image, "ImageIO");
 }
 
@@ -60,13 +61,82 @@ public struct NexaNetworkResponse {
     public var text: String { String(decoding: body, as: UTF8.self) }
 }
 
+private enum NexaCertificatePin {
+    private struct DERElement {
+        let tag: UInt8
+        let contentStart: Int
+        let contentEnd: Int
+        let encodedRange: Range<Int>
+    }
+
+    static func sha256SPKI(for certificate: SecCertificate) -> String? {
+        sha256SPKI(in: SecCertificateCopyData(certificate) as Data)
+    }
+
+    static func sha256SPKI(in certificateData: Data) -> String? {
+        let bytes = [UInt8](certificateData)
+        guard let range = subjectPublicKeyInfoRange(in: bytes) else { return nil }
+        let digest = SHA256.hash(data: Data(bytes[range]))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func subjectPublicKeyInfoRange(in bytes: [UInt8]) -> Range<Int>? {
+        guard let certificate = element(in: bytes, at: 0, limit: bytes.count),
+              certificate.tag == 0x30,
+              certificate.contentEnd == bytes.count,
+              let tbs = element(in: bytes, at: certificate.contentStart, limit: certificate.contentEnd),
+              tbs.tag == 0x30 else { return nil }
+
+        var offset = tbs.contentStart
+        if let version = element(in: bytes, at: offset, limit: tbs.contentEnd), version.tag == 0xa0 {
+            offset = version.contentEnd
+        }
+        for expectedTag: UInt8 in [0x02, 0x30, 0x30, 0x30, 0x30] {
+            guard let field = element(in: bytes, at: offset, limit: tbs.contentEnd),
+                  field.tag == expectedTag else { return nil }
+            offset = field.contentEnd
+        }
+        guard let subjectPublicKeyInfo = element(in: bytes, at: offset, limit: tbs.contentEnd),
+              subjectPublicKeyInfo.tag == 0x30 else { return nil }
+        return subjectPublicKeyInfo.encodedRange
+    }
+
+    private static func element(in bytes: [UInt8], at offset: Int, limit: Int) -> DERElement? {
+        guard offset >= 0, limit <= bytes.count, offset < limit, limit - offset >= 2 else { return nil }
+        let tag = bytes[offset]
+        guard tag & 0x1f != 0x1f else { return nil }
+        var cursor = offset + 1
+        let firstLengthByte = bytes[cursor]
+        cursor += 1
+        let length: Int
+        if firstLengthByte & 0x80 == 0 {
+            length = Int(firstLengthByte)
+        } else {
+            let lengthByteCount = Int(firstLengthByte & 0x7f)
+            guard lengthByteCount > 0, lengthByteCount <= 4,
+                  lengthByteCount <= limit - cursor,
+                  bytes[cursor] != 0 else { return nil }
+            var decodedLength = 0
+            for _ in 0..<lengthByteCount {
+                decodedLength = decodedLength * 256 + Int(bytes[cursor])
+                cursor += 1
+            }
+            guard decodedLength >= 128 else { return nil }
+            length = decodedLength
+        }
+        guard length <= limit - cursor else { return nil }
+        let contentEnd = cursor + length
+        return DERElement(tag: tag, contentStart: cursor, contentEnd: contentEnd, encodedRange: offset..<contentEnd)
+    }
+}
+
 private final class NexaURLSessionDelegate: NSObject, URLSessionTaskDelegate {
     let followRedirects: Bool
     let certificatePins: Set<String>
 
     init(followRedirects: Bool, certificatePins: Set<String>) {
         self.followRedirects = followRedirects
-        self.certificatePins = certificatePins
+        self.certificatePins = Set(certificatePins.map { $0.lowercased() })
     }
 
     func urlSession(
@@ -92,15 +162,15 @@ private final class NexaURLSessionDelegate: NSObject, URLSessionTaskDelegate {
         }
 
         guard SecTrustEvaluateWithError(trust, nil),
-              let certificate = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first else {
+              let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate] else {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
-        let certificateData = SecCertificateCopyData(certificate) as Data
-        let digest = SHA256.hash(data: certificateData)
-            .map { String(format: "%02x", $0) }
-            .joined()
-        if certificatePins.contains(digest) {
+        let matchesPin = chain.contains { certificate in
+            guard let digest = NexaCertificatePin.sha256SPKI(for: certificate) else { return false }
+            return certificatePins.contains(digest)
+        }
+        if matchesPin {
             completionHandler(.useCredential, URLCredential(trust: trust))
         } else {
             completionHandler(.cancelAuthenticationChallenge, nil)
@@ -374,5 +444,24 @@ private struct NexaRemoteImage: View {
 }
 "#,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render;
+
+    #[test]
+    fn network_pins_hash_the_trusted_chain_spki_instead_of_the_leaf_certificate() {
+        let mut output = String::new();
+        render(&mut output, true, false, false, false, false);
+
+        assert!(output.contains("SecTrustEvaluateWithError(trust, nil)"));
+        assert!(output.contains("SecTrustCopyCertificateChain(trust)"));
+        assert!(output.contains("chain.contains { certificate in"));
+        assert!(output.contains("subjectPublicKeyInfoRange(in: bytes)"));
+        assert!(output.contains("SHA256.hash(data: Data(bytes[range]))"));
+        assert!(output.contains("certificatePins.map { $0.lowercased() }"));
+        assert!(!output.contains("SHA256.hash(data: certificateData)"));
     }
 }

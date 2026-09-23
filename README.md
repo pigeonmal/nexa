@@ -63,6 +63,7 @@ cargo run -p nexa-cli -- plugin init com.example.camera --out CameraPlugin --nam
 cargo run -p nexa-cli -- plugin check CameraPlugin
 cargo run -p nexa-cli -- plugin generate CameraPlugin --target swift --out /tmp/CameraBindings.swift
 cargo run -p nexa-cli -- plugin generate CameraPlugin --target kotlin --package com.example.camera --out /tmp/CameraBindings.kt
+cargo run -p nexa-cli -- plugin generate CameraPlugin --target cpp --out /tmp/CameraBindings.hpp
 cargo run -p nexa-cli -- build examples/themed-app.nx --target swift --out /tmp/ThemedApp.swift
 cargo run -p nexa-cli -- build examples/themed-app.nx --target kotlin --out /tmp/ThemedApp.kt
 cargo run -p nexa-cli -- build examples/custom-components.nx --target swift --out /tmp/CustomComponents.swift
@@ -193,7 +194,9 @@ The repository includes three project-scoped Codex skills under `.agents/skills/
 
 These skills distinguish the current prototype from the longer-term goals in `plan.md` and guide changes toward modular, native code generation.
 
-Use [`docs/plugins.md`](docs/plugins.md) for the current plugin workflow. A
+Use [`docs/plugins.md`](docs/plugins.md) for the current plugin workflow and
+[`docs/plugin-architecture.md`](docs/plugin-architecture.md) for its audit,
+design boundaries, and migration map. A
 `.nx` entry file can declare a local plugin with `plugin "path" as Namespace`;
 the compiler checks its IDL and lowers calls directly to the generated Swift or
 Kotlin implementation source. Package installation and version resolution are

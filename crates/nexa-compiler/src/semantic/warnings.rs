@@ -606,10 +606,14 @@ fn walk_node(
         ast::Node::NativeComponentCall {
             arguments,
             children,
+            event_handlers,
             ..
         } => {
             for value in arguments.values() {
                 walk_expression(value, names, used);
+            }
+            for handler in event_handlers {
+                walk_actions(&handler.actions, names, used, target, file, warnings);
             }
             if let Some(children) = children {
                 for child in children {
@@ -638,6 +642,18 @@ fn walk_actions(
                     used.insert(name.clone());
                 }
                 walk_expression(value, names, used);
+            }
+            ast::Stmt::NativePropertyAssign {
+                receiver, value, ..
+            } => {
+                walk_expression(receiver, names, used);
+                walk_expression(value, names, used);
+            }
+            ast::Stmt::NativeEventSubscribe {
+                receiver, actions, ..
+            } => {
+                walk_expression(receiver, names, used);
+                walk_actions(actions, names, used, target, file, warnings);
             }
             ast::Stmt::CollectionMutation {
                 name, arguments, ..
@@ -690,6 +706,20 @@ fn walk_actions(
                 walk_expression(condition, names, used);
                 walk_actions(body, names, used, target, file, warnings);
             }
+            ast::Stmt::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+                ..
+            } => {
+                walk_actions(body, names, used, target, file, warnings);
+                for arm in error_catches {
+                    walk_actions(&arm.body, names, used, target, file, warnings);
+                }
+                if let Some(catch_body) = catch_body {
+                    walk_actions(catch_body, names, used, target, file, warnings);
+                }
+            }
             ast::Stmt::Break { .. } | ast::Stmt::Continue { .. } => {}
             ast::Stmt::Return { value, .. } => walk_expression(value, names, used),
         }
@@ -731,6 +761,12 @@ fn actions_reference_name(actions: &[ast::Stmt], name: &str) -> bool {
             expression_references_name(initial, name)
         }
         ast::Stmt::Assign { value, .. } => expression_references_name(value, name),
+        ast::Stmt::NativePropertyAssign {
+            receiver, value, ..
+        } => expression_references_name(receiver, name) || expression_references_name(value, name),
+        ast::Stmt::NativeEventSubscribe {
+            receiver, actions, ..
+        } => expression_references_name(receiver, name) || actions_reference_name(actions, name),
         ast::Stmt::CollectionMutation {
             name: binding,
             arguments,
@@ -759,6 +795,20 @@ fn actions_reference_name(actions: &[ast::Stmt], name: &str) -> bool {
         ast::Stmt::While {
             condition, body, ..
         } => expression_references_name(condition, name) || actions_reference_name(body, name),
+        ast::Stmt::TryCatch {
+            body,
+            error_catches,
+            catch_body,
+            ..
+        } => {
+            actions_reference_name(body, name)
+                || error_catches
+                    .iter()
+                    .any(|arm| actions_reference_name(&arm.body, name))
+                || catch_body
+                    .as_deref()
+                    .is_some_and(|actions| actions_reference_name(actions, name))
+        }
         ast::Stmt::Break { .. } | ast::Stmt::Continue { .. } => false,
     })
 }

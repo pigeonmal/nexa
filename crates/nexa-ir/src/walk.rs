@@ -151,10 +151,14 @@ pub fn walk_ir(
             Node::NativeComponentCall {
                 arguments,
                 children,
+                event_handlers,
                 ..
             } => {
                 for (_, argument) in arguments {
                     walk_expression(argument, visit_expression);
+                }
+                for handler in event_handlers {
+                    walk_actions(&handler.actions, visit_expression);
                 }
                 if let Some(children) = children {
                     walk_ir(children, visit_node, visit_expression);
@@ -195,6 +199,114 @@ pub fn any_node(nodes: &[Node], mut predicate: impl FnMut(&Node) -> bool) -> boo
         &mut |_| {},
     );
     found
+}
+
+/// Visits each event/action callback in a node tree without building an
+/// intermediate collection. Nested native-event subscriptions are reported as
+/// their own callback in addition to the enclosing action callback.
+pub fn walk_callback_actions(nodes: &[Node], visit: &mut impl FnMut(&[Action])) {
+    walk_ir(
+        nodes,
+        &mut |node| {
+            let actions = match node {
+                Node::OnAppear { actions, .. }
+                | Node::OnDisappear { actions }
+                | Node::OnActive { actions }
+                | Node::OnInactive { actions }
+                | Node::OnBackground { actions }
+                | Node::Button { actions, .. }
+                | Node::TextInput { actions, .. } => Some(actions.as_slice()),
+                Node::Pressable {
+                    actions,
+                    long_press_actions,
+                    ..
+                } => {
+                    visit(actions);
+                    visit(long_press_actions);
+                    walk_nested_callback_actions(actions, visit);
+                    walk_nested_callback_actions(long_press_actions, visit);
+                    None
+                }
+                Node::RefreshControl { actions, .. } => Some(actions.as_slice()),
+                Node::FastList {
+                    on_end_reached,
+                    on_scroll,
+                    refresh,
+                    ..
+                } => {
+                    if let Some(actions) = on_end_reached {
+                        visit(actions);
+                        walk_nested_callback_actions(actions, visit);
+                    }
+                    if let Some(actions) = on_scroll {
+                        visit(actions);
+                        walk_nested_callback_actions(actions, visit);
+                    }
+                    if let Some(refresh) = refresh {
+                        visit(&refresh.actions);
+                        walk_nested_callback_actions(&refresh.actions, visit);
+                    }
+                    None
+                }
+                Node::NativeComponentCall { event_handlers, .. } => {
+                    for handler in event_handlers {
+                        visit(&handler.actions);
+                        walk_nested_callback_actions(&handler.actions, visit);
+                    }
+                    None
+                }
+                _ => None,
+            };
+            if let Some(actions) = actions {
+                visit(actions);
+                walk_nested_callback_actions(actions, visit);
+            }
+        },
+        &mut |_| {},
+    );
+}
+
+fn walk_nested_callback_actions(actions: &[Action], visit: &mut impl FnMut(&[Action])) {
+    for action in actions {
+        match action {
+            Action::NativeEventSubscribe { actions, .. } => {
+                visit(actions);
+                walk_nested_callback_actions(actions, visit);
+            }
+            Action::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk_nested_callback_actions(then_branch, visit);
+                if let Some(else_branch) = else_branch {
+                    walk_nested_callback_actions(else_branch, visit);
+                }
+            }
+            Action::For { body, .. } | Action::ForMap { body, .. } | Action::While { body, .. } => {
+                walk_nested_callback_actions(body, visit)
+            }
+            Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            } => {
+                walk_nested_callback_actions(body, visit);
+                for arm in error_catches {
+                    walk_nested_callback_actions(&arm.body, visit);
+                }
+                if let Some(catch_body) = catch_body {
+                    walk_nested_callback_actions(catch_body, visit);
+                }
+            }
+            Action::Expression(_)
+            | Action::Assign { .. }
+            | Action::NativePropertyAssign { .. }
+            | Action::CollectionMutation { .. }
+            | Action::Break
+            | Action::Continue => {}
+        }
+    }
 }
 
 /// Visits an expression tree in preorder without allocating.
@@ -282,7 +394,7 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             walk_expression(left, visit);
             walk_expression(right, visit);
         }
-        Expr::Await(value) => walk_expression(value, visit),
+        Expr::Await(value) | Expr::TryAwait(value) => walk_expression(value, visit),
         Expr::Interpolation(parts) => {
             for part in parts {
                 if let InterpolatedPart::Value(value) = part {
@@ -363,6 +475,18 @@ pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
         match action {
             Action::Expression(expression) => walk_expression(expression, visit),
             Action::Assign { value, .. } => walk_expression(value, visit),
+            Action::NativePropertyAssign {
+                receiver, value, ..
+            } => {
+                walk_expression(receiver, visit);
+                walk_expression(value, visit);
+            }
+            Action::NativeEventSubscribe {
+                receiver, actions, ..
+            } => {
+                walk_expression(receiver, visit);
+                walk_actions(actions, visit);
+            }
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {
                     walk_expression(argument, visit);
@@ -391,7 +515,170 @@ pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
                 walk_expression(condition, visit);
                 walk_actions(body, visit);
             }
+            Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            } => {
+                walk_actions(body, visit);
+                for arm in error_catches {
+                    walk_actions(&arm.body, visit);
+                }
+                if let Some(catch_body) = catch_body {
+                    walk_actions(catch_body, visit);
+                }
+            }
             Action::Break | Action::Continue => {}
         }
+    }
+}
+
+/// Visits expressions executed by one action callback. The receiver of a
+/// nested native-event subscription is included, but its handler body is a
+/// separate callback and is not traversed here.
+pub fn walk_callback_expressions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
+    for action in actions {
+        match action {
+            Action::Expression(expression) => walk_expression(expression, visit),
+            Action::Assign { value, .. } => walk_expression(value, visit),
+            Action::NativePropertyAssign {
+                receiver, value, ..
+            } => {
+                walk_expression(receiver, visit);
+                walk_expression(value, visit);
+            }
+            Action::NativeEventSubscribe { receiver, .. } => walk_expression(receiver, visit),
+            Action::CollectionMutation { arguments, .. } => {
+                for argument in arguments {
+                    walk_expression(argument, visit);
+                }
+            }
+            Action::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                walk_expression(condition, visit);
+                walk_callback_expressions(then_branch, visit);
+                if let Some(else_branch) = else_branch {
+                    walk_callback_expressions(else_branch, visit);
+                }
+            }
+            Action::For { iterable, body, .. } => {
+                walk_expression(iterable, visit);
+                walk_callback_expressions(body, visit);
+            }
+            Action::ForMap { iterable, body, .. } => {
+                walk_expression(iterable, visit);
+                walk_callback_expressions(body, visit);
+            }
+            Action::While { condition, body } => {
+                walk_expression(condition, visit);
+                walk_callback_expressions(body, visit);
+            }
+            Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            } => {
+                walk_callback_expressions(body, visit);
+                for arm in error_catches {
+                    walk_callback_expressions(&arm.body, visit);
+                }
+                if let Some(catch_body) = catch_body {
+                    walk_callback_expressions(catch_body, visit);
+                }
+            }
+            Action::Break | Action::Continue => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{walk_actions, walk_callback_actions, walk_callback_expressions};
+    use crate::{Action, Expr, NativeComponentEventHandler, Node, NumericType, Type};
+
+    #[test]
+    fn native_property_action_walks_receiver_and_assigned_value() {
+        let actions = [Action::NativePropertyAssign {
+            receiver: Expr::State(
+                "player".to_owned(),
+                Type::Plugin {
+                    namespace: "Video".to_owned(),
+                    name: "VideoPlayer".to_owned(),
+                },
+            ),
+            property: "volume".to_owned(),
+            value: Expr::State(
+                "target_volume".to_owned(),
+                Type::Numeric(NumericType::Float64),
+            ),
+        }];
+        let mut visited_states = Vec::new();
+
+        walk_actions(&actions, &mut |expression| {
+            if let Expr::State(name, _) = expression {
+                visited_states.push(name.clone());
+            }
+        });
+
+        assert_eq!(visited_states, ["player", "target_volume"]);
+    }
+
+    #[test]
+    fn callback_walker_keeps_ui_and_nested_native_callbacks_separate() {
+        let nested = vec![Action::NativeEventSubscribe {
+            receiver: Expr::State("player".to_owned(), Type::Void),
+            property: "onEnded".to_owned(),
+            parameters: Vec::new(),
+            actions: vec![Action::Expression(Expr::String("nested".to_owned()))],
+        }];
+        let nodes = [
+            Node::Button {
+                label: Expr::String("play".to_owned()),
+                icon: None,
+                loading: None,
+                disabled: None,
+                actions: nested,
+            },
+            Node::NativeComponentCall {
+                namespace: "Video".to_owned(),
+                name: "VideoView".to_owned(),
+                arguments: Vec::new(),
+                children: None,
+                event_handlers: vec![NativeComponentEventHandler {
+                    property: "onTapped".to_owned(),
+                    parameters: Vec::new(),
+                    actions: vec![Action::Expression(Expr::String("component".to_owned()))],
+                }],
+            },
+        ];
+        let mut callback_kinds = Vec::new();
+        walk_callback_actions(&nodes, &mut |actions| {
+            let kind = match actions.first() {
+                Some(Action::NativeEventSubscribe { .. }) => "subscription",
+                Some(Action::Expression(Expr::String(value))) => value.as_str(),
+                _ => "other",
+            };
+            callback_kinds.push(kind.to_owned());
+        });
+
+        assert_eq!(callback_kinds, ["subscription", "nested", "component"]);
+
+        let mut outer_states = Vec::new();
+        walk_callback_expressions(&nodes_button_actions(&nodes[0]), &mut |expression| {
+            if let Expr::State(name, _) = expression {
+                outer_states.push(name.clone());
+            }
+        });
+        assert_eq!(outer_states, ["player"]);
+    }
+
+    fn nodes_button_actions(node: &Node) -> &[Action] {
+        let Node::Button { actions, .. } = node else {
+            panic!("fixture should contain a button");
+        };
+        actions
     }
 }

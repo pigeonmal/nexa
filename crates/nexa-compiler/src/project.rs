@@ -168,10 +168,54 @@ fn load_file(
                     resolve_manifest_sources(&declared_path, &manifest.ios.sources);
                 plugin.android_sources =
                     resolve_manifest_sources(&declared_path, &manifest.android.sources);
+                plugin.cpp_sources =
+                    resolve_manifest_sources(&declared_path, &manifest.cpp.sources);
+                plugin.cpp_headers =
+                    resolve_manifest_sources(&declared_path, &manifest.cpp.headers);
+                plugin.cpp_standard = manifest.cpp.standard;
                 plugin.ios_min_version = manifest.ios.min_version.clone();
                 plugin.android_min_sdk = manifest.android.min_sdk;
+                plugin.ios_frameworks = manifest.ios.frameworks.clone();
+                plugin.ios_xcframeworks =
+                    resolve_manifest_sources(&declared_path, &manifest.ios.xcframeworks);
+                plugin.ios_resources =
+                    resolve_manifest_sources(&declared_path, &manifest.ios.resources);
+                plugin.ios_privacy_manifest = manifest
+                    .ios
+                    .privacy_manifest
+                    .as_ref()
+                    .map(|path| declared_path.join(path).display().to_string());
                 plugin.swift_packages = manifest.ios.swift_packages.clone();
                 plugin.maven_dependencies = manifest.android.maven_dependencies.clone();
+                plugin.android_aars =
+                    resolve_manifest_sources(&declared_path, &manifest.android.aars);
+                plugin.android_resources =
+                    resolve_manifest_sources(&declared_path, &manifest.android.resources);
+                plugin.android_proguard_rules =
+                    resolve_manifest_sources(&declared_path, &manifest.android.proguard_rules);
+                plugin.android_maven_repositories = manifest.android.repositories.clone();
+                plugin.ios_usage_descriptions = manifest.ios.usage_descriptions.clone();
+                plugin.ios_entitlements = manifest
+                    .ios
+                    .entitlements
+                    .iter()
+                    .map(|(key, value)| {
+                        let value = match value {
+                            nexa_plugin_idl::manifest::EntitlementValue::String(value) => {
+                                nexa_syntax::ast::PluginEntitlementValue::String(value.clone())
+                            }
+                            nexa_plugin_idl::manifest::EntitlementValue::Bool(value) => {
+                                nexa_syntax::ast::PluginEntitlementValue::Bool(*value)
+                            }
+                            nexa_plugin_idl::manifest::EntitlementValue::Strings(values) => {
+                                nexa_syntax::ast::PluginEntitlementValue::Strings(values.clone())
+                            }
+                        };
+                        (key.clone(), value)
+                    })
+                    .collect();
+                plugin.ios_linker_flags = manifest.ios.linker_flags.clone();
+                plugin.android_permissions = manifest.android.permissions.clone();
                 plugin.assets_path = manifest
                     .assets
                     .first()

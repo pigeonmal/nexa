@@ -237,17 +237,12 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         } => native_call(receiver.as_deref(), namespace, name, arguments, locals),
         Expr::Await(value) => match value.as_ref() {
             Expr::NativeCall {
-                return_type,
-                is_throwing,
-                ..
-            } if *is_throwing => format!(
-                "(try? await {}) ?? {}",
-                render(value),
-                native_failure_default(return_type)
-            ),
+                is_throwing: true, ..
+            } => format!("try await {}", render(value)),
             Expr::NativeCall { .. } => format!("await {}", render(value)),
             _ => format!("await {}", render(value)),
         },
+        Expr::TryAwait(value) => format!("try await {}", render(value)),
         Expr::Add(left, right, ty) => {
             let operator = if matches!(ty, NumericType::Float32 | NumericType::Float64) {
                 "+"
@@ -406,17 +401,6 @@ fn is_optional_expression(expr: &Expr) -> bool {
     }
 }
 
-fn native_failure_default(ty: &Type) -> String {
-    match ty {
-        Type::NetworkResponse => {
-            "NexaNetworkResponse(statusCode: -1, headers: [:], body: Data())".to_owned()
-        }
-        Type::String => "\"\"".to_owned(),
-        Type::Bool => "false".to_owned(),
-        _ => "fatalError(\"native operation failed\")".to_owned(),
-    }
-}
-
 fn range_bound(expr: &Expr, locals: &[String]) -> String {
     match expr {
         Expr::Number {
@@ -451,5 +435,95 @@ pub(crate) fn text_expression(expr: &Expr) -> String {
         | Expr::String(_)
         | Expr::Interpolation(_) => expression(expr),
         _ => format!("String(describing: {})", expression(expr)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expression;
+    use nexa_ir::{Expr, Type};
+
+    fn path_argument() -> Vec<(String, Expr)> {
+        vec![("path".to_owned(), Expr::String("notes.txt".to_owned()))]
+    }
+
+    #[test]
+    fn throwing_native_calls_preserve_errors_for_explicit_recovery() {
+        let value = Expr::Await(Box::new(Expr::NativeCall {
+            receiver: None,
+            namespace: "Camera".to_owned(),
+            name: "stop".to_owned(),
+            arguments: Vec::new(),
+            return_type: Type::Void,
+            is_async: true,
+            is_throwing: true,
+        }));
+
+        assert_eq!(expression(&value), "try await CameraPlugin.shared.stop()");
+    }
+
+    #[test]
+    fn file_calls_use_the_generated_native_helper_names_and_labels() {
+        let read = Expr::Await(Box::new(Expr::NativeCall {
+            receiver: None,
+            namespace: "File".to_owned(),
+            name: "readText".to_owned(),
+            arguments: path_argument(),
+            return_type: Type::String,
+            is_async: true,
+            is_throwing: false,
+        }));
+        let write = Expr::Await(Box::new(Expr::NativeCall {
+            receiver: None,
+            namespace: "File".to_owned(),
+            name: "writeText".to_owned(),
+            arguments: vec![
+                ("contents".to_owned(), Expr::String("saved".to_owned())),
+                ("path".to_owned(), Expr::String("notes.txt".to_owned())),
+            ],
+            return_type: Type::Bool,
+            is_async: true,
+            is_throwing: false,
+        }));
+        let delete = Expr::Await(Box::new(Expr::NativeCall {
+            receiver: None,
+            namespace: "File".to_owned(),
+            name: "delete".to_owned(),
+            arguments: path_argument(),
+            return_type: Type::Bool,
+            is_async: true,
+            is_throwing: false,
+        }));
+
+        assert_eq!(expression(&read), "await NexaFile.readText(\"notes.txt\")");
+        assert_eq!(
+            expression(&write),
+            "await NexaFile.writeText(\"saved\", to: \"notes.txt\")"
+        );
+        assert_eq!(expression(&delete), "await NexaFile.delete(\"notes.txt\")");
+    }
+
+    #[test]
+    fn native_instance_calls_keep_the_receiver_and_swift_argument_labels() {
+        let call = Expr::NativeCall {
+            receiver: Some(Box::new(Expr::State(
+                "player".to_owned(),
+                Type::Plugin {
+                    namespace: "Video".to_owned(),
+                    name: "VideoPlayer".to_owned(),
+                },
+            ))),
+            namespace: "Video".to_owned(),
+            name: "prepare".to_owned(),
+            arguments: vec![("url".to_owned(), Expr::String("clip.mp4".to_owned()))],
+            return_type: Type::Void,
+            is_async: true,
+            is_throwing: false,
+        };
+
+        assert_eq!(
+            expression(&Expr::Await(Box::new(call))),
+            "await nexa_player.prepare(url: \"clip.mp4\")"
+        );
     }
 }

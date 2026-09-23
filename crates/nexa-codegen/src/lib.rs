@@ -69,3 +69,28 @@ pub trait Backend {
     fn file_extension(&self) -> &'static str;
     fn generate(&self, module: &Module) -> String;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::names;
+
+    #[test]
+    fn declaration_names_are_stable_and_avoid_platform_collisions() {
+        assert_eq!(
+            names::screen_name("account_settings"),
+            "NexaAccountSettingsScreen"
+        );
+        assert_eq!(names::enum_name("http_status"), "NexaHttpStatus");
+        assert_eq!(names::struct_name("player_options"), "NexaPlayerOptions");
+        assert_eq!(names::component_name("Text"), "NexaTextComponent");
+        assert_eq!(names::function_name("Button"), "nexa_fn_Button");
+        assert_eq!(names::struct_field_name("id"), "nexa_field_id");
+    }
+
+    #[test]
+    fn empty_or_separator_only_type_names_use_a_valid_fallback() {
+        assert_eq!(names::enum_name(""), "NexaEnum");
+        assert_eq!(names::struct_name("___"), "NexaStruct");
+        assert_eq!(names::screen_name("___"), "NexaAppScreen");
+    }
+}

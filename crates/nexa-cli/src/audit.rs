@@ -1,8 +1,8 @@
-//! Static generated-output audit.
+//! Static generated-output audit with optional native release measurements.
 //!
-//! `nexa audit` deliberately reports facts available before native toolchains
-//! run. It never invents APK or app-binary sizes; those fields are only
-//! populated by a future native release integration.
+//! The default command stays fast and reports only generated-source facts.
+//! `--release-sizes` opts into isolated Release builds and measures the actual
+//! APK or iOS app bundle when the relevant toolchain is installed.
 
 use std::{fs, path::PathBuf};
 
@@ -14,10 +14,13 @@ use nexa_ir::{Module, capabilities::Capabilities};
 
 use crate::deduplicate_warnings;
 
+mod native;
+
 pub(super) fn run(args: &[String]) -> Result<(), String> {
     let mut input = None;
     let mut output = None;
     let mut target = "all";
+    let mut release_sizes = false;
     let mut cursor = 0;
     while cursor < args.len() {
         match args[cursor].as_str() {
@@ -38,21 +41,23 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
                     args.get(cursor).ok_or("`--out` requires a JSON path")?,
                 ));
             }
+            "--release-sizes" => release_sizes = true,
             option if option.starts_with('-') => return Err(format!("unknown option `{option}`")),
             value if input.is_none() => input = Some(PathBuf::from(value)),
             value => return Err(format!("unexpected argument `{value}`")),
         }
         cursor += 1;
     }
-    let input =
-        input.ok_or("usage: nexa audit <source.nx> [--target <ios|android|all>] [--out <path>]")?;
+    let input = input.ok_or(
+        "usage: nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--out <path>]",
+    )?;
     let targets = match target {
         "ios" | "swift" => vec![("ios", Target::Swift)],
         "android" | "kotlin" => vec![("android", Target::Kotlin)],
         _ => vec![("ios", Target::Swift), ("android", Target::Kotlin)],
     };
 
-    let mut report = String::from("{\n  \"format\": 1,\n  \"tool\": \"nexa audit\",\n");
+    let mut report = String::from("{\n  \"format\": 2,\n  \"tool\": \"nexa audit\",\n");
     report.push_str(&format!(
         "  \"entry\": \"{}\",\n  \"targets\": [\n",
         json_escape(&input.display().to_string())
@@ -84,7 +89,17 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         }
         report.push_str(&format!("\"{}\"", json_escape(&warning.to_string())));
     }
-    report.push_str("],\n  \"nativeBinarySize\": null\n}\n");
+    report.push_str("],\n  \"releaseMeasurements\": ");
+    if release_sizes {
+        report.push_str(&native::measure_release_sizes(
+            &input,
+            matches!(target, "ios" | "swift" | "all"),
+            matches!(target, "android" | "kotlin" | "all"),
+        ));
+    } else {
+        report.push_str("null");
+    }
+    report.push_str("\n}\n");
 
     if let Some(path) = output {
         if let Some(parent) = path.parent() {
@@ -162,7 +177,7 @@ fn target_report(
         }
         output.push_str(&format!("\"{}\"", json_escape(dependency)));
     }
-    output.push_str("],\n      \"nativeBinaryBytes\": null\n    }");
+    output.push_str("]\n    }");
     output
 }
 

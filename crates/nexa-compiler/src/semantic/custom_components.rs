@@ -7,8 +7,8 @@ use nexa_syntax::ast;
 use super::{
     components::{ScreenSignatures, lower_nodes},
     expressions::{
-        FunctionSignatures, StructTypes, lower_expr, parse_type, references_state,
-        resolve_declaration_type, resolve_struct_type,
+        FunctionSignatures, StructTypes, lower_expr, parse_type, record_native_alias,
+        references_state, resolve_declaration_type, resolve_struct_type,
     },
     themes::ThemeSymbols,
 };
@@ -17,8 +17,16 @@ use crate::Target;
 #[derive(Clone)]
 pub(super) struct ComponentSignature {
     pub(super) parameters: Vec<(String, Type)>,
+    pub(super) defaults: HashMap<String, ast::Expr>,
+    pub(super) events: Vec<ComponentEventSignature>,
     pub(super) has_content_slot: bool,
     pub(super) native: bool,
+}
+
+#[derive(Clone)]
+pub(super) struct ComponentEventSignature {
+    pub(super) property: String,
+    pub(super) parameters: Vec<(String, Type)>,
 }
 
 pub(super) type ComponentSignatures = HashMap<String, ComponentSignature>;
@@ -66,9 +74,24 @@ pub(super) fn lower_components(
     functions: &FunctionSignatures,
     structs: &StructTypes,
     enum_symbols: &HashMap<String, (Type, bool)>,
+    external_signatures: &ComponentSignatures,
     target: Target,
 ) -> Result<(Vec<Component>, ComponentSignatures), CompileError> {
-    let signatures = collect_signatures(&declarations, structs)?;
+    let mut signatures = collect_signatures(&declarations, structs, functions)?;
+    for (name, signature) in external_signatures {
+        if signatures.contains_key(name) {
+            let span = declarations
+                .iter()
+                .find(|declaration| declaration.name == *name)
+                .map(|declaration| declaration.span)
+                .unwrap_or_else(nexa_diagnostics::Span::default);
+            return Err(CompileError::new(
+                span,
+                format!("native component `{name}` conflicts with a custom component"),
+            ));
+        }
+        signatures.insert(name.clone(), signature.clone());
+    }
     validate_acyclic(&declarations, &signatures)?;
 
     let mut components = Vec::with_capacity(declarations.len());
@@ -92,6 +115,7 @@ pub(super) fn lower_components(
 fn collect_signatures(
     declarations: &[ast::ComponentDecl],
     structs: &StructTypes,
+    functions: &FunctionSignatures,
 ) -> Result<ComponentSignatures, CompileError> {
     let mut signatures = HashMap::with_capacity(declarations.len());
     for declaration in declarations {
@@ -125,11 +149,13 @@ fn collect_signatures(
                 }
                 parameters.push((
                     parameter.name.clone(),
-                    resolve_struct_type(&parse_type(&parameter.ty)?, structs),
+                    resolve_component_type(&parse_type(&parameter.ty)?, structs, functions),
                 ));
             }
             Ok(ComponentSignature {
                 parameters,
+                defaults: HashMap::new(),
+                events: Vec::new(),
                 has_content_slot: declaration.body.iter().any(contains_content_slot),
                 native: false,
             })
@@ -138,6 +164,42 @@ fn collect_signatures(
         signatures.insert(declaration.name.clone(), result);
     }
     Ok(signatures)
+}
+
+fn resolve_component_type(
+    ty: &Type,
+    structs: &StructTypes,
+    functions: &FunctionSignatures,
+) -> Type {
+    let ty = resolve_struct_type(ty, structs);
+    match ty {
+        Type::Enum(name) => functions
+            .get(&name)
+            .filter(|signature| signature.is_constructor)
+            .map(|signature| signature.return_type.clone())
+            .unwrap_or(Type::Enum(name)),
+        Type::Optional(inner) => {
+            Type::Optional(Box::new(resolve_component_type(&inner, structs, functions)))
+        }
+        Type::Array(inner) => {
+            Type::Array(Box::new(resolve_component_type(&inner, structs, functions)))
+        }
+        Type::Set(inner) => Type::Set(Box::new(resolve_component_type(&inner, structs, functions))),
+        Type::Map(key, value) => Type::Map(
+            Box::new(resolve_component_type(&key, structs, functions)),
+            Box::new(resolve_component_type(&value, structs, functions)),
+        ),
+        Type::Pair(first, second) => Type::Pair(
+            Box::new(resolve_component_type(&first, structs, functions)),
+            Box::new(resolve_component_type(&second, structs, functions)),
+        ),
+        Type::Triple(first, second, third) => Type::Triple(
+            Box::new(resolve_component_type(&first, structs, functions)),
+            Box::new(resolve_component_type(&second, structs, functions)),
+            Box::new(resolve_component_type(&third, structs, functions)),
+        ),
+        _ => ty,
+    }
 }
 
 fn lower_component(
@@ -163,6 +225,12 @@ fn lower_component(
     }
 
     let mut states = Vec::with_capacity(declaration.states.len());
+    let mut native_aliases = HashMap::new();
+    for (name, ty) in &signature.parameters {
+        if super::components::class_has_dispose_method(ty, functions) {
+            native_aliases.insert(name.clone(), format!("@borrowed-native-parameter:{name}"));
+        }
+    }
     for state in declaration.states {
         if symbols.contains_key(&state.name) {
             return Err(CompileError::new(
@@ -187,6 +255,7 @@ fn lower_component(
                 "mutable component state initializers cannot refer to other state values yet",
             ));
         }
+        record_native_alias(&state.name, &ty, &initial, &mut native_aliases);
         symbols.insert(state.name.clone(), (ty.clone(), state.mutable));
         states.push(State {
             name: state.name,
@@ -203,6 +272,7 @@ fn lower_component(
         themes,
         signatures,
         functions,
+        &native_aliases,
         false,
         false,
         target,
@@ -593,6 +663,105 @@ fn contains_content_slot(node: &ast::Node) -> bool {
         | ast::Node::OnActive { .. }
         | ast::Node::OnInactive { .. }
         | ast::Node::OnBackground { .. } => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, HashMap};
+
+    use nexa_diagnostics::Span;
+    use nexa_ir::Type;
+    use nexa_syntax::ast;
+
+    use super::lower_components;
+    use crate::{Target, semantic::expressions::FunctionSignature, semantic::themes::ThemeSymbols};
+
+    #[test]
+    fn native_class_component_parameters_are_borrowed() {
+        let span = Span::default();
+        let player_type = Type::Plugin {
+            namespace: "Video".to_owned(),
+            name: "VideoPlayer".to_owned(),
+        };
+        let functions = HashMap::from([
+            (
+                "Video.VideoPlayer".to_owned(),
+                FunctionSignature {
+                    parameters: Vec::new(),
+                    return_type: player_type.clone(),
+                    is_async: false,
+                    is_throwing: false,
+                    receiver: None,
+                    is_constructor: true,
+                    is_mutable_property: false,
+                    error_handling_allowed: false,
+                    error_type: None,
+                },
+            ),
+            (
+                "VideoPlayer.dispose".to_owned(),
+                FunctionSignature {
+                    parameters: Vec::new(),
+                    return_type: Type::Void,
+                    is_async: false,
+                    is_throwing: false,
+                    receiver: Some(player_type),
+                    is_constructor: false,
+                    is_mutable_property: false,
+                    error_handling_allowed: false,
+                    error_type: None,
+                },
+            ),
+        ]);
+        let declaration = ast::ComponentDecl {
+            name: "PlayerSurface".to_owned(),
+            parameters: vec![ast::ComponentParameter {
+                name: "player".to_owned(),
+                ty: ast::TypeSyntax::Named("Video.VideoPlayer".to_owned(), span),
+                span,
+            }],
+            states: Vec::new(),
+            body: vec![ast::Node::Button {
+                label: ast::Expr::String("Dispose".to_owned(), span),
+                icon: None,
+                loading: None,
+                disabled: None,
+                actions: vec![ast::Stmt::Expression {
+                    expression: ast::Expr::MethodCall {
+                        base: Box::new(ast::Expr::Name("player".to_owned(), span)),
+                        name: "dispose".to_owned(),
+                        arguments: Vec::new(),
+                        named_arguments: BTreeMap::new(),
+                        span,
+                    },
+                    span,
+                }],
+                span,
+            }],
+            span,
+            source_file: None,
+        };
+
+        let result = lower_components(
+            vec![declaration],
+            &HashMap::new(),
+            &ThemeSymbols::default(),
+            &functions,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            Target::Swift,
+        );
+        let Err(error) = result else {
+            panic!("a component receives native class values as borrowed parameters");
+        };
+
+        assert!(
+            error
+                .to_string()
+                .contains("component parameter `player` is borrowed")
+        );
     }
 }
 

@@ -504,6 +504,21 @@ Generated code must protect against:
 
 Prefer compile-time safety where possible and minimal runtime checks where necessary.
 
+The current compiler tracks direct immutable native-class aliases within an
+action sequence and rejects replacing a mutable source binding while an alias
+can still reference its disposed instance. It also checks use and disposal
+across UI/lifecycle callbacks for declared app, screen, and component bindings;
+`OnDisappear` disposal is treated as terminal cleanup for that view lifetime.
+Native-class values passed to rendered component calls count as uses for the
+containing view, so a UI event cannot dispose an object still mounted there.
+Native-class parameters on custom components are borrowed and cannot dispose
+the caller's instance. Screen `OnDisappear` may dispose only screen-owned
+objects; it cannot release an app-owned object another route may still use.
+Route parameters stay scalar. Each navigation destination now has independent
+route-scoped state; SwiftUI uses a unique route identity, and Compose scopes
+state to its back-stack entry. Reusing resources across separate route
+lifetimes remains an open part of the model.
+
 ---
 
 # 10. Generate native contracts for plugin authors
@@ -675,6 +690,16 @@ On Kotlin, choose a predictable generated representation.
 
 The same Nexa-level error semantics must behave consistently across platforms.
 
+The native contract slice preserves error variants and typed payloads, emits
+Swift associated-value enums conforming to `Error`, and emits Kotlin sealed
+`Exception` variants with `@Throws` metadata. Swift methods use typed throws,
+and `throws` and `Result` failure types are validated against declared `error`
+types. Async throwing calls in action blocks must appear inside `try { ... }
+catch { ... }`; typed `case Namespace.Error.variant(payload) { ... }` arms
+bind payloads, and an `else` body provides a catch-all. Without `else`, a catch
+must cover every variant of one typed error; untyped errors and multiple error
+types require the fallback.
+
 ---
 
 # 14. Add events
@@ -743,10 +768,11 @@ Video.VideoView(
 
 The alpha compiler qualifies native visual components with the plugin alias
 (`Namespace.Component(...)`) so two plugins can export the same component name
-without an implicit collision. The first implementation accepts required IDL
-properties and emits a direct SwiftUI/Compose wrapper; default property values,
-child content blocks, and Nexa event subscription modifiers remain follow-up
-syntax once their ownership and lifecycle rules are defined.
+without an implicit collision. It accepts required IDL properties and literal
+defaults, inserts omitted defaults during semantic lowering, and emits a direct
+SwiftUI/Compose wrapper. An explicit `content` marker declares one required
+child slot and passes lowered child views through the native wrapper. Nexa event
+subscription modifiers are implemented as per-call callback arguments.
 
 The generated iOS output should integrate directly with SwiftUI.
 
@@ -1132,8 +1158,10 @@ android {
 Reachable plugin dependencies are integrated automatically into generated
 Xcode and Gradle projects. Duplicate declarations are deduplicated, while
 conflicting versions for the same product or Maven artifact fail project
-generation. Repository configuration and lockfile management remain future
-work.
+generation. Android HTTPS Maven repositories and Gradle dependency locking are
+generated; Gradle and SwiftPM write their lockfiles during dependency
+resolution, and the generated-project documentation explains how to retain
+them.
 
 Detect dependency conflicts early and report useful errors.
 
@@ -1141,10 +1169,22 @@ Detect dependency conflicts early and report useful errors.
 
 # 26. Native platform configuration
 
-`plugin.config.nx` should declaratively describe platform requirements. The
-first slice supports `ios.minVersion` and `android.minSdk`; project generation
-raises the host minimum to the highest requirement among reachable plugins.
-The other metadata below remains future work.
+`plugin.config.nx` should declaratively describe platform requirements.
+Supported metadata includes `ios.minVersion`, `android.minSdk`, iOS usage
+descriptions, system frameworks, typed signing entitlements and ordered linker
+arguments, Android permissions, and HTTPS Maven repositories. iOS entitlements
+currently accept string, boolean, and string-array values; generation merges
+compatible values, rejects conflicting declarations, writes
+`Nexa.entitlements`, and sets `CODE_SIGN_ENTITLEMENTS`. Project generation
+raises the host minimum to the
+highest requirement among reachable plugins and merges the declared host
+settings. Privacy manifests, binary artifacts, and the other advanced metadata
+below are supported by the current plugin manifest and generated host
+projects, including privacy manifests, XCFrameworks/AARs, resources, and
+ProGuard/R8 rules. Plugin C++ implementations can declare a minimum ISO C++
+standard (`c++17`, `c++20`, or `c++23`); generated host targets select the
+highest reachable requirement and default to C++20. Arbitrary compiler flags
+and per-plugin definitions remain out of scope.
 
 Examples:
 
@@ -1176,19 +1216,13 @@ android {
 }
 ```
 
-Design the architecture so it can later support:
-
-* Info.plist entries;
-* AndroidManifest entries;
-* Apple entitlements;
-* privacy manifests;
-* system frameworks;
-* linker flags;
-* ProGuard/R8 rules;
-* XCFramework dependencies;
-* AAR dependencies;
-* native resources;
-* C++ compiler settings.
+Info.plist usage descriptions, Android manifest permissions, system frameworks,
+signing entitlements, linker arguments, Maven repositories, platform minimums,
+local XCFramework and AAR dependencies, privacy manifests, platform-specific
+resources, and Android ProGuard/R8 rules are supported by the current manifest.
+Native binary, resource, and shrinker-rule inputs are validated within the
+plugin package and participate in project cache fingerprints. The optional C++
+language standard is propagated into both Xcode and CMake targets.
 
 Prefer declarative configuration over arbitrary project mutation scripts.
 
@@ -1538,10 +1572,16 @@ For Android handle:
 Generated projects must remain deterministic.
 
 The current slice emits reachable native plugin source files, SwiftPM package
-products, Maven coordinates, and raised iOS/Android minimum versions. It rejects
-conflicting dependency versions and keeps per-feature native source files as
-separate build inputs. Framework/linker settings, repository configuration,
-lockfiles, and the remaining platform metadata below are still future work.
+products, Maven coordinates and repositories, iOS frameworks and usage
+descriptions, signing entitlements and linker flags, Android permissions, and
+raised iOS/Android minimum versions. It also copies local XCFrameworks, AARs,
+platform resources, privacy manifests, and ProGuard/R8 rules for reachable
+plugins. It rejects entitlement and dependency conflicts and keeps per-feature
+native source files as separate build inputs. Gradle dependency locking is
+enabled; native package managers produce their lockfiles during resolution.
+Arbitrary C++ compiler flags and per-plugin definitions remain future work. The optional C++ path now
+generates and compiles Android JNI adapters for synchronous, non-throwing
+primitive and string service/class members.
 
 ---
 
@@ -1684,6 +1724,9 @@ Test:
 * invalid recursive types;
 * invalid references.
 
+Action-block parsing must also preserve qualified stateless service calls such
+as `Namespace.copy(text: "value")` as direct plugin calls.
+
 ## Swift code generation
 
 Use golden/snapshot tests.
@@ -1758,7 +1801,8 @@ Test:
 * defaults;
 * overrides;
 * invalid types;
-* missing required settings.
+* missing required settings;
+* entitlement parsing, deterministic merging, and conflicts.
 
 ## Dependencies
 
@@ -1882,26 +1926,62 @@ Use VideoView as the first reference component.
 
 ## Phase 8 — remaining dependency/config integration
 
-Reachable SwiftPM and Maven dependencies plus `ios.minVersion` and
-`android.minSdk` now flow from `plugin.config.nx` into generated projects.
-Continue with the still-missing configuration:
-
-```text
-permissions
-resources
-remaining platform requirements
-dependency repositories and lockfiles
-```
+Reachable SwiftPM and Maven dependencies, Maven repositories, Gradle locking,
+iOS system frameworks, purpose strings, signing entitlements and linker
+arguments, Android permissions, platform minimums, local XCFramework/AAR
+dependencies, privacy manifests, native resources, and ProGuard/R8 rules flow
+from `plugin.config.nx` into generated projects. Artifact copying is scoped to
+reachable plugins, and binary inputs are streamed into cache fingerprints.
 
 ## Phase 9 — optional C++
 
 Add only after the Swift/Kotlin architecture is stable.
 
-Implement:
+`nexa plugin generate --target cpp` emits typed C++ value, error, service,
+interface, and native-class contracts from `native.nxid`. Generated iOS
+projects also enable Swift/C++ interoperability, stage a bridging header, and
+adapt synchronous, non-throwing scalar, string, and byte services and native
+classes with owned references. Swift wrappers explicitly convert `String` and
+`Data` to C++ `std::string` and `std::vector<uint8_t>`, and bridge optional
+primitive, string, and byte values through generated `std::optional` helpers.
+Flat `Array` values of primitives, strings, and bytes use generated C++
+`std::vector` aliases and explicit Swift collection conversion.
+Boolean, integer, and byte `Set` values use vector façades around C++
+`std::set`; floating-point and string sets are rejected because their Swift
+equality semantics do not match C++ ordering. Flat `Map` values use generated
+entry vectors around `std::map` on iOS; supported keys are Boolean, integer,
+and bytes, while values may be scalar, string, or bytes. Android maps support
+flat primitive or string keys and scalar or string values. Nested `Array`
+values with primitive, string, or byte leaves use recursive adapters on both
+platforms. Async, throwing, and event adapters remain unsupported; nested
+`Set`/`Map` combinations are not supported.
+The optional `cpp.standard` manifest field selects the minimum C++17, C++20,
+or C++23 level required by reachable C++ sources; generated iOS and Android
+targets use the highest declared level, defaulting to C++20.
+Android projects
+generate Kotlin adapters and JNI for synchronous, non-throwing `Bool`, signed
+and unsigned integers, floating-point, string, and `Bytes` service/class
+members. Optional `Bool`, signed and unsigned integers, floating-point, string,
+and byte values use nullable Kotlin carriers and C++ `std::optional`.
+Optional unsigned values cross JNI through bit-preserving nullable `Long`
+carriers. Unsigned Kotlin values use signed JNI carriers with bit-preserving
+conversions. JNI smoke tests cover embedded NUL, supplementary
+Unicode, empty byte arrays, and binary payload round trips. Native classes
+require `dispose()` so the bridge can release each handle. A
+compiler-conditional test builds an iOS implementation through Xcode and
+cross-compiles and links generated Android JNI plus a C++ implementation with
+the NDK. Where a JDK and Kotlin compiler are available, a host JVM smoke test
+loads the generated library and checks service calls, two independent native
+instances, property/method forwarding, one-time disposal, and use-after-dispose
+rejection. It also round-trips flat maps through services and native-class
+constructors, properties, and methods, including unsigned carriers.
+Remaining host integration includes:
 
 ```text
-Swift/C++ on iOS
-generated JNI on Android
+async/throwing/event adapters and nested `Set`/`Map` combinations on iOS and
+Android.
+Android maps exclude floating-point keys, `Bytes` values, optional maps, and
+nesting.
 ```
 
 Do not expose JNI to normal plugin authors.
@@ -1921,6 +2001,75 @@ obsolete code paths
 ```
 
 Update documentation and examples.
+
+## Execution status — 2026-09-23
+
+The direct Swift/Kotlin roadmap phases and cleanup are implemented and covered
+by headless tests across all workspace crates, plus compiler-conditional native
+build checks. Binding tests cover `Float64` to Swift/Kotlin `Double` mapping and
+reject mismatched implementations; Kotlin typed error payloads named `message`
+override `Throwable.message` and compile in generated contracts. When Android
+SDK API 37 and Gradle are available, a cached Gradle distribution is discovered
+and used to assemble the generated VideoPlayer app. Native object instances at
+app, screen, and custom component
+scopes use persistent target-native storage across recompositions; borrowed
+component parameters pass the same reference through nested calls. Screen-level
+`OnDisappear` cleanup is checked against app/screen ownership, preventing a
+route from disposing an app-owned instance. Compose stores each screen state in
+its back-stack entry; SwiftUI gives each destination a UUID-backed identity and
+a separate state-owning view. Repeated route instances retain independent
+screen state. Route parameters remain scalar; reusing resources across separate
+route lifetimes remains open.
+The optional C++ phase has IDL contracts,
+opt-in source compilation, direct iOS adapters, and generated Android JNI for
+synchronous non-throwing scalar, string, and byte-array services and classes
+with explicit disposal. Both platform byte adapters have generated project
+build coverage. Android unsigned scalar values also have round-trip smoke
+coverage. iOS C++ adapters also bridge optional scalar, string, and byte
+values; flat primitive/string/byte arrays convert through `std::vector` aliases.
+An Xcode-backed generated project test covers optional constructors, methods,
+properties, flat arrays, and Boolean/integer/byte sets through vector facades.
+Floating-point and string sets are rejected to preserve Swift/C++ equality
+semantics; generated adapter names avoid collisions with IDL class members.
+Manifest tests validate the standard values, iOS and Android generators emit
+the requested level, and cache tests verify standard changes invalidate output.
+Android nullable JNI tests round-trip primitive,
+string, and byte values through services and class constructors, methods, and
+properties. Android optional JNI smoke tests cover every primitive width plus
+string and byte values. Android primitive-array JNI smoke tests round-trip
+signed, unsigned, and floating-point lists, including empty arrays. JNI object
+array tests round-trip strings with embedded NUL and Unicode plus byte arrays.
+Android `Set` JNI tests round-trip unsigned integers and strings; byte-array
+and floating-point sets are rejected to preserve Kotlin/C++ equality semantics.
+Android `Map` JNI smoke tests round-trip String/signed-integer maps and unsigned
+integer maps through services, plus native-class constructors, properties, and
+methods. Floating-point map keys, byte-array values, optional maps, and nested
+collections remain rejected by the generated adapter.
+Android supports flat primitive, string, and byte arrays, compatible sets, and
+flat maps with primitive or String keys and scalar or String values. The iOS
+map adapter typechecks every supported key family and scalar/string value in a
+generated Swift/C++ matrix, including native-class construction, methods, and
+mutable properties; a byte-key/byte-value map and byte-set case exercise Data
+conversion. The Android host JVM matrix round-trips every supported integral
+and Boolean map key with matching values plus floating-point and string values,
+in addition to the existing native-class map cases. Generated iOS typechecking
+and Android host JNI runtime tests also cover nested Boolean/numeric arrays,
+strings, bytes, empty rows, and empty outer arrays. Async, error, event, and
+nested `Set`/`Map` adapters remain open on both C++ bridge targets.
+Network pinning uses the same case-insensitive 64-character SHA-256 hash of
+DER-encoded SPKI on both platforms. iOS validates system trust before matching
+any certificate in the server chain; its generated DER parser has a headless
+long-form-length smoke test, and Android validates pin shape before passing the
+digest bytes to Cronet.
+C++ stays opt-in; the normal
+Swift/Kotlin path remains direct.
+
+`nexa audit --release-sizes` builds Release outputs in a temporary project when
+Xcode or the Android SDK, JDK, and Gradle are available. It reports the Android
+APK and compressed/uncompressed DEX, resource, asset, and native-library
+payloads, R8 mapping/usage report sizes, and the iOS device executable plus app
+bundle payload. The default static audit remains build-free; unavailable
+toolchains and failed native builds are identified in the JSON report.
 
 ---
 

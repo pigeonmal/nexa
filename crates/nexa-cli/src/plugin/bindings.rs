@@ -1,7 +1,8 @@
 //! Direct native binding skeletons generated from the plugin IDL.
 
 use nexa_plugin_idl::{
-    Event, Interface, InterfaceKind, Method, NamedType, NamedTypeKind, PluginIdl, Property, TypeRef,
+    Event, Interface, InterfaceKind, Literal, Method, NamedType, NamedTypeKind, PluginIdl,
+    Property, TypeRef,
 };
 
 pub(crate) fn swift(idl: &PluginIdl) -> String {
@@ -33,6 +34,9 @@ pub(crate) fn swift(idl: &PluginIdl) -> String {
         } else {
             ""
         };
+        if interface.kind == InterfaceKind::NativeClass {
+            out.push_str("@MainActor\n");
+        }
         out.push_str(&format!(
             "public protocol {contract_name}{inheritance} {{\n"
         ));
@@ -59,8 +63,12 @@ pub(crate) fn swift(idl: &PluginIdl) -> String {
         out.push_str("}\n\n");
         if interface.kind == InterfaceKind::NativeClass {
             out.push_str(&format!(
-                "public typealias {} = {}Impl\n\n",
-                interface.name, interface.name
+                "public typealias {} = {}Impl\n\n@MainActor private func _nexaCheck{}Implementation(_ value: {}Impl) -> any {} {{ value }}\n\n",
+                interface.name,
+                interface.name,
+                interface.name,
+                interface.name,
+                swift_contract_name(interface)
             ));
         }
     }
@@ -110,9 +118,35 @@ pub(crate) fn kotlin(idl: &PluginIdl, package: &str) -> String {
         }
         out.push_str("}\n\n");
         if interface.kind == InterfaceKind::NativeClass {
+            let constructor = interface.constructors.first();
+            let (constructor_parameters, constructor_arguments) = constructor
+                .map(|constructor| {
+                    let parameters = constructor
+                        .parameters
+                        .iter()
+                        .enumerate()
+                        .map(|(index, parameter)| {
+                            (
+                                format!("nexaArg{index}: {}", kotlin_type(&parameter.ty)),
+                                format!("nexaArg{index}"),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    parameters.into_iter().unzip()
+                })
+                .unwrap_or_else(|| (Vec::new(), Vec::new()));
             out.push_str(&format!(
-                "public typealias {} = {}Impl\n\n",
-                interface.name, interface.name
+                "public typealias {} = {}Impl\n\nprivate fun _nexaCheck{}Implementation(value: {}Impl): {}Spec = value\nprivate fun _nexaConstruct{}({}): {}Spec = {}Impl({})\n\n",
+                interface.name,
+                interface.name,
+                interface.name,
+                interface.name,
+                interface.name,
+                interface.name,
+                constructor_parameters.join(", "),
+                interface.name,
+                interface.name,
+                constructor_arguments.join(", ")
             ));
         }
     }
@@ -120,7 +154,12 @@ pub(crate) fn kotlin(idl: &PluginIdl, package: &str) -> String {
 }
 
 fn swift_native_component(interface: &Interface) -> String {
-    let mut out = format!("public struct {}: View {{\n", interface.name);
+    let generic = if interface.has_content_slot {
+        "<Content: View>"
+    } else {
+        ""
+    };
+    let mut out = format!("public struct {}{generic}: View {{\n", interface.name);
     for property in &interface.properties {
         out.push_str(&format!(
             "    public let {}: {}\n",
@@ -130,32 +169,52 @@ fn swift_native_component(interface: &Interface) -> String {
     }
     for event in &interface.events {
         out.push_str(&format!(
-            "    public let on{}: {}?\n",
-            type_name(&event.name),
+            "    public let {}: {}?\n",
+            nexa_plugin_idl::event_callback_property(&event.name),
             event_callback_type(event, true)
         ));
+    }
+    if interface.has_content_slot {
+        out.push_str("    public let content: Content\n");
     }
     out.push_str("\n    public init(");
     let mut parameters = interface
         .properties
         .iter()
-        .map(|property| format!("{}: {}", property.name, swift_type(&property.ty)))
+        .map(|property| {
+            format!(
+                "{}: {}{}",
+                property.name,
+                swift_type(&property.ty),
+                property
+                    .default
+                    .as_ref()
+                    .map(|value| format!(" = {}", swift_literal(value)))
+                    .unwrap_or_default()
+            )
+        })
         .collect::<Vec<_>>();
     parameters.extend(interface.events.iter().map(|event| {
         format!(
-            "on{}: {}? = nil",
-            type_name(&event.name),
+            "{}: {}? = nil",
+            nexa_plugin_idl::event_callback_property(&event.name),
             event_callback_type(event, true)
         )
     }));
+    if interface.has_content_slot {
+        parameters.push("@ViewBuilder content: () -> Content".to_owned());
+    }
     out.push_str(&parameters.join(", "));
     out.push_str(") {\n");
     for property in &interface.properties {
         out.push_str(&format!("        self.{0} = {0}\n", property.name));
     }
     for event in &interface.events {
-        let name = format!("on{}", type_name(&event.name));
+        let name = nexa_plugin_idl::event_callback_property(&event.name);
         out.push_str(&format!("        self.{name} = {name}\n"));
+    }
+    if interface.has_content_slot {
+        out.push_str("        self.content = content()\n");
     }
     out.push_str("    }\n\n    public var body: some View {\n        ");
     out.push_str(&format!("{}Impl(", interface.name));
@@ -165,9 +224,12 @@ fn swift_native_component(interface: &Interface) -> String {
         .map(|property| format!("{}: {}", property.name, property.name))
         .collect::<Vec<_>>();
     arguments.extend(interface.events.iter().map(|event| {
-        let name = format!("on{}", type_name(&event.name));
+        let name = nexa_plugin_idl::event_callback_property(&event.name);
         format!("{name}: {name}")
     }));
+    if interface.has_content_slot {
+        arguments.push("content: content".to_owned());
+    }
     out.push_str(&arguments.join(", "));
     out.push_str(")\n    }\n}");
     out
@@ -177,12 +239,23 @@ fn kotlin_native_component(interface: &Interface) -> String {
     let mut parameters = interface
         .properties
         .iter()
-        .map(|property| format!("{}: {}", property.name, kotlin_type(&property.ty)))
+        .map(|property| {
+            format!(
+                "{}: {}{}",
+                property.name,
+                kotlin_type(&property.ty),
+                property
+                    .default
+                    .as_ref()
+                    .map(|value| format!(" = {}", kotlin_literal(value)))
+                    .unwrap_or_default()
+            )
+        })
         .collect::<Vec<_>>();
     parameters.extend(interface.events.iter().map(|event| {
         format!(
-            "on{}: {}? = null",
-            type_name(&event.name),
+            "{}: {}? = null",
+            nexa_plugin_idl::event_callback_property(&event.name),
             event_callback_type(event, false)
         )
     }));
@@ -192,9 +265,13 @@ fn kotlin_native_component(interface: &Interface) -> String {
         .map(|property| format!("{} = {}", property.name, property.name))
         .collect::<Vec<_>>();
     arguments.extend(interface.events.iter().map(|event| {
-        let name = format!("on{}", type_name(&event.name));
+        let name = nexa_plugin_idl::event_callback_property(&event.name);
         format!("{name} = {name}")
     }));
+    if interface.has_content_slot {
+        parameters.push("content: @Composable () -> Unit".to_owned());
+        arguments.push("content = content".to_owned());
+    }
     format!(
         "@Composable\npublic fun {}({}) {{\n    {}Impl({})\n}}",
         interface.name,
@@ -202,6 +279,40 @@ fn kotlin_native_component(interface: &Interface) -> String {
         interface.name,
         arguments.join(", ")
     )
+}
+
+fn swift_literal(value: &Literal) -> String {
+    match value {
+        Literal::String(value) => format!("\"{}\"", escape_string(value, false)),
+        Literal::Number(value) => value.clone(),
+        Literal::Bool(value) => value.to_string(),
+        Literal::Null => "nil".to_owned(),
+    }
+}
+
+fn kotlin_literal(value: &Literal) -> String {
+    match value {
+        Literal::String(value) => format!("\"{}\"", escape_string(value, true)),
+        Literal::Number(value) => value.clone(),
+        Literal::Bool(value) => value.to_string(),
+        Literal::Null => "null".to_owned(),
+    }
+}
+
+fn escape_string(value: &str, escape_dollar: bool) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            '$' if escape_dollar => escaped.push_str("\\$"),
+            character => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 fn event_callback_type(event: &Event, swift: bool) -> String {
@@ -241,7 +352,7 @@ fn swift_named_type(ty: &NamedType) -> String {
             ty.name,
             ty.cases
                 .iter()
-                .map(|case_name| format!("    case {case_name}"))
+                .map(|variant| format!("    case {}", variant.name))
                 .collect::<Vec<_>>()
                 .join("\n")
         ),
@@ -251,7 +362,26 @@ fn swift_named_type(ty: &NamedType) -> String {
             } else {
                 ty.cases
                     .iter()
-                    .map(|case_name| format!("    case {case_name}"))
+                    .map(|variant| {
+                        let payload = if variant.parameters.is_empty() {
+                            String::new()
+                        } else {
+                            format!(
+                                "({})",
+                                variant
+                                    .parameters
+                                    .iter()
+                                    .map(|parameter| format!(
+                                        "{}: {}",
+                                        parameter.name,
+                                        swift_type(&parameter.ty)
+                                    ))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            )
+                        };
+                        format!("    case {}{payload}", variant.name)
+                    })
                     .collect::<Vec<_>>()
                     .join("\n")
             };
@@ -283,13 +413,6 @@ fn swift_named_type(ty: &NamedType) -> String {
                 assignments
             )
         }
-        NamedTypeKind::Opaque => {
-            if ty.is_error {
-                format!("public struct {}: Error {{}}", ty.name)
-            } else {
-                format!("public struct {} {{}}", ty.name)
-            }
-        }
     }
 }
 
@@ -298,9 +421,53 @@ fn kotlin_named_type(ty: &NamedType) -> String {
         NamedTypeKind::Enum => format!(
             "public enum class {} {{ {} }}",
             ty.name,
-            ty.cases.join(", ")
+            ty.cases
+                .iter()
+                .map(|variant| variant.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
-        NamedTypeKind::Error => format!("public open class {} : Exception()", ty.name),
+        NamedTypeKind::Error => {
+            let cases = ty
+                .cases
+                .iter()
+                .map(|variant| {
+                    if variant.parameters.is_empty() {
+                        format!("    public object {} : {}()", variant.name, ty.name)
+                    } else {
+                        let parameters = variant
+                            .parameters
+                            .iter()
+                            .map(|parameter| {
+                                let override_modifier = if parameter.name == "message"
+                                    && parameter.ty.name == "String"
+                                    && parameter.ty.arguments.is_empty()
+                                {
+                                    "override "
+                                } else {
+                                    ""
+                                };
+                                format!(
+                                    "{override_modifier}val {}: {}",
+                                    parameter.name,
+                                    kotlin_type(&parameter.ty)
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!(
+                            "    public data class {}({}) : {}()",
+                            variant.name, parameters, ty.name
+                        )
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!(
+                "public sealed class {} : Exception() {{\n{}\n}}",
+                ty.name, cases
+            )
+        }
         NamedTypeKind::Struct => {
             let fields = ty
                 .fields
@@ -310,29 +477,26 @@ fn kotlin_named_type(ty: &NamedType) -> String {
                 .join(", ");
             format!("public data class {}({})", ty.name, fields)
         }
-        NamedTypeKind::Opaque => {
-            if ty.is_error {
-                format!("public open class {} : Exception()", ty.name)
-            } else {
-                format!("public class {}", ty.name)
-            }
-        }
     }
 }
 
 fn swift_method(method: &Method) -> String {
     let parameters = swift_parameters(&method.parameters);
-    let (return_type, result_throws) = result_return(&method.return_type);
+    let (return_type, _) = result_return(&method.return_type);
+    let error_type = method.throws.as_ref().or_else(|| {
+        (method.return_type.name == "Result")
+            .then(|| method.return_type.arguments.get(1))
+            .flatten()
+    });
+    let throws = error_type
+        .map(|error_type| format!(" throws({})", swift_type(error_type)))
+        .unwrap_or_default();
     format!(
         "func {}({}){}{} -> {}",
         method.name,
         parameters,
         if method.is_async { " async" } else { "" },
-        if result_throws || method.throws.is_some() {
-            " throws"
-        } else {
-            ""
-        },
+        throws,
         swift_type(return_type)
     )
 }
@@ -340,8 +504,17 @@ fn swift_method(method: &Method) -> String {
 fn kotlin_method(method: &Method) -> String {
     let parameters = kotlin_parameters(&method.parameters);
     let (return_type, _) = result_return(&method.return_type);
+    let error_type = method.throws.as_ref().or_else(|| {
+        (method.return_type.name == "Result")
+            .then(|| method.return_type.arguments.get(1))
+            .flatten()
+    });
+    let annotation = error_type
+        .map(|ty| format!("@Throws({}::class)\n", ty.name))
+        .unwrap_or_default();
     format!(
-        "{}fun {}({}): {}",
+        "{}{}fun {}({}): {}",
+        annotation,
         if method.is_async { "suspend " } else { "" },
         method.name,
         parameters,
@@ -412,8 +585,8 @@ fn swift_event(event: &Event) -> String {
         format!("({parameters}) -> Void")
     };
     format!(
-        "var on{}: ({})? {{ get set }}",
-        type_name(&event.name),
+        "var {}: ({})? {{ get set }}",
+        nexa_plugin_idl::event_callback_property(&event.name),
         callback
     )
 }
@@ -430,25 +603,11 @@ fn kotlin_event(event: &Event) -> String {
     } else {
         format!("({parameters}) -> Unit")
     };
-    format!("var on{}: ({})?", type_name(&event.name), callback)
-}
-
-fn type_name(value: &str) -> String {
-    let mut output = String::new();
-    let mut uppercase = true;
-    for character in value.chars() {
-        if character.is_ascii_alphanumeric() {
-            if uppercase {
-                output.extend(character.to_uppercase());
-                uppercase = false;
-            } else {
-                output.push(character);
-            }
-        } else {
-            uppercase = true;
-        }
-    }
-    output
+    format!(
+        "var {}: ({})?",
+        nexa_plugin_idl::event_callback_property(&event.name),
+        callback
+    )
 }
 
 fn result_return(ty: &TypeRef) -> (&TypeRef, bool) {
@@ -459,11 +618,204 @@ fn result_return(ty: &TypeRef) -> (&TypeRef, bool) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{kotlin, swift};
+
+    #[test]
+    fn generated_native_classes_are_checked_against_their_contracts() {
+        let idl = nexa_plugin_idl::parse(
+            r#"
+            native class VideoPlayer {
+                init()
+                readonly property state: String
+                fn play()
+            }
+            "#,
+        )
+        .expect("IDL should parse");
+
+        let swift = swift(&idl);
+        assert!(swift.contains("@MainActor\npublic protocol VideoPlayerSpec: AnyObject"));
+        assert!(swift.contains(
+            "@MainActor private func _nexaCheckVideoPlayerImplementation(_ value: VideoPlayerImpl) -> any VideoPlayerSpec { value }"
+        ));
+        let kotlin = kotlin(&idl, "dev.example.video");
+        assert!(kotlin.contains(
+            "private fun _nexaCheckVideoPlayerImplementation(value: VideoPlayerImpl): VideoPlayerSpec = value"
+        ));
+        assert!(kotlin.contains(
+            "private fun _nexaConstructVideoPlayer(): VideoPlayerSpec = VideoPlayerImpl()"
+        ));
+    }
+
+    #[test]
+    fn kotlin_native_class_factory_probe_checks_typed_constructor_arguments() {
+        let idl = nexa_plugin_idl::parse(
+            r#"
+            struct PlayerOptions { autoplay: Bool }
+            native class VideoPlayer {
+                init(options: PlayerOptions)
+            }
+            "#,
+        )
+        .expect("constructor IDL should parse");
+
+        let kotlin = kotlin(&idl, "dev.example.video");
+        assert!(kotlin.contains(
+            "private fun _nexaConstructVideoPlayer(nexaArg0: PlayerOptions): VideoPlayerSpec = VideoPlayerImpl(nexaArg0)"
+        ));
+    }
+
+    #[test]
+    fn native_class_event_contracts_use_the_compiler_callback_property_name() {
+        let idl = nexa_plugin_idl::parse(
+            r#"
+            native class VideoPlayer {
+                event progress_changed(position: Float64, duration: Float64)
+            }
+            "#,
+        )
+        .expect("event IDL should parse");
+
+        let swift = swift(&idl);
+        assert!(swift.contains("var onProgressChanged: ((Double, Double) -> Void)? { get set }"));
+        let kotlin = kotlin(&idl, "dev.example.video");
+        assert!(kotlin.contains("var onProgressChanged: ((Double, Double) -> Unit)?"));
+    }
+
+    #[test]
+    fn native_component_defaults_generate_platform_safe_literals() {
+        let idl = nexa_plugin_idl::parse(
+            r#"
+            native component VideoView {
+                prop title: String = "cost $5\n\"today\""
+                prop controls: Bool = true
+                prop subtitle: String? = null
+            }
+            "#,
+        )
+        .expect("component defaults should parse");
+
+        let swift = swift(&idl);
+        assert!(swift.contains(r#"title: String = "cost $5\n\"today\""#));
+        assert!(swift.contains("controls: Bool = true"));
+        assert!(swift.contains("subtitle: String? = nil"));
+
+        let kotlin = kotlin(&idl, "dev.example.video");
+        assert!(kotlin.contains(r#"title: String = "cost \$5\n\"today\""#));
+        assert!(kotlin.contains("controls: Boolean = true"));
+        assert!(kotlin.contains("subtitle: String? = null"));
+    }
+
+    #[test]
+    fn native_component_content_slots_generate_native_builder_parameters() {
+        let idl = nexa_plugin_idl::parse(
+            r#"
+            native component Container {
+                content
+                prop title: String
+            }
+            "#,
+        )
+        .expect("component content slot should parse");
+
+        let swift = swift(&idl);
+        assert!(swift.contains("public struct Container<Content: View>: View"));
+        assert!(swift.contains("@ViewBuilder content: () -> Content"));
+        assert!(swift.contains("content: content"));
+
+        let kotlin = kotlin(&idl, "dev.example.components");
+        assert!(kotlin.contains("content: @Composable () -> Unit"));
+        assert!(kotlin.contains("content = content"));
+    }
+
+    #[test]
+    fn typed_error_variants_and_throwing_contracts_survive_native_generation() {
+        let idl = nexa_plugin_idl::parse(
+            r#"
+            error PlayerError {
+                invalidUrl,
+                decodingFailed(message: String),
+                maybe(message: String?)
+            }
+            native class VideoPlayer {
+                init()
+                async fn prepare(url: String, playbackRate: Float64) throws PlayerError
+                async fn currentSource() -> Result<String, PlayerError>
+            }
+            "#,
+        )
+        .expect("typed error IDL should parse");
+
+        let swift = swift(&idl);
+        assert!(swift.contains("public enum PlayerError: Error"));
+        assert!(swift.contains("case invalidUrl"));
+        assert!(swift.contains("case decodingFailed(message: String)"));
+        assert!(swift.contains(
+            "func prepare(url: String, playbackRate: Double) async throws(PlayerError) -> Void"
+        ));
+        assert!(swift.contains("func currentSource() async throws(PlayerError) -> String"));
+
+        let kotlin = kotlin(&idl, "dev.example.video");
+        assert!(kotlin.contains("public sealed class PlayerError : Exception()"));
+        assert!(kotlin.contains("public object invalidUrl : PlayerError()"));
+        assert!(kotlin.contains(
+            "public data class decodingFailed(override val message: String) : PlayerError()"
+        ));
+        assert!(
+            kotlin
+                .contains("public data class maybe(override val message: String?) : PlayerError()")
+        );
+        assert!(
+            kotlin.contains(
+                "@Throws(PlayerError::class)\nsuspend fun prepare(url: String, playbackRate: Double): Unit"
+            )
+        );
+        assert!(
+            kotlin.contains("@Throws(PlayerError::class)\nsuspend fun currentSource(): String")
+        );
+    }
+
+    #[test]
+    fn value_contracts_preserve_collection_optionality_and_mutability() {
+        let idl = nexa_plugin_idl::parse(
+            r#"
+            struct Playlist {
+                titles: Array<String>,
+                selected: Int32?
+            }
+            service Queue {
+                readonly property current: Playlist?
+                property volume: Float64
+            }
+            "#,
+        )
+        .expect("typed value IDL should parse");
+
+        let swift = swift(&idl);
+        assert!(swift.contains("public struct Playlist"));
+        assert!(swift.contains("public let titles: [String]"));
+        assert!(swift.contains("public let selected: Int32?"));
+        assert!(swift.contains("var current: Playlist? { get }"));
+        assert!(swift.contains("var volume: Double { get set }"));
+
+        let kotlin = kotlin(&idl, "dev.example.queue");
+        assert!(kotlin.contains("public data class Playlist"));
+        assert!(kotlin.contains("val titles: List<String>"));
+        assert!(kotlin.contains("val selected: Int?"));
+        assert!(kotlin.contains("val current: Playlist?"));
+        assert!(kotlin.contains("var volume: Double"));
+    }
+}
+
 fn swift_type(ty: &TypeRef) -> String {
     let base = match ty.name.as_str() {
         "Void" => "Void".to_owned(),
         "Int8" | "Int16" | "Int32" | "Int64" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
-        | "Float32" | "Float64" | "Bool" | "String" => ty.name.clone(),
+        | "Bool" | "String" => ty.name.clone(),
+        "Float32" => "Float".to_owned(),
+        "Float64" => "Double".to_owned(),
         "Bytes" => "Data".to_owned(),
         "Array" if ty.arguments.len() == 1 => format!("[{}]", swift_type(&ty.arguments[0])),
         "Set" if ty.arguments.len() == 1 => format!("Set<{}>", swift_type(&ty.arguments[0])),

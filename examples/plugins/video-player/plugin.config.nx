@@ -8,10 +8,12 @@ plugin {
     ios {
         minVersion: "17.0"
         sources: ["ios/Sources/**/*.swift"]
+        frameworks: ["AVFoundation", "AVKit"]
     }
     android {
         minSdk: 26
         sources: ["android/src/main/kotlin/**/*.kt"]
-        dependencies: ["androidx.media3:media3-exoplayer:1.10.0"]
+        dependencies: ["androidx.media3:media3-exoplayer:1.10.0", "androidx.media3:media3-ui:1.10.0"]
+        permissions: ["android.permission.INTERNET"]
     }
 }

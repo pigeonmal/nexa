@@ -122,3 +122,162 @@ pub fn analyze(module: &Module) -> Capabilities {
     }
     capabilities
 }
+
+#[cfg(test)]
+mod tests {
+    use super::analyze;
+    use crate::{Action, Expr, ImageScale, ImageSource, LayoutKind, Module, Node, ViewStyle};
+
+    fn empty_module(body: Vec<Node>) -> Module {
+        Module {
+            app_name: "CapabilitiesTest".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body,
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        }
+    }
+
+    #[test]
+    fn detects_core_calls_inside_nested_ui_actions() {
+        let call = |namespace: &str, name: &str| Expr::NativeCall {
+            receiver: None,
+            namespace: namespace.to_owned(),
+            name: name.to_owned(),
+            arguments: Vec::new(),
+            return_type: crate::Type::String,
+            is_async: true,
+            is_throwing: false,
+        };
+        let module = empty_module(vec![Node::Layout {
+            kind: LayoutKind::Column,
+            spacing: 0.0,
+            style: ViewStyle::default(),
+            children: vec![Node::Button {
+                label: Expr::String("Load".to_owned()),
+                icon: None,
+                loading: None,
+                disabled: None,
+                actions: vec![
+                    Action::Expression(call("Network", "fetch")),
+                    Action::Expression(call("Path", "documents")),
+                    Action::Expression(call("File", "readText")),
+                ],
+            }],
+        }]);
+
+        let capabilities = analyze(&module);
+        assert!(capabilities.uses_network_api);
+        assert!(capabilities.uses_path_api);
+        assert!(capabilities.uses_file_api);
+        assert!(capabilities.uses_file_async);
+    }
+
+    #[test]
+    fn remote_images_request_transport_without_counting_as_network_api_calls() {
+        let module = empty_module(vec![Node::Image {
+            source: ImageSource::RemoteUrl(Expr::String(
+                "https://example.test/image.png".to_owned(),
+            )),
+            description: "Example image".to_owned(),
+            scale: ImageScale::Fit,
+            placeholder: None,
+        }]);
+
+        let capabilities = analyze(&module);
+        assert!(capabilities.uses_remote_image);
+        assert!(capabilities.uses_network_transport());
+        assert!(!capabilities.uses_network_api);
+        assert!(!capabilities.uses_file_api);
+    }
+
+    #[test]
+    fn synchronous_file_existence_checks_do_not_enable_async_support() {
+        let module = Module {
+            on_appear: Some(vec![Action::Expression(Expr::NativeCall {
+                receiver: None,
+                namespace: "File".to_owned(),
+                name: "exists".to_owned(),
+                arguments: Vec::new(),
+                return_type: crate::Type::Bool,
+                is_async: false,
+                is_throwing: false,
+            })]),
+            ..empty_module(Vec::new())
+        };
+
+        let capabilities = analyze(&module);
+        assert!(capabilities.uses_file_api);
+        assert!(!capabilities.uses_file_async);
+    }
+
+    #[test]
+    fn async_file_calls_in_function_bodies_enable_async_support() {
+        let mut module = empty_module(Vec::new());
+        module.functions.push(crate::Function {
+            name: "load_text".to_owned(),
+            is_async: true,
+            parameters: vec![crate::FunctionParameter {
+                name: "path".to_owned(),
+                ty: crate::Type::String,
+            }],
+            locals: Vec::new(),
+            return_type: crate::Type::String,
+            body: Expr::Await(Box::new(Expr::NativeCall {
+                receiver: None,
+                namespace: "File".to_owned(),
+                name: "readText".to_owned(),
+                arguments: vec![(
+                    "path".to_owned(),
+                    Expr::State("path".to_owned(), crate::Type::String),
+                )],
+                return_type: crate::Type::String,
+                is_async: true,
+                is_throwing: false,
+            })),
+        });
+
+        let capabilities = analyze(&module);
+        assert!(capabilities.uses_file_api);
+        assert!(capabilities.uses_file_async);
+    }
+
+    #[test]
+    fn nested_native_component_arguments_are_included_in_capability_analysis() {
+        let module = empty_module(vec![Node::NativeComponentCall {
+            namespace: "Video".to_owned(),
+            name: "VideoView".to_owned(),
+            arguments: vec![(
+                "caption".to_owned(),
+                Expr::NativeCall {
+                    receiver: None,
+                    namespace: "File".to_owned(),
+                    name: "readText".to_owned(),
+                    arguments: vec![("path".to_owned(), Expr::String("caption.txt".to_owned()))],
+                    return_type: crate::Type::String,
+                    is_async: true,
+                    is_throwing: false,
+                },
+            )],
+            children: None,
+            event_handlers: Vec::new(),
+        }]);
+
+        let capabilities = analyze(&module);
+        assert!(capabilities.uses_file_api);
+        assert!(capabilities.uses_file_async);
+    }
+}

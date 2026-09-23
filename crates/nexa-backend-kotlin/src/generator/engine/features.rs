@@ -116,6 +116,7 @@ pub(crate) struct Features {
     pub(crate) uses_color: bool,
     pub(crate) uses_dp: bool,
     pub(crate) uses_mutable_state: bool,
+    pub(crate) uses_native_class_instance: bool,
     pub(crate) uses_mutable_collection: bool,
     pub(crate) uses_mutable_list: bool,
     pub(crate) uses_mutable_set: bool,
@@ -398,6 +399,10 @@ impl Features {
     }
 
     fn record_state(&mut self, state: &State) {
+        if state.is_native_class_instance_binding() {
+            self.uses_native_class_instance = true;
+            return;
+        }
         if !state.mutable {
             return;
         }

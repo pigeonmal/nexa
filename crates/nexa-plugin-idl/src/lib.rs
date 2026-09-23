@@ -21,7 +21,13 @@ pub struct NamedType {
     pub is_error: bool,
     pub kind: NamedTypeKind,
     pub fields: Vec<Field>,
-    pub cases: Vec<String>,
+    pub cases: Vec<Variant>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Variant {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,7 +35,6 @@ pub enum NamedTypeKind {
     Struct,
     Enum,
     Error,
-    Opaque,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,6 +48,7 @@ pub struct Field {
 pub struct Interface {
     pub name: String,
     pub kind: InterfaceKind,
+    pub has_content_slot: bool,
     pub constructors: Vec<Constructor>,
     pub methods: Vec<Method>,
     pub properties: Vec<Property>,
@@ -67,12 +73,33 @@ pub struct Property {
     pub name: String,
     pub ty: TypeRef,
     pub mutable: bool,
+    pub default: Option<Literal>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Event {
     pub name: String,
     pub parameters: Vec<Parameter>,
+}
+
+/// Returns the generated native callback property name for an IDL event.
+/// Both contract generation and compiler lowering use this mapping.
+pub fn event_callback_property(event_name: &str) -> String {
+    let mut property = String::from("on");
+    let mut uppercase = true;
+    for character in event_name.chars() {
+        if character.is_ascii_alphanumeric() {
+            if uppercase {
+                property.extend(character.to_uppercase());
+                uppercase = false;
+            } else {
+                property.push(character);
+            }
+        } else {
+            uppercase = true;
+        }
+    }
+    property
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -341,7 +368,6 @@ impl Parser {
                 Some("struct") => result.types.push(self.parse_struct_type()?),
                 Some("enum") => result.types.push(self.parse_enum_type()?),
                 Some("error") => result.types.push(self.parse_error_type()?),
-                Some("type") => result.types.push(self.parse_opaque_type()?),
                 Some("interface") => result.interfaces.push(self.parse_interface()?),
                 Some("service") => result.interfaces.push(self.parse_service()?),
                 Some("native") => result.interfaces.push(self.parse_native_declaration()?),
@@ -361,19 +387,6 @@ impl Parser {
         Ok(result)
     }
 
-    fn parse_opaque_type(&mut self) -> Result<NamedType, String> {
-        self.expect_identifier("type")?;
-        let name = self.expect_name("type name")?;
-        self.consume(TokenKind::Semicolon);
-        Ok(NamedType {
-            name,
-            is_error: false,
-            kind: NamedTypeKind::Opaque,
-            fields: Vec::new(),
-            cases: Vec::new(),
-        })
-    }
-
     fn parse_struct_type(&mut self) -> Result<NamedType, String> {
         self.expect_identifier("struct")?;
         let name = self.expect_name("struct name")?;
@@ -390,7 +403,7 @@ impl Parser {
     fn parse_enum_type(&mut self) -> Result<NamedType, String> {
         self.expect_identifier("enum")?;
         let name = self.expect_name("enum name")?;
-        let cases = self.parse_cases()?;
+        let cases = self.parse_cases(false)?;
         Ok(NamedType {
             name,
             is_error: false,
@@ -404,11 +417,14 @@ impl Parser {
         self.expect_identifier("error")?;
         let name = self.expect_name("error name")?;
         let cases = if self.peek_kind(TokenKind::LeftBrace) {
-            self.parse_cases()?
+            self.parse_cases(true)?
         } else {
             self.consume(TokenKind::Semicolon);
             Vec::new()
         };
+        if cases.is_empty() {
+            return self.error("error declarations must contain at least one case");
+        }
         Ok(NamedType {
             name,
             is_error: true,
@@ -439,11 +455,17 @@ impl Parser {
         Ok(fields)
     }
 
-    fn parse_cases(&mut self) -> Result<Vec<String>, String> {
+    fn parse_cases(&mut self, allow_payloads: bool) -> Result<Vec<Variant>, String> {
         self.expect(TokenKind::LeftBrace, "`{`")?;
         let mut cases = Vec::new();
         while !self.consume(TokenKind::RightBrace) {
-            cases.push(self.expect_name("case name")?);
+            let name = self.expect_name("case name")?;
+            let parameters = if allow_payloads && self.peek_kind(TokenKind::LeftParen) {
+                self.parse_parameters()?
+            } else {
+                Vec::new()
+            };
+            cases.push(Variant { name, parameters });
             if !self.consume(TokenKind::Comma) && !self.consume(TokenKind::Semicolon) {
                 if !self.peek_kind(TokenKind::RightBrace) && !self.peek_is_identifier() {
                     return self.error("expected `,`, `;`, or `}` after case");
@@ -492,6 +514,7 @@ impl Parser {
         let mut methods = Vec::new();
         let mut properties = Vec::new();
         let mut events = Vec::new();
+        let mut has_content_slot = false;
         while !self.consume(TokenKind::RightBrace) {
             if self.at_end() {
                 return self.error("expected `}` to close native declaration");
@@ -502,12 +525,24 @@ impl Parser {
                     properties.push(self.parse_property()?)
                 }
                 Some("event") => events.push(self.parse_event()?),
+                Some("content") => {
+                    if kind != InterfaceKind::NativeComponent {
+                        return self.error("content slots are supported only by native components");
+                    }
+                    if has_content_slot {
+                        return self.error("native components can declare only one `content` slot");
+                    }
+                    self.cursor += 1;
+                    self.consume(TokenKind::Semicolon);
+                    has_content_slot = true;
+                }
                 _ => methods.push(self.parse_method()?),
             }
         }
         Ok(Interface {
             name,
             kind,
+            has_content_slot,
             constructors,
             methods,
             properties,
@@ -535,8 +570,18 @@ impl Parser {
         let name = self.expect_name("property name")?;
         self.expect(TokenKind::Colon, "`:`")?;
         let ty = self.parse_type()?;
+        let default = if self.consume(TokenKind::Equal) {
+            Some(self.parse_literal()?)
+        } else {
+            None
+        };
         self.consume(TokenKind::Semicolon);
-        Ok(Property { name, ty, mutable })
+        Ok(Property {
+            name,
+            ty,
+            mutable,
+            default,
+        })
     }
 
     fn parse_event(&mut self) -> Result<Event, String> {
@@ -702,9 +747,23 @@ impl Parser {
             }
             let mut cases = std::collections::HashSet::new();
             for case in &ty.cases {
-                if !cases.insert(case.as_str()) {
-                    return Err(format!("duplicate case `{case}` in type `{}`", ty.name));
+                if !cases.insert(case.name.as_str()) {
+                    return Err(format!(
+                        "duplicate case `{}` in type `{}`",
+                        case.name, ty.name
+                    ));
                 }
+            }
+            if ty.kind == NamedTypeKind::Enum
+                && ty.cases.iter().any(|case| !case.parameters.is_empty())
+            {
+                return Err(format!("enum `{}` cases cannot have payloads", ty.name));
+            }
+            if ty.kind == NamedTypeKind::Error && ty.cases.is_empty() {
+                return Err(format!(
+                    "error `{}` must declare at least one case",
+                    ty.name
+                ));
             }
         }
         let mut interfaces = std::collections::HashSet::new();
@@ -718,6 +777,44 @@ impl Parser {
             if !interfaces.insert(interface.name.as_str()) {
                 return Err(format!("duplicate interface `{}`", interface.name));
             }
+        }
+        for ty in &idl.types {
+            for field in &ty.fields {
+                validate_type_ref(&field.ty, &field.name, &types, &interfaces, false)?;
+                if let Some(default) = &field.default
+                    && !literal_matches_type(default, &field.ty)
+                {
+                    return Err(format!(
+                        "default for field `{}.{}` does not match `{}`",
+                        ty.name, field.name, field.ty.name
+                    ));
+                }
+            }
+            for case in &ty.cases {
+                validate_parameters(&case.parameters, &case.name, &types, &interfaces)?;
+            }
+        }
+        validate_recursive_value_layouts(&idl.types)?;
+
+        let error_types = idl
+            .types
+            .iter()
+            .filter(|ty| ty.kind == NamedTypeKind::Error)
+            .map(|ty| ty.name.as_str())
+            .collect::<std::collections::HashSet<_>>();
+
+        for interface in &idl.interfaces {
+            if !interface.events.is_empty()
+                && !matches!(
+                    interface.kind,
+                    InterfaceKind::NativeClass | InterfaceKind::NativeComponent
+                )
+            {
+                return Err(format!(
+                    "events are supported only by native classes and native components; `{}` is a stateless interface",
+                    interface.name
+                ));
+            }
             let mut properties = std::collections::HashSet::new();
             for property in &interface.properties {
                 if !properties.insert(property.name.as_str()) {
@@ -727,6 +824,20 @@ impl Parser {
                     ));
                 }
                 validate_type_ref(&property.ty, &property.name, &types, &interfaces, false)?;
+                if let Some(default) = &property.default {
+                    if interface.kind != InterfaceKind::NativeComponent {
+                        return Err(format!(
+                            "default values are supported only for native component properties; `{}.{}` is not a component property",
+                            interface.name, property.name
+                        ));
+                    }
+                    if !literal_matches_type(default, &property.ty) {
+                        return Err(format!(
+                            "default for property `{}.{}` does not match `{}`",
+                            interface.name, property.name, property.ty.name
+                        ));
+                    }
+                }
             }
             let mut events = std::collections::HashSet::new();
             for event in &interface.events {
@@ -777,11 +888,32 @@ impl Parser {
                     ));
                 }
                 validate_type_ref(&method.return_type, &method.name, &types, &interfaces, true)?;
+                if method.return_type.name == "Result" {
+                    if method.throws.is_some() {
+                        return Err(format!(
+                            "method `{}` cannot combine `Result` with `throws`; declare one error type",
+                            method.name
+                        ));
+                    }
+                    let failure = &method.return_type.arguments[1];
+                    if failure.optional || !error_types.contains(failure.name.as_str()) {
+                        return Err(format!(
+                            "failure type `{}` in method `{}` must be a declared error type",
+                            failure.name, method.name
+                        ));
+                    }
+                }
                 for parameter in &method.parameters {
                     validate_type_ref(&parameter.ty, &parameter.name, &types, &interfaces, false)?;
                 }
                 if let Some(error) = &method.throws {
                     validate_type_ref(error, &method.name, &types, &interfaces, false)?;
+                    if error.optional || !error_types.contains(error.name.as_str()) {
+                        return Err(format!(
+                            "throws type `{}` in method `{}` must be a declared error type",
+                            error.name, method.name
+                        ));
+                    }
                 }
             }
         }
@@ -889,6 +1021,80 @@ impl Parser {
             .unwrap_or_else(|| "end of file".to_owned());
         Err(format!("{location}: {}", message.into()))
     }
+}
+
+fn validate_recursive_value_layouts(types: &[NamedType]) -> Result<(), String> {
+    let value_types = types
+        .iter()
+        .filter(|ty| matches!(ty.kind, NamedTypeKind::Struct | NamedTypeKind::Error))
+        .map(|ty| ty.name.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut graph = std::collections::BTreeMap::<String, Vec<String>>::new();
+    for ty in types
+        .iter()
+        .filter(|ty| matches!(ty.kind, NamedTypeKind::Struct | NamedTypeKind::Error))
+    {
+        let mut dependencies = Vec::new();
+        for field in &ty.fields {
+            collect_inline_value_refs(&field.ty, &value_types, &mut dependencies);
+        }
+        for case in &ty.cases {
+            for parameter in &case.parameters {
+                collect_inline_value_refs(&parameter.ty, &value_types, &mut dependencies);
+            }
+        }
+        graph.insert(ty.name.clone(), dependencies);
+    }
+
+    let mut visiting = Vec::new();
+    let mut visited = std::collections::HashSet::new();
+    for name in graph.keys() {
+        visit_value_layout(name, &graph, &mut visiting, &mut visited)?;
+    }
+    Ok(())
+}
+
+fn collect_inline_value_refs(
+    ty: &TypeRef,
+    value_types: &std::collections::BTreeSet<String>,
+    output: &mut Vec<String>,
+) {
+    if value_types.contains(&ty.name) {
+        output.push(ty.name.clone());
+        return;
+    }
+    if matches!(ty.name.as_str(), "Pair" | "Triple") {
+        for argument in &ty.arguments {
+            collect_inline_value_refs(argument, value_types, output);
+        }
+    }
+}
+
+fn visit_value_layout(
+    name: &str,
+    graph: &std::collections::BTreeMap<String, Vec<String>>,
+    visiting: &mut Vec<String>,
+    visited: &mut std::collections::HashSet<String>,
+) -> Result<(), String> {
+    if let Some(cycle_start) = visiting.iter().position(|value| value == name) {
+        let mut cycle = visiting[cycle_start..].to_vec();
+        cycle.push(name.to_owned());
+        return Err(format!(
+            "recursive plugin value layout is unsupported: {}",
+            cycle.join(" -> ")
+        ));
+    }
+    if !visited.insert(name.to_owned()) {
+        return Ok(());
+    }
+    visiting.push(name.to_owned());
+    if let Some(dependencies) = graph.get(name) {
+        for dependency in dependencies {
+            visit_value_layout(dependency, graph, visiting, visited)?;
+        }
+    }
+    visiting.pop();
+    Ok(())
 }
 
 fn validate_type_ref(
@@ -1063,7 +1269,16 @@ fn integer_value_fits(value: &str, name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{InterfaceKind, NamedTypeKind, parse};
+    use super::{InterfaceKind, Literal, NamedTypeKind, event_callback_property, parse};
+
+    #[test]
+    fn event_callback_property_matches_generated_contract_naming() {
+        assert_eq!(event_callback_property("ended"), "onEnded");
+        assert_eq!(
+            event_callback_property("progress_changed"),
+            "onProgressChanged"
+        );
+    }
 
     #[test]
     fn parses_structs_services_classes_and_components() {
@@ -1074,7 +1289,7 @@ mod tests {
                 saveToGallery: Bool = false
             }
             enum PlayerState { idle, ready, ended }
-            error PlayerError { invalidUrl, decodingFailed }
+            error PlayerError { invalidUrl, decodingFailed(message: String) }
             service Clipboard {
                 fn copy(text: String)
             }
@@ -1087,8 +1302,9 @@ mod tests {
                 event ended()
             }
             native component VideoView {
+                content
                 prop player: VideoPlayer
-                prop controls: Bool
+                prop controls: Bool = true
                 event tapped()
             }
             "#,
@@ -1097,11 +1313,132 @@ mod tests {
 
         assert_eq!(idl.types[0].kind, NamedTypeKind::Struct);
         assert_eq!(idl.types[0].fields.len(), 2);
+        assert_eq!(idl.types[2].kind, NamedTypeKind::Error);
+        assert_eq!(idl.types[2].cases[1].name, "decodingFailed");
+        assert_eq!(idl.types[2].cases[1].parameters[0].name, "message");
+        assert_eq!(idl.types[2].cases[1].parameters[0].ty.name, "String");
         assert_eq!(idl.interfaces[0].kind, InterfaceKind::Service);
         assert_eq!(idl.interfaces[1].kind, InterfaceKind::NativeClass);
         assert_eq!(idl.interfaces[1].constructors.len(), 1);
         assert_eq!(idl.interfaces[1].properties.len(), 2);
         assert_eq!(idl.interfaces[1].events.len(), 1);
+        assert_eq!(
+            idl.interfaces[1].methods[0].throws.as_ref().unwrap().name,
+            "PlayerError"
+        );
         assert_eq!(idl.interfaces[2].kind, InterfaceKind::NativeComponent);
+        assert!(idl.interfaces[2].has_content_slot);
+        assert_eq!(
+            idl.interfaces[2].properties[1].default,
+            Some(Literal::Bool(true))
+        );
+    }
+
+    #[test]
+    fn throws_and_result_failures_require_declared_error_types() {
+        let invalid_throws =
+            parse("struct Failure { code: Int32 } service Api { async fn load() throws Failure }")
+                .expect_err("throws must refer to an error declaration");
+        assert!(invalid_throws.contains("must be a declared error type"));
+
+        let invalid_result = parse(
+            "struct Failure { code: Int32 } service Api { async fn load() -> Result<String, Failure> }",
+        )
+        .expect_err("Result failure types must be error declarations");
+        assert!(invalid_result.contains("must be a declared error type"));
+
+        let conflicting = parse(
+            "error Failure { failed } service Api { async fn load() -> Result<String, Failure> throws Failure }",
+        )
+        .expect_err("Result and throws must not describe the same failure twice");
+        assert!(conflicting.contains("cannot combine `Result` with `throws`"));
+    }
+
+    #[test]
+    fn validates_error_payload_types_and_recursive_layouts() {
+        let unknown = parse("error Failure { failed(reason: MissingType) }")
+            .expect_err("error payloads must use declared types");
+        assert!(unknown.contains("references undeclared plugin type `MissingType`"));
+
+        let recursive = parse("error Failure { causedBy(other: Failure) }")
+            .expect_err("inline recursive error payloads must be rejected");
+        assert!(recursive.contains("recursive plugin value layout"));
+
+        parse("error Failure { causedBy(other: Array<Failure>) }")
+            .expect("collection indirection permits recursive error payloads");
+    }
+
+    #[test]
+    fn rejects_layout_less_opaque_types() {
+        let error = parse("type PlayerHandle")
+            .expect_err("plugin values must describe their boundary layout or be native classes");
+        assert!(error.contains("expected `struct`, `enum`, `error`"));
+    }
+
+    #[test]
+    fn validates_struct_field_types_and_rejects_inline_recursion() {
+        let unknown = parse("struct Player { options: MissingOptions }")
+            .expect_err("unknown field types must be rejected");
+        assert!(unknown.contains("references undeclared plugin type `MissingOptions`"));
+
+        let recursive = parse("struct Node { parent: Node? }")
+            .expect_err("optional fields still have inline value layout");
+        assert!(recursive.contains("recursive plugin value layout"));
+
+        parse("struct Node { children: Array<Node> }")
+            .expect("collection indirection permits recursive tree models");
+    }
+
+    #[test]
+    fn validates_struct_field_defaults() {
+        let error = parse("struct PlayerOptions { autoplay: Bool = 1 }")
+            .expect_err("field defaults must match the declared type");
+        assert!(error.contains("default for field `PlayerOptions.autoplay`"));
+    }
+
+    #[test]
+    fn validates_native_component_property_defaults() {
+        parse("native component VideoView { prop controls: Bool = true }")
+            .expect("native component defaults should be valid when their types match");
+
+        let mismatch = parse("native component VideoView { prop controls: Bool = 1 }")
+            .expect_err("native component defaults must match their property type");
+        assert!(mismatch.contains("default for property `VideoView.controls`"));
+
+        let wrong_kind = parse("native class Player { property enabled: Bool = true }")
+            .expect_err("only native component properties may declare defaults");
+        assert!(wrong_kind.contains("supported only for native component properties"));
+    }
+
+    #[test]
+    fn content_slots_are_unique_and_component_only() {
+        parse("native component Container { content }")
+            .expect("a native component can declare one content slot");
+
+        let duplicate = parse("native component Container { content content }")
+            .expect_err("a native component can declare only one content slot");
+        assert!(duplicate.contains("only one `content` slot"));
+
+        let wrong_kind = parse("service Container { content }")
+            .expect_err("stateless services cannot accept visual content");
+        assert!(wrong_kind.contains("only by native components"));
+    }
+
+    #[test]
+    fn validates_types_used_by_events_and_native_component_properties() {
+        let event_error = parse("native class Player { event changed(state: MissingState) }")
+            .expect_err("event payloads must use declared boundary types");
+        assert!(event_error.contains("undeclared plugin type `MissingState`"));
+
+        let component_error = parse("native component PlayerView { prop player: MissingPlayer }")
+            .expect_err("component properties must use declared boundary types");
+        assert!(component_error.contains("undeclared plugin type `MissingPlayer`"));
+    }
+
+    #[test]
+    fn rejects_events_on_stateless_services() {
+        let error = parse("service Clipboard { event copied(text: String) }")
+            .expect_err("events on stateless services would require a global event bus");
+        assert!(error.contains("events are supported only by native classes"));
     }
 }

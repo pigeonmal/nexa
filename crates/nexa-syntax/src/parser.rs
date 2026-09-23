@@ -364,10 +364,25 @@ impl Parser {
             assets_path: None,
             ios_sources: Vec::new(),
             android_sources: Vec::new(),
+            cpp_sources: Vec::new(),
+            cpp_headers: Vec::new(),
+            cpp_standard: None,
             ios_min_version: None,
             android_min_sdk: None,
+            ios_frameworks: Vec::new(),
+            ios_xcframeworks: Vec::new(),
+            ios_resources: Vec::new(),
+            ios_privacy_manifest: None,
             swift_packages: Vec::new(),
             maven_dependencies: Vec::new(),
+            android_aars: Vec::new(),
+            android_resources: Vec::new(),
+            android_proguard_rules: Vec::new(),
+            android_maven_repositories: Vec::new(),
+            ios_usage_descriptions: Vec::new(),
+            ios_entitlements: Vec::new(),
+            ios_linker_flags: Vec::new(),
+            android_permissions: Vec::new(),
         })
     }
 
@@ -698,8 +713,16 @@ impl Parser {
 
     fn type_syntax(&mut self) -> Result<TypeSyntax, CompileError> {
         let (name, span) = self.ident()?;
+        let mut qualified_name = name;
+        let mut end = span.end;
+        while self.take(&Kind::Dot) {
+            let (part, part_span) = self.ident()?;
+            qualified_name.push('.');
+            qualified_name.push_str(&part);
+            end = part_span.end;
+        }
         let mut syntax = if !self.take(&Kind::Less) {
-            TypeSyntax::Named(name, span)
+            TypeSyntax::Named(qualified_name.clone(), Span { end, ..span })
         } else {
             let mut arguments = vec![self.type_syntax()?];
             while self.take(&Kind::Comma) {
@@ -709,7 +732,7 @@ impl Parser {
                 Kind::Greater,
                 "expected `>` to close generic type arguments",
             )?;
-            TypeSyntax::Generic(name, arguments, span)
+            TypeSyntax::Generic(qualified_name, arguments, Span { end, ..span })
         };
         if self.take(&Kind::Question) {
             syntax = TypeSyntax::Optional(Box::new(syntax), span);
@@ -787,11 +810,42 @@ impl Parser {
                         .check(&Kind::LBrace)
                         .then(|| self.block_nodes())
                         .transpose()?;
+                    let mut event_handlers = Vec::new();
+                    while self.take(&Kind::Dot) {
+                        let (property, property_span) = self.ident()?;
+                        if !property.starts_with("on") || property.len() <= 2 {
+                            return Err(CompileError::new(
+                                property_span,
+                                "native component modifiers must name an event callback such as `.onTapped { ... }`",
+                            ));
+                        }
+                        if event_handlers
+                            .iter()
+                            .any(|handler: &NativeComponentEventHandler| {
+                                handler.property == property
+                            })
+                        {
+                            return Err(CompileError::new(
+                                property_span,
+                                format!(
+                                    "native component callback `{property}` is subscribed more than once"
+                                ),
+                            ));
+                        }
+                        let (parameters, actions) = self.native_event_handler()?;
+                        event_handlers.push(NativeComponentEventHandler {
+                            property,
+                            parameters,
+                            actions,
+                            span: property_span,
+                        });
+                    }
                     return Ok(Node::NativeComponentCall {
                         namespace: name,
                         name: component_name,
                         arguments,
                         children,
+                        event_handlers,
                         span: Span {
                             end: component_span.end,
                             ..span
@@ -1621,6 +1675,10 @@ impl Parser {
                 "expected `{` to open event handler"
             },
         )?;
+        self.statements_after_open(allow_return)
+    }
+
+    fn statements_after_open(&mut self, allow_return: bool) -> Result<Vec<Stmt>, CompileError> {
         let mut stmts = Vec::new();
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             if !allow_return && self.word_is("let") {
@@ -1678,6 +1736,61 @@ impl Parser {
                 self.optional_semicolon();
                 continue;
             }
+            if self.word_is("try") {
+                let span = self.advance().span;
+                let body = self.statements(allow_return)?;
+                if !self.word_is("catch") {
+                    return self.error_here("a `try` block requires a `catch` recovery block");
+                }
+                self.advance();
+                self.expect(Kind::LBrace, "expected `{` to open catch recovery")?;
+                let (error_catches, catch_body, catch_close_consumed) = if self.word_is("case")
+                    || self.word_is("else")
+                {
+                    let mut error_catches = Vec::new();
+                    let mut catch_body = None;
+                    while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+                        if self.word_is("case") {
+                            if catch_body.is_some() {
+                                return self.error_here("typed catch cases must precede `else`");
+                            }
+                            error_catches.push(self.error_catch_arm()?);
+                        } else if self.word_is("else") {
+                            if catch_body.is_some() {
+                                return self
+                                    .error_here("a catch block can declare only one `else`");
+                            }
+                            self.advance();
+                            catch_body = Some(self.block_stmts()?);
+                        } else {
+                            return self.error_here("expected a typed `case` or catch-all `else`");
+                        }
+                        self.optional_semicolon();
+                    }
+                    if error_catches.is_empty() {
+                        return self
+                            .error_here("typed catch recovery requires at least one `case`");
+                    }
+                    (error_catches, catch_body, false)
+                } else {
+                    (
+                        Vec::new(),
+                        Some(self.statements_after_open(allow_return)?),
+                        true,
+                    )
+                };
+                if !catch_close_consumed {
+                    self.expect(Kind::RBrace, "expected `}` to close catch recovery")?;
+                }
+                stmts.push(Stmt::TryCatch {
+                    body,
+                    error_catches,
+                    catch_body,
+                    span,
+                });
+                self.optional_semicolon();
+                continue;
+            }
             if self.word_is("break") {
                 let span = self.advance().span;
                 stmts.push(Stmt::Break { span });
@@ -1694,9 +1807,52 @@ impl Parser {
             if self.take(&Kind::Equal) {
                 let value = self.expr()?;
                 stmts.push(Stmt::Assign { name, value, span });
+            } else if name.chars().next().is_some_and(char::is_uppercase)
+                && self.check(&Kind::Dot)
+                && matches!(
+                    self.tokens.get(self.cursor + 1).map(|token| &token.kind),
+                    Some(Kind::Ident(_))
+                )
+                && matches!(
+                    self.tokens.get(self.cursor + 2).map(|token| &token.kind),
+                    Some(Kind::LParen)
+                )
+            {
+                self.cursor -= 1;
+                let expression = self.expr()?;
+                stmts.push(Stmt::Expression { expression, span });
             } else {
                 self.expect(Kind::Dot, "expected `=` or `.` after state name")?;
                 let (method, method_span) = self.ident()?;
+                if self.check(&Kind::LBrace) {
+                    let (parameters, actions) = self.native_event_handler()?;
+                    stmts.push(Stmt::NativeEventSubscribe {
+                        receiver: Expr::Name(name, span),
+                        event: method,
+                        parameters,
+                        actions,
+                        span: Span {
+                            end: method_span.end,
+                            ..span
+                        },
+                    });
+                    self.optional_semicolon();
+                    continue;
+                }
+                if self.take(&Kind::Equal) {
+                    let value = self.expr()?;
+                    stmts.push(Stmt::NativePropertyAssign {
+                        receiver: Expr::Name(name, span),
+                        property: method,
+                        value,
+                        span: Span {
+                            end: method_span.end,
+                            ..span
+                        },
+                    });
+                    self.optional_semicolon();
+                    continue;
+                }
                 self.expect(
                     Kind::LParen,
                     "expected `(` after collection mutation method",
@@ -1727,6 +1883,58 @@ impl Parser {
         }
         self.expect(Kind::RBrace, "expected `}` to close button handler")?;
         Ok(stmts)
+    }
+
+    fn error_catch_arm(&mut self) -> Result<ErrorCatchArm, CompileError> {
+        let span = self.advance().span;
+        let (namespace, _) = self.ident()?;
+        self.expect(Kind::Dot, "expected `.` after catch plugin alias")?;
+        let (error_name, _) = self.ident()?;
+        self.expect(Kind::Dot, "expected `.` after catch error type")?;
+        let (variant, _) = self.ident()?;
+        let mut bindings = Vec::new();
+        if self.take(&Kind::LParen) {
+            if !self.check(&Kind::RParen) {
+                loop {
+                    bindings.push(self.ident()?.0);
+                    if !self.take(&Kind::Comma) {
+                        break;
+                    }
+                }
+            }
+            self.expect(Kind::RParen, "expected `)` after catch payload bindings")?;
+        }
+        let body = self.block_stmts()?;
+        Ok(ErrorCatchArm {
+            namespace,
+            error_name,
+            variant,
+            bindings,
+            body,
+            span,
+        })
+    }
+
+    fn native_event_handler(&mut self) -> Result<(Vec<String>, Vec<Stmt>), CompileError> {
+        self.expect(Kind::LBrace, "expected `{` to open native event handler")?;
+        let parameter_start = self.cursor;
+        let mut parameters = Vec::new();
+        if matches!(&self.peek().kind, Kind::Ident(_)) {
+            loop {
+                parameters.push(self.ident()?.0);
+                if !self.take(&Kind::Comma) {
+                    break;
+                }
+            }
+        }
+        let has_arrow =
+            !parameters.is_empty() && self.take(&Kind::Minus) && self.take(&Kind::Greater);
+        if !has_arrow {
+            self.cursor = parameter_start;
+            parameters.clear();
+        }
+        let actions = self.statements_after_open(false)?;
+        Ok((parameters, actions))
     }
 
     fn expr(&mut self) -> Result<Expr, CompileError> {
@@ -2538,4 +2746,254 @@ fn is_ident_start(character: char) -> bool {
 
 fn is_ident_continue(character: char) -> bool {
     is_ident_start(character) || character.is_ascii_digit()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::{Expr, Node, Stmt};
+
+    #[test]
+    fn parses_plugin_import_alias_before_app_declaration() {
+        let app = crate::parse(
+            r#"plugin "./video-player" as Video
+            app Demo {
+                body { Text("ready") }
+            }"#,
+        )
+        .expect("valid plugin import and app syntax");
+
+        assert_eq!(app.plugins.len(), 1);
+        assert_eq!(app.plugins[0].path, "./video-player");
+        assert_eq!(app.plugins[0].namespace, "Video");
+    }
+
+    #[test]
+    fn parses_qualified_native_class_component_parameter_types() {
+        let app = crate::parse(
+            r#"
+            component PlayerSurface(player: Video.VideoPlayer) {
+                body { Text("player") }
+            }
+            app Demo {
+                body { PlayerSurface(player: player) }
+            }
+            "#,
+        )
+        .expect("qualified native class types should parse in component parameters");
+
+        assert!(matches!(
+            &app.components[0].parameters[0].ty,
+            crate::ast::TypeSyntax::Named(name, _) if name == "Video.VideoPlayer"
+        ));
+    }
+
+    #[test]
+    fn parses_native_property_assignment_in_action() {
+        let app = crate::parse(
+            r#"app Demo {
+                let player = Player()
+                body {
+                    Button("Set volume") {
+                        player.volume = 0.5
+                    }
+                }
+            }"#,
+        )
+        .expect("valid app syntax");
+
+        let Node::Button { actions, .. } = &app.body[0] else {
+            panic!("expected a button node");
+        };
+        assert!(matches!(
+            &actions[0],
+            Stmt::NativePropertyAssign {
+                receiver: Expr::Name(receiver, _),
+                property,
+                value: Expr::Number(raw, _),
+                ..
+            } if receiver == "player" && property == "volume" && raw == "0.5"
+        ));
+    }
+
+    #[test]
+    fn parses_try_catch_action_blocks() {
+        let app = crate::parse(
+            r#"
+            app Demo {
+                state failed = false
+                body {
+                    Button("Load") {
+                        try {
+                            Download.fetch()
+                        } catch {
+                            failed = true
+                        }
+                    }
+                }
+            }
+            "#,
+        )
+        .expect("try/catch action blocks should parse");
+
+        let Node::Button { actions, .. } = &app.body[0] else {
+            panic!("expected a button node");
+        };
+        assert!(
+            matches!(actions.as_slice(), [Stmt::TryCatch { body, error_catches, catch_body, .. }]
+            if matches!(body.as_slice(), [Stmt::Expression { .. }])
+                && error_catches.is_empty()
+                && matches!(catch_body.as_deref(), Some([Stmt::Assign { name, .. }]) if name == "failed"))
+        );
+    }
+
+    #[test]
+    fn parses_typed_error_catch_variants_and_payload_bindings() {
+        let app = crate::parse(
+            r#"
+            app Demo {
+                state failed = false
+                state message = ""
+                body {
+                    Button("Load") {
+                        try {
+                            await Video.prepare()
+                        } catch {
+                            case Video.PlayerError.invalidUrl {
+                                failed = true
+                            }
+                            case Video.PlayerError.decodingFailed(message) {
+                                message = message
+                            }
+                        }
+                    }
+                }
+            }
+            "#,
+        )
+        .expect("typed error catch cases should parse");
+
+        let Node::Button { actions, .. } = &app.body[0] else {
+            panic!("expected a button node");
+        };
+        let [
+            Stmt::TryCatch {
+                error_catches,
+                catch_body,
+                ..
+            },
+        ] = actions.as_slice()
+        else {
+            panic!("expected a typed try/catch action");
+        };
+        assert_eq!(error_catches.len(), 2);
+        assert_eq!(error_catches[0].namespace, "Video");
+        assert_eq!(error_catches[0].error_name, "PlayerError");
+        assert_eq!(error_catches[0].variant, "invalidUrl");
+        assert!(error_catches[0].bindings.is_empty());
+        assert_eq!(error_catches[1].variant, "decodingFailed");
+        assert_eq!(error_catches[1].bindings, ["message"]);
+        assert!(catch_body.is_none());
+    }
+
+    #[test]
+    fn parses_qualified_service_calls_in_action_blocks() {
+        let app = crate::parse(
+            r#"app Demo {
+                body {
+                    Button("Register") {
+                        Push.register()
+                    }
+                }
+            }"#,
+        )
+        .expect("valid qualified service call");
+        let Node::Button { actions, .. } = &app.body[0] else {
+            panic!("expected a button node");
+        };
+        assert!(matches!(
+            &actions[0],
+            Stmt::Expression {
+                expression: Expr::QualifiedCall { namespace, name, .. },
+                ..
+            } if namespace == "Push" && name == "register"
+        ));
+    }
+
+    #[test]
+    fn parses_instance_event_handlers_with_and_without_payload_bindings() {
+        let app = crate::parse(
+            r#"app Demo {
+                let player = Player()
+                state finished = false
+                body {
+                    OnAppear {
+                        player.ended { finished = true }
+                        player.progressChanged { position, duration ->
+                            finished = position > 0.0 && duration > 0.0
+                        }
+                    }
+                }
+            }"#,
+        )
+        .expect("valid event handler syntax");
+
+        let Node::OnAppear { actions, .. } = &app.body[0] else {
+            panic!("expected an OnAppear node");
+        };
+        assert!(matches!(
+            &actions[0],
+            Stmt::NativeEventSubscribe {
+                receiver: Expr::Name(receiver, _),
+                event,
+                parameters,
+                actions: handler,
+                ..
+            } if receiver == "player" && event == "ended" && parameters.is_empty()
+                && matches!(&handler[0], Stmt::Assign { name, .. } if name == "finished")
+        ));
+        assert!(matches!(
+            &actions[1],
+            Stmt::NativeEventSubscribe {
+                event,
+                parameters,
+                actions: handler,
+                ..
+            } if event == "progressChanged" && parameters == &["position", "duration"]
+                && matches!(&handler[0], Stmt::Assign { name, .. } if name == "finished")
+        ));
+    }
+
+    #[test]
+    fn parses_native_component_event_modifiers() {
+        let app = crate::parse(
+            r#"app Demo {
+                state tapped = false
+                body {
+                    Video.VideoView(player: player, controls: true).onTapped {
+                        tapped = true
+                    }
+                }
+            }"#,
+        )
+        .expect("valid native component event modifier");
+
+        let Node::NativeComponentCall {
+            namespace,
+            name,
+            event_handlers,
+            ..
+        } = &app.body[0]
+        else {
+            panic!("expected a native component call");
+        };
+        assert_eq!(namespace, "Video");
+        assert_eq!(name, "VideoView");
+        assert_eq!(event_handlers.len(), 1);
+        assert_eq!(event_handlers[0].property, "onTapped");
+        assert!(event_handlers[0].parameters.is_empty());
+        assert!(matches!(
+            &event_handlers[0].actions[0],
+            Stmt::Assign { name, .. } if name == "tapped"
+        ));
+    }
 }

@@ -1,18 +1,22 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::walk::any_node;
 use nexa_ir::{
     AccessibilityRole, Action, BottomBarTab, Capitalization, CollectionMutation, DirectionConfig,
     DirectionStyle, Expr, FastListRefresh, FontWeight, HapticStyle, ImageScale, ImageSource,
-    KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis, ListSource, Node, NumericType,
-    ScreenId, StatusBarConfig, StatusBarStyle, TextStyle, Type, WhenCase,
+    KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis, ListSource,
+    NativeComponentEventHandler, Node, NumericType, ScreenId, StatusBarConfig, StatusBarStyle,
+    TextStyle, Type, WhenCase,
 };
 use nexa_syntax::ast;
 
 use super::{
     custom_components::ComponentSignatures,
-    expressions::{FunctionSignatures, infer_expr_type, lower_expr, type_name},
+    expressions::{
+        FunctionSignatures, functions_with_error_handling, infer_expr_type, lower_expr,
+        plugin_error_variant, type_name,
+    },
     styles::{lower_style, optional_color, optional_dimension, parse_color_literal},
     themes::ThemeSymbols,
 };
@@ -33,6 +37,7 @@ pub(super) fn lower_nodes(
     themes: &ThemeSymbols,
     components: &ComponentSignatures,
     functions: &FunctionSignatures,
+    native_aliases: &HashMap<String, String>,
     allow_navigation_stack: bool,
     allow_navigation_back: bool,
     target: Target,
@@ -53,6 +58,7 @@ pub(super) fn lower_nodes(
                         themes,
                         components,
                         functions,
+                        native_aliases,
                         allow_navigation_stack,
                         allow_navigation_back,
                         target,
@@ -69,6 +75,7 @@ pub(super) fn lower_nodes(
                     themes,
                     components,
                     functions,
+                    native_aliases,
                     allow_navigation,
                     allow_navigation_back,
                     target,
@@ -93,6 +100,7 @@ pub(super) fn lower_node(
     themes: &ThemeSymbols,
     components: &ComponentSignatures,
     functions: &FunctionSignatures,
+    native_aliases: &HashMap<String, String>,
     allow_navigation_stack: bool,
     allow_navigation_back: bool,
     target: Target,
@@ -118,20 +126,50 @@ pub(super) fn lower_node(
             asynchronous,
             ..
         } => Ok(Node::OnAppear {
-            actions: lower_actions(actions, symbols, functions, asynchronous)?,
+            actions: lower_actions_with_aliases(
+                actions,
+                symbols,
+                functions,
+                asynchronous,
+                native_aliases,
+            )?,
             asynchronous,
         }),
         ast::Node::OnDisappear { actions, .. } => Ok(Node::OnDisappear {
-            actions: lower_actions(actions, symbols, functions, false)?,
+            actions: lower_actions_with_aliases(
+                actions,
+                symbols,
+                functions,
+                false,
+                native_aliases,
+            )?,
         }),
         ast::Node::OnActive { actions, .. } => Ok(Node::OnActive {
-            actions: lower_actions(actions, symbols, functions, false)?,
+            actions: lower_actions_with_aliases(
+                actions,
+                symbols,
+                functions,
+                false,
+                native_aliases,
+            )?,
         }),
         ast::Node::OnInactive { actions, .. } => Ok(Node::OnInactive {
-            actions: lower_actions(actions, symbols, functions, false)?,
+            actions: lower_actions_with_aliases(
+                actions,
+                symbols,
+                functions,
+                false,
+                native_aliases,
+            )?,
         }),
         ast::Node::OnBackground { actions, .. } => Ok(Node::OnBackground {
-            actions: lower_actions(actions, symbols, functions, false)?,
+            actions: lower_actions_with_aliases(
+                actions,
+                symbols,
+                functions,
+                false,
+                native_aliases,
+            )?,
         }),
         ast::Node::Layout {
             kind,
@@ -161,6 +199,7 @@ pub(super) fn lower_node(
                 themes,
                 components,
                 functions,
+                native_aliases,
                 false,
                 allow_navigation_back,
                 target,
@@ -238,7 +277,8 @@ pub(super) fn lower_node(
             let disabled = disabled
                 .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions, false))
                 .transpose()?;
-            let lowered = lower_actions(actions, symbols, functions, false)?;
+            let lowered =
+                lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)?;
             Ok(Node::Button {
                 label,
                 icon,
@@ -340,7 +380,13 @@ pub(super) fn lower_node(
                 capitalization,
                 focused,
                 max_length,
-                actions: lower_actions(actions, symbols, functions, false)?,
+                actions: lower_actions_with_aliases(
+                    actions,
+                    symbols,
+                    functions,
+                    false,
+                    native_aliases,
+                )?,
             })
         }
         ast::Node::Switch { value, label, span } => {
@@ -438,12 +484,20 @@ pub(super) fn lower_node(
                 themes,
                 components,
                 functions,
+                native_aliases,
                 false,
                 allow_navigation_back,
                 target,
             )?;
-            let actions = lower_actions(actions, symbols, functions, false)?;
-            let long_press_actions = lower_actions(long_press_actions, symbols, functions, false)?;
+            let actions =
+                lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)?;
+            let long_press_actions = lower_actions_with_aliases(
+                long_press_actions,
+                symbols,
+                functions,
+                false,
+                native_aliases,
+            )?;
             Ok(Node::Pressable {
                 disabled,
                 haptic,
@@ -521,6 +575,7 @@ pub(super) fn lower_node(
                 themes,
                 components,
                 functions,
+                native_aliases,
                 false,
                 allow_navigation_back,
                 target,
@@ -553,6 +608,7 @@ pub(super) fn lower_node(
                 themes,
                 components,
                 functions,
+                native_aliases,
                 false,
                 allow_navigation_back,
                 target,
@@ -622,6 +678,7 @@ pub(super) fn lower_node(
                 themes,
                 components,
                 functions,
+                native_aliases,
                 false,
                 allow_navigation_back,
                 target,
@@ -649,6 +706,7 @@ pub(super) fn lower_node(
                 themes,
                 components,
                 functions,
+                native_aliases,
                 false,
                 allow_navigation_back,
                 target,
@@ -673,6 +731,7 @@ pub(super) fn lower_node(
                 themes,
                 components,
                 functions,
+                native_aliases,
                 false,
                 allow_navigation_back,
                 target,
@@ -703,11 +762,13 @@ pub(super) fn lower_node(
                 themes,
                 components,
                 functions,
+                native_aliases,
                 false,
                 allow_navigation_back,
                 target,
             )?;
-            let actions = lower_actions(actions, symbols, functions, false)?;
+            let actions =
+                lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)?;
             if lowered_children.len() == 1 {
                 let mut child = lowered_children.pop().expect("one lowered refresh child");
                 if let Node::FastList { refresh, .. } = &mut child {
@@ -776,6 +837,7 @@ pub(super) fn lower_node(
                     themes,
                     components,
                     functions,
+                    native_aliases,
                     false,
                     allow_navigation_back,
                     target,
@@ -1079,6 +1141,7 @@ pub(super) fn lower_node(
                 themes,
                 components,
                 functions,
+                native_aliases,
                 false,
                 allow_navigation_back,
                 target,
@@ -1102,10 +1165,14 @@ pub(super) fn lower_node(
                 ));
             }
             let on_end_reached = on_end_reached
-                .map(|actions| lower_actions(actions, symbols, functions, false))
+                .map(|actions| {
+                    lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)
+                })
                 .transpose()?;
             let on_scroll = on_scroll
-                .map(|actions| lower_actions(actions, symbols, functions, false))
+                .map(|actions| {
+                    lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)
+                })
                 .transpose()?;
             let sticky_header = sticky_header
                 .map(|header| {
@@ -1116,6 +1183,7 @@ pub(super) fn lower_node(
                         themes,
                         components,
                         functions,
+                        native_aliases,
                         false,
                         allow_navigation_back,
                         target,
@@ -1138,6 +1206,7 @@ pub(super) fn lower_node(
                         themes,
                         components,
                         functions,
+                        native_aliases,
                         false,
                         allow_navigation_back,
                         target,
@@ -1175,6 +1244,7 @@ pub(super) fn lower_node(
                 themes,
                 components,
                 functions,
+                native_aliases,
                 false,
                 allow_navigation_back,
                 target,
@@ -1188,6 +1258,7 @@ pub(super) fn lower_node(
                         themes,
                         components,
                         functions,
+                        native_aliases,
                         false,
                         allow_navigation_back,
                         target,
@@ -1249,6 +1320,7 @@ pub(super) fn lower_node(
                     themes,
                     components,
                     functions,
+                    native_aliases,
                     false,
                     allow_navigation_back,
                     target,
@@ -1265,6 +1337,7 @@ pub(super) fn lower_node(
                 themes,
                 components,
                 functions,
+                native_aliases,
                 false,
                 allow_navigation_back,
                 target,
@@ -1330,6 +1403,7 @@ pub(super) fn lower_node(
                         themes,
                         components,
                         functions,
+                        native_aliases,
                         false,
                         allow_navigation_back,
                         target,
@@ -1354,6 +1428,7 @@ pub(super) fn lower_node(
             name,
             mut arguments,
             children,
+            event_handlers,
             span,
         } => {
             let qualified_name = format!("{namespace}.{name}");
@@ -1366,14 +1441,37 @@ pub(super) fn lower_node(
                     format!("`{qualified_name}` is not a native component"),
                 ));
             }
-            if children.is_some() {
-                return Err(CompileError::new(
-                    span,
-                    format!(
-                        "native component `{qualified_name}` does not accept a child block yet"
-                    ),
-                ));
-            }
+            let lowered_children = match (signature.has_content_slot, children) {
+                (true, Some(children)) => Some(lower_nodes(
+                    children,
+                    symbols,
+                    screen_ids,
+                    themes,
+                    components,
+                    functions,
+                    native_aliases,
+                    allow_navigation_stack,
+                    allow_navigation_back,
+                    target,
+                )?),
+                (true, None) => {
+                    return Err(CompileError::new(
+                        span,
+                        format!(
+                            "native component `{qualified_name}` requires a child block for its content slot"
+                        ),
+                    ));
+                }
+                (false, Some(_)) => {
+                    return Err(CompileError::new(
+                        span,
+                        format!(
+                            "native component `{qualified_name}` does not declare a content slot"
+                        ),
+                    ));
+                }
+                (false, None) => None,
+            };
             for argument_name in arguments.keys() {
                 if !signature
                     .parameters
@@ -1390,24 +1488,97 @@ pub(super) fn lower_node(
             }
             let mut lowered_arguments = Vec::with_capacity(signature.parameters.len());
             for (parameter, ty) in &signature.parameters {
-                let argument = arguments.remove(parameter).ok_or_else(|| {
-                    CompileError::new(
+                let Some(argument) = arguments.remove(parameter) else {
+                    if let Some(default) = signature.defaults.get(parameter) {
+                        lowered_arguments.push((
+                            parameter.clone(),
+                            lower_expr(default, Some(ty), symbols, functions, false)?,
+                        ));
+                        continue;
+                    }
+                    return Err(CompileError::new(
                         span,
                         format!(
                             "native component `{qualified_name}` requires property `{parameter}`"
                         ),
-                    )
-                })?;
+                    ));
+                };
                 lowered_arguments.push((
                     parameter.clone(),
                     lower_expr(&argument, Some(ty), symbols, functions, false)?,
                 ));
             }
+            let mut lowered_events = Vec::with_capacity(event_handlers.len());
+            let mut seen_events = HashSet::with_capacity(event_handlers.len());
+            for handler in event_handlers {
+                if !seen_events.insert(handler.property.clone()) {
+                    return Err(CompileError::new(
+                        handler.span,
+                        format!(
+                            "native component callback `{}` is subscribed more than once",
+                            handler.property
+                        ),
+                    ));
+                }
+                let Some(event) = signature
+                    .events
+                    .iter()
+                    .find(|event| event.property == handler.property)
+                else {
+                    return Err(CompileError::new(
+                        handler.span,
+                        format!(
+                            "native component `{qualified_name}` has no event callback `{}`",
+                            handler.property
+                        ),
+                    ));
+                };
+                if handler.parameters.len() != event.parameters.len() {
+                    return Err(CompileError::new(
+                        handler.span,
+                        format!(
+                            "native component event `{qualified_name}.{}` provides {} value(s), but handler binds {}",
+                            handler.property,
+                            event.parameters.len(),
+                            handler.parameters.len()
+                        ),
+                    ));
+                }
+                let mut event_symbols = symbols.clone();
+                let mut unique_parameters = HashSet::with_capacity(handler.parameters.len());
+                for (parameter_name, (_, ty)) in handler.parameters.iter().zip(&event.parameters) {
+                    if !unique_parameters.insert(parameter_name.as_str()) {
+                        return Err(CompileError::new(
+                            handler.span,
+                            format!(
+                                "native component event handler binds `{parameter_name}` more than once"
+                            ),
+                        ));
+                    }
+                    if symbols.contains_key(parameter_name) {
+                        return Err(CompileError::new(
+                            handler.span,
+                            format!(
+                                "native component event binding `{parameter_name}` shadows an existing value"
+                            ),
+                        ));
+                    }
+                    event_symbols.insert(parameter_name.clone(), (ty.clone(), false));
+                }
+                let actions =
+                    lower_actions_with_depth(handler.actions, &event_symbols, functions, false, 0)?;
+                lowered_events.push(NativeComponentEventHandler {
+                    property: handler.property,
+                    parameters: handler.parameters,
+                    actions,
+                });
+            }
             Ok(Node::NativeComponentCall {
                 namespace,
                 name,
                 arguments: lowered_arguments,
-                children: None,
+                children: lowered_children,
+                event_handlers: lowered_events,
             })
         }
     }
@@ -1670,13 +1841,14 @@ fn lower_screen_target(
     Ok((id, lowered))
 }
 
-fn lower_actions(
+fn lower_actions_with_aliases(
     actions: Vec<ast::Stmt>,
     symbols: &HashMap<String, (Type, bool)>,
     functions: &FunctionSignatures,
     allow_await: bool,
+    native_aliases: &HashMap<String, String>,
 ) -> Result<Vec<Action>, CompileError> {
-    lower_actions_with_depth(actions, symbols, functions, allow_await, 0)
+    lower_actions_with_aliases_depth(actions, symbols, functions, allow_await, native_aliases, 0)
 }
 
 fn lower_actions_with_depth(
@@ -1686,17 +1858,58 @@ fn lower_actions_with_depth(
     allow_await: bool,
     loop_depth: usize,
 ) -> Result<Vec<Action>, CompileError> {
+    lower_actions_with_aliases_depth(
+        actions,
+        symbols,
+        functions,
+        allow_await,
+        &HashMap::new(),
+        loop_depth,
+    )
+}
+
+fn lower_actions_with_aliases_depth(
+    actions: Vec<ast::Stmt>,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+    native_aliases: &HashMap<String, String>,
+    loop_depth: usize,
+) -> Result<Vec<Action>, CompileError> {
+    let mut disposed_instances = HashSet::new();
+    lower_actions_with_disposal_state(
+        actions,
+        symbols,
+        functions,
+        allow_await,
+        native_aliases,
+        loop_depth,
+        &mut disposed_instances,
+    )
+}
+
+fn lower_actions_with_disposal_state(
+    actions: Vec<ast::Stmt>,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+    allow_await: bool,
+    native_aliases: &HashMap<String, String>,
+    loop_depth: usize,
+    disposed_instances: &mut HashSet<String>,
+) -> Result<Vec<Action>, CompileError> {
     let mut lowered = Vec::with_capacity(actions.len());
     for action in actions {
         match action {
-            ast::Stmt::Expression { expression, .. } => {
-                lowered.push(Action::Expression(lower_expr(
+            ast::Stmt::Expression { expression, span } => {
+                let expression = lower_expr(&expression, None, symbols, functions, allow_await)?;
+                validate_and_record_native_disposal(
                     &expression,
-                    None,
-                    symbols,
+                    disposed_instances,
+                    native_aliases,
                     functions,
-                    allow_await,
-                )?));
+                    span,
+                )?;
+                lowered.push(Action::Expression(expression));
             }
             ast::Stmt::Let { span, .. } => {
                 return Err(CompileError::new(
@@ -1715,7 +1928,209 @@ fn lower_actions_with_depth(
                     ));
                 }
                 let value = lower_expr(&value, Some(ty), symbols, functions, allow_await)?;
+                validate_and_record_native_disposal(
+                    &value,
+                    disposed_instances,
+                    native_aliases,
+                    functions,
+                    span,
+                )?;
+                if matches!(ty, Type::Plugin { .. }) && class_has_dispose_method(ty, functions) {
+                    if matches!(&value, Expr::State(existing, _) if existing == &name) {
+                        // Reassigning a binding to itself preserves its identity.
+                    } else if is_native_constructor_for(&value, ty) {
+                        let identity = native_object_identity(&name, native_aliases);
+                        if let Some((alias, _)) = native_aliases
+                            .iter()
+                            .find(|(_, root)| root.as_str() == identity)
+                        {
+                            return Err(CompileError::new(
+                                span,
+                                format!(
+                                    "native class binding `{name}` cannot be replaced while alias `{alias}` may still refer to its disposed instance"
+                                ),
+                            ));
+                        }
+                        if !disposed_instances.remove(&identity) {
+                            return Err(CompileError::new(
+                                span,
+                                format!(
+                                    "native class instance `{name}` must be disposed before it is replaced"
+                                ),
+                            ));
+                        }
+                    } else {
+                        return Err(CompileError::new(
+                            span,
+                            format!(
+                                "native class instance `{name}` can only be reset with a fresh constructor after disposal"
+                            ),
+                        ));
+                    }
+                }
                 lowered.push(Action::Assign { name, value });
+            }
+            ast::Stmt::NativePropertyAssign {
+                receiver,
+                property,
+                value,
+                span,
+            } => {
+                let Some(receiver_type) = infer_expr_type(&receiver, symbols, functions) else {
+                    return Err(CompileError::new(
+                        span,
+                        "native property assignment requires a native class instance",
+                    ));
+                };
+                let Type::Plugin { name: class, .. } = &receiver_type else {
+                    return Err(CompileError::new(
+                        span,
+                        "native property assignment requires a native class instance",
+                    ));
+                };
+                let Some(signature) = functions.get(&format!("{class}.#property.{property}"))
+                else {
+                    return Err(CompileError::new(
+                        span,
+                        format!("native class `{class}` has no property `{property}`"),
+                    ));
+                };
+                if signature.receiver.as_ref() != Some(&receiver_type) {
+                    return Err(CompileError::new(
+                        span,
+                        format!("property `{property}` is not available on `{class}`"),
+                    ));
+                }
+                if !signature.is_mutable_property {
+                    return Err(CompileError::new(
+                        span,
+                        format!("native property `{class}.{property}` is read-only"),
+                    ));
+                }
+                let receiver = lower_expr(
+                    &receiver,
+                    Some(&receiver_type),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?;
+                validate_and_record_native_disposal(
+                    &receiver,
+                    disposed_instances,
+                    native_aliases,
+                    functions,
+                    span,
+                )?;
+                let value = lower_expr(
+                    &value,
+                    Some(&signature.return_type),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?;
+                validate_and_record_native_disposal(
+                    &value,
+                    disposed_instances,
+                    native_aliases,
+                    functions,
+                    span,
+                )?;
+                lowered.push(Action::NativePropertyAssign {
+                    receiver,
+                    property,
+                    value,
+                });
+            }
+            ast::Stmt::NativeEventSubscribe {
+                receiver,
+                event,
+                parameters,
+                actions,
+                span,
+            } => {
+                let Some(receiver_type) = infer_expr_type(&receiver, symbols, functions) else {
+                    return Err(CompileError::new(
+                        span,
+                        "native event subscription requires a native class instance",
+                    ));
+                };
+                let Type::Plugin { name: class, .. } = &receiver_type else {
+                    return Err(CompileError::new(
+                        span,
+                        "native event subscription requires a native class instance",
+                    ));
+                };
+                let Some(signature) = functions.get(&format!("{class}.#event.{event}")) else {
+                    return Err(CompileError::new(
+                        span,
+                        format!("native class `{class}` has no event `{event}`"),
+                    ));
+                };
+                if signature.receiver.as_ref() != Some(&receiver_type) {
+                    return Err(CompileError::new(
+                        span,
+                        format!("event `{event}` is not available on `{class}`"),
+                    ));
+                }
+                if parameters.len() != signature.parameters.len() {
+                    return Err(CompileError::new(
+                        span,
+                        format!(
+                            "native event `{class}.{event}` provides {} value(s), but handler binds {}",
+                            signature.parameters.len(),
+                            parameters.len()
+                        ),
+                    ));
+                }
+                let mut event_symbols = symbols.clone();
+                let mut unique_parameters =
+                    std::collections::HashSet::with_capacity(parameters.len());
+                for (name, (_, ty)) in parameters.iter().zip(&signature.parameters) {
+                    if !unique_parameters.insert(name.as_str()) {
+                        return Err(CompileError::new(
+                            span,
+                            format!("native event handler binds `{name}` more than once"),
+                        ));
+                    }
+                    if symbols.contains_key(name) {
+                        return Err(CompileError::new(
+                            span,
+                            format!(
+                                "native event handler binding `{name}` shadows an existing value"
+                            ),
+                        ));
+                    }
+                    event_symbols.insert(name.clone(), (ty.clone(), false));
+                }
+                let receiver = lower_expr(
+                    &receiver,
+                    Some(&receiver_type),
+                    symbols,
+                    functions,
+                    allow_await,
+                )?;
+                validate_and_record_native_disposal(
+                    &receiver,
+                    disposed_instances,
+                    native_aliases,
+                    functions,
+                    span,
+                )?;
+                let callback_functions = functions_with_error_handling(functions, false);
+                let actions = lower_actions_with_aliases_depth(
+                    actions,
+                    &event_symbols,
+                    &callback_functions,
+                    false,
+                    native_aliases,
+                    0,
+                )?;
+                lowered.push(Action::NativeEventSubscribe {
+                    receiver,
+                    property: nexa_plugin_idl::event_callback_property(&event),
+                    parameters,
+                    actions,
+                });
             }
             ast::Stmt::CollectionMutation {
                 name,
@@ -1734,13 +2149,16 @@ fn lower_actions_with_depth(
                         named_arguments: std::collections::BTreeMap::new(),
                         span,
                     };
-                    lowered.push(Action::Expression(lower_expr(
+                    let expression =
+                        lower_expr(&expression, None, symbols, functions, allow_await)?;
+                    validate_and_record_native_disposal(
                         &expression,
-                        None,
-                        symbols,
+                        disposed_instances,
+                        native_aliases,
                         functions,
-                        allow_await,
-                    )?));
+                        span,
+                    )?;
+                    lowered.push(Action::Expression(expression));
                     continue;
                 }
                 if !mutable {
@@ -1816,6 +2234,15 @@ fn lower_actions_with_depth(
                         lower_expr(argument, Some(expected), symbols, functions, allow_await)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                for argument in &arguments {
+                    validate_and_record_native_disposal(
+                        argument,
+                        disposed_instances,
+                        native_aliases,
+                        functions,
+                        span,
+                    )?;
+                }
                 lowered.push(Action::CollectionMutation {
                     name,
                     operation,
@@ -1826,7 +2253,7 @@ fn lower_actions_with_depth(
                 condition,
                 then_branch,
                 else_branch,
-                ..
+                span,
             } => {
                 let condition = lower_expr(
                     &condition,
@@ -1835,26 +2262,43 @@ fn lower_actions_with_depth(
                     functions,
                     allow_await,
                 )?;
+                validate_and_record_native_disposal(
+                    &condition,
+                    disposed_instances,
+                    native_aliases,
+                    functions,
+                    span,
+                )?;
+                let mut then_disposed = disposed_instances.clone();
+                let then_branch = lower_actions_with_disposal_state(
+                    then_branch,
+                    symbols,
+                    functions,
+                    allow_await,
+                    native_aliases,
+                    loop_depth,
+                    &mut then_disposed,
+                )?;
+                let mut else_disposed = disposed_instances.clone();
+                let else_branch = else_branch
+                    .map(|branch| {
+                        lower_actions_with_disposal_state(
+                            branch,
+                            symbols,
+                            functions,
+                            allow_await,
+                            native_aliases,
+                            loop_depth,
+                            &mut else_disposed,
+                        )
+                    })
+                    .transpose()?;
+                disposed_instances.extend(then_disposed);
+                disposed_instances.extend(else_disposed);
                 lowered.push(Action::If {
                     condition,
-                    then_branch: lower_actions_with_depth(
-                        then_branch,
-                        symbols,
-                        functions,
-                        allow_await,
-                        loop_depth,
-                    )?,
-                    else_branch: else_branch
-                        .map(|branch| {
-                            lower_actions_with_depth(
-                                branch,
-                                symbols,
-                                functions,
-                                allow_await,
-                                loop_depth,
-                            )
-                        })
-                        .transpose()?,
+                    then_branch,
+                    else_branch,
                 });
             }
             ast::Stmt::For {
@@ -1919,15 +2363,26 @@ fn lower_actions_with_depth(
                     )?;
                     (iterable, element_type)
                 };
+                validate_and_record_native_disposal(
+                    &iterable,
+                    disposed_instances,
+                    native_aliases,
+                    functions,
+                    span,
+                )?;
                 let mut loop_symbols = symbols.clone();
                 loop_symbols.insert(name.clone(), (element_type, false));
-                let body = lower_actions_with_depth(
+                let mut body_disposed = disposed_instances.clone();
+                let body = lower_actions_with_disposal_state(
                     body,
                     &loop_symbols,
                     functions,
                     allow_await,
+                    native_aliases,
                     loop_depth + 1,
+                    &mut body_disposed,
                 )?;
+                disposed_instances.extend(body_disposed);
                 lowered.push(Action::For {
                     name,
                     iterable,
@@ -1969,16 +2424,27 @@ fn lower_actions_with_depth(
                     functions,
                     allow_await,
                 )?;
+                validate_and_record_native_disposal(
+                    &iterable,
+                    disposed_instances,
+                    native_aliases,
+                    functions,
+                    span,
+                )?;
                 let mut loop_symbols = symbols.clone();
                 loop_symbols.insert(key_name.clone(), ((*key_type).clone(), false));
                 loop_symbols.insert(value_name.clone(), ((*value_type).clone(), false));
-                let body = lower_actions_with_depth(
+                let mut body_disposed = disposed_instances.clone();
+                let body = lower_actions_with_disposal_state(
                     body,
                     &loop_symbols,
                     functions,
                     allow_await,
+                    native_aliases,
                     loop_depth + 1,
+                    &mut body_disposed,
                 )?;
+                disposed_instances.extend(body_disposed);
                 lowered.push(Action::ForMap {
                     key_name,
                     value_name,
@@ -1987,7 +2453,9 @@ fn lower_actions_with_depth(
                 });
             }
             ast::Stmt::While {
-                condition, body, ..
+                condition,
+                body,
+                span,
             } => {
                 let condition = lower_expr(
                     &condition,
@@ -1996,14 +2464,150 @@ fn lower_actions_with_depth(
                     functions,
                     allow_await,
                 )?;
-                let body = lower_actions_with_depth(
+                validate_and_record_native_disposal(
+                    &condition,
+                    disposed_instances,
+                    native_aliases,
+                    functions,
+                    span,
+                )?;
+                let mut body_disposed = disposed_instances.clone();
+                let body = lower_actions_with_disposal_state(
                     body,
                     symbols,
                     functions,
                     allow_await,
+                    native_aliases,
                     loop_depth + 1,
+                    &mut body_disposed,
                 )?;
+                disposed_instances.extend(body_disposed);
                 lowered.push(Action::While { condition, body });
+            }
+            ast::Stmt::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+                span,
+            } => {
+                let handled_functions = functions_with_error_handling(functions, true);
+                let mut body_disposed = disposed_instances.clone();
+                let body = lower_actions_with_disposal_state(
+                    body,
+                    symbols,
+                    &handled_functions,
+                    allow_await,
+                    native_aliases,
+                    loop_depth,
+                    &mut body_disposed,
+                )?;
+                disposed_instances.extend(body_disposed);
+                let mut seen_error_variants = HashSet::with_capacity(error_catches.len());
+                let mut lowered_error_catches = Vec::with_capacity(error_catches.len());
+                for arm in error_catches {
+                    let key = format!("{}.{}.{}", arm.namespace, arm.error_name, arm.variant);
+                    if !seen_error_variants.insert(key.clone()) {
+                        return Err(CompileError::new(
+                            arm.span,
+                            format!("error variant `{key}` is caught more than once"),
+                        ));
+                    }
+                    let variant = plugin_error_variant(
+                        functions,
+                        &arm.namespace,
+                        &arm.error_name,
+                        &arm.variant,
+                    )
+                    .ok_or_else(|| {
+                        CompileError::new(
+                            arm.span,
+                            format!(
+                                "unknown plugin error variant `{}`",
+                                format!("{}.{}.{}", arm.namespace, arm.error_name, arm.variant)
+                            ),
+                        )
+                    })?;
+                    if variant.parameters.len() != arm.bindings.len() {
+                        return Err(CompileError::new(
+                            arm.span,
+                            format!(
+                                "error variant `{}.{}` provides {} payload value(s), but the catch case binds {}",
+                                arm.error_name,
+                                arm.variant,
+                                variant.parameters.len(),
+                                arm.bindings.len()
+                            ),
+                        ));
+                    }
+                    let mut arm_symbols = symbols.clone();
+                    let catch_parameters = variant
+                        .parameters
+                        .iter()
+                        .zip(&arm.bindings)
+                        .map(|((payload_name, payload_type), binding)| {
+                            (binding.clone(), payload_name.clone(), payload_type.clone())
+                        })
+                        .collect::<Vec<_>>();
+                    for (binding, _, payload_type) in &catch_parameters {
+                        if arm_symbols
+                            .insert(binding.clone(), (payload_type.clone(), false))
+                            .is_some()
+                        {
+                            return Err(CompileError::new(
+                                arm.span,
+                                format!(
+                                    "catch payload `{binding}` conflicts with an existing value"
+                                ),
+                            ));
+                        }
+                    }
+                    let mut arm_disposed = disposed_instances.clone();
+                    let actions = lower_actions_with_disposal_state(
+                        arm.body,
+                        &arm_symbols,
+                        functions,
+                        allow_await,
+                        native_aliases,
+                        loop_depth,
+                        &mut arm_disposed,
+                    )?;
+                    disposed_instances.extend(arm_disposed);
+                    lowered_error_catches.push(nexa_ir::ErrorCatchArm {
+                        namespace: arm.namespace,
+                        error_type: arm.error_name,
+                        variant: arm.variant,
+                        parameters: catch_parameters,
+                        body: actions,
+                    });
+                }
+                let catch_body = catch_body
+                    .map(|catch_body| {
+                        let mut catch_disposed = disposed_instances.clone();
+                        let lowered = lower_actions_with_disposal_state(
+                            catch_body,
+                            symbols,
+                            functions,
+                            allow_await,
+                            native_aliases,
+                            loop_depth,
+                            &mut catch_disposed,
+                        )?;
+                        disposed_instances.extend(catch_disposed);
+                        Ok(lowered)
+                    })
+                    .transpose()?;
+                validate_typed_error_recovery(
+                    &body,
+                    &lowered_error_catches,
+                    catch_body.is_some(),
+                    functions,
+                    span,
+                )?;
+                lowered.push(Action::TryCatch {
+                    body,
+                    error_catches: lowered_error_catches,
+                    catch_body,
+                });
             }
             ast::Stmt::Break { span } => {
                 if loop_depth == 0 {
@@ -2032,6 +2636,227 @@ fn lower_actions_with_depth(
         }
     }
     Ok(lowered)
+}
+
+pub(super) fn class_has_dispose_method(ty: &Type, functions: &FunctionSignatures) -> bool {
+    let Type::Plugin { name, .. } = ty else {
+        return false;
+    };
+    functions
+        .get(&format!("{name}.dispose"))
+        .is_some_and(|signature| {
+            signature.receiver.as_ref() == Some(ty)
+                && signature.parameters.is_empty()
+                && signature.return_type == Type::Void
+                && !signature.is_async
+                && !signature.is_throwing
+        })
+}
+
+fn validate_typed_error_recovery(
+    actions: &[Action],
+    catches: &[nexa_ir::ErrorCatchArm],
+    has_catch_all: bool,
+    functions: &FunctionSignatures,
+    span: Span,
+) -> Result<(), CompileError> {
+    if has_catch_all {
+        return Ok(());
+    }
+
+    let mut typed_errors = HashMap::new();
+    let mut has_untyped_throw = false;
+    visit_action_expressions(actions, &mut |expression| {
+        let Expr::NativeCall {
+            receiver,
+            namespace,
+            name,
+            is_throwing: true,
+            ..
+        } = expression
+        else {
+            return;
+        };
+        let key = match receiver.as_deref() {
+            Some(Expr::State(
+                _,
+                Type::Plugin {
+                    name: class_name, ..
+                },
+            )) => {
+                format!("{class_name}.{name}")
+            }
+            _ => format!("{namespace}.{name}"),
+        };
+        let Some(error_type) = functions
+            .get(&key)
+            .and_then(|signature| signature.error_type.as_ref())
+        else {
+            has_untyped_throw = true;
+            return;
+        };
+        let name = format!("{}.{}", error_type.namespace, error_type.name);
+        typed_errors
+            .entry(name)
+            .or_insert_with(|| error_type.clone());
+    });
+
+    if has_untyped_throw {
+        return Err(CompileError::new(
+            span,
+            "a catch-all `else` block is required when the try body can throw an untyped error",
+        ));
+    }
+    if typed_errors.len() > 1 {
+        return Err(CompileError::new(
+            span,
+            "a catch-all `else` block is required when the try body can throw more than one error type",
+        ));
+    }
+
+    for (error_name, error_type) in typed_errors {
+        let caught = catches
+            .iter()
+            .filter(|arm| {
+                arm.namespace == error_type.namespace && arm.error_type == error_type.name
+            })
+            .map(|arm| arm.variant.as_str())
+            .collect::<HashSet<_>>();
+        if caught.len() != error_type.variants.len() {
+            return Err(CompileError::new(
+                span,
+                format!(
+                    "catch every variant of `{error_name}` or add an `else` block to handle the remaining errors"
+                ),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn visit_action_expressions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
+    for action in actions {
+        match action {
+            Action::Expression(expression)
+            | Action::Assign {
+                value: expression, ..
+            } => {
+                nexa_ir::walk::walk_expression(expression, visit);
+            }
+            Action::NativePropertyAssign {
+                receiver, value, ..
+            } => {
+                nexa_ir::walk::walk_expression(receiver, visit);
+                nexa_ir::walk::walk_expression(value, visit);
+            }
+            Action::NativeEventSubscribe { receiver, .. } => {
+                nexa_ir::walk::walk_expression(receiver, visit);
+            }
+            Action::CollectionMutation { arguments, .. } => {
+                for argument in arguments {
+                    nexa_ir::walk::walk_expression(argument, visit);
+                }
+            }
+            Action::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                nexa_ir::walk::walk_expression(condition, visit);
+                visit_action_expressions(then_branch, visit);
+                if let Some(else_branch) = else_branch {
+                    visit_action_expressions(else_branch, visit);
+                }
+            }
+            Action::For { iterable, body, .. } | Action::ForMap { iterable, body, .. } => {
+                nexa_ir::walk::walk_expression(iterable, visit);
+                visit_action_expressions(body, visit);
+            }
+            Action::While { condition, body } => {
+                nexa_ir::walk::walk_expression(condition, visit);
+                visit_action_expressions(body, visit);
+            }
+            // Nested try/catch actions own their own error handling scope.
+            Action::TryCatch { .. } | Action::Break | Action::Continue => {}
+        }
+    }
+}
+
+fn is_native_constructor_for(expression: &Expr, ty: &Type) -> bool {
+    matches!(
+        (expression, ty),
+        (
+            Expr::Call {
+                is_constructor: true,
+                return_type,
+                ..
+            },
+            Type::Plugin { .. }
+        ) if return_type == ty
+    )
+}
+
+fn validate_and_record_native_disposal(
+    expression: &Expr,
+    disposed_instances: &mut HashSet<String>,
+    native_aliases: &HashMap<String, String>,
+    functions: &FunctionSignatures,
+    span: Span,
+) -> Result<(), CompileError> {
+    let mut referenced_disposed = HashSet::new();
+    let mut dispose_calls = HashSet::new();
+    nexa_ir::walk::walk_expression(expression, &mut |expression| match expression {
+        Expr::State(name, _) => {
+            let identity = native_object_identity(name, native_aliases);
+            if disposed_instances.contains(&identity) {
+                referenced_disposed.insert(identity);
+            }
+        }
+        Expr::NativeCall {
+            receiver: Some(receiver),
+            name: method,
+            ..
+        } if method == "dispose" => {
+            if let Expr::State(name, ty) = receiver.as_ref()
+                && class_has_dispose_method(ty, functions)
+            {
+                dispose_calls.insert(native_object_identity(name, native_aliases));
+            }
+        }
+        _ => {}
+    });
+
+    for identity in &dispose_calls {
+        if let Some(parameter) = identity.strip_prefix(BORROWED_NATIVE_IDENTITY_PREFIX) {
+            return Err(CompileError::new(
+                span,
+                format!(
+                    "native class component parameter `{parameter}` is borrowed and cannot be disposed here; dispose it from its owning screen or app"
+                ),
+            ));
+        }
+    }
+
+    for name in referenced_disposed {
+        let message = if dispose_calls.contains(&name) {
+            format!("native class instance `{name}` may be disposed more than once")
+        } else {
+            format!("native class instance `{name}` may be used after disposal")
+        };
+        return Err(CompileError::new(span, message));
+    }
+    disposed_instances.extend(dispose_calls);
+    Ok(())
+}
+
+const BORROWED_NATIVE_IDENTITY_PREFIX: &str = "@borrowed-native-parameter:";
+
+fn native_object_identity(name: &str, aliases: &HashMap<String, String>) -> String {
+    aliases
+        .get(name)
+        .cloned()
+        .unwrap_or_else(|| name.to_owned())
 }
 
 fn lower_range_step(
@@ -2179,4 +3004,958 @@ fn is_link_url(value: &str) -> bool {
         return false;
     }
     !remainder.trim().is_empty() && !value.chars().any(char::is_whitespace)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, HashMap};
+
+    use nexa_diagnostics::Span;
+    use nexa_ir::{Action, Expr, NativeComponentEventHandler, NumericType, Type};
+    use nexa_syntax::ast;
+
+    use super::{
+        FunctionSignatures, lower_actions_with_aliases, lower_actions_with_depth, lower_node,
+    };
+    use crate::Target;
+    use crate::semantic::custom_components::{
+        ComponentEventSignature, ComponentSignature, ComponentSignatures,
+    };
+    use crate::semantic::expressions::{
+        FunctionSignature, PluginErrorType, PluginErrorVariant, record_native_alias,
+    };
+    use crate::semantic::themes::ThemeSymbols;
+
+    fn fixture(mutable: bool) -> (HashMap<String, (Type, bool)>, FunctionSignatures) {
+        let player_type = Type::Plugin {
+            namespace: "Video".to_owned(),
+            name: "VideoPlayer".to_owned(),
+        };
+        let symbols = HashMap::from([("player".to_owned(), (player_type.clone(), false))]);
+        let signature = FunctionSignature {
+            parameters: Vec::new(),
+            return_type: Type::Numeric(NumericType::Float64),
+            is_async: false,
+            is_throwing: false,
+            receiver: Some(player_type.clone()),
+            is_constructor: false,
+            is_mutable_property: mutable,
+            error_handling_allowed: false,
+            error_type: None,
+        };
+        let functions = HashMap::from([("VideoPlayer.#property.volume".to_owned(), signature)]);
+        (symbols, functions)
+    }
+
+    fn assignment() -> ast::Stmt {
+        ast::Stmt::NativePropertyAssign {
+            receiver: ast::Expr::Name("player".to_owned(), Span::default()),
+            property: "volume".to_owned(),
+            value: ast::Expr::Number("0.5".to_owned(), Span::default()),
+            span: Span::default(),
+        }
+    }
+
+    fn assignment_with_value(value: ast::Expr) -> ast::Stmt {
+        ast::Stmt::NativePropertyAssign {
+            receiver: ast::Expr::Name("player".to_owned(), Span::default()),
+            property: "volume".to_owned(),
+            value,
+            span: Span::default(),
+        }
+    }
+
+    fn event_fixture() -> (HashMap<String, (Type, bool)>, FunctionSignatures) {
+        let player_type = Type::Plugin {
+            namespace: "Video".to_owned(),
+            name: "VideoPlayer".to_owned(),
+        };
+        let symbols = HashMap::from([("player".to_owned(), (player_type.clone(), false))]);
+        let functions = HashMap::from([(
+            "VideoPlayer.#event.progressChanged".to_owned(),
+            FunctionSignature {
+                parameters: vec![
+                    ("position".to_owned(), Type::Numeric(NumericType::Float64)),
+                    ("duration".to_owned(), Type::Numeric(NumericType::Float64)),
+                ],
+                return_type: Type::Void,
+                is_async: false,
+                is_throwing: false,
+                receiver: Some(player_type),
+                is_constructor: false,
+                is_mutable_property: false,
+                error_handling_allowed: false,
+                error_type: None,
+            },
+        )]);
+        (symbols, functions)
+    }
+
+    fn progress_event(parameters: Vec<String>) -> ast::Stmt {
+        ast::Stmt::NativeEventSubscribe {
+            receiver: ast::Expr::Name("player".to_owned(), Span::default()),
+            event: "progressChanged".to_owned(),
+            parameters,
+            actions: vec![ast::Stmt::Expression {
+                expression: ast::Expr::Name("position".to_owned(), Span::default()),
+                span: Span::default(),
+            }],
+            span: Span::default(),
+        }
+    }
+
+    fn native_component_event_node(property: &str, parameters: Vec<String>) -> ast::Node {
+        ast::Node::NativeComponentCall {
+            namespace: "Video".to_owned(),
+            name: "VideoView".to_owned(),
+            arguments: BTreeMap::new(),
+            children: None,
+            event_handlers: vec![ast::NativeComponentEventHandler {
+                property: property.to_owned(),
+                parameters,
+                actions: vec![ast::Stmt::Expression {
+                    expression: ast::Expr::Name("position".to_owned(), Span::default()),
+                    span: Span::default(),
+                }],
+                span: Span::default(),
+            }],
+            span: Span::default(),
+        }
+    }
+
+    fn native_component_signatures() -> ComponentSignatures {
+        ComponentSignatures::from([(
+            "Video.VideoView".to_owned(),
+            ComponentSignature {
+                parameters: Vec::new(),
+                defaults: HashMap::new(),
+                events: vec![ComponentEventSignature {
+                    property: "onProgressChanged".to_owned(),
+                    parameters: vec![
+                        ("position".to_owned(), Type::Numeric(NumericType::Float64)),
+                        ("duration".to_owned(), Type::Numeric(NumericType::Float64)),
+                    ],
+                }],
+                has_content_slot: false,
+                native: true,
+            },
+        )])
+    }
+
+    fn lower_native_component_event(
+        property: &str,
+        parameters: Vec<String>,
+    ) -> Result<nexa_ir::Node, nexa_diagnostics::CompileError> {
+        lower_node(
+            native_component_event_node(property, parameters),
+            &HashMap::new(),
+            &HashMap::new(),
+            &ThemeSymbols::default(),
+            &native_component_signatures(),
+            &HashMap::new(),
+            &HashMap::new(),
+            false,
+            false,
+            Target::Swift,
+        )
+    }
+
+    fn disposal_fixture() -> (HashMap<String, (Type, bool)>, FunctionSignatures) {
+        let player_type = Type::Plugin {
+            namespace: "Video".to_owned(),
+            name: "VideoPlayer".to_owned(),
+        };
+        let symbols = HashMap::from([("player".to_owned(), (player_type.clone(), false))]);
+        let method = |return_type| FunctionSignature {
+            parameters: Vec::new(),
+            return_type,
+            is_async: false,
+            is_throwing: false,
+            receiver: Some(player_type.clone()),
+            is_constructor: false,
+            is_mutable_property: false,
+            error_handling_allowed: false,
+            error_type: None,
+        };
+        let functions = HashMap::from([
+            ("VideoPlayer.dispose".to_owned(), method(Type::Void)),
+            ("VideoPlayer.play".to_owned(), method(Type::Void)),
+        ]);
+        (symbols, functions)
+    }
+
+    fn native_method_call(method: &str) -> ast::Stmt {
+        native_method_call_on("player", method)
+    }
+
+    fn native_method_call_on(name: &str, method: &str) -> ast::Stmt {
+        ast::Stmt::CollectionMutation {
+            name: name.to_owned(),
+            method: method.to_owned(),
+            arguments: Vec::new(),
+            span: Span::default(),
+        }
+    }
+
+    fn throwing_prepare() -> ast::Expr {
+        ast::Expr::Await(
+            Box::new(ast::Expr::MethodCall {
+                base: Box::new(ast::Expr::Name("player".to_owned(), Span::default())),
+                name: "prepare".to_owned(),
+                arguments: Vec::new(),
+                named_arguments: BTreeMap::new(),
+                span: Span::default(),
+            }),
+            Span::default(),
+        )
+    }
+
+    fn throwing_file_read() -> ast::Expr {
+        let span = Span::default();
+        ast::Expr::Await(
+            Box::new(ast::Expr::QualifiedCall {
+                namespace: "File".to_owned(),
+                name: "readText".to_owned(),
+                arguments: BTreeMap::from([(
+                    "path".to_owned(),
+                    ast::Expr::String("notes.txt".to_owned(), span),
+                )]),
+                span,
+            }),
+            span,
+        )
+    }
+
+    fn throwing_fixture() -> (HashMap<String, (Type, bool)>, FunctionSignatures) {
+        let player_type = Type::Plugin {
+            namespace: "Video".to_owned(),
+            name: "VideoPlayer".to_owned(),
+        };
+        let error_type = PluginErrorType {
+            namespace: "Video".to_owned(),
+            name: "PlayerError".to_owned(),
+            variants: vec![
+                PluginErrorVariant {
+                    name: "invalidUrl".to_owned(),
+                    parameters: Vec::new(),
+                },
+                PluginErrorVariant {
+                    name: "decodingFailed".to_owned(),
+                    parameters: vec![("message".to_owned(), Type::String)],
+                },
+            ],
+        };
+        let signature = |receiver| FunctionSignature {
+            parameters: Vec::new(),
+            return_type: Type::Void,
+            is_async: true,
+            is_throwing: true,
+            receiver,
+            is_constructor: false,
+            is_mutable_property: false,
+            error_handling_allowed: false,
+            error_type: Some(error_type.clone()),
+        };
+        (
+            HashMap::from([
+                ("player".to_owned(), (player_type.clone(), false)),
+                ("failed".to_owned(), (Type::Bool, true)),
+            ]),
+            HashMap::from([(
+                "VideoPlayer.prepare".to_owned(),
+                signature(Some(player_type)),
+            )]),
+        )
+    }
+
+    #[test]
+    fn lowers_mutable_native_property_assignment() {
+        let (symbols, functions) = fixture(true);
+        let actions = lower_actions_with_depth(vec![assignment()], &symbols, &functions, false, 0)
+            .expect("mutable plugin property should be assignable");
+
+        assert!(matches!(
+            &actions[0],
+            Action::NativePropertyAssign {
+                receiver: Expr::State(name, Type::Plugin { name: class, .. }),
+                property,
+                value: Expr::Number { raw, ty: NumericType::Float64 },
+            } if name == "player" && class == "VideoPlayer" && property == "volume" && raw == "0.5"
+        ));
+    }
+
+    #[test]
+    fn rejects_assignment_to_readonly_native_property() {
+        let (symbols, functions) = fixture(false);
+        let error = lower_actions_with_depth(vec![assignment()], &symbols, &functions, false, 0)
+            .expect_err("readonly plugin property must not be assignable");
+        assert!(error.to_string().contains("read-only"));
+    }
+
+    #[test]
+    fn rejects_native_property_assignment_with_the_wrong_type() {
+        let (symbols, functions) = fixture(true);
+        let statement = assignment_with_value(ast::Expr::Bool(true, Span::default()));
+        let error = lower_actions_with_depth(vec![statement], &symbols, &functions, false, 0)
+            .expect_err("a Bool must not be assigned to a Float64 property");
+        assert!(error.to_string().contains("Bool"));
+        assert!(error.to_string().contains("Float64"));
+    }
+
+    #[test]
+    fn lowers_instance_event_with_typed_payload_bindings() {
+        let (symbols, functions) = event_fixture();
+        let actions = lower_actions_with_depth(
+            vec![progress_event(vec![
+                "position".to_owned(),
+                "duration".to_owned(),
+            ])],
+            &symbols,
+            &functions,
+            false,
+            0,
+        )
+        .expect("declared native event should lower");
+
+        assert!(matches!(
+            &actions[0],
+            Action::NativeEventSubscribe {
+                receiver: Expr::State(receiver, Type::Plugin { name: class, .. }),
+                property,
+                parameters,
+                actions: handler,
+            } if receiver == "player" && class == "VideoPlayer"
+                && property == "onProgressChanged"
+                && parameters == &["position", "duration"]
+                && matches!(
+                    &handler[0],
+                    Action::Expression(Expr::State(name, Type::Numeric(NumericType::Float64)))
+                        if name == "position"
+                )
+        ));
+    }
+
+    #[test]
+    fn rejects_event_handlers_with_the_wrong_payload_arity() {
+        let (symbols, functions) = event_fixture();
+        let error = lower_actions_with_depth(
+            vec![progress_event(vec!["position".to_owned()])],
+            &symbols,
+            &functions,
+            false,
+            0,
+        )
+        .expect_err("a two-value event must not accept one handler binding");
+        assert!(error.to_string().contains("provides 2 value(s)"));
+    }
+
+    #[test]
+    fn rejects_event_payload_bindings_that_shadow_existing_values() {
+        let (mut symbols, functions) = event_fixture();
+        symbols.insert("position".to_owned(), (Type::String, false));
+        let error = lower_actions_with_depth(
+            vec![progress_event(vec![
+                "position".to_owned(),
+                "duration".to_owned(),
+            ])],
+            &symbols,
+            &functions,
+            false,
+            0,
+        )
+        .expect_err("event bindings must not capture an existing value ambiguously");
+        assert!(error.to_string().contains("shadows an existing value"));
+    }
+
+    #[test]
+    fn lowers_native_component_event_with_typed_payload_bindings() {
+        let node = lower_native_component_event(
+            "onProgressChanged",
+            vec!["position".to_owned(), "duration".to_owned()],
+        )
+        .expect("declared native component event should lower");
+
+        assert!(matches!(
+            node,
+            nexa_ir::Node::NativeComponentCall { event_handlers, .. }
+                if matches!(
+                    event_handlers.as_slice(),
+                    [NativeComponentEventHandler {
+                        property,
+                        parameters,
+                        actions,
+                    }] if property == "onProgressChanged"
+                        && parameters == &["position", "duration"]
+                        && matches!(
+                            actions.as_slice(),
+                            [Action::Expression(Expr::State(name, Type::Numeric(NumericType::Float64)))]
+                                if name == "position"
+                        )
+                )
+        ));
+    }
+
+    #[test]
+    fn rejects_native_component_event_with_unknown_callback() {
+        let error = lower_native_component_event("onMissing", Vec::new())
+            .expect_err("unknown native component events must not be ignored");
+        assert!(
+            error
+                .to_string()
+                .contains("has no event callback `onMissing`")
+        );
+    }
+
+    #[test]
+    fn rejects_native_component_event_with_wrong_payload_arity() {
+        let error = lower_native_component_event("onProgressChanged", vec!["position".to_owned()])
+            .expect_err("component event handler must bind every payload value");
+        assert!(error.to_string().contains("provides 2 value(s)"));
+    }
+
+    #[test]
+    fn throwing_native_calls_need_and_use_an_explicit_recovery_block() {
+        let (symbols, functions) = throwing_fixture();
+        let actions = lower_actions_with_depth(
+            vec![ast::Stmt::TryCatch {
+                body: vec![ast::Stmt::Expression {
+                    expression: throwing_prepare(),
+                    span: Span::default(),
+                }],
+                error_catches: Vec::new(),
+                catch_body: Some(vec![ast::Stmt::Assign {
+                    name: "failed".to_owned(),
+                    value: ast::Expr::Bool(true, Span::default()),
+                    span: Span::default(),
+                }]),
+                span: Span::default(),
+            }],
+            &symbols,
+            &functions,
+            true,
+            0,
+        )
+        .expect("a try block should lower a throwing native call");
+
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            }] if matches!(
+                body.as_slice(),
+                [Action::Expression(Expr::TryAwait(call))]
+                    if matches!(call.as_ref(), Expr::NativeCall { name, is_throwing: true, .. } if name == "prepare")
+            ) && error_catches.is_empty()
+                && matches!(catch_body.as_deref(), Some([Action::Assign { name, .. }]) if name == "failed")
+        ));
+
+        let unhandled = lower_actions_with_depth(
+            vec![ast::Stmt::Expression {
+                expression: throwing_prepare(),
+                span: Span::default(),
+            }],
+            &symbols,
+            &functions,
+            true,
+            0,
+        )
+        .expect_err("a throwing call outside try/catch must remain a semantic error");
+        assert!(unhandled.to_string().contains("may throw"));
+    }
+
+    #[test]
+    fn typed_catch_cases_bind_declared_error_payloads_with_native_types() {
+        let (mut symbols, functions) = throwing_fixture();
+        symbols.insert("messageOut".to_owned(), (Type::String, true));
+        let actions = lower_actions_with_depth(
+            vec![ast::Stmt::TryCatch {
+                body: vec![ast::Stmt::Expression {
+                    expression: throwing_prepare(),
+                    span: Span::default(),
+                }],
+                error_catches: vec![
+                    ast::ErrorCatchArm {
+                        namespace: "Video".to_owned(),
+                        error_name: "PlayerError".to_owned(),
+                        variant: "invalidUrl".to_owned(),
+                        bindings: Vec::new(),
+                        body: vec![ast::Stmt::Assign {
+                            name: "failed".to_owned(),
+                            value: ast::Expr::Bool(true, Span::default()),
+                            span: Span::default(),
+                        }],
+                        span: Span::default(),
+                    },
+                    ast::ErrorCatchArm {
+                        namespace: "Video".to_owned(),
+                        error_name: "PlayerError".to_owned(),
+                        variant: "decodingFailed".to_owned(),
+                        bindings: vec!["message".to_owned()],
+                        body: vec![ast::Stmt::Assign {
+                            name: "messageOut".to_owned(),
+                            value: ast::Expr::Name("message".to_owned(), Span::default()),
+                            span: Span::default(),
+                        }],
+                        span: Span::default(),
+                    },
+                ],
+                catch_body: None,
+                span: Span::default(),
+            }],
+            &symbols,
+            &functions,
+            true,
+            0,
+        )
+        .expect("declared plugin error cases and payloads should lower");
+
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::TryCatch {
+                error_catches,
+                catch_body: None,
+                ..
+            }] if matches!(error_catches.as_slice(), [
+                nexa_ir::ErrorCatchArm { variant, parameters, .. },
+                nexa_ir::ErrorCatchArm { variant: payload_variant, parameters: payload_parameters, body, .. }
+            ] if variant == "invalidUrl"
+                && parameters.is_empty()
+                && payload_variant == "decodingFailed"
+                && payload_parameters == &[("message".to_owned(), "message".to_owned(), Type::String)]
+                && matches!(body.as_slice(), [Action::Assign {
+                    name,
+                    value: Expr::State(payload, Type::String),
+                }] if name == "messageOut" && payload == "message"))
+        ));
+    }
+
+    #[test]
+    fn typed_catch_cases_must_be_exhaustive_without_an_else_branch() {
+        let (symbols, functions) = throwing_fixture();
+        let error = lower_actions_with_depth(
+            vec![ast::Stmt::TryCatch {
+                body: vec![ast::Stmt::Expression {
+                    expression: throwing_prepare(),
+                    span: Span::default(),
+                }],
+                error_catches: vec![ast::ErrorCatchArm {
+                    namespace: "Video".to_owned(),
+                    error_name: "PlayerError".to_owned(),
+                    variant: "invalidUrl".to_owned(),
+                    bindings: Vec::new(),
+                    body: Vec::new(),
+                    span: Span::default(),
+                }],
+                catch_body: None,
+                span: Span::default(),
+            }],
+            &symbols,
+            &functions,
+            true,
+            0,
+        )
+        .expect_err("unmatched typed error variants need an explicit fallback");
+
+        assert!(
+            error
+                .to_string()
+                .contains("catch every variant of `Video.PlayerError`")
+        );
+    }
+
+    #[test]
+    fn typed_catch_cases_require_else_for_untyped_failures() {
+        let (symbols, functions) = throwing_fixture();
+        let error = lower_actions_with_depth(
+            vec![ast::Stmt::TryCatch {
+                body: vec![
+                    ast::Stmt::Expression {
+                        expression: throwing_prepare(),
+                        span: Span::default(),
+                    },
+                    ast::Stmt::Expression {
+                        expression: throwing_file_read(),
+                        span: Span::default(),
+                    },
+                ],
+                error_catches: vec![
+                    ast::ErrorCatchArm {
+                        namespace: "Video".to_owned(),
+                        error_name: "PlayerError".to_owned(),
+                        variant: "invalidUrl".to_owned(),
+                        bindings: Vec::new(),
+                        body: Vec::new(),
+                        span: Span::default(),
+                    },
+                    ast::ErrorCatchArm {
+                        namespace: "Video".to_owned(),
+                        error_name: "PlayerError".to_owned(),
+                        variant: "decodingFailed".to_owned(),
+                        bindings: vec!["message".to_owned()],
+                        body: Vec::new(),
+                        span: Span::default(),
+                    },
+                ],
+                catch_body: None,
+                span: Span::default(),
+            }],
+            &symbols,
+            &functions,
+            true,
+            0,
+        )
+        .expect_err("typed cases cannot handle a built-in untyped error");
+
+        assert!(
+            error
+                .to_string()
+                .contains("catch-all `else` block is required")
+        );
+    }
+
+    #[test]
+    fn typed_catch_cases_reject_unknown_variants_and_wrong_payload_arity() {
+        let (symbols, functions) = throwing_fixture();
+        let catch = |variant: &str, bindings: Vec<String>| ast::Stmt::TryCatch {
+            body: vec![ast::Stmt::Expression {
+                expression: throwing_prepare(),
+                span: Span::default(),
+            }],
+            error_catches: vec![ast::ErrorCatchArm {
+                namespace: "Video".to_owned(),
+                error_name: "PlayerError".to_owned(),
+                variant: variant.to_owned(),
+                bindings,
+                body: Vec::new(),
+                span: Span::default(),
+            }],
+            catch_body: None,
+            span: Span::default(),
+        };
+
+        let unknown = lower_actions_with_depth(
+            vec![catch("notAPlayerError", Vec::new())],
+            &symbols,
+            &functions,
+            true,
+            0,
+        )
+        .expect_err("error patterns must reference a declared error variant");
+        assert!(unknown.to_string().contains("unknown plugin error variant"));
+
+        let missing_payload = lower_actions_with_depth(
+            vec![catch("decodingFailed", Vec::new())],
+            &symbols,
+            &functions,
+            true,
+            0,
+        )
+        .expect_err("payload variants must bind their declared values");
+        assert!(
+            missing_payload
+                .to_string()
+                .contains("provides 1 payload value(s)")
+        );
+    }
+
+    #[test]
+    fn throwing_file_calls_preserve_failures_only_inside_recovery_blocks() {
+        let symbols = HashMap::new();
+        let functions = FunctionSignatures::new();
+        let actions = lower_actions_with_depth(
+            vec![ast::Stmt::TryCatch {
+                body: vec![ast::Stmt::Expression {
+                    expression: throwing_file_read(),
+                    span: Span::default(),
+                }],
+                error_catches: Vec::new(),
+                catch_body: Some(Vec::new()),
+                span: Span::default(),
+            }],
+            &symbols,
+            &functions,
+            true,
+            0,
+        )
+        .expect("File.readText should preserve its native error inside try/catch");
+
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::TryCatch { body, .. }]
+                if matches!(
+                    body.as_slice(),
+                    [Action::Expression(Expr::TryAwait(call))]
+                        if matches!(call.as_ref(), Expr::NativeCall {
+                            namespace,
+                            name,
+                            is_throwing: true,
+                            ..
+                        } if namespace == "File" && name == "readText")
+                )
+        ));
+
+        let unhandled = lower_actions_with_depth(
+            vec![ast::Stmt::Expression {
+                expression: throwing_file_read(),
+                span: Span::default(),
+            }],
+            &symbols,
+            &functions,
+            true,
+            0,
+        )
+        .expect_err("File.readText must not silently discard native failures");
+        assert!(unhandled.to_string().contains("may throw"));
+    }
+
+    #[test]
+    fn try_catch_does_not_handle_errors_from_later_native_callbacks() {
+        let (symbols, mut functions) = throwing_fixture();
+        let player_type = symbols["player"].0.clone();
+        functions.insert(
+            "VideoPlayer.#event.ended".to_owned(),
+            FunctionSignature {
+                parameters: Vec::new(),
+                return_type: Type::Void,
+                is_async: false,
+                is_throwing: false,
+                receiver: Some(player_type),
+                is_constructor: false,
+                is_mutable_property: false,
+                error_handling_allowed: false,
+                error_type: None,
+            },
+        );
+        let actions = vec![ast::Stmt::TryCatch {
+            body: vec![ast::Stmt::NativeEventSubscribe {
+                receiver: ast::Expr::Name("player".to_owned(), Span::default()),
+                event: "ended".to_owned(),
+                parameters: Vec::new(),
+                actions: vec![ast::Stmt::Expression {
+                    expression: throwing_prepare(),
+                    span: Span::default(),
+                }],
+                span: Span::default(),
+            }],
+            error_catches: Vec::new(),
+            catch_body: Some(Vec::new()),
+            span: Span::default(),
+        }];
+        let error = lower_actions_with_depth(actions, &symbols, &functions, true, 0)
+            .expect_err("an outer try block cannot catch a later callback failure");
+        assert!(
+            error
+                .to_string()
+                .contains("`await` is only allowed in an async function")
+        );
+    }
+
+    #[test]
+    fn native_component_content_blocks_must_match_the_declared_slot() {
+        let mut signatures = native_component_signatures();
+        signatures
+            .get_mut("Video.VideoView")
+            .expect("component fixture should exist")
+            .has_content_slot = true;
+        let error = lower_node(
+            native_component_event_node(
+                "onProgressChanged",
+                vec!["position".to_owned(), "duration".to_owned()],
+            ),
+            &HashMap::new(),
+            &HashMap::new(),
+            &ThemeSymbols::default(),
+            &signatures,
+            &HashMap::new(),
+            &HashMap::new(),
+            false,
+            false,
+            Target::Swift,
+        )
+        .expect_err("a declared content slot requires a child block");
+        assert!(error.to_string().contains("requires a child block"));
+
+        let mut node = native_component_event_node(
+            "onProgressChanged",
+            vec!["position".to_owned(), "duration".to_owned()],
+        );
+        if let ast::Node::NativeComponentCall { children, .. } = &mut node {
+            *children = Some(Vec::new());
+        }
+        let error = lower_node(
+            node,
+            &HashMap::new(),
+            &HashMap::new(),
+            &ThemeSymbols::default(),
+            &native_component_signatures(),
+            &HashMap::new(),
+            &HashMap::new(),
+            false,
+            false,
+            Target::Swift,
+        )
+        .expect_err("a child block without a declared slot must be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("does not declare a content slot")
+        );
+    }
+
+    #[test]
+    fn rejects_native_instance_use_after_disposal() {
+        let (symbols, functions) = disposal_fixture();
+        let error = lower_actions_with_depth(
+            vec![native_method_call("dispose"), native_method_call("play")],
+            &symbols,
+            &functions,
+            false,
+            0,
+        )
+        .expect_err("native methods must not be called after dispose");
+
+        assert!(error.to_string().contains("used after disposal"));
+    }
+
+    #[test]
+    fn disposal_analysis_tracks_aliases_to_the_same_native_instance() {
+        let (mut symbols, functions) = disposal_fixture();
+        let player_type = symbols["player"].0.clone();
+        symbols.insert("playerAlias".to_owned(), (player_type, false));
+        let mut aliases = HashMap::new();
+        let player = Expr::State("player".to_owned(), symbols["player"].0.clone());
+        record_native_alias("playerAlias", &symbols["player"].0, &player, &mut aliases);
+        let alias = Expr::State("playerAlias".to_owned(), symbols["playerAlias"].0.clone());
+        record_native_alias(
+            "playerAlias2",
+            &symbols["playerAlias"].0,
+            &alias,
+            &mut aliases,
+        );
+        symbols.insert(
+            "playerAlias2".to_owned(),
+            (symbols["player"].0.clone(), false),
+        );
+        assert_eq!(
+            aliases.get("playerAlias2").map(String::as_str),
+            Some("player")
+        );
+
+        let use_after_dispose = lower_actions_with_aliases(
+            vec![
+                native_method_call("dispose"),
+                native_method_call_on("playerAlias", "play"),
+            ],
+            &symbols,
+            &functions,
+            false,
+            &aliases,
+        )
+        .expect_err("disposing an object must invalidate every binding alias");
+        assert!(
+            use_after_dispose
+                .to_string()
+                .contains("native class instance `player` may be used after disposal")
+        );
+
+        let double_dispose = lower_actions_with_aliases(
+            vec![
+                native_method_call("dispose"),
+                native_method_call_on("playerAlias2", "dispose"),
+            ],
+            &symbols,
+            &functions,
+            false,
+            &aliases,
+        )
+        .expect_err("disposing through an alias must count as a second disposal");
+        assert!(
+            double_dispose
+                .to_string()
+                .contains("native class instance `player` may be disposed more than once")
+        );
+    }
+
+    #[test]
+    fn native_binding_with_alias_cannot_be_replaced_after_disposal() {
+        let (mut symbols, mut functions) = disposal_fixture();
+        symbols.get_mut("player").expect("fixture state").1 = true;
+        let player_type = symbols["player"].0.clone();
+        symbols.insert("playerAlias".to_owned(), (player_type.clone(), false));
+        let mut aliases = HashMap::new();
+        let player = Expr::State("player".to_owned(), player_type.clone());
+        record_native_alias("playerAlias", &player_type, &player, &mut aliases);
+        functions.insert(
+            "Video.VideoPlayer".to_owned(),
+            FunctionSignature {
+                parameters: Vec::new(),
+                return_type: player_type,
+                is_async: false,
+                is_throwing: false,
+                receiver: None,
+                is_constructor: true,
+                is_mutable_property: false,
+                error_handling_allowed: false,
+                error_type: None,
+            },
+        );
+        let fresh_player = ast::Expr::QualifiedCall {
+            namespace: "Video".to_owned(),
+            name: "VideoPlayer".to_owned(),
+            arguments: BTreeMap::new(),
+            span: Span::default(),
+        };
+        let reset = ast::Stmt::Assign {
+            name: "player".to_owned(),
+            value: fresh_player,
+            span: Span::default(),
+        };
+        let error = lower_actions_with_aliases(
+            vec![native_method_call("dispose"), reset],
+            &symbols,
+            &functions,
+            false,
+            &aliases,
+        )
+        .expect_err("replacing the source binding would leave its alias stale");
+        assert!(error.to_string().contains("cannot be replaced while alias"));
+    }
+
+    #[test]
+    fn rejects_disposing_the_same_native_instance_twice() {
+        let (symbols, functions) = disposal_fixture();
+        let error = lower_actions_with_depth(
+            vec![native_method_call("dispose"), native_method_call("dispose")],
+            &symbols,
+            &functions,
+            false,
+            0,
+        )
+        .expect_err("native instances must not be disposed twice");
+
+        assert!(error.to_string().contains("disposed more than once"));
+    }
+
+    #[test]
+    fn propagates_possible_disposal_from_conditional_branches() {
+        let (symbols, functions) = disposal_fixture();
+        let conditional_dispose = ast::Stmt::If {
+            condition: ast::Expr::Bool(true, Span::default()),
+            then_branch: vec![native_method_call("dispose")],
+            else_branch: None,
+            span: Span::default(),
+        };
+        let error = lower_actions_with_depth(
+            vec![conditional_dispose, native_method_call("play")],
+            &symbols,
+            &functions,
+            false,
+            0,
+        )
+        .expect_err("use after a conditional dispose must be rejected");
+
+        assert!(error.to_string().contains("used after disposal"));
+    }
 }

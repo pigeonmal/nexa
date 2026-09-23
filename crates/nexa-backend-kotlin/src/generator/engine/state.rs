@@ -17,6 +17,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.uses_mutable_state
             || features.uses_mutable_collection
+            || features.uses_native_class_instance
             || features.uses_list_end_reached,
         "androidx.compose.runtime.remember",
     );

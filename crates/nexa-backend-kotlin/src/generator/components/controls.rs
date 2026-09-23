@@ -1,5 +1,5 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, CollectionMutation, Expr, HapticStyle, Module, Node};
+use nexa_ir::{Action, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node};
 
 use crate::generator::{
     components::render_children,
@@ -195,6 +195,34 @@ fn render_haptic(style: HapticStyle, depth: usize, out: &mut String) {
     ));
 }
 
+pub(crate) fn render_event_closure(
+    parameters: &[String],
+    actions: &[Action],
+    depth: usize,
+) -> String {
+    let mut out = String::from("{");
+    if !parameters.is_empty() {
+        out.push(' ');
+        out.push_str(
+            &parameters
+                .iter()
+                .map(|name| state_name(name))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        out.push_str(" ->");
+    }
+    if actions.is_empty() {
+        out.push_str(" }");
+    } else {
+        out.push('\n');
+        render_actions(actions, depth + 1, &mut out);
+        indent(&mut out, depth);
+        out.push('}');
+    }
+    out
+}
+
 pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String) {
     for action in actions {
         match action {
@@ -205,6 +233,43 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
             Action::Assign { name, value } => {
                 indent(out, depth);
                 out.push_str(&format!("{} = {}\n", state_name(name), expression(value)));
+            }
+            Action::NativePropertyAssign {
+                receiver,
+                property,
+                value,
+            } => {
+                indent(out, depth);
+                out.push_str(&format!(
+                    "{}.{} = {}\n",
+                    expression(receiver),
+                    property,
+                    expression(value)
+                ));
+            }
+            Action::NativeEventSubscribe {
+                receiver,
+                property,
+                parameters,
+                actions,
+            } => {
+                indent(out, depth);
+                out.push_str(&format!("{}.{} = {{", expression(receiver), property));
+                if !parameters.is_empty() {
+                    out.push(' ');
+                    out.push_str(
+                        &parameters
+                            .iter()
+                            .map(|name| state_name(name))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    );
+                    out.push_str(" ->");
+                }
+                out.push('\n');
+                render_actions(actions, depth + 1, out);
+                indent(out, depth);
+                out.push_str("}\n");
             }
             Action::CollectionMutation {
                 name,
@@ -290,6 +355,16 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
                 indent(out, depth);
                 out.push_str("}\n");
             }
+            Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            } => {
+                indent(out, depth);
+                out.push_str("try {\n");
+                render_actions(body, depth + 1, out);
+                render_kotlin_error_catches(error_catches, catch_body.as_deref(), depth, out);
+            }
             Action::Break => {
                 indent(out, depth);
                 out.push_str("break\n");
@@ -299,5 +374,172 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
                 out.push_str("continue\n");
             }
         }
+    }
+}
+
+fn render_kotlin_error_catches(
+    catches: &[ErrorCatchArm],
+    catch_all: Option<&[Action]>,
+    depth: usize,
+    out: &mut String,
+) {
+    indent(out, depth);
+    if catches.is_empty() {
+        out.push_str("} catch (_: Exception) {\n");
+        if let Some(catch_all) = catch_all {
+            render_actions(catch_all, depth + 1, out);
+        }
+        indent(out, depth);
+        out.push_str("}\n");
+        return;
+    }
+
+    out.push_str("} catch (error: Exception) {\n");
+    indent(out, depth + 1);
+    out.push_str("when (error) {\n");
+    for arm in catches {
+        indent(out, depth + 2);
+        if arm.parameters.is_empty() {
+            out.push_str(&format!("{}.{} -> {{\n", arm.error_type, arm.variant));
+        } else {
+            out.push_str(&format!("is {}.{} -> {{\n", arm.error_type, arm.variant));
+            for (binding, property, _) in &arm.parameters {
+                indent(out, depth + 3);
+                out.push_str(&format!(
+                    "val {} = error.{}\n",
+                    state_name(binding),
+                    property
+                ));
+            }
+        }
+        render_actions(&arm.body, depth + 3, out);
+        indent(out, depth + 2);
+        out.push_str("}\n");
+    }
+    indent(out, depth + 2);
+    out.push_str("else -> {\n");
+    if let Some(catch_all) = catch_all {
+        render_actions(catch_all, depth + 3, out);
+    } else {
+        indent(out, depth + 3);
+        out.push_str("throw error\n");
+    }
+    indent(out, depth + 2);
+    out.push_str("}\n");
+    indent(out, depth + 1);
+    out.push_str("}\n");
+    indent(out, depth);
+    out.push_str("}\n");
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_ir::{Action, Expr, NumericType, Type};
+
+    use super::render_actions;
+
+    #[test]
+    fn renders_typed_native_event_handler_on_its_instance() {
+        let actions = [Action::NativeEventSubscribe {
+            receiver: Expr::State(
+                "player".to_owned(),
+                Type::Plugin {
+                    namespace: "Video".to_owned(),
+                    name: "VideoPlayer".to_owned(),
+                },
+            ),
+            property: "onProgressChanged".to_owned(),
+            parameters: vec!["position".to_owned(), "duration".to_owned()],
+            actions: vec![Action::Assign {
+                name: "latest".to_owned(),
+                value: Expr::State("position".to_owned(), Type::Numeric(NumericType::Float64)),
+            }],
+        }];
+        let mut output = String::new();
+
+        render_actions(&actions, 0, &mut output);
+
+        assert_eq!(
+            output,
+            "nexa_player.onProgressChanged = { nexa_position, nexa_duration ->\n    nexa_latest = nexa_position\n}\n"
+        );
+    }
+
+    #[test]
+    fn renders_explicit_throwing_call_recovery() {
+        let actions = [Action::TryCatch {
+            body: vec![Action::Expression(Expr::TryAwait(Box::new(
+                Expr::NativeCall {
+                    receiver: None,
+                    namespace: "Camera".to_owned(),
+                    name: "capture".to_owned(),
+                    arguments: Vec::new(),
+                    return_type: Type::Void,
+                    is_async: true,
+                    is_throwing: true,
+                },
+            )))],
+            error_catches: Vec::new(),
+            catch_body: Some(vec![Action::Assign {
+                name: "failed".to_owned(),
+                value: Expr::Bool(true),
+            }]),
+        }];
+        let mut output = String::new();
+
+        render_actions(&actions, 0, &mut output);
+
+        assert!(output.contains("try {\n    CameraPlugin.instance.capture()"));
+        assert!(output.contains("} catch (_: Exception) {\n    nexa_failed = true\n}"));
+    }
+
+    #[test]
+    fn renders_typed_error_variants_and_payload_bindings() {
+        let actions = [Action::TryCatch {
+            body: vec![Action::Expression(Expr::TryAwait(Box::new(
+                Expr::NativeCall {
+                    receiver: None,
+                    namespace: "Video".to_owned(),
+                    name: "prepare".to_owned(),
+                    arguments: Vec::new(),
+                    return_type: Type::Void,
+                    is_async: true,
+                    is_throwing: true,
+                },
+            )))],
+            error_catches: vec![
+                nexa_ir::ErrorCatchArm {
+                    namespace: "Video".to_owned(),
+                    error_type: "PlayerError".to_owned(),
+                    variant: "invalidUrl".to_owned(),
+                    parameters: Vec::new(),
+                    body: vec![Action::Assign {
+                        name: "failed".to_owned(),
+                        value: Expr::Bool(true),
+                    }],
+                },
+                nexa_ir::ErrorCatchArm {
+                    namespace: "Video".to_owned(),
+                    error_type: "PlayerError".to_owned(),
+                    variant: "decodingFailed".to_owned(),
+                    parameters: vec![("message".to_owned(), "message".to_owned(), Type::String)],
+                    body: vec![Action::Assign {
+                        name: "loadError".to_owned(),
+                        value: Expr::State("message".to_owned(), Type::String),
+                    }],
+                },
+            ],
+            catch_body: None,
+        }];
+        let mut output = String::new();
+
+        render_actions(&actions, 0, &mut output);
+
+        assert!(output.contains("catch (error: Exception)"));
+        assert!(output.contains("PlayerError.invalidUrl -> {"));
+        assert!(output.contains("is PlayerError.decodingFailed -> {"));
+        assert!(output.contains("val nexa_message = error.message"));
+        assert!(output.contains("nexa_loadError = nexa_message"));
+        assert!(output.contains("else -> {\n            throw error"));
     }
 }

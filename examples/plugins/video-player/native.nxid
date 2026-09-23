@@ -10,12 +10,12 @@ enum PlayerState {
     playing
     paused
     ended
+    failed
 }
 
 error PlayerError {
     invalidUrl
-    unsupportedFormat
-    decodingFailed
+    decodingFailed(message: String)
 }
 
 native class VideoPlayer {
@@ -35,7 +35,8 @@ native class VideoPlayer {
 }
 
 native component VideoView {
+    content
     prop player: VideoPlayer
-    prop controls: Bool
+    prop controls: Bool = true
     event tapped()
 }

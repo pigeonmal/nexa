@@ -30,10 +30,34 @@ pub struct PluginDecl {
     /// package layout without rediscovering or guessing conventional folders.
     pub ios_sources: Vec<String>,
     pub android_sources: Vec<String>,
+    /// Absolute C++ source and header globs declared by `plugin.config.nx`.
+    pub cpp_sources: Vec<String>,
+    pub cpp_headers: Vec<String>,
+    /// Minimum C++ language standard required by native C++ sources.
+    pub cpp_standard: Option<u8>,
     pub ios_min_version: Option<String>,
     pub android_min_sdk: Option<u32>,
+    pub ios_frameworks: Vec<String>,
+    pub ios_xcframeworks: Vec<String>,
+    pub ios_resources: Vec<String>,
+    pub ios_privacy_manifest: Option<String>,
     pub swift_packages: Vec<nexa_plugin_idl::manifest::SwiftPackage>,
     pub maven_dependencies: Vec<String>,
+    pub android_aars: Vec<String>,
+    pub android_resources: Vec<String>,
+    pub android_proguard_rules: Vec<String>,
+    pub android_maven_repositories: Vec<String>,
+    pub ios_usage_descriptions: Vec<(String, String)>,
+    pub ios_entitlements: Vec<(String, PluginEntitlementValue)>,
+    pub ios_linker_flags: Vec<String>,
+    pub android_permissions: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PluginEntitlementValue {
+    String(String),
+    Bool(bool),
+    Strings(Vec<String>),
 }
 
 #[derive(Clone, Debug)]
@@ -403,8 +427,17 @@ pub enum Node {
         name: String,
         arguments: BTreeMap<String, Expr>,
         children: Option<Vec<Node>>,
+        event_handlers: Vec<NativeComponentEventHandler>,
         span: Span,
     },
+}
+
+#[derive(Clone, Debug)]
+pub struct NativeComponentEventHandler {
+    pub property: String,
+    pub parameters: Vec<String>,
+    pub actions: Vec<Stmt>,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug)]
@@ -613,6 +646,19 @@ pub enum Stmt {
         value: Expr,
         span: Span,
     },
+    NativePropertyAssign {
+        receiver: Expr,
+        property: String,
+        value: Expr,
+        span: Span,
+    },
+    NativeEventSubscribe {
+        receiver: Expr,
+        event: String,
+        parameters: Vec<String>,
+        actions: Vec<Stmt>,
+        span: Span,
+    },
     CollectionMutation {
         name: String,
         method: String,
@@ -643,6 +689,12 @@ pub enum Stmt {
         body: Vec<Stmt>,
         span: Span,
     },
+    TryCatch {
+        body: Vec<Stmt>,
+        error_catches: Vec<ErrorCatchArm>,
+        catch_body: Option<Vec<Stmt>>,
+        span: Span,
+    },
     Break {
         span: Span,
     },
@@ -653,4 +705,14 @@ pub enum Stmt {
         value: Expr,
         span: Span,
     },
+}
+
+#[derive(Clone, Debug)]
+pub struct ErrorCatchArm {
+    pub namespace: String,
+    pub error_name: String,
+    pub variant: String,
+    pub bindings: Vec<String>,
+    pub body: Vec<Stmt>,
+    pub span: Span,
 }

@@ -50,10 +50,7 @@ pub(super) fn generate_with_project_features(
 }
 
 fn generate_with_analysis(module: &Module, features: &features::Features) -> String {
-    let mut focus_bindings = features::collect_focus_bindings(&module.body);
-    for screen in &module.screens {
-        focus_bindings.extend(features::collect_focus_bindings(&screen.body));
-    }
+    let focus_bindings = features::collect_focus_bindings(&module.body);
     let mut out = String::new();
     out.push_str(&engine::imports::render(engine::imports::ImportContext {
         features: &features,
@@ -128,36 +125,18 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
                     state::kotlin_state_initializer(state)
                 ));
             }
+        } else if state.is_native_class_instance_binding() {
+            out.push_str(&format!(
+                "    val {name}: {} = remember {{ {} }}\n",
+                state.ty.kotlin(),
+                expressions::expression(&state.initial)
+            ));
         } else {
             out.push_str(&format!(
                 "    val {name}: {} = {}\n",
                 state.ty.kotlin(),
                 expressions::expression(&state.initial)
             ));
-        }
-    }
-    for screen in &module.screens {
-        for state in &screen.states {
-            let name = nexa_codegen::names::state_name(&state.name);
-            if state.mutable {
-                if state::is_mutable_collection(state) {
-                    out.push_str(&format!(
-                        "    val {name} = remember {{ {} }}\n",
-                        state::kotlin_state_initializer(state)
-                    ));
-                } else {
-                    out.push_str(&format!(
-                        "    var {name} by remember {{ {} }}\n",
-                        state::kotlin_state_initializer(state)
-                    ));
-                }
-            } else {
-                out.push_str(&format!(
-                    "    val {name}: {} = {}\n",
-                    state.ty.kotlin(),
-                    expressions::expression(&state.initial)
-                ));
-            }
         }
     }
     if !focus_bindings.is_empty() {
@@ -239,4 +218,176 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
     out.push_str("// nexa-unit:functions\n");
     functions::render(module, &mut out);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::generate;
+    use nexa_ir::{
+        Component, Expr, Module, Node, NumericType, Screen, ScreenId, State, TextStyle, Type,
+    };
+
+    #[test]
+    fn screen_native_class_instances_are_remembered_across_recomposition() {
+        let player_type = Type::Plugin {
+            namespace: "Video".to_owned(),
+            name: "VideoPlayer".to_owned(),
+        };
+        let native_instance_state = |name: &str| State {
+            name: name.to_owned(),
+            ty: player_type.clone(),
+            initial: Expr::Call {
+                name: "Video.VideoPlayer".to_owned(),
+                arguments: Vec::new(),
+                return_type: player_type.clone(),
+                is_async: false,
+                is_constructor: true,
+            },
+            mutable: false,
+        };
+        let module = Module {
+            app_name: "PlayerApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: vec![
+                native_instance_state("appPlayer"),
+                State {
+                    name: "sharedCount".to_owned(),
+                    ty: Type::Numeric(NumericType::Int32),
+                    initial: Expr::Number {
+                        raw: "7".to_owned(),
+                        ty: NumericType::Int32,
+                    },
+                    mutable: true,
+                },
+            ],
+            screens: vec![Screen {
+                id: ScreenId(0),
+                name: "PlayerScreen".to_owned(),
+                parameters: Vec::new(),
+                states: vec![
+                    native_instance_state("player"),
+                    State {
+                        name: "screenCount".to_owned(),
+                        ty: Type::Numeric(NumericType::Int32),
+                        initial: Expr::Number {
+                            raw: "1".to_owned(),
+                            ty: NumericType::Int32,
+                        },
+                        mutable: true,
+                    },
+                ],
+                body: vec![Node::NavigationLink {
+                    destination: ScreenId(0),
+                    arguments: Vec::new(),
+                    guard: None,
+                    children: vec![Node::Text {
+                        value: Expr::String("Push another instance".to_owned()),
+                        style: TextStyle::default(),
+                    }],
+                }],
+                status_bar: None,
+                on_appear: None,
+                on_appear_async: false,
+                on_disappear: None,
+            }],
+            components: Vec::new(),
+            body: vec![Node::NavigationStack {
+                root: ScreenId(0),
+                arguments: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        let state_name = nexa_codegen::names::state_name("player");
+        let app_state_name = nexa_codegen::names::state_name("appPlayer");
+        let route_start = kotlin
+            .find("composable(route = \"nexa_screen_0\")")
+            .expect("screen body must be emitted inside its navigation entry");
+        let screen_player = kotlin
+            .find(&format!(
+                "val {state_name}: VideoPlayer = remember {{ VideoPlayer() }}"
+            ))
+            .expect("screen native object must be remembered");
+        let screen_count = kotlin
+            .find("var nexa_screenCount by remember { mutableIntStateOf(1) }")
+            .expect("screen-local mutable state must be remembered");
+        let app_state = kotlin
+            .find("var nexa_sharedCount by remember { mutableIntStateOf(7) }")
+            .expect("app state must remain shared above the navigation host");
+        let nav_host = kotlin.find("NavHost(").expect("navigation host exists");
+        assert!(route_start < screen_player && screen_player < screen_count);
+        assert!(screen_count > nav_host);
+        assert!(app_state < nav_host);
+        assert!(!kotlin[..route_start].contains("nexa_screenCount"));
+        assert!(kotlin.contains(&format!(
+            "val {app_state_name}: VideoPlayer = remember {{ VideoPlayer() }}"
+        )));
+    }
+
+    #[test]
+    fn component_native_class_instances_are_remembered_across_recomposition() {
+        let player_type = Type::Plugin {
+            namespace: "Video".to_owned(),
+            name: "VideoPlayer".to_owned(),
+        };
+        let module = Module {
+            app_name: "PlayerApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: vec![Component {
+                name: "PlayerPanel".to_owned(),
+                source_file: None,
+                parameters: Vec::new(),
+                states: vec![State {
+                    name: "player".to_owned(),
+                    ty: player_type.clone(),
+                    initial: Expr::Call {
+                        name: "Video.VideoPlayer".to_owned(),
+                        arguments: Vec::new(),
+                        return_type: player_type,
+                        is_async: false,
+                        is_constructor: true,
+                    },
+                    mutable: false,
+                }],
+                body: Vec::new(),
+            }],
+            body: vec![Node::ComponentCall {
+                name: "PlayerPanel".to_owned(),
+                arguments: Vec::new(),
+                children: None,
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        let state_name = nexa_codegen::names::state_name("player");
+        assert!(kotlin.contains(&format!(
+            "val {state_name}: VideoPlayer = remember {{ VideoPlayer() }}"
+        )));
+    }
 }

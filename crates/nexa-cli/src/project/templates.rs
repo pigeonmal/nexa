@@ -1,5 +1,7 @@
 //! Deterministic native host templates used by `nexa generate`.
 
+use std::path::Path;
+
 use nexa_ir::Permission;
 
 use super::ProjectConfig;
@@ -18,8 +20,12 @@ pub(super) fn root_readme(app_name: &str, targets: &[&str]) -> String {
     readme
 }
 
-pub(super) fn ios_info_plist(app_name: &str, config: &ProjectConfig) -> String {
-    let mut entries = String::new();
+pub(super) fn ios_info_plist(
+    app_name: &str,
+    config: &ProjectConfig,
+    plugins: &[nexa_ir::Plugin],
+) -> Result<String, String> {
+    let mut usage_descriptions = std::collections::BTreeMap::<String, String>::new();
     for (permission, description) in config.permissions() {
         let keys: &[&str] = match *permission {
             Permission::Camera => &["NSCameraUsageDescription"],
@@ -33,16 +39,83 @@ pub(super) fn ios_info_plist(app_name: &str, config: &ProjectConfig) -> String {
             Permission::Bluetooth => &["NSBluetoothAlwaysUsageDescription"],
         };
         for key in keys {
-            entries.push_str(&format!(
-                "<key>{key}</key><string>{}</string>",
-                xml_escape(description)
-            ));
+            usage_descriptions.insert((*key).to_owned(), description.clone());
         }
     }
-    format!(
+    for plugin in plugins {
+        for (key, message) in &plugin.ios_usage_descriptions {
+            if let Some(existing) = usage_descriptions.get(key)
+                && existing != message
+            {
+                return Err(format!(
+                    "plugin `{}` declares `{key}` with a different purpose message than another reachable plugin or app permission",
+                    plugin.namespace
+                ));
+            }
+            usage_descriptions.insert(key.clone(), message.clone());
+        }
+    }
+    let entries = usage_descriptions
+        .iter()
+        .map(|(key, description)| {
+            format!(
+                "<key>{}</key><string>{}</string>",
+                xml_escape(key),
+                xml_escape(description)
+            )
+        })
+        .collect::<String>();
+    Ok(format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{app_name}</string><key>CFBundleIdentifier</key><string>com.nexa.{}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>1.0</string><key>CFBundleVersion</key><string>1</string><key>LSRequiresIPhoneOS</key><true/>{entries}</dict></plist>\n",
         app_name.to_ascii_lowercase()
-    )
+    ))
+}
+
+pub(super) fn ios_entitlements(plugins: &[nexa_ir::Plugin]) -> Result<Option<String>, String> {
+    let mut values = std::collections::BTreeMap::<String, nexa_ir::PluginEntitlementValue>::new();
+    let mut owners = std::collections::HashMap::<String, &str>::new();
+    for plugin in plugins {
+        for (key, value) in &plugin.ios_entitlements {
+            if let Some(existing) = values.get(key)
+                && existing != value
+            {
+                return Err(format!(
+                    "plugins `{}` and `{}` declare conflicting values for iOS entitlement `{key}`",
+                    owners.get(key).copied().unwrap_or("<unknown>"),
+                    plugin.namespace
+                ));
+            }
+            values.entry(key.clone()).or_insert_with(|| value.clone());
+            owners.entry(key.clone()).or_insert(&plugin.namespace);
+        }
+    }
+    if values.is_empty() {
+        return Ok(None);
+    }
+
+    let entries = values
+        .iter()
+        .map(|(key, value)| {
+            let value = match value {
+                nexa_ir::PluginEntitlementValue::String(value) => {
+                    format!("<string>{}</string>", xml_escape(value))
+                }
+                nexa_ir::PluginEntitlementValue::Bool(true) => "<true/>".to_owned(),
+                nexa_ir::PluginEntitlementValue::Bool(false) => "<false/>".to_owned(),
+                nexa_ir::PluginEntitlementValue::Strings(values) => format!(
+                    "<array>{}</array>",
+                    values
+                        .iter()
+                        .map(|value| format!("<string>{}</string>", xml_escape(value)))
+                        .collect::<String>()
+                ),
+            };
+            format!("<key>{}</key>{value}", xml_escape(key))
+        })
+        .collect::<String>();
+    Ok(Some(format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>{entries}</dict></plist>\n"
+    )))
 }
 
 fn merge_swift_packages(plugins: &[nexa_ir::Plugin]) -> Result<Vec<nexa_ir::SwiftPackage>, String> {
@@ -184,11 +257,15 @@ fn merge_maven_dependencies(plugins: &[nexa_ir::Plugin]) -> Result<Vec<String>, 
 pub(super) fn ios_project_file(
     app_name: &str,
     has_assets: bool,
+    has_plugin_resources: bool,
     generated_sources: &[String],
     plugin_sources: &[String],
+    cpp_sources: &[String],
+    xcframeworks: &[String],
     plugins: &[nexa_ir::Plugin],
 ) -> Result<String, String> {
     let packages = merge_swift_packages(plugins)?;
+    let frameworks = merge_ios_frameworks(plugins);
     let product_count = packages
         .iter()
         .map(|package| package.products.len())
@@ -203,8 +280,35 @@ pub(super) fn ios_project_file(
         .map(|index| pbx_identifier(3000 + index))
         .collect::<Vec<_>>();
     let package_objects = render_swift_package_objects(&packages);
-    let mut project =
-        ios_project_base_file(app_name, has_assets, generated_sources, plugin_sources);
+    let framework_reference_ids = (0..frameworks.len())
+        .map(|index| pbx_identifier(4000 + index))
+        .collect::<Vec<_>>();
+    let framework_build_ids = (0..frameworks.len())
+        .map(|index| pbx_identifier(5000 + index))
+        .collect::<Vec<_>>();
+    let xcframework_link_ids = (0..xcframeworks.len())
+        .map(|index| pbx_identifier(7000 + index))
+        .collect::<Vec<_>>();
+    let framework_objects = render_ios_framework_objects(&frameworks);
+    let embed_phase = render_ios_xcframework_embed_phase(xcframeworks.len());
+    let mut project = ios_project_base_file(
+        app_name,
+        has_assets,
+        has_plugin_resources,
+        generated_sources,
+        plugin_sources,
+        xcframeworks,
+    );
+    add_ios_cpp_objects(&mut project, app_name, cpp_sources, plugins)?;
+    if !framework_reference_ids.is_empty() {
+        project = project.replace(
+            "children = ( AA0000000000000000000014, AA0000000000000000000004 );",
+            &format!(
+                "children = ( AA0000000000000000000014, AA0000000000000000000004, {} );",
+                framework_reference_ids.join(", ")
+            ),
+        );
+    }
     project = project.replace(
         "targets = ( AA0000000000000000000005 );",
         &format!(
@@ -223,53 +327,265 @@ pub(super) fn ios_project_file(
         "PBXFrameworksBuildPhase; files = (); };",
         &format!(
             "PBXFrameworksBuildPhase; files = ( {} ); }};",
-            package_build_ids.join(", ")
+            package_build_ids
+                .iter()
+                .chain(&framework_build_ids)
+                .chain(&xcframework_link_ids)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
     );
-    if !package_objects.is_empty() {
+    if !package_objects.is_empty() || !framework_objects.is_empty() || !embed_phase.is_empty() {
         let insertion = "\n\t\tAA0000000000000000000005 = { isa = PBXNativeTarget;";
-        project = project.replace(insertion, &format!("{package_objects}{insertion}"));
+        project = project.replace(
+            insertion,
+            &format!("{package_objects}{framework_objects}{embed_phase}{insertion}"),
+        );
+    }
+    if !xcframeworks.is_empty() {
+        let embed_phase_id = pbx_identifier(9000);
+        project = project.replace(
+            "buildPhases = ( AA0000000000000000000008, AA0000000000000000000009, AA000000000000000000000A );",
+            &format!("buildPhases = ( AA0000000000000000000008, AA0000000000000000000009, AA000000000000000000000A, {embed_phase_id} );"),
+        );
     }
     let minimum_version = minimum_ios_version(plugins)?;
     project = project.replace(
         "IPHONEOS_DEPLOYMENT_TARGET = 17.0",
         &format!("IPHONEOS_DEPLOYMENT_TARGET = {minimum_version}"),
     );
+    let mut extra_target_settings = String::new();
+    if plugins
+        .iter()
+        .any(|plugin| !plugin.ios_entitlements.is_empty())
+    {
+        extra_target_settings.push_str(&format!(
+            " CODE_SIGN_ENTITLEMENTS = {app_name}/Nexa.entitlements;"
+        ));
+    }
+    let linker_flags = merge_ios_linker_flags(plugins);
+    if !linker_flags.is_empty() {
+        let flags = linker_flags
+            .iter()
+            .map(|flag| pbx_quote(flag))
+            .collect::<Vec<_>>()
+            .join(", ");
+        extra_target_settings.push_str(&format!(" OTHER_LDFLAGS = ( \"$(inherited)\", {flags} );"));
+    }
+    if !extra_target_settings.is_empty() {
+        project = project.replace(
+            "TARGETED_DEVICE_FAMILY = \"1,2\";",
+            &format!("TARGETED_DEVICE_FAMILY = \"1,2\";{extra_target_settings}"),
+        );
+    }
     Ok(project)
+}
+
+fn add_ios_cpp_objects(
+    project: &mut String,
+    app_name: &str,
+    cpp_sources: &[String],
+    plugins: &[nexa_ir::Plugin],
+) -> Result<(), String> {
+    if cpp_sources.is_empty() {
+        return Ok(());
+    }
+    let group_children = cpp_sources
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!(", {}", pbx_identifier(12000 + index)))
+        .collect::<String>();
+    *project = project.replacen(
+        "AA0000000000000000000012",
+        &format!("AA0000000000000000000012{group_children}"),
+        1,
+    );
+    let file_references = cpp_sources
+        .iter()
+        .enumerate()
+        .map(|(index, source)| {
+            format!(
+                "\n\t\t{} = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = {}; sourceTree = \"<group>\"; }};",
+                pbx_identifier(12000 + index),
+                pbx_quote(&format!("NexaPluginCpp/{source}"))
+            )
+        })
+        .collect::<String>();
+    let build_files = cpp_sources
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            format!(
+                "\n\t\t{} = {{ isa = PBXBuildFile; fileRef = {}; }};",
+                pbx_identifier(13000 + index),
+                pbx_identifier(12000 + index)
+            )
+        })
+        .collect::<String>();
+    let build_ids = cpp_sources
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!(", {}", pbx_identifier(13000 + index)))
+        .collect::<String>();
+    let group_marker = "AA0000000000000000000004 = { isa = PBXGroup;";
+    if let Some(position) = project.find(group_marker) {
+        project.insert_str(position, &file_references);
+    }
+    let build_marker = "AA0000000000000000000005 = { isa = PBXNativeTarget;";
+    if let Some(position) = project.find(build_marker) {
+        project.insert_str(position, &build_files);
+    }
+    let sources_marker = "PBXSourcesBuildPhase; files = (";
+    if let Some(position) = project.find(sources_marker) {
+        let phase_end = project[position..]
+            .find(" );")
+            .map(|end| position + end)
+            .unwrap_or(position + sources_marker.len());
+        project.insert_str(phase_end, &build_ids);
+    }
+    let mut include_paths = cpp_sources
+        .iter()
+        .filter_map(|source| Path::new(source).components().next())
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    for (index, plugin) in plugins.iter().enumerate() {
+        if plugin.cpp_sources.is_empty() {
+            continue;
+        }
+        include_paths.extend(super::plugins::cpp_header_include_roots(plugin, index)?);
+    }
+    let include_paths = include_paths
+        .into_iter()
+        .map(|plugin_root| {
+            pbx_quote(&format!(
+                "$(PROJECT_DIR)/{app_name}/NexaPluginCpp/{plugin_root}"
+            ))
+        })
+        .collect::<Vec<_>>();
+    let cpp_standard = super::plugins::minimum_cpp_standard(plugins);
+    let settings = format!(
+        "CLANG_CXX_LANGUAGE_STANDARD = \"c++{cpp_standard}\"; SWIFT_OBJC_INTEROP_MODE = objcxx; SWIFT_OBJC_BRIDGING_HEADER = {}; HEADER_SEARCH_PATHS = ( \"$(inherited)\", {} );",
+        pbx_quote(&format!(
+            "$(PROJECT_DIR)/{app_name}/NexaPluginCpp-Bridging-Header.h"
+        )),
+        include_paths.join(", ")
+    );
+    *project = project.replace(
+        "SWIFT_VERSION = 6.0;",
+        &format!("SWIFT_VERSION = 6.0; {settings}"),
+    );
+    Ok(())
+}
+
+fn merge_ios_frameworks(plugins: &[nexa_ir::Plugin]) -> Vec<String> {
+    let mut frameworks = Vec::new();
+    for framework in plugins
+        .iter()
+        .flat_map(|plugin| plugin.ios_frameworks.iter())
+    {
+        if !frameworks.contains(framework) {
+            frameworks.push(framework.clone());
+        }
+    }
+    frameworks
+}
+
+fn merge_ios_linker_flags(plugins: &[nexa_ir::Plugin]) -> Vec<String> {
+    plugins
+        .iter()
+        .flat_map(|plugin| plugin.ios_linker_flags.iter().cloned())
+        .collect()
+}
+
+fn pbx_quote(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+fn render_ios_framework_objects(frameworks: &[String]) -> String {
+    let mut objects = String::new();
+    for (index, framework) in frameworks.iter().enumerate() {
+        let reference_id = pbx_identifier(4000 + index);
+        let build_id = pbx_identifier(5000 + index);
+        objects.push_str(&format!(
+            "\n\t\t{reference_id} = {{ isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = \"{framework}.framework\"; path = System/Library/Frameworks/{framework}.framework; sourceTree = SDKROOT; }};\n\t\t{build_id} = {{ isa = PBXBuildFile; fileRef = {reference_id}; }};"
+        ));
+    }
+    objects
+}
+
+fn render_ios_xcframework_objects(xcframeworks: &[String]) -> String {
+    let mut objects = String::new();
+    for (index, path) in xcframeworks.iter().enumerate() {
+        let reference_id = pbx_identifier(6000 + index);
+        let link_id = pbx_identifier(7000 + index);
+        let embed_id = pbx_identifier(8000 + index);
+        let path = pbx_quote(path);
+        objects.push_str(&format!(
+            "\n\t\t{reference_id} = {{ isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = {path}; sourceTree = \"<group>\"; }};\n\t\t{link_id} = {{ isa = PBXBuildFile; fileRef = {reference_id}; }};\n\t\t{embed_id} = {{ isa = PBXBuildFile; fileRef = {reference_id}; settings = {{ ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy); }}; }};"
+        ));
+    }
+    objects
+}
+
+fn render_ios_xcframework_embed_phase(count: usize) -> String {
+    if count == 0 {
+        return String::new();
+    }
+    let files = (0..count)
+        .map(|index| pbx_identifier(8000 + index))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let phase_id = pbx_identifier(9000);
+    format!(
+        "\n\t\t{phase_id} = {{ isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = \"\"; dstSubfolderSpec = 10; files = ( {files} ); name = \"Embed Frameworks\"; runOnlyForDeploymentPostprocessing = 0; }};"
+    )
 }
 
 fn ios_project_base_file(
     app_name: &str,
     has_assets: bool,
+    has_plugin_resources: bool,
     generated_sources: &[String],
     plugin_sources: &[String],
+    xcframeworks: &[String],
 ) -> String {
     let app_file = format!("{app_name}App.swift");
+    let asset_reference_id = pbx_identifier(10010);
+    let asset_build_id = pbx_identifier(10011);
     let asset_group = if has_assets {
-        ", AA0000000000000000000015"
+        format!(", {asset_reference_id}")
     } else {
-        ""
+        String::new()
     };
     let asset_reference = if has_assets {
-        "\n\t\tAA0000000000000000000015 = { isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = \"<group>\"; };"
+        format!(
+            "\n\t\t{asset_reference_id} = {{ isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = \"<group>\"; }};"
+        )
     } else {
-        ""
+        String::new()
     };
     let asset_build_file = if has_assets {
-        "\n\t\tAA0000000000000000000023 = { isa = PBXBuildFile; fileRef = AA0000000000000000000015; };"
+        format!(
+            "\n\t\t{asset_build_id} = {{ isa = PBXBuildFile; fileRef = {asset_reference_id}; }};"
+        )
     } else {
-        ""
+        String::new()
     };
     let resource_files = if has_assets {
-        "AA0000000000000000000023"
+        asset_build_id.clone()
     } else {
-        ""
+        String::new()
     };
     let plugin_group_children = plugin_sources
         .iter()
         .enumerate()
         .map(|(index, _)| format!(", AA00000000000000000000{:02}", 30 + index))
         .collect::<String>();
+    let xcframework_group_children = (0..xcframeworks.len())
+        .map(|index| format!(", {}", pbx_identifier(6000 + index)))
+        .collect::<String>();
+    let xcframework_objects = render_ios_xcframework_objects(xcframeworks);
     let plugin_file_references = plugin_sources
         .iter()
         .enumerate()
@@ -331,13 +647,43 @@ fn ios_project_base_file(
         .enumerate()
         .map(|(index, _)| format!(", AA00000000000000000000{:02}", 90 + index))
         .collect::<String>();
-    format!(
-        "// !$*UTF8*$!\n{{\n\tarchiveVersion = 1;\n\tclasses = {{}};\n\tobjectVersion = 77;\n\tobjects = {{\n\t\tAA0000000000000000000001 = {{ isa = PBXProject; buildConfigurationList = AA0000000000000000000002; compatibilityVersion = \"Xcode 16.0\"; mainGroup = AA0000000000000000000003; productRefGroup = AA0000000000000000000004; targets = ( AA0000000000000000000005 ); }};\n\t\tAA0000000000000000000003 = {{ isa = PBXGroup; children = ( AA0000000000000000000014, AA0000000000000000000004 ); sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000014 = {{ isa = PBXGroup; children = ( AA0000000000000000000010, AA0000000000000000000011, AA0000000000000000000012{asset_group}{generated_group_children}{plugin_group_children} ); path = {app_name}; sourceTree = \"<group>\"; }};{asset_reference}{generated_file_references}{plugin_file_references}\n\t\tAA0000000000000000000004 = {{ isa = PBXGroup; children = ( AA0000000000000000000013 ); name = Products; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000010 = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {app_file}; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000011 = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexaGenerated.swift; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000012 = {{ isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000013 = {{ isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = {app_name}.app; sourceTree = BUILT_PRODUCTS_DIR; }};\n\t\tAA0000000000000000000020 = {{ isa = PBXBuildFile; fileRef = AA0000000000000000000010; }};\n\t\tAA0000000000000000000021 = {{ isa = PBXBuildFile; fileRef = AA0000000000000000000011; }};{generated_build_files}{asset_build_file}{plugin_build_files}\n\t\tAA0000000000000000000005 = {{ isa = PBXNativeTarget; buildConfigurationList = AA0000000000000000000007; buildPhases = ( AA0000000000000000000008, AA0000000000000000000009, AA000000000000000000000A ); name = {app_name}; productName = {app_name}; productReference = AA0000000000000000000013; productType = \"com.apple.product-type.application\"; }};\n\t\tAA0000000000000000000008 = {{ isa = PBXSourcesBuildPhase; files = ( AA0000000000000000000020, AA0000000000000000000021{generated_build_ids}{plugin_build_ids} ); }};\n\t\tAA0000000000000000000009 = {{ isa = PBXFrameworksBuildPhase; files = (); }};\n\t\tAA000000000000000000000A = {{ isa = PBXResourcesBuildPhase; files = ( {resource_files} ); }};\n\t\tAA0000000000000000000002 = {{ isa = XCConfigurationList; buildConfigurations = ( AA0000000000000000000022 ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};\n\t\tAA0000000000000000000007 = {{ isa = XCConfigurationList; buildConfigurations = ( AA0000000000000000000023 ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};\n\t\tAA0000000000000000000022 = {{ isa = XCBuildConfiguration; buildSettings = {{ ALWAYS_SEARCH_USER_PATHS = NO; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = \"-O\"; SWIFT_COMPILATION_MODE = wholemodule; GCC_OPTIMIZATION_LEVEL = s; DEAD_CODE_STRIPPING = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; }}; name = Release; }};\n\t\tAA0000000000000000000023 = {{ isa = XCBuildConfiguration; buildSettings = {{ ALWAYS_SEARCH_USER_PATHS = NO; PRODUCT_BUNDLE_IDENTIFIER = com.nexa.{}; PRODUCT_NAME = {app_name}; INFOPLIST_FILE = {app_name}/Info.plist; SUPPORTED_PLATFORMS = \"iphoneos iphonesimulator\"; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = \"-O\"; SWIFT_COMPILATION_MODE = wholemodule; GCC_OPTIMIZATION_LEVEL = s; DEAD_CODE_STRIPPING = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; TARGETED_DEVICE_FAMILY = \"1,2\"; }}; name = Release; }};\n\t}};\n\trootObject = AA0000000000000000000001;\n}}\n",
+    let mut project = format!(
+        "// !$*UTF8*$!\n{{\n\tarchiveVersion = 1;\n\tclasses = {{}};\n\tobjectVersion = 77;\n\tobjects = {{\n\t\tAA0000000000000000000001 = {{ isa = PBXProject; buildConfigurationList = AA0000000000000000000002; compatibilityVersion = \"Xcode 16.0\"; mainGroup = AA0000000000000000000003; productRefGroup = AA0000000000000000000004; targets = ( AA0000000000000000000005 ); }};\n\t\tAA0000000000000000000003 = {{ isa = PBXGroup; children = ( AA0000000000000000000014, AA0000000000000000000004 ); sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000014 = {{ isa = PBXGroup; children = ( AA0000000000000000000010, AA0000000000000000000011, AA0000000000000000000012{asset_group}{generated_group_children}{plugin_group_children}{xcframework_group_children} ); path = {app_name}; sourceTree = \"<group>\"; }};{asset_reference}{generated_file_references}{plugin_file_references}{xcframework_objects}\n\t\tAA0000000000000000000004 = {{ isa = PBXGroup; children = ( AA0000000000000000000013 ); name = Products; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000010 = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {app_file}; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000011 = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexaGenerated.swift; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000012 = {{ isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000013 = {{ isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = {app_name}.app; sourceTree = BUILT_PRODUCTS_DIR; }};\n\t\tAA0000000000000000000020 = {{ isa = PBXBuildFile; fileRef = AA0000000000000000000010; }};\n\t\tAA0000000000000000000021 = {{ isa = PBXBuildFile; fileRef = AA0000000000000000000011; }};{generated_build_files}{asset_build_file}{plugin_build_files}\n\t\tAA0000000000000000000005 = {{ isa = PBXNativeTarget; buildConfigurationList = AA0000000000000000000007; buildPhases = ( AA0000000000000000000008, AA0000000000000000000009, AA000000000000000000000A ); name = {app_name}; productName = {app_name}; productReference = AA0000000000000000000013; productType = \"com.apple.product-type.application\"; }};\n\t\tAA0000000000000000000008 = {{ isa = PBXSourcesBuildPhase; files = ( AA0000000000000000000020, AA0000000000000000000021{generated_build_ids}{plugin_build_ids} ); }};\n\t\tAA0000000000000000000009 = {{ isa = PBXFrameworksBuildPhase; files = (); }};\n\t\tAA000000000000000000000A = {{ isa = PBXResourcesBuildPhase; files = ( {resource_files} ); }};\n\t\tAA0000000000000000000002 = {{ isa = XCConfigurationList; buildConfigurations = ( AA0000000000000000000022 ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};\n\t\tAA0000000000000000000007 = {{ isa = XCConfigurationList; buildConfigurations = ( AA0000000000000000000023 ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};\n\t\tAA0000000000000000000022 = {{ isa = XCBuildConfiguration; buildSettings = {{ ALWAYS_SEARCH_USER_PATHS = NO; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = \"-O\"; SWIFT_COMPILATION_MODE = wholemodule; GCC_OPTIMIZATION_LEVEL = s; DEAD_CODE_STRIPPING = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; }}; name = Release; }};\n\t\tAA0000000000000000000023 = {{ isa = XCBuildConfiguration; buildSettings = {{ ALWAYS_SEARCH_USER_PATHS = NO; PRODUCT_BUNDLE_IDENTIFIER = com.nexa.{}; PRODUCT_NAME = {app_name}; INFOPLIST_FILE = {app_name}/Info.plist; SUPPORTED_PLATFORMS = \"iphoneos iphonesimulator\"; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = \"-O\"; SWIFT_COMPILATION_MODE = wholemodule; GCC_OPTIMIZATION_LEVEL = s; DEAD_CODE_STRIPPING = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; TARGETED_DEVICE_FAMILY = \"1,2\"; }}; name = Release; }};\n\t}};\n\trootObject = AA0000000000000000000001;\n}}\n",
         app_name.to_ascii_lowercase()
     )
     .replace("compatibilityVersion = \"Xcode 16.0\"", "compatibilityVersion = \"Xcode 27.0\"")
     .replace("SWIFT_VERSION = 5.0", "SWIFT_VERSION = 6.0")
-    .replace("IPHONEOS_DEPLOYMENT_TARGET = 16.0", "IPHONEOS_DEPLOYMENT_TARGET = 17.0")
+    .replace("IPHONEOS_DEPLOYMENT_TARGET = 16.0", "IPHONEOS_DEPLOYMENT_TARGET = 17.0");
+    if has_plugin_resources {
+        let reference_id = pbx_identifier(10000);
+        let build_id = pbx_identifier(10001);
+        project = project.replacen(
+            "AA0000000000000000000012",
+            &format!("AA0000000000000000000012, {reference_id}"),
+            1,
+        );
+        let old_resource_phase = format!("PBXResourcesBuildPhase; files = ( {resource_files} );");
+        let mut resource_ids = Vec::new();
+        if !resource_files.is_empty() {
+            resource_ids.push(resource_files.as_str());
+        }
+        resource_ids.push(&build_id);
+        project = project.replace(
+            &old_resource_phase,
+            &format!(
+                "PBXResourcesBuildPhase; files = ( {} );",
+                resource_ids.join(", ")
+            ),
+        );
+        let insertion = "\n\t\tAA0000000000000000000005 = { isa = PBXNativeTarget;";
+        project = project.replace(
+            insertion,
+            &format!(
+                "\n\t\t{reference_id} = {{ isa = PBXFileReference; lastKnownFileType = folder; path = NexaPluginResources; sourceTree = \"<group>\"; }};\n\t\t{build_id} = {{ isa = PBXBuildFile; fileRef = {reference_id}; }};{insertion}"
+            ),
+        );
+    }
+    project
 }
 
 pub(super) fn ios_scheme(app_name: &str) -> String {
@@ -369,9 +715,22 @@ pub(super) fn ios_scheme(app_name: &str) -> String {
     )
 }
 
-pub(super) fn android_settings(app_name: &str) -> String {
+pub(super) fn android_settings(app_name: &str, plugins: &[nexa_ir::Plugin]) -> String {
+    let mut repositories: Vec<&str> = Vec::new();
+    for repository in plugins
+        .iter()
+        .flat_map(|plugin| plugin.android_maven_repositories.iter())
+    {
+        if !repositories.contains(&repository.as_str()) {
+            repositories.push(repository.as_str());
+        }
+    }
+    let custom_repositories = repositories
+        .iter()
+        .map(|repository| format!(" maven {{ url = uri(\"{repository}\") }}"))
+        .collect::<String>();
     format!(
-        "pluginManagement {{ repositories {{ google(); mavenCentral(); gradlePluginPortal() }} }}\ndependencyResolutionManagement {{ repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories {{ google(); mavenCentral() }} }}\nrootProject.name = \"{app_name}\"\ninclude(\":app\")\n"
+        "pluginManagement {{ repositories {{ google(); mavenCentral(); gradlePluginPortal() }} }}\ndependencyResolutionManagement {{ repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories {{ google(); mavenCentral();{custom_repositories} }} }}\nrootProject.name = \"{app_name}\"\ninclude(\":app\")\n"
     )
 }
 pub(super) fn android_root_gradle() -> String {
@@ -385,10 +744,11 @@ pub(super) fn android_manifest(
     package: &str,
     remote: bool,
     config: &ProjectConfig,
+    plugins: &[nexa_ir::Plugin],
 ) -> String {
-    let mut declared = String::new();
+    let mut permissions = std::collections::BTreeSet::new();
     if remote {
-        declared.push_str("    <uses-permission android:name=\"android.permission.INTERNET\" />\n");
+        permissions.insert("android.permission.INTERNET".to_owned());
     }
     for (permission, _) in config.permissions() {
         let names: &[&str] = match *permission {
@@ -417,11 +777,23 @@ pub(super) fn android_manifest(
             ],
         };
         for name in names {
-            declared.push_str(&format!(
-                "    <uses-permission android:name=\"{name}\" />\n"
-            ));
+            permissions.insert((*name).to_owned());
         }
     }
+    permissions.extend(
+        plugins
+            .iter()
+            .flat_map(|plugin| plugin.android_permissions.iter().cloned()),
+    );
+    let declared = permissions
+        .iter()
+        .map(|name| {
+            format!(
+                "    <uses-permission android:name=\"{}\" />\n",
+                xml_escape(name)
+            )
+        })
+        .collect::<String>();
     format!(
         "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{app_name}\" android:theme=\"@android:style/Theme.Material.Light.NoActionBar\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\">\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n        </activity>\n    </application>\n</manifest>\n"
     )
@@ -431,6 +803,7 @@ pub(super) fn android_app_gradle(
     package: &str,
     features: nexa_backend_kotlin::KotlinProjectFeatures,
     plugins: &[nexa_ir::Plugin],
+    local_aars: &[String],
 ) -> Result<String, String> {
     let maven_dependencies = merge_maven_dependencies(plugins)?;
     let minimum_sdk = plugins
@@ -439,6 +812,11 @@ pub(super) fn android_app_gradle(
         .max()
         .unwrap_or(26)
         .max(26);
+    let cpp_native_build = if plugins.iter().any(|plugin| !plugin.cpp_sources.is_empty()) {
+        "\n    externalNativeBuild { cmake { path = file(\"src/main/cpp/CMakeLists.txt\"); version = \"3.22.1\" } }"
+    } else {
+        ""
+    };
     let mut dependencies = String::from(
         "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.material3:material3\")\n",
     );
@@ -472,13 +850,12 @@ pub(super) fn android_app_gradle(
     for dependency in maven_dependencies {
         dependencies.push_str(&format!("    implementation(\"{dependency}\")\n"));
     }
+    for aar in local_aars {
+        dependencies.push_str(&format!("    implementation(files(\"libs/{aar}\"))\n"));
+    }
     Ok(format!(
-        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{package}\"; minSdk = {minimum_sdk}; targetSdk = 37; versionCode = 1; versionName = \"1.0\" }}\n    buildFeatures {{ compose = true }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencies {{\n{dependencies}}}\n"
+        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{package}\"; minSdk = {minimum_sdk}; targetSdk = 37; versionCode = 1; versionName = \"1.0\" }}\n    buildFeatures {{ compose = true }}{cpp_native_build}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencyLocking {{\n    lockAllConfigurations()\n}}\n\ndependencies {{\n{dependencies}}}\n"
     ))
-}
-
-pub(super) fn android_proguard_rules() -> &'static str {
-    "# Nexa generated bindings use direct calls and do not require broad keep rules.\n"
 }
 
 fn xml_escape(value: &str) -> String {
@@ -500,49 +877,162 @@ mod tests {
             idl_path: String::new(),
             ios_sources: Vec::new(),
             android_sources: Vec::new(),
+            cpp_sources: Vec::new(),
+            cpp_headers: Vec::new(),
+            cpp_standard: None,
             ios_min_version: None,
             android_min_sdk: None,
+            ios_frameworks: Vec::new(),
+            ios_xcframeworks: Vec::new(),
+            ios_resources: Vec::new(),
+            ios_privacy_manifest: None,
             swift_packages: Vec::new(),
             maven_dependencies: Vec::new(),
+            android_aars: Vec::new(),
+            android_resources: Vec::new(),
+            android_proguard_rules: Vec::new(),
+            android_maven_repositories: Vec::new(),
+            ios_usage_descriptions: Vec::new(),
+            ios_entitlements: Vec::new(),
+            ios_linker_flags: Vec::new(),
+            android_permissions: Vec::new(),
         }
     }
 
     #[test]
     fn emits_native_dependency_metadata_into_both_projects() {
-        let mut plugin = plugin("Media");
-        plugin.ios_min_version = Some("18.2".to_owned());
-        plugin.android_min_sdk = Some(29);
-        plugin.swift_packages.push(nexa_ir::SwiftPackage {
+        let mut media_plugin = plugin("Media");
+        media_plugin.ios_min_version = Some("18.2".to_owned());
+        media_plugin.android_min_sdk = Some(29);
+        media_plugin.ios_frameworks = vec!["AVFoundation".to_owned()];
+        media_plugin.ios_xcframeworks = vec!["/plugins/video/ios/VideoSDK.xcframework".to_owned()];
+        media_plugin.ios_linker_flags = vec![
+            "-ObjC".to_owned(),
+            "-force_load".to_owned(),
+            "$(PROJECT_DIR)/Vendor SDK/lib.a".to_owned(),
+        ];
+        media_plugin.swift_packages.push(nexa_ir::SwiftPackage {
             url: "https://example.com/media.git".to_owned(),
             from: "2.3.0".to_owned(),
             products: vec!["MediaKit".to_owned()],
         });
-        plugin
+        media_plugin
             .maven_dependencies
             .push("com.example:media:2.3.0".to_owned());
-        let plugins = [plugin];
+        media_plugin.android_aars = vec!["/plugins/video/android/libs/media.aar".to_owned()];
+        media_plugin.android_maven_repositories =
+            vec!["https://maven.example.com/releases".to_owned()];
+        let mut second_plugin = plugin("Recorder");
+        second_plugin.ios_frameworks = vec!["AVFoundation".to_owned()];
+        second_plugin.ios_linker_flags = vec!["-lz".to_owned()];
+        second_plugin.android_maven_repositories =
+            vec!["https://maven.example.com/releases".to_owned()];
+        let plugins = [media_plugin, second_plugin];
 
         let ios = ios_project_file(
             "Demo",
             false,
+            false,
             &["NexaGenerated.swift".to_owned()],
             &[],
+            &[],
+            &["Frameworks/NexaPlugin0_VideoSDK.xcframework".to_owned()],
             &plugins,
         )
         .expect("SwiftPM metadata should render");
         assert!(ios.contains("XCRemoteSwiftPackageReference"));
         assert!(ios.contains("repositoryURL = \"https://example.com/media.git\""));
         assert!(ios.contains("productName = \"MediaKit\""));
+        assert!(ios.contains("System/Library/Frameworks/AVFoundation.framework"));
+        assert!(ios.contains("PBXFrameworksBuildPhase; files = ("));
+        assert!(ios.contains("lastKnownFileType = wrapper.framework"));
+        assert!(ios.contains("lastKnownFileType = wrapper.xcframework"));
+        assert!(ios.contains("Embed Frameworks"));
+        assert!(ios.contains("CodeSignOnCopy, RemoveHeadersOnCopy"));
         assert!(ios.contains("IPHONEOS_DEPLOYMENT_TARGET = 18.2"));
+        assert!(ios.contains(
+            "OTHER_LDFLAGS = ( \"$(inherited)\", \"-ObjC\", \"-force_load\", \"$(PROJECT_DIR)/Vendor SDK/lib.a\", \"-lz\" );"
+        ));
+
+        let resource_project = ios_project_file("Demo", false, true, &[], &[], &[], &[], &plugins)
+            .expect("plugin resource bundle should be included in the Xcode project");
+        assert!(resource_project.contains("path = NexaPluginResources"));
+        assert!(resource_project.contains(&format!(
+            "PBXResourcesBuildPhase; files = ( {} );",
+            pbx_identifier(10001)
+        )));
+
+        let settings = android_settings("Demo", &plugins);
+        assert!(settings.contains("maven { url = uri(\"https://maven.example.com/releases\") }"));
+        assert_eq!(
+            settings
+                .matches("https://maven.example.com/releases")
+                .count(),
+            1
+        );
 
         let android = android_app_gradle(
             "com.example.demo",
             nexa_backend_kotlin::KotlinProjectFeatures::default(),
             &plugins,
+            &["NexaPlugin0_media.aar".to_owned()],
         )
         .expect("Maven metadata should render");
         assert!(android.contains("minSdk = 29"));
         assert!(android.contains("implementation(\"com.example:media:2.3.0\")"));
+        assert!(android.contains("implementation(files(\"libs/NexaPlugin0_media.aar\"))"));
+        assert!(android.contains("dependencyLocking {\n    lockAllConfigurations()\n}"));
+    }
+
+    #[test]
+    fn generated_hosts_compile_declared_cpp_implementation_sources() {
+        let cpp_sources = vec!["Plugin0/cpp/Sources/Decoder.cpp".to_owned()];
+        let mut cpp_plugin = plugin("Video");
+        cpp_plugin.cpp_sources = vec!["/plugins/video/cpp/Sources/**".to_owned()];
+        cpp_plugin.cpp_standard = Some(23);
+        let mut lower_standard_plugin = plugin("Audio");
+        lower_standard_plugin.cpp_sources = vec!["/plugins/audio/cpp/Sources/**".to_owned()];
+        lower_standard_plugin.cpp_standard = Some(17);
+        let ios = ios_project_file(
+            "Demo",
+            false,
+            false,
+            &[],
+            &[],
+            &cpp_sources,
+            &[],
+            &[cpp_plugin.clone(), lower_standard_plugin],
+        )
+        .expect("iOS project should render C++ implementation sources");
+        assert!(ios.contains("lastKnownFileType = sourcecode.cpp.cpp"));
+        assert!(ios.contains("NexaPluginCpp/Plugin0/cpp/Sources/Decoder.cpp"));
+        assert!(ios.contains("CLANG_CXX_LANGUAGE_STANDARD = \"c++23\""));
+        assert!(ios.contains("HEADER_SEARCH_PATHS"));
+
+        let mut default_standard_plugin = plugin("DefaultStandard");
+        default_standard_plugin.cpp_sources = vec!["/plugins/default/cpp/Sources/**".to_owned()];
+        let default_ios = ios_project_file(
+            "Demo",
+            false,
+            false,
+            &[],
+            &[],
+            &cpp_sources,
+            &[],
+            &[default_standard_plugin],
+        )
+        .expect("iOS C++ project should retain its default language level");
+        assert!(default_ios.contains("CLANG_CXX_LANGUAGE_STANDARD = \"c++20\""));
+
+        let android = android_app_gradle(
+            "com.example.demo",
+            nexa_backend_kotlin::KotlinProjectFeatures::default(),
+            &[cpp_plugin],
+            &[],
+        )
+        .expect("Android Gradle file should opt into CMake for declared C++");
+        assert!(android.contains("externalNativeBuild { cmake"));
+        assert!(android.contains("src/main/cpp/CMakeLists.txt"));
     }
 
     #[test]
@@ -555,8 +1045,110 @@ mod tests {
             "com.example.demo",
             nexa_backend_kotlin::KotlinProjectFeatures::default(),
             &[first, second],
+            &[],
         )
         .expect_err("conflicting Maven versions must fail project generation");
         assert!(error.contains("conflicting versions"));
+    }
+
+    #[test]
+    fn plugin_platform_permissions_reach_generated_manifests() {
+        let mut plugin = plugin("Video");
+        plugin.ios_usage_descriptions.push((
+            "NSCameraUsageDescription".to_owned(),
+            "Record video clips.".to_owned(),
+        ));
+        plugin.android_permissions = vec![
+            "android.permission.CAMERA".to_owned(),
+            "android.permission.RECORD_AUDIO".to_owned(),
+        ];
+        let config = ProjectConfig::from_defaults(&[]).expect("empty project config");
+
+        let plist = ios_info_plist("Demo", &config, &[plugin.clone()])
+            .expect("purpose string should render");
+        assert!(
+            plist.contains(
+                "<key>NSCameraUsageDescription</key><string>Record video clips.</string>"
+            )
+        );
+
+        let manifest = android_manifest("Demo", "com.example.demo", false, &config, &[plugin]);
+        assert!(manifest.contains("android.permission.CAMERA"));
+        assert!(manifest.contains("android.permission.RECORD_AUDIO"));
+    }
+
+    #[test]
+    fn plugin_entitlements_merge_into_plist_and_code_signing_settings() {
+        let mut plugin = plugin("SecureStorage");
+        plugin.ios_entitlements = vec![
+            (
+                "aps-environment".to_owned(),
+                nexa_ir::PluginEntitlementValue::String("development".to_owned()),
+            ),
+            (
+                "com.apple.developer.associated-domains".to_owned(),
+                nexa_ir::PluginEntitlementValue::Strings(vec![
+                    "applinks:example.com".to_owned(),
+                    "webcredentials:example.com".to_owned(),
+                ]),
+            ),
+            (
+                "com.apple.developer.networking.wifi-info".to_owned(),
+                nexa_ir::PluginEntitlementValue::Bool(true),
+            ),
+        ];
+
+        let entitlements = ios_entitlements(&[plugin.clone()])
+            .expect("valid entitlements should render")
+            .expect("the app should receive an entitlements file");
+        assert!(entitlements.contains("<key>aps-environment</key><string>development</string>"));
+        assert!(entitlements.contains(
+            "<key>com.apple.developer.associated-domains</key><array><string>applinks:example.com</string><string>webcredentials:example.com</string></array>"
+        ));
+        assert!(
+            entitlements.contains("<key>com.apple.developer.networking.wifi-info</key><true/>")
+        );
+
+        let project = ios_project_file("Demo", false, false, &[], &[], &[], &[], &[plugin])
+            .expect("entitlements should integrate with Xcode project settings");
+        assert!(project.contains("CODE_SIGN_ENTITLEMENTS = Demo/Nexa.entitlements"));
+    }
+
+    #[test]
+    fn rejects_conflicting_plugin_entitlements() {
+        let mut first = plugin("First");
+        first.ios_entitlements.push((
+            "aps-environment".to_owned(),
+            nexa_ir::PluginEntitlementValue::String("development".to_owned()),
+        ));
+        let mut second = plugin("Second");
+        second.ios_entitlements.push((
+            "aps-environment".to_owned(),
+            nexa_ir::PluginEntitlementValue::String("production".to_owned()),
+        ));
+
+        let error = ios_entitlements(&[first, second])
+            .expect_err("conflicting values for one entitlement must fail");
+        assert!(error.contains("conflicting values"));
+        assert!(error.contains("First"));
+        assert!(error.contains("Second"));
+    }
+
+    #[test]
+    fn rejects_conflicting_ios_plugin_purpose_strings() {
+        let mut first = plugin("First");
+        first.ios_usage_descriptions.push((
+            "NSCameraUsageDescription".to_owned(),
+            "Record video.".to_owned(),
+        ));
+        let mut second = plugin("Second");
+        second.ios_usage_descriptions.push((
+            "NSCameraUsageDescription".to_owned(),
+            "Scan documents.".to_owned(),
+        ));
+        let config = ProjectConfig::from_defaults(&[]).expect("empty project config");
+        let error = ios_info_plist("Demo", &config, &[first, second])
+            .expect_err("ambiguous usage-description text must fail generation");
+        assert!(error.contains("different purpose message"));
     }
 }

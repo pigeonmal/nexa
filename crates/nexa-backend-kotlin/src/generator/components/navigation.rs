@@ -121,6 +121,25 @@ pub(crate) fn render_navigation_stack(
                 ));
             }
         }
+        for state in &screen.states {
+            render_screen_state(state, depth + 2, out);
+        }
+        let focus_bindings = crate::generator::features::collect_focus_bindings(&screen.body);
+        for binding in &focus_bindings {
+            indent(out, depth + 2);
+            out.push_str(&format!(
+                "val {} = remember {{ FocusRequester() }}\n",
+                crate::generator::input::focus_requester_name(binding)
+            ));
+        }
+        for binding in &focus_bindings {
+            let state = state_name(binding);
+            let requester = crate::generator::input::focus_requester_name(binding);
+            indent(out, depth + 2);
+            out.push_str(&format!(
+                "LaunchedEffect({state}) {{ if ({state}) {requester}.requestFocus() else {requester}.freeFocus() }}\n"
+            ));
+        }
         render_children(&screen.body, module, features, depth + 2, out);
         if screen.on_appear.is_some() || screen.on_disappear.is_some() {
             out.push('\n');
@@ -152,6 +171,36 @@ pub(crate) fn render_navigation_stack(
     }
     indent(out, depth);
     out.push('}');
+}
+
+fn render_screen_state(state: &nexa_ir::State, depth: usize, out: &mut String) {
+    let name = state_name(&state.name);
+    indent(out, depth);
+    if state.mutable {
+        if crate::generator::state::is_mutable_collection(state) {
+            out.push_str(&format!(
+                "val {name} = remember {{ {} }}\n",
+                crate::generator::state::kotlin_state_initializer(state)
+            ));
+        } else {
+            out.push_str(&format!(
+                "var {name} by remember {{ {} }}\n",
+                crate::generator::state::kotlin_state_initializer(state)
+            ));
+        }
+    } else if state.is_native_class_instance_binding() {
+        out.push_str(&format!(
+            "val {name}: {} = remember {{ {} }}\n",
+            state.ty.kotlin(),
+            crate::generator::expressions::expression(&state.initial)
+        ));
+    } else {
+        out.push_str(&format!(
+            "val {name}: {} = {}\n",
+            state.ty.kotlin(),
+            crate::generator::expressions::expression(&state.initial)
+        ));
+    }
 }
 
 fn route_pattern(screen: &nexa_ir::Screen) -> String {

@@ -22,6 +22,21 @@ use crate::{cache, config, config::ProjectConfig};
 mod plugins;
 mod templates;
 
+pub(super) fn validate_plugin_manifest_sources(
+    package_root: &Path,
+    manifest: &nexa_plugin_idl::manifest::PluginManifest,
+) -> Result<(), String> {
+    plugins::validate_manifest_sources(package_root, manifest)
+}
+
+pub(super) fn plugin_platform_sources(
+    package_root: &Path,
+    manifest: &nexa_plugin_idl::manifest::PluginManifest,
+    ios: bool,
+) -> Result<Vec<PathBuf>, String> {
+    plugins::plugin_platform_sources(package_root, manifest, ios)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProjectTarget {
     Ios,
@@ -259,6 +274,15 @@ fn collect_source_units(
             || path
                 .components()
                 .any(|component| component.as_os_str() == "Assets.xcassets")
+            || path
+                .components()
+                .any(|component| component.as_os_str() == "NexaPluginResources")
+            || (path
+                .components()
+                .any(|component| component.as_os_str() == "assets")
+                && path
+                    .components()
+                    .any(|component| component.as_os_str() == "plugins"))
         {
             let relative = path
                 .strip_prefix(root)
@@ -376,6 +400,9 @@ fn generate_ios(
     let source_units = split_generated_units(&source, "swift");
     let has_assets = plugins::copy_plugin_assets(root, app_name, module)?;
     let plugin_sources = plugins::copy_ios_plugin_sources(root, app_name, module)?;
+    let cpp_sources = plugins::copy_ios_plugin_cpp_sources(root, app_name, module)?;
+    let xcframeworks = plugins::copy_ios_plugin_artifacts(root, app_name, module)?;
+    let has_plugin_resources = plugins::copy_ios_plugin_resources(root, app_name, module)?;
     let generated_names = source_units
         .iter()
         .map(|(name, contents)| {
@@ -392,8 +419,15 @@ fn generate_ios(
     )?;
     write_if_changed(
         &directory.join("Info.plist"),
-        &templates::ios_info_plist(app_name, config),
+        &templates::ios_info_plist(app_name, config, &module.plugins)?,
     )?;
+    let entitlements_path = directory.join("Nexa.entitlements");
+    if let Some(entitlements) = templates::ios_entitlements(&module.plugins)? {
+        write_if_changed(&entitlements_path, &entitlements)?;
+    } else if entitlements_path.is_file() {
+        fs::remove_file(&entitlements_path)
+            .map_err(|error| format!("{}: {error}", entitlements_path.display()))?;
+    }
     write_if_changed(
         &root
             .join("ios")
@@ -401,8 +435,11 @@ fn generate_ios(
         &templates::ios_project_file(
             app_name,
             has_assets,
+            has_plugin_resources,
             &generated_names,
             &plugin_sources,
+            &cpp_sources,
+            &xcframeworks,
             &module.plugins,
         )?,
     )?;
@@ -428,6 +465,9 @@ fn generate_android(
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
     let (generated, project_features) = KotlinBackend.generate_with_project_features(module);
     let plugin_packages = plugins::copy_android_plugin_sources(root, module, &package, config)?;
+    plugins::copy_android_plugin_cpp_sources(root, module, &package)?;
+    let local_aars = plugins::copy_android_plugin_artifacts(root, module)?;
+    plugins::copy_android_plugin_resources(root, module)?;
     plugins::copy_plugin_assets(root, app_name, module)?;
     let screen = nexa_codegen::names::screen_name(app_name);
     let cronet_import = if project_features.uses_network {
@@ -473,11 +513,17 @@ fn generate_android(
     )?;
     write_if_changed(
         &root.join("android/app/src/main/AndroidManifest.xml"),
-        &templates::android_manifest(app_name, &package, project_features.uses_network, config),
+        &templates::android_manifest(
+            app_name,
+            &package,
+            project_features.uses_network,
+            config,
+            &module.plugins,
+        ),
     )?;
     write_if_changed(
         &root.join("android/settings.gradle.kts"),
-        &templates::android_settings(app_name),
+        &templates::android_settings(app_name, &module.plugins),
     )?;
     write_if_changed(
         &root.join("android/build.gradle.kts"),
@@ -489,11 +535,11 @@ fn generate_android(
     )?;
     write_if_changed(
         &root.join("android/app/build.gradle.kts"),
-        &templates::android_app_gradle(&package, project_features, &module.plugins)?,
+        &templates::android_app_gradle(&package, project_features, &module.plugins, &local_aars)?,
     )?;
     write_if_changed(
         &root.join("android/app/proguard-rules.pro"),
-        templates::android_proguard_rules(),
+        &plugins::android_plugin_proguard_rules(module, &package)?,
     )?;
     Ok(())
 }
@@ -634,4 +680,111 @@ fn project_cache_is_current(
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use nexa_codegen::Backend;
+    use nexa_compiler::{Target, compile_file_with_warnings_for_targets};
+
+    use super::{KotlinBackend, SwiftBackend};
+
+    #[test]
+    fn video_player_demo_generates_two_direct_native_instances_on_both_targets() {
+        let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/plugins/video-player-demo.nx");
+        let compilations =
+            compile_file_with_warnings_for_targets(&entry, &[Target::Swift, Target::Kotlin])
+                .expect("the plugin example should compile for both native targets");
+
+        assert_eq!(compilations.len(), 2);
+        assert_eq!(compilations[0].module.plugins.len(), 1);
+        assert_eq!(compilations[1].module.plugins.len(), 1);
+
+        let swift = SwiftBackend.generate(&compilations[0].module);
+        assert_eq!(
+            swift
+                .matches("= NexaNativeObjectStorage { VideoPlayer() }")
+                .count(),
+            2
+        );
+        assert!(swift.contains(
+            "private var nexa_player1: VideoPlayer {\n        get { __nexaNativeObjectStorage_nexa_player1.value }"
+        ));
+        assert!(swift.contains(
+            "private var nexa_player2: VideoPlayer {\n        get { __nexaNativeObjectStorage_nexa_player2.value }"
+        ));
+        for fragment in [
+            "NexaPlayerSurfaceComponent(nexa_player1, \"First player\")",
+            "NexaPlayerMediaComponent(nexa_player, nexa_title)",
+            "VideoView(player: nexa_player,",
+            "VideoView(player: nexa_player2",
+            "onTapped: {",
+            "nexa_tapped = true",
+            "nexa_secondTapped = true",
+            "await nexa_player1.prepare(url:",
+            "await nexa_player2.prepare(url:",
+            "nexa_player1.volume = Double(0.5)",
+            "nexa_player2.volume = Double(0.25)",
+            "nexa_player1.dispose()",
+            "nexa_player2.dispose()",
+            "nexa_player1.onEnded = {",
+            "nexa_player2.onEnded = {",
+            "nexa_firstEnded = true",
+            "nexa_secondEnded = true",
+            "First player ended",
+            "Second player ended",
+            "Second view tapped",
+        ] {
+            assert!(swift.contains(fragment), "missing Swift output: {fragment}");
+        }
+        assert!(swift.contains("do {"));
+        assert!(swift.contains("try await nexa_player1.prepare(url:"));
+        assert!(swift.contains("} catch let error as PlayerError {"));
+        assert!(swift.contains("case .invalidUrl:"));
+        assert!(swift.contains("case let .decodingFailed(nexa_message):"));
+        assert!(swift.contains("nexa_loadError = nexa_message"));
+        assert!(!swift.contains("try?"));
+
+        let kotlin = KotlinBackend.generate(&compilations[1].module);
+        assert_eq!(kotlin.matches("remember { VideoPlayer() }").count(), 2);
+        assert!(kotlin.contains("val nexa_player1: VideoPlayer = remember { VideoPlayer() }"));
+        assert!(kotlin.contains("val nexa_player2: VideoPlayer = remember { VideoPlayer() }"));
+        for fragment in [
+            "NexaPlayerSurfaceComponent(nexa_player1, \"First player\")",
+            "NexaPlayerMediaComponent(nexa_player, nexa_title)",
+            "VideoView(player = nexa_player,",
+            "VideoView(player = nexa_player2",
+            "onTapped = {",
+            "nexa_tapped = true",
+            "nexa_secondTapped = true",
+            "nexa_player1.prepare(",
+            "nexa_player2.prepare(",
+            "nexa_player1.volume = 0.5",
+            "nexa_player2.volume = 0.25",
+            "nexa_player1.dispose()",
+            "nexa_player2.dispose()",
+            "nexa_player1.onEnded = {",
+            "nexa_player2.onEnded = {",
+            "nexa_firstEnded = true",
+            "nexa_secondEnded = true",
+            "First player ended",
+            "Second player ended",
+            "Second view tapped",
+        ] {
+            assert!(
+                kotlin.contains(fragment),
+                "missing Kotlin output: {fragment}"
+            );
+        }
+        assert!(kotlin.contains("when (error) {"));
+        assert!(kotlin.contains("PlayerError.invalidUrl ->"));
+        assert!(kotlin.contains("is PlayerError.decodingFailed ->"));
+        assert!(kotlin.contains("nexa_loadError = nexa_message"));
+        assert!(kotlin.contains("try {"));
+        assert!(kotlin.contains("nexa_player1.prepare("));
+        assert!(kotlin.contains("} catch (error: Exception) {"));
+    }
 }

@@ -1,6 +1,6 @@
 # Nexa architecture audit
 
-Audit date: 2026-09-22
+Audit date: 2026-09-23
 
 This audit was performed against the Rust workspace, the CLI project
 scaffolder, both native backends, and representative generated projects for
@@ -73,6 +73,13 @@ implemented after the findings were reviewed.
   capabilities, generated source bytes, and target dependencies. Project
   generation now emits `nexa.sources.json`, an explicit list of generated
   source/resource units.
+- Added opt-in `nexa audit --release-sizes` measurements. On hosts with the
+  native toolchains, it builds an Android Release APK with R8/resource
+  shrinking and a device-optimized iOS Release app, then reports APK DEX,
+  resource, asset, and native-library payload sizes plus the iOS executable
+  and app-bundle sizes. Missing toolchains and failed builds are explicit in
+  the JSON report; the default static audit remains fast and performs no
+  native builds.
 - Split generated app output into independently compiled native units for
   types, app declarations, components, runtime helpers, native libraries,
   permissions, assets, lists, and functions. The Xcode project includes each
@@ -83,6 +90,10 @@ implemented after the findings were reviewed.
 - Cached Cronet engines by canonical certificate-pin sets, unified terminal
   completion guards, and moved download sink writes off the Cronet callback
   executor.
+- Aligned iOS and Android certificate pinning on SHA-256 hashes of DER-encoded
+  SubjectPublicKeyInfo values. iOS checks the already-trusted server chain;
+  both targets accept case-insensitive 64-character hex pins, and malformed
+  certificate DER fails closed.
 - Reorganized both native generators into `api/`, `components/`, and `engine/`
   responsibility folders. Feature modules now declare the imports required by
   their own emitted code; the backend import module only collects, deduplicates,
@@ -96,9 +107,14 @@ implemented after the findings were reviewed.
 - Added native class constructor and instance-method lowering. A `native class`
   constructor now creates a typed object expression, and calls such as
   `player.prepare()` lower to direct receiver calls instead of the service
-  singleton path. Read-only properties, named arguments, and `Void`/async
-  action calls also lower directly; mutable writes, deterministic disposal, and
-  instance events remain follow-up work.
+  singleton path. Read-only properties, mutable property assignments, named
+  arguments, and `Void`/async action calls lower directly. Native-class event
+  subscriptions now lower to direct instance callback properties with typed
+  payload bindings. The compiler also rejects duplicate disposal and possible
+  post-disposal use within an action sequence and tracks direct immutable
+  aliases to the same object. A separate callback analysis now covers app,
+  screen, and component callback groups, with `OnDisappear` treated as terminal
+  cleanup for that view lifetime.
 - Project generation now emits each used plugin's generated Swift/Kotlin
   contract automatically. Swift contracts remain separate Xcode source units;
   Android contracts are placed beside the implementation package and imported
@@ -138,6 +154,94 @@ implemented after the findings were reviewed.
   compiles without Coil or Cronet dependencies. These tests exercise the
   ownership model without adding empty import hooks to SwiftUI-only components.
   The cache schema advances to `build-v65` for the corrected generated import.
+- Added compile-time native-class conformance probes to generated Swift and
+  Kotlin plugin bindings. They type-check each concrete `{Name}Impl` against
+  its IDL protocol/interface without adding a runtime call or changing the
+  direct concrete call path. IDL struct fields now validate every referenced
+  type and default, and reject recursive inline value layouts while retaining
+  collection-indirected trees. Layout-less opaque `type Name` declarations
+  are rejected.
+- Extended schema-2 plugin metadata with iOS `usageDescriptions` and Android
+  `permissions`. Project generation merges reachable declarations into
+  `Info.plist` and `AndroidManifest.xml`, deduplicates matching declarations,
+  and rejects conflicting iOS purpose text. Swift native-class contracts now
+  use `@MainActor`, and throwing async `Void` calls no longer receive an
+  invalid value fallback. Mutable native properties now lower to direct writes,
+  with readonly writes rejected by semantic analysis and covered by regression
+  tests. Calls to throwing plugin APIs in action blocks now require explicit
+  `try`/`catch` recovery, preserving native failures instead of silently
+  substituting values. At that stage catch blocks did not yet bind or match error variants.
+  The native-source cache schema is `build-v69` so
+  earlier generated contracts, validations, and statements are invalidated.
+- Expanded headless regression coverage across all nine workspace crates for
+  plugin import parsing, IDL type references, shared capability scans, typed
+  plugin lowering, native receiver and File API code generation, generated
+  value contracts, native signature conformance failures, unused-plugin
+  pruning, and cache invalidation. The binding test caught and fixed
+  Swift `Float32`/`Float64` emission so those IDL types map to native `Float`/
+  `Double`. `nexa plugin check` now syntax-checks the declared Nexa import graph
+  and verifies declared platform source globs and asset roots before reporting
+  the package as valid. On hosts with Xcode and the iOS simulator SDK, it also
+  invokes Swift 6 type-checking against the generated plugin contract; the
+  VideoPlayer implementation passes this check. `nexa plugin check` also uses
+  `kotlinc` for dependency-free Kotlin implementations when available, and a
+  compiler-conditional integration test compiles a generated Kotlin contract
+  and implementation.
+
+The plugin binding's floating-point type correction changes generated native
+source and therefore advances the cache schema to `build-v70`.
+
+Native-class event lowering and persistent storage for immutable native-class
+bindings change generated output, so the current cache schema is `build-v72`.
+Native-component event modifiers now lower through typed IR, survive
+optimization, and render as direct SwiftUI/Compose callback arguments. The
+VideoPlayer integration exercises independent callbacks on two component
+instances. This generated-source change advances the cache schema to
+`build-v73`.
+Generated Kotlin contracts also include an unused compile-time factory probe
+for each native class. The host compiler therefore verifies constructor
+argument and implementation-constructor types even if the app never creates
+that class; the probe has no runtime call site.
+Plugin manifests now declare iOS system frameworks and HTTPS Android Maven
+repositories. Xcode links the declared frameworks directly; generated Gradle
+settings merge custom repositories deterministically and enable dependency
+locking. This project-output change advanced the cache schema to `build-v74`.
+Typed error variants now retain payloads in Swift/Kotlin contracts, and native
+class disposal analysis resolves direct immutable aliases. Those generated
+contract and semantic validation changes advance the current cache schema to
+`build-v75`.
+Plugin-owned iOS entitlements now validate and flow into a merged signing
+entitlements plist plus the Xcode target's `CODE_SIGN_ENTITLEMENTS` setting.
+The generated-project output change advanced the cache schema to `build-v76`.
+Qualified stateless service calls now parse correctly inside action blocks,
+matching their documented `Namespace.method()` form. The compiler behavior
+change advances the cache schema to `build-v77`.
+iOS linker arguments now flow as individually escaped `OTHER_LDFLAGS` values
+in declaration order. The project-output change advances the cache schema to
+`build-v78`. Recursive source-glob expansion now includes matching files at
+every depth; this generated-project change advances the cache schema to
+`build-v79`. The generated iOS integration test verifies that the declared
+Swift implementation is included and compiles with its generated contract.
+Explicit cross-platform `try`/`catch` actions now preserve throwing plugin and
+asynchronous File/Network failures, and the VideoPlayer reference contract
+exercises a typed invalid-URL failure. This generated-source change advances
+the native-source cache schema to `build-v81`. Callback lifetime validation
+now treats native-class values passed to rendered components as live for the
+containing view; the semantic validation update advances the cache schema to
+`build-v82`.
+
+Typed `.nx` error cases now bind declared payloads on both targets. The
+compiler requires exhaustive cases for a single declared error, or an `else`
+fallback for untyped/multiple failures; Swift contracts use typed throws so
+unhandled errors cannot escape SwiftUI's non-throwing task closure. The native
+iOS generated-project test compiles this path. Custom-component native-class
+parameters resolve to their declared plugin class type and are borrowed, so a
+child component cannot dispose its caller's instance. These source and
+semantic changes advanced the cache schema to `build-v83`. Plugin native
+component signatures are now available while custom component bodies are
+lowered, so wrappers can compose qualified native views; the VideoPlayer
+compile regression exercises this path on Swift and Kotlin. This compiler
+change advances the cache schema to `build-v84`.
 
 ## Independent Swift/Kotlin review
 
@@ -146,18 +250,16 @@ identified Cronet callback cancellation races, pinned-engine cache misses,
 blocking download writes on the callback executor, and coarse Compose baseline
 dependencies. The cancellation, cache, and callback-I/O findings are fixed
 above; reducing the remaining Compose baseline without breaking generated API
-stability remains follow-up work. The current patch does not claim a zero-copy
-ABI or measured binary-size reduction without release builds.
+stability remains follow-up work. `nexa audit --release-sizes` now builds
+optimized native Release artifacts and reports their measured file and payload
+sizes when the relevant toolchains are available. No zero-copy ABI claim is
+made.
 
 ## Remaining architectural work
 
-1. Generate native implementation conformance checks and factories, then add
-   mutable property writes, disposal, and instance-scoped events alongside
-   native visual component lowering from `native.nxid`.
-2. Add dependency repository configuration and dependency lockfile handling.
-   Manifest platform minimums and declared source globs now reach generated
-   projects.
-3. Extend `nexa audit` with Android R8/resource-shrink results and Swift
-   release binary/resource sizes when native release toolchains are available.
-4. Define certificate pinning as one representation on both platforms (the
-   current Swift leaf-certificate and Android public-key semantics differ).
+Add async, error, and event contracts to optional C++ adapters, then support
+nested `Set`/`Map` combinations. Recursive `Array` adapters now have iOS
+Swift/C++ typecheck and Android Kotlin/JNI runtime coverage, and flat-map
+adapters have per-platform type coverage. Navigation gives each screen
+destination independent native state and a unique Swift route identity. Direct
+Swift/Kotlin remains the default path.

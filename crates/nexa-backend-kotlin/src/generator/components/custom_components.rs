@@ -146,6 +146,12 @@ fn render_component_states(states: &[nexa_ir::State], depth: usize, out: &mut St
                     state::kotlin_state_initializer(state)
                 ));
             }
+        } else if state.is_native_class_instance_binding() {
+            out.push_str(&format!(
+                "val {name}: {} = remember {{ {} }}\n",
+                state.ty.kotlin(),
+                crate::generator::engine::expressions::expression(&state.initial)
+            ));
         } else {
             out.push_str(&format!(
                 "val {name}: {} = {}\n",

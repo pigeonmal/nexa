@@ -121,7 +121,7 @@ surface readable without making every value a verbose named option.
 | `If`, `When`, `Platform` | One condition/value or closed platform target | Explicit branch blocks | `When` requires a typed scalar and `else`; `Platform` removes the inactive branch during target lowering. |
 | `Theme` and `Layout` predicates | Named token/style values or qualified predicate names | Theme has no child block; predicates are expressions | Token kinds, style names, and predicate names are closed; unsupported placement is rejected before generation. |
 | `Content()` and custom components | `Content()` has zero values; custom component properties are named | Optional custom content slot | Custom calls reject missing, unknown, or duplicate properties during semantic analysis. |
-| Native plugin components | Qualified `Namespace.Component(...)` with IDL `prop` names | No child block in the first slice | The namespace and component export are resolved statically from `native.nxid`; unknown or missing properties are errors. Child content and event subscription modifiers remain deferred. |
+| Native plugin components | Qualified `Namespace.Component(...)` with IDL `prop` names | Optional `.on<Event> { ... }` modifiers after the call | The namespace, component, properties, and event callbacks are resolved statically from `native.nxid`; unknown or missing properties, unknown/duplicate events, payload arity mismatches, and shadowed payload names are errors. Child content remains deferred. |
 | `Network`, `Path`, `File`, `Permissions` | Qualified calls use named options; `await` is explicit for async calls | None | The native-call specification owns the closed option list and defaults. |
 
 The only intentionally positional component values are the primary text/button

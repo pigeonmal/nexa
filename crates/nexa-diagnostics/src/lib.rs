@@ -93,3 +93,53 @@ impl fmt::Display for CompileWarning {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{CompileError, CompileWarning, Span};
+
+    fn span() -> Span {
+        Span {
+            start: 14,
+            end: 19,
+            line: 3,
+            column: 5,
+        }
+    }
+
+    #[test]
+    fn diagnostics_render_source_location_and_kind() {
+        let error = CompileError::new(span(), "unknown plugin member")
+            .with_file("src/main.nx")
+            .to_string();
+        let warning = CompileWarning::new(span(), "unused binding")
+            .with_file("src/main.nx")
+            .to_string();
+
+        assert_eq!(error, "src/main.nx:3:5: error: unknown plugin member");
+        assert_eq!(warning, "src/main.nx:3:5: warning: unused binding");
+    }
+
+    #[test]
+    fn first_attached_source_file_is_preserved() {
+        let rendered = CompileError::new(span(), "invalid property")
+            .with_file("plugin/native.nxid")
+            .with_file("app/main.nx")
+            .to_string();
+
+        assert!(rendered.starts_with("plugin/native.nxid:3:5: error:"));
+    }
+
+    #[test]
+    fn warning_keeps_its_source_file_when_context_is_attached_twice() {
+        let rendered = CompileWarning::new(span(), "unused native property")
+            .with_file("plugin/native.nxid")
+            .with_file("app/main.nx")
+            .to_string();
+
+        assert_eq!(
+            rendered,
+            "plugin/native.nxid:3:5: warning: unused native property"
+        );
+    }
+}

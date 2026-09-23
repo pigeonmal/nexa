@@ -4,6 +4,7 @@ use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle, walk::walk_ir};
 
 use crate::generator::{
     components::render_node, features::Features, layout, render_immutable_state,
+    render_native_object_state,
 };
 
 pub(crate) fn render(module: &Module, features: &Features, out: &mut String) {
@@ -41,6 +42,10 @@ fn render_component(component: &Component, module: &Module, features: &Features,
         out.push_str("    private let nexaContent: () -> SlotContent\n");
     }
     for state in &component.states {
+        if state.is_native_class_constructor_binding() {
+            render_native_object_state(state, 1, out);
+            continue;
+        }
         if state.mutable && !focus_bindings.contains(&state.name) {
             out.push_str(&format!(
                 "    @State private var {}: {} = {}\n",

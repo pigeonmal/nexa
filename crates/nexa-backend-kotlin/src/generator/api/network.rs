@@ -299,8 +299,12 @@ private class NexaCronetImageRequestClient(
     if include_network {
         out.push_str(
             r#"private fun hexPin(value: String): ByteArray {
-    require(value.length % 2 == 0) { "certificate pins must be hexadecimal SHA-256 values" }
-    return value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    require(value.length == 64 && value.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
+        "certificate pins must be 64-character SHA-256 SPKI hex values"
+    }
+    return ByteArray(32) { index ->
+        ((value[index * 2].digitToInt(16) shl 4) or value[index * 2 + 1].digitToInt(16)).toByte()
+    }
 }
 
 public object NexaNetwork {
@@ -497,5 +501,24 @@ private fun nexaImageLoader(): ImageLoader {
 }
 "#,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render;
+
+    #[test]
+    fn network_pins_require_64_character_sha256_spki_hex_values() {
+        let mut output = String::new();
+        render(&mut output, true, false, false, false, false);
+
+        assert!(output.contains("value.length == 64"));
+        assert!(output.contains("it in '0'..'9'"));
+        assert!(output.contains("it in 'a'..'f'"));
+        assert!(output.contains("it in 'A'..'F'"));
+        assert!(output.contains("certificate pins must be 64-character SHA-256 SPKI hex values"));
+        assert!(output.contains("ByteArray(32)"));
+        assert!(output.contains("digitToInt(16)"));
     }
 }

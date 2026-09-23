@@ -93,7 +93,9 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
             collect_expression_state_names(value, names);
             collect_expression_state_names(collection, names);
         }
-        Expr::Not(value) | Expr::Await(value) => collect_expression_state_names(value, names),
+        Expr::Not(value) | Expr::Await(value) | Expr::TryAwait(value) => {
+            collect_expression_state_names(value, names)
+        }
         Expr::Index {
             collection, index, ..
         } => {
@@ -210,7 +212,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
         }
         Expr::Closure { body, .. } => is_pure_expression(body),
         Expr::NativeCall { .. } => false,
-        Expr::Await(_) => false,
+        Expr::Await(_) | Expr::TryAwait(_) => false,
         Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
             is_pure_expression(left) && is_pure_expression(right)
         }
@@ -368,6 +370,18 @@ fn collect_action_function_references(
             Action::Assign { value, .. } => {
                 collect_expression_function_references(value, declared, used)
             }
+            Action::NativePropertyAssign {
+                receiver, value, ..
+            } => {
+                collect_expression_function_references(receiver, declared, used);
+                collect_expression_function_references(value, declared, used);
+            }
+            Action::NativeEventSubscribe {
+                receiver, actions, ..
+            } => {
+                collect_expression_function_references(receiver, declared, used);
+                collect_action_function_references(actions, declared, used);
+            }
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {
                     collect_expression_function_references(argument, declared, used);
@@ -395,6 +409,19 @@ fn collect_action_function_references(
             Action::While { condition, body } => {
                 collect_expression_function_references(condition, declared, used);
                 collect_action_function_references(body, declared, used);
+            }
+            Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            } => {
+                collect_action_function_references(body, declared, used);
+                for arm in error_catches {
+                    collect_action_function_references(&arm.body, declared, used);
+                }
+                if let Some(catch_body) = catch_body {
+                    collect_action_function_references(catch_body, declared, used);
+                }
             }
             Action::Break | Action::Continue => {}
         }
@@ -619,6 +646,18 @@ fn collect_action_plugin_references(actions: &[Action], collect: &mut impl FnMut
         match action {
             Action::Expression(expression) => nexa_ir::walk::walk_expression(expression, collect),
             Action::Assign { value, .. } => nexa_ir::walk::walk_expression(value, collect),
+            Action::NativePropertyAssign {
+                receiver, value, ..
+            } => {
+                nexa_ir::walk::walk_expression(receiver, collect);
+                nexa_ir::walk::walk_expression(value, collect);
+            }
+            Action::NativeEventSubscribe {
+                receiver, actions, ..
+            } => {
+                nexa_ir::walk::walk_expression(receiver, collect);
+                collect_action_plugin_references(actions, collect);
+            }
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {
                     nexa_ir::walk::walk_expression(argument, collect);
@@ -643,6 +682,19 @@ fn collect_action_plugin_references(actions: &[Action], collect: &mut impl FnMut
             } => {
                 nexa_ir::walk::walk_expression(iterable, collect);
                 collect_action_plugin_references(body, collect);
+            }
+            Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            } => {
+                collect_action_plugin_references(body, collect);
+                for arm in error_catches {
+                    collect_action_plugin_references(&arm.body, collect);
+                }
+                if let Some(catch_body) = catch_body {
+                    collect_action_plugin_references(catch_body, collect);
+                }
             }
             Action::Break | Action::Continue => {}
         }
@@ -726,6 +778,7 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         | Expr::Range { .. }
         | Expr::Coalesce(_, _)
         | Expr::Await(_)
+        | Expr::TryAwait(_)
         | Expr::IsRegularWidth
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
@@ -744,6 +797,18 @@ fn collect_action_struct_names(actions: &[Action], used: &mut HashSet<String>) {
         match action {
             Action::Expression(expression) => collect_expression_struct_names(expression, used),
             Action::Assign { value, .. } => collect_expression_struct_names(value, used),
+            Action::NativePropertyAssign {
+                receiver, value, ..
+            } => {
+                collect_expression_struct_names(receiver, used);
+                collect_expression_struct_names(value, used);
+            }
+            Action::NativeEventSubscribe {
+                receiver, actions, ..
+            } => {
+                collect_expression_struct_names(receiver, used);
+                collect_action_struct_names(actions, used);
+            }
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {
                     collect_expression_struct_names(argument, used);
@@ -768,6 +833,19 @@ fn collect_action_struct_names(actions: &[Action], used: &mut HashSet<String>) {
             } => {
                 collect_expression_struct_names(iterable, used);
                 collect_action_struct_names(body, used);
+            }
+            Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            } => {
+                collect_action_struct_names(body, used);
+                for arm in error_catches {
+                    collect_action_struct_names(&arm.body, used);
+                }
+                if let Some(catch_body) = catch_body {
+                    collect_action_struct_names(catch_body, used);
+                }
             }
             Action::Break | Action::Continue => {}
         }
@@ -850,6 +928,11 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
                     collect_action_bindings(&refresh.actions, &mut bindings);
                 }
             }
+            Node::NativeComponentCall { event_handlers, .. } => {
+                for handler in event_handlers {
+                    collect_action_bindings(&handler.actions, &mut bindings);
+                }
+            }
             _ => {}
         },
         &mut |expression| {
@@ -870,6 +953,30 @@ fn collect_action_bindings(actions: &[Action], used: &mut Vec<String>) {
                 });
             }
             Action::Assign { name, .. } => used.push(name.clone()),
+            Action::NativePropertyAssign {
+                receiver, value, ..
+            } => {
+                nexa_ir::walk::walk_expression(receiver, &mut |expression| {
+                    if let Expr::State(name, _) = expression {
+                        used.push(name.clone());
+                    }
+                });
+                nexa_ir::walk::walk_expression(value, &mut |expression| {
+                    if let Expr::State(name, _) = expression {
+                        used.push(name.clone());
+                    }
+                });
+            }
+            Action::NativeEventSubscribe {
+                receiver, actions, ..
+            } => {
+                nexa_ir::walk::walk_expression(receiver, &mut |expression| {
+                    if let Expr::State(name, _) = expression {
+                        used.push(name.clone());
+                    }
+                });
+                collect_action_bindings(actions, used);
+            }
             Action::CollectionMutation { name, .. } => used.push(name.clone()),
             Action::If {
                 then_branch,
@@ -885,6 +992,19 @@ fn collect_action_bindings(actions: &[Action], used: &mut Vec<String>) {
                 collect_action_bindings(body, used);
             }
             Action::ForMap { body, .. } => collect_action_bindings(body, used),
+            Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            } => {
+                collect_action_bindings(body, used);
+                for arm in error_catches {
+                    collect_action_bindings(&arm.body, used);
+                }
+                if let Some(catch_body) = catch_body {
+                    collect_action_bindings(catch_body, used);
+                }
+            }
             Action::Break | Action::Continue => {}
         }
     }
@@ -897,6 +1017,18 @@ fn collect_action_state_references(actions: &[Action], used: &mut HashSet<String
             Action::Assign { name, value } => {
                 used.insert(name.clone());
                 collect_expression_state_references(value, used);
+            }
+            Action::NativePropertyAssign {
+                receiver, value, ..
+            } => {
+                collect_expression_state_references(receiver, used);
+                collect_expression_state_references(value, used);
+            }
+            Action::NativeEventSubscribe {
+                receiver, actions, ..
+            } => {
+                collect_expression_state_references(receiver, used);
+                collect_action_state_references(actions, used);
             }
             Action::CollectionMutation {
                 name, arguments, ..
@@ -928,6 +1060,19 @@ fn collect_action_state_references(actions: &[Action], used: &mut HashSet<String
             Action::While { condition, body } => {
                 collect_expression_state_references(condition, used);
                 collect_action_state_references(body, used);
+            }
+            Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            } => {
+                collect_action_state_references(body, used);
+                for arm in error_catches {
+                    collect_action_state_references(&arm.body, used);
+                }
+                if let Some(catch_body) = catch_body {
+                    collect_action_state_references(catch_body, used);
+                }
             }
             Action::Break | Action::Continue => {}
         }
@@ -1090,6 +1235,7 @@ fn optimize_node(node: Node) -> Option<Node> {
             name,
             arguments,
             children,
+            event_handlers,
         } => Some(Node::NativeComponentCall {
             namespace,
             name,
@@ -1098,6 +1244,14 @@ fn optimize_node(node: Node) -> Option<Node> {
                 .map(|(name, value)| (name, fold_expression(value)))
                 .collect(),
             children: children.map(optimize_nodes),
+            event_handlers: event_handlers
+                .into_iter()
+                .map(|handler| nexa_ir::NativeComponentEventHandler {
+                    property: handler.property,
+                    parameters: handler.parameters,
+                    actions: optimize_actions(handler.actions),
+                })
+                .collect(),
         }),
         Node::TextInput {
             state,
@@ -1262,6 +1416,26 @@ fn optimize_actions(actions: Vec<Action>) -> Vec<Action> {
                 name,
                 value: fold_expression(value),
             }),
+            Action::NativePropertyAssign {
+                receiver,
+                property,
+                value,
+            } => optimized.push(Action::NativePropertyAssign {
+                receiver: fold_expression(receiver),
+                property,
+                value: fold_expression(value),
+            }),
+            Action::NativeEventSubscribe {
+                receiver,
+                property,
+                parameters,
+                actions,
+            } => optimized.push(Action::NativeEventSubscribe {
+                receiver: fold_expression(receiver),
+                property,
+                parameters,
+                actions: optimize_actions(actions),
+            }),
             Action::CollectionMutation {
                 name,
                 operation,
@@ -1312,6 +1486,21 @@ fn optimize_actions(actions: Vec<Action>) -> Vec<Action> {
             Action::While { condition, body } => optimized.push(Action::While {
                 condition: fold_expression(condition),
                 body: optimize_actions(body),
+            }),
+            Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            } => optimized.push(Action::TryCatch {
+                body: optimize_actions(body),
+                error_catches: error_catches
+                    .into_iter()
+                    .map(|mut arm| {
+                        arm.body = optimize_actions(arm.body);
+                        arm
+                    })
+                    .collect(),
+                catch_body: catch_body.map(optimize_actions),
             }),
             Action::Break => optimized.push(Action::Break),
             Action::Continue => optimized.push(Action::Continue),

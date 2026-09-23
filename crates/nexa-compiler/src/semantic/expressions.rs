@@ -13,15 +13,41 @@ pub(super) struct FunctionSignature {
     pub(super) is_throwing: bool,
     pub(super) receiver: Option<Type>,
     pub(super) is_constructor: bool,
+    pub(super) is_mutable_property: bool,
+    pub(super) error_handling_allowed: bool,
+    pub(super) error_type: Option<PluginErrorType>,
+}
+
+#[derive(Clone)]
+pub(super) struct PluginErrorType {
+    pub(super) namespace: String,
+    pub(super) name: String,
+    pub(super) variants: Vec<PluginErrorVariant>,
+}
+
+#[derive(Clone)]
+pub(super) struct PluginErrorVariant {
+    pub(super) name: String,
+    pub(super) parameters: Vec<(String, Type)>,
 }
 
 pub(super) type FunctionSignatures = HashMap<String, FunctionSignature>;
 pub(super) type StructTypes = HashMap<String, Type>;
+const ERROR_HANDLING_SCOPE_KEY: &str = "\0nexa_error_handling_scope";
 
 #[derive(Clone)]
 pub(super) struct PluginComponentSignature {
     pub(super) namespace: String,
     pub(super) name: String,
+    pub(super) has_content_slot: bool,
+    pub(super) parameters: Vec<(String, Type)>,
+    pub(super) defaults: HashMap<String, ast::Expr>,
+    pub(super) events: Vec<PluginComponentEventSignature>,
+}
+
+#[derive(Clone)]
+pub(super) struct PluginComponentEventSignature {
+    pub(super) property: String,
     pub(super) parameters: Vec<(String, Type)>,
 }
 
@@ -64,14 +90,55 @@ pub(super) fn collect_plugin_components(
                         .map_err(|message| CompileError::new(plugin.span, message))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
+            let defaults = interface
+                .properties
+                .iter()
+                .filter_map(|property| {
+                    property
+                        .default
+                        .as_ref()
+                        .map(|value| (property.name.clone(), idl_literal_expr(value, plugin.span)))
+                })
+                .collect();
+            let events = interface
+                .events
+                .iter()
+                .map(|event| {
+                    let parameters = event
+                        .parameters
+                        .iter()
+                        .map(|parameter| {
+                            plugin_type(&plugin.namespace, &parameter.ty, false)
+                                .map(|ty| (parameter.name.clone(), ty))
+                                .map_err(|message| CompileError::new(plugin.span, message))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(PluginComponentEventSignature {
+                        property: nexa_plugin_idl::event_callback_property(&event.name),
+                        parameters,
+                    })
+                })
+                .collect::<Result<Vec<_>, CompileError>>()?;
             components.push(PluginComponentSignature {
                 namespace: plugin.namespace.clone(),
                 name: interface.name.clone(),
+                has_content_slot: interface.has_content_slot,
                 parameters,
+                defaults,
+                events,
             });
         }
     }
     Ok(components)
+}
+
+fn idl_literal_expr(value: &nexa_plugin_idl::Literal, span: Span) -> ast::Expr {
+    match value {
+        nexa_plugin_idl::Literal::String(value) => ast::Expr::String(value.clone(), span),
+        nexa_plugin_idl::Literal::Number(value) => ast::Expr::Number(value.clone(), span),
+        nexa_plugin_idl::Literal::Bool(value) => ast::Expr::Bool(*value, span),
+        nexa_plugin_idl::Literal::Null => ast::Expr::Null(span),
+    }
 }
 
 pub(super) fn collect_plugin_signatures(
@@ -162,6 +229,9 @@ pub(super) fn collect_plugin_signatures(
                     is_throwing: false,
                     receiver: None,
                     is_constructor: true,
+                    is_mutable_property: false,
+                    error_handling_allowed: false,
+                    error_type: None,
                 };
                 if signatures
                     .insert(qualified_key.clone(), signature.clone())
@@ -181,6 +251,21 @@ pub(super) fn collect_plugin_signatures(
                 }
             }
             for method in &interface.methods {
+                if native_class
+                    && method.name == "dispose"
+                    && (method.is_async
+                        || !method.parameters.is_empty()
+                        || method.return_type.name != "Void"
+                        || method.throws.is_some())
+                {
+                    return Err(CompileError::new(
+                        plugin.span,
+                        format!(
+                            "native class `{}.{}` must be synchronous, non-throwing, return `Void`, and take no parameters",
+                            interface.name, method.name
+                        ),
+                    ));
+                }
                 let key = if native_class {
                     format!("{}.{}", interface.name, method.name)
                 } else {
@@ -203,6 +288,15 @@ pub(super) fn collect_plugin_signatures(
                             .map_err(|message| CompileError::new(plugin.span, message))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                let error_reference = method.throws.as_ref().or_else(|| {
+                    (method.return_type.name == "Result")
+                        .then(|| method.return_type.arguments.get(1))
+                        .flatten()
+                });
+                let error_type = error_reference
+                    .map(|reference| plugin_error_type(&plugin.namespace, idl, reference))
+                    .transpose()
+                    .map_err(|message| CompileError::new(plugin.span, message))?;
                 signatures.insert(
                     key,
                     FunctionSignature {
@@ -215,6 +309,9 @@ pub(super) fn collect_plugin_signatures(
                             name: interface.name.clone(),
                         }),
                         is_constructor: false,
+                        is_mutable_property: false,
+                        error_handling_allowed: false,
+                        error_type,
                     },
                 );
             }
@@ -244,6 +341,47 @@ pub(super) fn collect_plugin_signatures(
                                 name: interface.name.clone(),
                             }),
                             is_constructor: false,
+                            is_mutable_property: property.mutable,
+                            error_handling_allowed: false,
+                            error_type: None,
+                        },
+                    );
+                }
+                for event in &interface.events {
+                    let key = format!("{}.#event.{}", interface.name, event.name);
+                    if signatures.contains_key(&key) {
+                        return Err(CompileError::new(
+                            plugin.span,
+                            format!(
+                                "native class event `{}.{}` is declared more than once",
+                                interface.name, event.name
+                            ),
+                        ));
+                    }
+                    let parameters = event
+                        .parameters
+                        .iter()
+                        .map(|parameter| {
+                            plugin_type(&plugin.namespace, &parameter.ty, false)
+                                .map(|ty| (parameter.name.clone(), ty))
+                                .map_err(|message| CompileError::new(plugin.span, message))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    signatures.insert(
+                        key,
+                        FunctionSignature {
+                            parameters,
+                            return_type: Type::Void,
+                            is_async: false,
+                            is_throwing: false,
+                            receiver: Some(Type::Plugin {
+                                namespace: plugin.namespace.clone(),
+                                name: interface.name.clone(),
+                            }),
+                            is_constructor: false,
+                            is_mutable_property: false,
+                            error_handling_allowed: false,
+                            error_type: None,
                         },
                     );
                 }
@@ -308,6 +446,44 @@ fn plugin_type(namespace: &str, ty: &TypeRef, return_position: bool) -> Result<T
     Ok(result)
 }
 
+fn plugin_error_type(
+    namespace: &str,
+    idl: &nexa_plugin_idl::PluginIdl,
+    reference: &TypeRef,
+) -> Result<PluginErrorType, String> {
+    let declaration = idl
+        .types
+        .iter()
+        .find(|declaration| {
+            declaration.name == reference.name
+                && declaration.kind == nexa_plugin_idl::NamedTypeKind::Error
+        })
+        .ok_or_else(|| format!("`{}` is not a declared plugin error type", reference.name))?;
+    let variants = declaration
+        .cases
+        .iter()
+        .map(|variant| {
+            let parameters = variant
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    plugin_type(namespace, &parameter.ty, false)
+                        .map(|ty| (parameter.name.clone(), ty))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(PluginErrorVariant {
+                name: variant.name.clone(),
+                parameters,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(PluginErrorType {
+        namespace: namespace.to_owned(),
+        name: declaration.name.clone(),
+        variants,
+    })
+}
+
 pub(super) fn collect_function_signatures(
     declarations: &[ast::FunctionDecl],
     structs: &StructTypes,
@@ -346,6 +522,9 @@ pub(super) fn collect_function_signatures(
                 is_throwing: false,
                 receiver: None,
                 is_constructor: false,
+                is_mutable_property: false,
+                error_handling_allowed: false,
+                error_type: None,
             },
         );
     }
@@ -414,6 +593,25 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         | ast::Expr::IsRegularHeight(_)
         | ast::Expr::IsCompactHeight(_) => false,
     }
+}
+
+pub(super) fn record_native_alias(
+    name: &str,
+    ty: &Type,
+    initial: &Expr,
+    aliases: &mut HashMap<String, String>,
+) {
+    if !matches!(ty, Type::Plugin { .. }) {
+        return;
+    }
+    let Expr::State(source, _) = initial else {
+        return;
+    };
+    let root = aliases
+        .get(source)
+        .cloned()
+        .unwrap_or_else(|| source.clone());
+    aliases.insert(name.to_owned(), root);
 }
 
 pub(super) fn lower_expr(
@@ -1061,7 +1259,27 @@ pub(super) fn lower_expr(
                     ));
                 }
             };
-            Ok(Expr::Await(Box::new(call)))
+            if matches!(
+                &call,
+                Expr::NativeCall {
+                    is_throwing: true,
+                    ..
+                }
+            ) {
+                if functions
+                    .values()
+                    .any(|signature| signature.error_handling_allowed)
+                {
+                    Ok(Expr::TryAwait(Box::new(call)))
+                } else {
+                    Err(CompileError::new(
+                        *span,
+                        "native async call may throw; wrap it in a `try { ... } catch { ... }` action",
+                    ))
+                }
+            } else {
+                Ok(Expr::Await(Box::new(call)))
+            }
         }
     }
 }
@@ -1488,6 +1706,7 @@ fn lower_plugin_call(
     let signature = functions
         .get(&qualified_name)
         .expect("plugin signature checked before lowering");
+    reject_unhandled_plugin_errors(&qualified_name, signature, span)?;
     if signature.is_async && !awaited {
         return Err(CompileError::new(
             span,
@@ -1601,6 +1820,7 @@ fn lower_plugin_method_call(
             format!("unknown native class method `{class}.{name}`"),
         ));
     };
+    reject_unhandled_plugin_errors(&qualified_name, signature, span)?;
     if signature.receiver.as_ref() != Some(&base_type) {
         return Err(CompileError::new(
             span,
@@ -1694,6 +1914,76 @@ fn lower_plugin_method_call(
         return_type: signature.return_type.clone(),
         is_async: signature.is_async,
         is_throwing: signature.is_throwing,
+    })
+}
+
+fn reject_unhandled_plugin_errors(
+    qualified_name: &str,
+    signature: &FunctionSignature,
+    span: Span,
+) -> Result<(), CompileError> {
+    if signature.is_throwing && !signature.error_handling_allowed {
+        return Err(CompileError::new(
+            span,
+            format!(
+                "plugin API `{qualified_name}` may throw; wrap the call in a `try {{ ... }} catch {{ ... }}` action to handle its failure"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn functions_with_error_handling(
+    functions: &FunctionSignatures,
+    allowed: bool,
+) -> FunctionSignatures {
+    let mut scoped = functions
+        .iter()
+        .map(|(name, signature)| {
+            let mut signature = signature.clone();
+            signature.error_handling_allowed = allowed && signature.is_throwing;
+            (name.clone(), signature)
+        })
+        .collect::<FunctionSignatures>();
+    if allowed {
+        // Built-in throwing calls such as File.readText do not have normal
+        // plugin signatures. Carry the lexical catch scope through the same
+        // expression-lowering context with an impossible-to-collide key; this
+        // marker is never resolved as a source-level call or emitted to IR.
+        scoped.insert(
+            ERROR_HANDLING_SCOPE_KEY.to_owned(),
+            FunctionSignature {
+                parameters: Vec::new(),
+                return_type: Type::Void,
+                is_async: false,
+                is_throwing: true,
+                receiver: None,
+                is_constructor: false,
+                is_mutable_property: false,
+                error_handling_allowed: true,
+                error_type: None,
+            },
+        );
+    }
+    scoped
+}
+
+pub(super) fn plugin_error_variant(
+    functions: &FunctionSignatures,
+    namespace: &str,
+    error_name: &str,
+    variant_name: &str,
+) -> Option<PluginErrorVariant> {
+    functions.values().find_map(|signature| {
+        let error_type = signature.error_type.as_ref()?;
+        if error_type.namespace != namespace || error_type.name != error_name {
+            return None;
+        }
+        error_type
+            .variants
+            .iter()
+            .find(|variant| variant.name == variant_name)
+            .cloned()
     })
 }
 
@@ -2208,6 +2498,121 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
                 _ => unreachable!("generic type name checked above"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, HashMap};
+
+    use nexa_diagnostics::Span;
+    use nexa_ir::Type;
+    use nexa_syntax::ast;
+
+    use super::{
+        FunctionSignature, FunctionSignatures, collect_plugin_signatures, lower_plugin_call,
+        lower_plugin_method_call,
+    };
+
+    fn throwing_signature(receiver: Option<Type>) -> FunctionSignature {
+        FunctionSignature {
+            parameters: Vec::new(),
+            return_type: Type::Void,
+            is_async: true,
+            is_throwing: true,
+            receiver,
+            is_constructor: false,
+            is_mutable_property: false,
+            error_handling_allowed: false,
+            error_type: None,
+        }
+    }
+
+    #[test]
+    fn rejects_throwing_service_calls_without_a_recovery_block() {
+        let functions: FunctionSignatures =
+            HashMap::from([("Camera.capture".to_owned(), throwing_signature(None))]);
+        let error = lower_plugin_call(
+            "Camera",
+            "capture",
+            &BTreeMap::new(),
+            Span::default(),
+            None,
+            &HashMap::new(),
+            &functions,
+            true,
+            true,
+        )
+        .expect_err("throwing service calls must require typed handling");
+        assert!(error.to_string().contains("may throw"));
+    }
+
+    #[test]
+    fn rejects_throwing_native_class_methods_without_a_recovery_block() {
+        let player_type = Type::Plugin {
+            namespace: "Video".to_owned(),
+            name: "VideoPlayer".to_owned(),
+        };
+        let symbols = HashMap::from([("player".to_owned(), (player_type.clone(), false))]);
+        let functions = HashMap::from([(
+            "VideoPlayer.prepare".to_owned(),
+            throwing_signature(Some(player_type)),
+        )]);
+        let error = lower_plugin_method_call(
+            &ast::Expr::Name("player".to_owned(), Span::default()),
+            "prepare",
+            &[],
+            &BTreeMap::new(),
+            Span::default(),
+            None,
+            &symbols,
+            &functions,
+            true,
+            true,
+        )
+        .expect_err("throwing object methods must require typed handling");
+        assert!(error.to_string().contains("may throw"));
+    }
+
+    #[test]
+    fn requires_native_class_disposal_to_be_synchronous_void_and_parameterless() {
+        let idl = nexa_plugin_idl::parse("native class VideoPlayer { async fn dispose() }")
+            .expect("IDL syntax is valid even when disposal semantics are not");
+        let plugin = ast::PluginDecl {
+            path: "video-player".to_owned(),
+            namespace: "Video".to_owned(),
+            span: Span::default(),
+            idl: Some(idl),
+            pure: false,
+            assets_path: None,
+            ios_sources: Vec::new(),
+            android_sources: Vec::new(),
+            cpp_sources: Vec::new(),
+            cpp_headers: Vec::new(),
+            cpp_standard: None,
+            ios_min_version: None,
+            android_min_sdk: None,
+            ios_frameworks: Vec::new(),
+            ios_xcframeworks: Vec::new(),
+            ios_resources: Vec::new(),
+            ios_privacy_manifest: None,
+            swift_packages: Vec::new(),
+            maven_dependencies: Vec::new(),
+            android_aars: Vec::new(),
+            android_resources: Vec::new(),
+            android_proguard_rules: Vec::new(),
+            android_maven_repositories: Vec::new(),
+            ios_usage_descriptions: Vec::new(),
+            ios_entitlements: Vec::new(),
+            ios_linker_flags: Vec::new(),
+            android_permissions: Vec::new(),
+        };
+
+        let error = match collect_plugin_signatures(&[plugin]) {
+            Ok(_) => panic!("async disposal cannot provide deterministic cleanup"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("must be synchronous"));
     }
 }
 

@@ -285,10 +285,11 @@ pub(crate) fn render_node(
             name,
             arguments,
             children,
+            event_handlers,
             ..
         } => {
             indent(out, depth);
-            let rendered_arguments = arguments
+            let mut rendered_arguments = arguments
                 .iter()
                 .map(|(argument_name, argument)| {
                     format!(
@@ -297,6 +298,13 @@ pub(crate) fn render_node(
                     )
                 })
                 .collect::<Vec<_>>();
+            rendered_arguments.extend(event_handlers.iter().map(|handler| {
+                format!(
+                    "{} = {}",
+                    handler.property,
+                    controls::render_event_closure(&handler.parameters, &handler.actions, depth)
+                )
+            }));
             out.push_str(&format!("{}({})", name, rendered_arguments.join(", ")));
             if let Some(children) = children {
                 out.push_str(" {\n");

@@ -3,9 +3,11 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 mod bindings;
+mod bindings_cpp;
 use nexa_plugin_idl::{self as idl, manifest::PluginManifest};
 
 /// Render the platform contract used by generated native projects. Keeping
@@ -17,6 +19,33 @@ pub(crate) fn render_swift_bindings(contract: &idl::PluginIdl) -> String {
 
 pub(crate) fn render_kotlin_bindings(contract: &idl::PluginIdl, package: &str) -> String {
     bindings::kotlin(contract, package)
+}
+
+pub(crate) fn render_cpp_bindings(contract: &idl::PluginIdl, plugin_id: &str) -> String {
+    bindings_cpp::render(contract, plugin_id)
+}
+
+pub(crate) fn render_cpp_swift_adapters(
+    contract: &idl::PluginIdl,
+    plugin_id: &str,
+) -> Result<String, String> {
+    bindings_cpp::render_swift_adapters(contract, plugin_id)
+}
+
+pub(crate) fn render_cpp_android_adapters(
+    contract: &idl::PluginIdl,
+    plugin_id: &str,
+    plugin_namespace: &str,
+    package: &str,
+    plugin_index: usize,
+) -> Result<(String, String), String> {
+    bindings_cpp::render_android_adapters(
+        contract,
+        plugin_id,
+        plugin_namespace,
+        package,
+        plugin_index,
+    )
 }
 
 pub(super) fn run(args: &[String]) -> Result<(), String> {
@@ -126,7 +155,7 @@ fn init(args: &[String]) -> Result<(), String> {
         write_if_absent(
             &output.join("native.nxid"),
             &format!(
-                "// Public typed interface declarations for {type_name}.\n// Use `type Name` for value models and `type Error: Error` for typed failures.\n// Add methods here, then implement the matching native methods in both source trees.\n// Add compile-time options in `config`; users set them in generated `nexa.config.nx`.\n\nconfig {{\n    // compiledOption: String\n}}\n\ninterface {type_name} {{\n    // async fn method(input: String) -> String\n}}\n"
+                "// Public typed interface declarations for {type_name}.\n// Describe data crossing the native boundary with a complete struct or enum.\n// Add methods here, then implement the matching native methods in both source trees.\n// Add compile-time options in `config`; users set them in generated `nexa.config.nx`.\n\nconfig {{\n    // compiledOption: String\n}}\n\ninterface {type_name} {{\n    // async fn method(input: String) -> String\n}}\n"
             ),
         )?;
     }
@@ -136,7 +165,8 @@ fn init(args: &[String]) -> Result<(), String> {
 
 fn check(args: &[String]) -> Result<(), String> {
     let package = plugin_package(args, "check")?;
-    let Some(path) = package.native_path else {
+    validate_package_sources(&package)?;
+    let Some(path) = package.native_path.as_ref() else {
         println!(
             "checked {} (pure Nexa package, manifest schema {})",
             package.root.display(),
@@ -145,6 +175,12 @@ fn check(args: &[String]) -> Result<(), String> {
         return Ok(());
     };
     let parsed = idl::parse_file(&path)?;
+    if let Some(result) = typecheck_swift_implementation(&package, &parsed)? {
+        println!("{result}");
+    }
+    if let Some(result) = typecheck_kotlin_implementation(&package, &parsed)? {
+        println!("{result}");
+    }
     let methods = parsed
         .interfaces
         .iter()
@@ -161,11 +197,258 @@ fn check(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn typecheck_swift_implementation(
+    package: &PluginPackage,
+    contract: &idl::PluginIdl,
+) -> Result<Option<String>, String> {
+    if !package.manifest.ios.swift_packages.is_empty() {
+        return Ok(Some(
+            "Swift implementation type check skipped: declared Swift packages need Xcode project resolution".to_owned(),
+        ));
+    }
+    if !package.manifest.ios.xcframeworks.is_empty() {
+        return Ok(Some(
+            "Swift implementation type check skipped: declared XCFramework dependencies need Xcode project integration".to_owned(),
+        ));
+    }
+
+    let package_root = fs::canonicalize(&package.root)
+        .map_err(|error| format!("{}: {error}", package.root.display()))?;
+    let sources = crate::project::plugin_platform_sources(&package_root, &package.manifest, true)?;
+    if sources.is_empty() {
+        return Ok(None);
+    }
+
+    let swiftc = Command::new("xcrun")
+        .args(["--sdk", "iphonesimulator", "--find", "swiftc"])
+        .output();
+    let Ok(swiftc) = swiftc else {
+        return Ok(Some(
+            "Swift implementation type check skipped: Xcode command line tools are unavailable"
+                .to_owned(),
+        ));
+    };
+    if !swiftc.status.success() {
+        return Ok(Some(
+            "Swift implementation type check skipped: iOS simulator SDK is unavailable".to_owned(),
+        ));
+    }
+    let swiftc = String::from_utf8_lossy(&swiftc.stdout).trim().to_owned();
+    let sdk = Command::new("xcrun")
+        .args(["--sdk", "iphonesimulator", "--show-sdk-path"])
+        .output()
+        .map_err(|error| format!("could not query the iOS simulator SDK: {error}"))?;
+    if !sdk.status.success() {
+        return Ok(Some(
+            "Swift implementation type check skipped: iOS simulator SDK is unavailable".to_owned(),
+        ));
+    }
+    let sdk = String::from_utf8_lossy(&sdk.stdout).trim().to_owned();
+
+    let temporary = TempCheckDirectory::new()?;
+    let binding_path = temporary.0.join("NexaPluginBindings.swift");
+    fs::write(&binding_path, bindings::swift(contract))
+        .map_err(|error| format!("{}: {error}", binding_path.display()))?;
+    let minimum = package
+        .manifest
+        .ios
+        .min_version
+        .as_deref()
+        .unwrap_or("17.0");
+    let target = format!("arm64-apple-ios{minimum}-simulator");
+    let output = Command::new(swiftc)
+        .arg("-typecheck")
+        .arg("-swift-version")
+        .arg("6")
+        .arg("-target")
+        .arg(target)
+        .arg("-sdk")
+        .arg(sdk)
+        .arg(&binding_path)
+        .args(&sources)
+        .current_dir(&package_root)
+        .output()
+        .map_err(|error| format!("could not run Swift plugin type check: {error}"))?;
+    if !output.status.success() {
+        let diagnostics = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "Swift plugin implementation does not conform to its generated contract:\n{}",
+            diagnostics.trim()
+        ));
+    }
+
+    Ok(Some(
+        "Swift implementation type check passed against the generated contract".to_owned(),
+    ))
+}
+
+fn typecheck_kotlin_implementation(
+    package: &PluginPackage,
+    contract: &idl::PluginIdl,
+) -> Result<Option<String>, String> {
+    let package_root = fs::canonicalize(&package.root)
+        .map_err(|error| format!("{}: {error}", package.root.display()))?;
+    let sources = crate::project::plugin_platform_sources(&package_root, &package.manifest, false)?;
+    if sources.is_empty() {
+        return Ok(None);
+    }
+    if !package.manifest.android.maven_dependencies.is_empty()
+        || !package.manifest.android.aars.is_empty()
+        || contract
+            .interfaces
+            .iter()
+            .any(|interface| interface.kind == idl::InterfaceKind::NativeComponent)
+    {
+        return Ok(Some(
+            "Kotlin implementation type check skipped: declared Android dependencies or native components require the generated Gradle project".to_owned(),
+        ));
+    }
+
+    let compiler = match Command::new("kotlinc").arg("-version").output() {
+        Ok(output) if output.status.success() => "kotlinc",
+        _ => {
+            return Ok(Some(
+                "Kotlin implementation type check skipped: kotlinc is unavailable".to_owned(),
+            ));
+        }
+    };
+
+    let mut package_name = None;
+    for source in &sources {
+        let contents =
+            fs::read_to_string(source).map_err(|error| format!("{}: {error}", source.display()))?;
+        for line in contents.lines().map(str::trim) {
+            if let Some(import) = line.strip_prefix("import ") {
+                let import = import.split_whitespace().next().unwrap_or_default();
+                if !import.starts_with("java.")
+                    && !import.starts_with("javax.")
+                    && !import.starts_with("kotlin.")
+                {
+                    return Ok(Some(format!(
+                        "Kotlin implementation type check skipped: external import `{import}` requires the generated Gradle project"
+                    )));
+                }
+            }
+            if package_name.is_none()
+                && let Some(declared) = line.strip_prefix("package ")
+            {
+                let declared = declared.trim();
+                if !declared.is_empty() {
+                    package_name = Some(declared.to_owned());
+                }
+            }
+        }
+    }
+    let Some(package_name) = package_name else {
+        return Err("Kotlin plugin sources must declare an implementation package".to_owned());
+    };
+
+    let temporary = TempCheckDirectory::new()?;
+    let binding_path = temporary.0.join("NexaPluginBindings.kt");
+    fs::write(&binding_path, bindings::kotlin(contract, &package_name))
+        .map_err(|error| format!("{}: {error}", binding_path.display()))?;
+    let output_path = temporary.0.join("plugin.jar");
+    let output = Command::new(compiler)
+        .arg(&binding_path)
+        .args(&sources)
+        .arg("-d")
+        .arg(&output_path)
+        .current_dir(&package_root)
+        .output()
+        .map_err(|error| format!("could not run Kotlin plugin type check: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Kotlin plugin implementation does not conform to its generated contract:\n{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    Ok(Some(
+        "Kotlin implementation type check passed against the generated contract".to_owned(),
+    ))
+}
+
+struct TempCheckDirectory(PathBuf);
+
+impl TempCheckDirectory {
+    fn new() -> Result<Self, String> {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| format!("system clock error: {error}"))?
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "nexa-plugin-swift-check-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for TempCheckDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn validate_package_sources(package: &PluginPackage) -> Result<(), String> {
+    crate::project::validate_plugin_manifest_sources(&package.root, &package.manifest)?;
+    if let Some(source) = &package.manifest.nexa {
+        let path = package.root.join(source);
+        validate_nexa_source_tree(
+            &path,
+            &mut std::collections::HashSet::new(),
+            &mut std::collections::HashSet::new(),
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_nexa_source_tree(
+    path: &Path,
+    active: &mut std::collections::HashSet<PathBuf>,
+    visited: &mut std::collections::HashSet<PathBuf>,
+) -> Result<(), String> {
+    let canonical = fs::canonicalize(path)
+        .map_err(|error| format!("cannot resolve Nexa source {}: {error}", path.display()))?;
+    if visited.contains(&canonical) {
+        return Ok(());
+    }
+    if !active.insert(canonical.clone()) {
+        return Err(format!(
+            "cyclic Nexa source import involving {}",
+            canonical.display()
+        ));
+    }
+
+    let result = (|| {
+        let source = fs::read_to_string(&canonical)
+            .map_err(|error| format!("{}: {error}", canonical.display()))?;
+        let program = nexa_syntax::parse_program(&source)
+            .map_err(|error| format!("{}: {error}", canonical.display()))?;
+        for import in program.imports {
+            let imported = canonical
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(import.path);
+            validate_nexa_source_tree(&imported, active, visited)?;
+        }
+        Ok(())
+    })();
+
+    active.remove(&canonical);
+    if result.is_ok() {
+        visited.insert(canonical);
+    }
+    result
+}
+
 fn generate(args: &[String]) -> Result<(), String> {
     let mut path = None;
     let mut target = None;
     let mut output = None;
     let mut kotlin_package = "com.nexa.plugin.generated".to_owned();
+    let mut package_was_provided = false;
     let mut cursor = 0;
     while cursor < args.len() {
         match args[cursor].as_str() {
@@ -185,6 +468,7 @@ fn generate(args: &[String]) -> Result<(), String> {
             }
             "--package" => {
                 cursor += 1;
+                package_was_provided = true;
                 kotlin_package = args
                     .get(cursor)
                     .ok_or("`--package` requires a Kotlin package name")?
@@ -205,14 +489,18 @@ fn generate(args: &[String]) -> Result<(), String> {
         )
     })?;
     let target =
-        target.ok_or("`nexa plugin generate` requires `--target swift` or `--target kotlin`")?;
+        target.ok_or("`nexa plugin generate` requires `--target swift`, `kotlin`, or `cpp`")?;
+    if target == "cpp" && package_was_provided {
+        return Err("`--package` is supported only with `--target kotlin`".to_owned());
+    }
     let parsed = idl::parse_file(&path)?;
     let source = match target {
         "swift" => bindings::swift(&parsed),
         "kotlin" => bindings::kotlin(&parsed, &kotlin_package),
+        "cpp" => bindings_cpp::render(&parsed, &package.manifest.id),
         _ => {
             return Err(format!(
-                "unknown target `{target}`; expected `swift` or `kotlin`"
+                "unknown target `{target}`; expected `swift`, `kotlin`, or `cpp`"
             ));
         }
     };
@@ -220,7 +508,8 @@ fn generate(args: &[String]) -> Result<(), String> {
         path.with_file_name(match target {
             "swift" => "NexaPluginBindings.swift",
             "kotlin" => "NexaPluginBindings.kt",
-            _ => "NexaPluginBindings.swift",
+            "cpp" => "NexaPluginBindings.hpp",
+            _ => unreachable!("target was validated before choosing the default output"),
         })
     });
     if let Some(parent) = output.parent() {
@@ -290,7 +579,7 @@ fn usage_for(command: &str) -> String {
     match command {
         "init" => "usage: nexa plugin init <plugin.id> [--kind <pure|native>] [--out <directory>] [--name <TypeName>] [--version <version>]".to_owned(),
         "check" => "usage: nexa plugin check <plugin-directory|native.nxid>".to_owned(),
-        "generate" => "usage: nexa plugin generate <plugin-directory|native.nxid> --target <swift|kotlin> [--package <kotlin.package>] [--out <file>]".to_owned(),
+        "generate" => "usage: nexa plugin generate <plugin-directory|native.nxid> --target <swift|kotlin|cpp> [--package <kotlin.package>] [--out <file>]".to_owned(),
         _ => "usage: nexa plugin <init|check|generate> ...".to_owned(),
     }
 }
@@ -379,7 +668,7 @@ fn readme(id: &str, version: &str, type_name: &str, kind: &str) -> String {
         );
     }
     format!(
-        "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `plugin.config.nx` is the package manifest and source of truth for identity and platform source roots.\n- `native.nxid` contains typed native contracts and compile-time config options.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nValidate the manifest and native contract with `nexa plugin check .`. Generate direct native contract skeletons with `nexa plugin generate . --target swift` or `--target kotlin`. A local `.nx` app can declare `plugin \"path\" as Namespace`; project generation then includes these platform source trees. Package installation, dependency resolution, and generated implementation methods are not included yet.\n"
+        "# {id}\n\nNexa plugin scaffold, version {version}.\n\n## Structure\n\n- `plugin.config.nx` is the package manifest and source of truth for identity and platform source roots.\n- `native.nxid` contains typed native contracts and compile-time config options.\n- `ios/Sources/{type_name}.swift` is the iOS implementation boundary.\n- `android/src/main/kotlin/` contains the Android implementation boundary.\n\nValidate the manifest and native contract with `nexa plugin check .`. Generate native contract skeletons with `nexa plugin generate . --target swift` or `--target kotlin`; `--target cpp` emits the optional C++ contract header. C++ host interop must be explicitly configured and is not enabled by this scaffold yet. A local `.nx` app can declare `plugin \"path\" as Namespace`; project generation then includes these platform source trees. Package installation and dependency resolution are not included yet.\n"
     )
 }
 
@@ -393,6 +682,239 @@ fn android_stub(package: &str, type_name: &str) -> String {
     format!(
         "package {package}\n\nobject {type_name}Plugin {{\n    val instance: {type_name}Plugin = this\n}}\n"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::{
+        PluginPackage, idl, typecheck_kotlin_implementation, typecheck_swift_implementation,
+        validate_package_sources,
+    };
+
+    struct TempPackage(PathBuf);
+
+    static NEXT_TEMP_PACKAGE: AtomicU64 = AtomicU64::new(0);
+
+    impl TempPackage {
+        fn new() -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock should be after the epoch")
+                .as_nanos();
+            let sequence = NEXT_TEMP_PACKAGE.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "nexa-plugin-check-{}-{unique}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&root).expect("temporary package should be created");
+            Self(root)
+        }
+    }
+
+    impl Drop for TempPackage {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn plugin_check_parses_declared_nexa_source_with_package_context() {
+        let package_root = TempPackage::new();
+        fs::create_dir(package_root.0.join("assets")).expect("asset directory should be created");
+        fs::write(package_root.0.join("plugin.nx"), "fn invalid(")
+            .expect("invalid plugin source should be written");
+        let manifest = idl::manifest::parse(
+            r#"plugin {
+                schema: 2
+                id: "dev.nexa.pure"
+                version: "1.0.0"
+                sources { nexa: "plugin.nx" }
+                assets: ["assets/**"]
+            }"#,
+        )
+        .expect("valid pure-plugin manifest");
+        let package = PluginPackage {
+            root: package_root.0.clone(),
+            manifest,
+            native_path: None,
+        };
+
+        let error = validate_package_sources(&package)
+            .expect_err("malformed declared plugin source should fail check");
+        assert!(error.contains("plugin.nx:"));
+    }
+
+    #[test]
+    fn plugin_check_rejects_declared_native_source_globs_without_matches() {
+        let package_root = TempPackage::new();
+        fs::create_dir_all(package_root.0.join("ios/Sources"))
+            .expect("iOS source root should be created");
+        let manifest = idl::manifest::parse(
+            r#"plugin {
+                schema: 2
+                id: "dev.nexa.native"
+                version: "1.0.0"
+                sources { native: "native.nxid" }
+                ios { sources: ["ios/Sources/**/*.swift"] }
+            }"#,
+        )
+        .expect("valid native-plugin manifest");
+        let package = PluginPackage {
+            root: package_root.0.clone(),
+            manifest,
+            native_path: Some(package_root.0.join("native.nxid")),
+        };
+
+        let error = validate_package_sources(&package)
+            .expect_err("declared implementation glob should resolve to source files");
+        assert!(error.contains("matches no .swift files"));
+    }
+
+    #[test]
+    fn kotlin_plugin_check_defers_declared_android_dependencies_to_gradle() {
+        let package_root = TempPackage::new();
+        let source = package_root
+            .0
+            .join("android/src/main/kotlin/VideoPlayerImpl.kt");
+        fs::create_dir_all(source.parent().expect("Kotlin source has a parent"))
+            .expect("Kotlin source directory should be created");
+        fs::write(&source, "package dev.example.video\nclass VideoPlayerImpl")
+            .expect("Kotlin source should be written");
+        let aar = package_root.0.join("android/libs/player.aar");
+        fs::create_dir_all(aar.parent().expect("AAR has a parent"))
+            .expect("AAR directory should be created");
+        fs::write(&aar, b"AAR fixture").expect("AAR fixture should be written");
+        let manifest = idl::manifest::parse(
+            r#"plugin {
+                schema: 2
+                id: "dev.example.video"
+                version: "1.0.0"
+                sources { native: "native.nxid" }
+                android {
+                    sources: ["android/src/main/kotlin/**"]
+                    aars: ["android/libs/player.aar"]
+                }
+            }"#,
+        )
+        .expect("valid Android plugin manifest");
+        let package = PluginPackage {
+            root: package_root.0.clone(),
+            manifest,
+            native_path: None,
+        };
+        let contract = idl::parse("native class VideoPlayer { init() fn play() }")
+            .expect("valid native class contract");
+
+        validate_package_sources(&package).expect("declared AAR should resolve in the package");
+        let result = typecheck_kotlin_implementation(&package, &contract)
+            .expect("declared AAR should produce a skip, not a failure");
+        assert_eq!(
+            result.as_deref(),
+            Some(
+                "Kotlin implementation type check skipped: declared Android dependencies or native components require the generated Gradle project"
+            )
+        );
+    }
+
+    #[test]
+    fn swift_plugin_check_defers_declared_xcframeworks_to_xcode() {
+        let package_root = TempPackage::new();
+        let framework = package_root.0.join("ios/Vendor.xcframework");
+        fs::create_dir_all(&framework).expect("XCFramework directory should be created");
+        let manifest = idl::manifest::parse(
+            r#"plugin {
+                schema: 2
+                id: "dev.example.vendor"
+                version: "1.0.0"
+                sources { native: "native.nxid" }
+                ios { xcframeworks: ["ios/Vendor.xcframework"] }
+            }"#,
+        )
+        .expect("valid iOS plugin manifest");
+        let package = PluginPackage {
+            root: package_root.0.clone(),
+            manifest,
+            native_path: None,
+        };
+        validate_package_sources(&package)
+            .expect("declared XCFramework should resolve within the package");
+        let contract = idl::parse("service Vendor { fn version() -> String }")
+            .expect("valid service contract");
+
+        let result = typecheck_swift_implementation(&package, &contract)
+            .expect("declared XCFramework should produce a skip, not a failure");
+        assert_eq!(
+            result.as_deref(),
+            Some(
+                "Swift implementation type check skipped: declared XCFramework dependencies need Xcode project integration"
+            )
+        );
+    }
+
+    #[test]
+    fn recursive_native_source_globs_include_matching_files() {
+        let package_root = TempPackage::new();
+        let source = package_root.0.join("ios/Sources/nested/Push.swift");
+        fs::create_dir_all(source.parent().expect("Swift source has a parent"))
+            .expect("nested Swift source directory should be created");
+        fs::write(&source, "public struct Push {}\n").expect("Swift source should be written");
+        let manifest = idl::manifest::parse(
+            r#"plugin {
+                schema: 2
+                id: "dev.nexa.native"
+                version: "1.0.0"
+                sources { native: "native.nxid" }
+                ios { sources: ["ios/Sources/**/*.swift"] }
+            }"#,
+        )
+        .expect("valid native-plugin manifest");
+        let package = PluginPackage {
+            root: package_root.0.clone(),
+            manifest: manifest.clone(),
+            native_path: Some(package_root.0.join("native.nxid")),
+        };
+
+        validate_package_sources(&package)
+            .expect("recursive source patterns should resolve nested files");
+        let resolved = crate::project::plugin_platform_sources(&package_root.0, &manifest, true)
+            .expect("project source resolution should succeed");
+        assert_eq!(resolved, vec![source]);
+    }
+
+    #[test]
+    fn plugin_check_resolves_imports_from_the_declared_nexa_source() {
+        let package_root = TempPackage::new();
+        fs::write(package_root.0.join("plugin.nx"), "import \"missing.nx\"\n")
+            .expect("plugin source should be written");
+        let manifest = idl::manifest::parse(
+            r#"plugin {
+                schema: 2
+                id: "dev.nexa.pure"
+                version: "1.0.0"
+                sources { nexa: "plugin.nx" }
+            }"#,
+        )
+        .expect("valid pure-plugin manifest");
+        let package = PluginPackage {
+            root: package_root.0.clone(),
+            manifest,
+            native_path: None,
+        };
+
+        let error = validate_package_sources(&package)
+            .expect_err("missing imported source should fail package check");
+        assert!(
+            error.contains("missing.nx"),
+            "unexpected diagnostic: {error}"
+        );
+    }
 }
 
 fn write_if_absent(path: &Path, contents: &str) -> Result<(), String> {

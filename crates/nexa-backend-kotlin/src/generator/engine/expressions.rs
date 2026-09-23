@@ -186,7 +186,7 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             arguments,
             ..
         } => native_call(receiver.as_deref(), namespace, name, arguments, locals),
-        Expr::Await(value) => render(value),
+        Expr::Await(value) | Expr::TryAwait(value) => render(value),
         Expr::Add(left, right, ty) => {
             let sum = format!("({} + {})", render(left), render(right));
             match ty {
@@ -310,6 +310,77 @@ fn native_call(
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expression;
+    use nexa_ir::{Expr, Type};
+
+    #[test]
+    fn file_calls_use_the_generated_native_helper_names_and_argument_order() {
+        let read = Expr::Await(Box::new(Expr::NativeCall {
+            receiver: None,
+            namespace: "File".to_owned(),
+            name: "readText".to_owned(),
+            arguments: vec![("path".to_owned(), Expr::String("notes.txt".to_owned()))],
+            return_type: Type::String,
+            is_async: true,
+            is_throwing: false,
+        }));
+        let write = Expr::Await(Box::new(Expr::NativeCall {
+            receiver: None,
+            namespace: "File".to_owned(),
+            name: "writeText".to_owned(),
+            arguments: vec![
+                ("contents".to_owned(), Expr::String("saved".to_owned())),
+                ("path".to_owned(), Expr::String("notes.txt".to_owned())),
+            ],
+            return_type: Type::Bool,
+            is_async: true,
+            is_throwing: false,
+        }));
+        let delete = Expr::Await(Box::new(Expr::NativeCall {
+            receiver: None,
+            namespace: "File".to_owned(),
+            name: "delete".to_owned(),
+            arguments: vec![("path".to_owned(), Expr::String("notes.txt".to_owned()))],
+            return_type: Type::Bool,
+            is_async: true,
+            is_throwing: false,
+        }));
+
+        assert_eq!(expression(&read), "NexaFile.readText(\"notes.txt\")");
+        assert_eq!(
+            expression(&write),
+            "NexaFile.writeText(\"saved\", \"notes.txt\")"
+        );
+        assert_eq!(expression(&delete), "NexaFile.delete(\"notes.txt\")");
+    }
+
+    #[test]
+    fn native_instance_calls_stay_direct_and_use_kotlin_positional_arguments() {
+        let call = Expr::NativeCall {
+            receiver: Some(Box::new(Expr::State(
+                "player".to_owned(),
+                Type::Plugin {
+                    namespace: "Video".to_owned(),
+                    name: "VideoPlayer".to_owned(),
+                },
+            ))),
+            namespace: "Video".to_owned(),
+            name: "prepare".to_owned(),
+            arguments: vec![("url".to_owned(), Expr::String("clip.mp4".to_owned()))],
+            return_type: Type::Void,
+            is_async: true,
+            is_throwing: false,
+        };
+
+        assert_eq!(
+            expression(&Expr::Await(Box::new(call))),
+            "nexa_player.prepare(\"clip.mp4\")"
+        );
     }
 }
 
