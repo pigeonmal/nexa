@@ -1964,8 +1964,11 @@ byte methods (including `Void`) from C++ futures. Swift waits away from the
 main queue;
 Android uses `Dispatchers.IO` and includes the coroutine dependency only when a
 reachable C++ plugin needs it. Async collection signatures fail with a
-generation diagnostic. Typed throwing and event adapters remain unsupported,
-and collection combinations outside the supported map-value cases remain open.
+generation diagnostic. iOS adapts declared typed errors from the C++
+`NexaResult` contract for async
+scalar, string, and byte results; error payloads support primitive, string, and
+byte values. Android typed errors, C++ events, and collection combinations
+outside the supported map-value cases remain open.
 The optional `cpp.standard` manifest field selects the minimum C++17, C++20,
 or C++23 level required by reachable C++ sources; generated iOS and Android
 targets use the highest declared level, defaulting to C++20.
@@ -1989,7 +1992,7 @@ constructors, properties, and methods, including unsigned carriers.
 Remaining host integration includes:
 
 ```text
-Android throwing/event adapters, iOS typed throwing/event adapters, async
+Android typed throwing/event adapters, iOS event adapters, async
 collection signatures, and collection nesting outside the supported map-value
 cases remain open.
 Android maps exclude floating-point keys and optional maps nested as map values;
@@ -2077,8 +2080,8 @@ these shapes. The optional host JVM matrix round-trips these maps when
 `kotlinc` is available. Generated iOS
 typechecking and Android host JNI runtime tests
 also cover nested Boolean/numeric arrays, strings, bytes, empty rows, and empty
-outer arrays. Android throwing/event adapters, iOS typed throwing and event
-adapters, async collection signatures, and broader collection
+outer arrays. Android typed throwing/event adapters, iOS event adapters, async
+collection signatures, and broader collection
 combinations outside the supported map-value cases remain open.
 Network pinning uses the same case-insensitive 64-character SHA-256 hash of
 DER-encoded SPKI on both platforms. iOS validates system trust before matching

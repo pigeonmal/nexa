@@ -56,7 +56,11 @@ fn generated_ios_cpp_adapters_typecheck_maps_and_async_methods_when_swift_is_ava
     .expect("plugin manifest should be written");
     fs::write(
         plugin.join("native.nxid"),
-        r#"service Lookup {
+        r#"error LookupError {
+    missing
+    malformed(message: String, payload: Bytes)
+}
+service Lookup {
     fn ping()
     fn mapBool(values: Map<Bool, Bool>) -> Map<Bool, Bool>
     fn mapInt8(values: Map<Int8, Int8>) -> Map<Int8, Int8>
@@ -86,6 +90,8 @@ fn generated_ios_cpp_adapters_typecheck_maps_and_async_methods_when_swift_is_ava
     async fn echoTextAsync(value: String) -> String
     async fn echoPayloadAsync(value: Bytes) -> Bytes
     async fn flushAsync()
+    async fn readAsync() throws LookupError
+    async fn lookupAsync() -> Result<Int32, LookupError>
 }
 native class Store {
     init(entries: Map<Int32, String>, payloads: Map<Bytes, Bytes>, history: Array<Array<Int32>>)
@@ -145,6 +151,8 @@ func mapAdapterProbe() async {
     _ = await LookupPlugin.shared.echoTextAsync(value: "Nexa 🚀")
     _ = await LookupPlugin.shared.echoPayloadAsync(value: Data([0, 1, 255]))
     await LookupPlugin.shared.flushAsync()
+    _ = try? await LookupPlugin.shared.readAsync()
+    _ = try? await LookupPlugin.shared.lookupAsync()
     _ = LookupPlugin.shared.mapBool(values: [false: true, true: false])
     _ = LookupPlugin.shared.mapInt8(values: [-1: 1])
     _ = LookupPlugin.shared.mapInt16(values: [-2: 2])

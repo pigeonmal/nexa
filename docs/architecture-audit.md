@@ -257,8 +257,9 @@ made.
 
 ## Remaining architectural work
 
-Add typed error and event contracts to optional C++ adapters, then support
-async collection signatures and broader nested `Set`/`Map` combinations.
+Extend typed error translation from iOS to Android and add C++ event contracts,
+then support async collection signatures and broader nested `Set`/`Map`
+combinations.
 Recursive `Array` adapters now have iOS Swift/C++ typecheck and Android
 Kotlin/JNI runtime coverage, and flat-map adapters have per-platform type
 coverage. Navigation gives each screen destination independent native state and

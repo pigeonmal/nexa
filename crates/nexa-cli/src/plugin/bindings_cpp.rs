@@ -44,6 +44,7 @@ pub(crate) fn render(idl: &PluginIdl, plugin_id: &str) -> String {
         render_named_type(&mut out, ty);
         out.push('\n');
     }
+    render_swift_cpp_error_bridges(&mut out, idl);
     for interface in &idl.interfaces {
         match interface.kind {
             InterfaceKind::Interface | InterfaceKind::NativeClass => {
@@ -101,13 +102,14 @@ pub(crate) fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<
             "private final class NexaCppFutureWork<Output>: @unchecked Sendable {\n    private let operation: () -> Output\n    init(_ operation: @escaping () -> Output) { self.operation = operation }\n    func run() -> Output { operation() }\n}\n\n",
         );
     }
+    render_swift_cpp_error_converters(&mut out, idl, &namespace);
     let mut generated = false;
 
     for interface in &idl.interfaces {
         match interface.kind {
             InterfaceKind::Service => {
                 for method in &interface.methods {
-                    validate_swift_cpp_method(&interface.name, method)?;
+                    validate_swift_cpp_method(idl, &interface.name, method)?;
                 }
                 generated = true;
                 out.push_str(&format!(
@@ -155,7 +157,7 @@ pub(crate) fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<
                     ensure_swift_cpp_value(&interface.name, &property.name, &property.ty, false)?;
                 }
                 for method in &interface.methods {
-                    validate_swift_cpp_method(&interface.name, method)?;
+                    validate_swift_cpp_method(idl, &interface.name, method)?;
                 }
                 if !interface.events.is_empty() {
                     return Err(format!(
@@ -2560,12 +2562,52 @@ fn jni_mangle(value: &str) -> String {
     out
 }
 
-fn validate_swift_cpp_method(interface: &str, method: &Method) -> Result<(), String> {
-    if method.throws.is_some() || method.return_type.name == "Result" {
-        return Err(format!(
-            "C++ Swift adapters do not yet support typed throwing methods; `{interface}.{}` declares `throws` or returns `Result`",
-            method.name
-        ));
+fn validate_swift_cpp_method(
+    idl: &PluginIdl,
+    interface: &str,
+    method: &Method,
+) -> Result<(), String> {
+    if let Some(error_type) = swift_cpp_method_error_type(method) {
+        let Some(error) = idl
+            .types
+            .iter()
+            .find(|ty| ty.kind == NamedTypeKind::Error && ty.name == error_type.name)
+        else {
+            return Err(format!(
+                "C++ Swift adapters cannot resolve typed error `{}` for `{interface}.{}`",
+                error_type.name, method.name
+            ));
+        };
+        for case in &error.cases {
+            for parameter in &case.parameters {
+                if !swift_cpp_error_payload_supported(&parameter.ty) {
+                    return Err(format!(
+                        "C++ Swift typed errors support primitive, `String`, and `Bytes` payloads; `{interface}.{}` error case `{}.{}` uses `{}`",
+                        method.name, error.name, case.name, parameter.ty.name
+                    ));
+                }
+            }
+        }
+        if method
+            .parameters
+            .iter()
+            .any(|parameter| swift_cpp_is_collection(&parameter.ty))
+            || swift_cpp_is_collection(swift_cpp_method_success_type(method))
+        {
+            return Err(format!(
+                "C++ Swift typed throwing adapters do not yet support collection parameters or returns; `{interface}.{}` uses a typed error collection contract",
+                method.name
+            ));
+        }
+        for parameter in &method.parameters {
+            ensure_swift_cpp_value(interface, &parameter.name, &parameter.ty, false)?;
+        }
+        return ensure_swift_cpp_value(
+            interface,
+            &method.name,
+            swift_cpp_method_success_type(method),
+            true,
+        );
     }
     if method.is_async
         && method
@@ -2587,11 +2629,55 @@ fn validate_swift_cpp_method(interface: &str, method: &Method) -> Result<(), Str
     for parameter in &method.parameters {
         ensure_swift_cpp_value(interface, &parameter.name, &parameter.ty, false)?;
     }
-    ensure_swift_cpp_value(interface, &method.name, &method.return_type, true)
+    ensure_swift_cpp_value(
+        interface,
+        &method.name,
+        swift_cpp_method_success_type(method),
+        true,
+    )
 }
 
 fn swift_cpp_is_collection(ty: &TypeRef) -> bool {
     matches!(ty.name.as_str(), "Array" | "Set" | "Map")
+}
+
+fn swift_cpp_method_error_type(method: &Method) -> Option<&TypeRef> {
+    method.throws.as_ref().or_else(|| {
+        (method.return_type.name == "Result")
+            .then(|| method.return_type.arguments.get(1))
+            .flatten()
+    })
+}
+
+fn swift_cpp_method_success_type(method: &Method) -> &TypeRef {
+    if method.return_type.name == "Result" {
+        method
+            .return_type
+            .arguments
+            .first()
+            .expect("validated Result type has a success type")
+    } else {
+        &method.return_type
+    }
+}
+
+fn swift_cpp_error_payload_supported(ty: &TypeRef) -> bool {
+    matches!(
+        ty.name.as_str(),
+        "Bool"
+            | "Int8"
+            | "Int16"
+            | "Int32"
+            | "Int64"
+            | "UInt8"
+            | "UInt16"
+            | "UInt32"
+            | "UInt64"
+            | "Float32"
+            | "Float64"
+            | "String"
+            | "Bytes"
+    ) && ty.arguments.is_empty()
 }
 
 fn ensure_swift_cpp_value(
@@ -3072,15 +3158,33 @@ fn render_swift_cpp_method(
         byte_buffer_type,
         optional_bridge,
     );
-    let return_type =
-        swift_cpp_value_type(&method.return_type).expect("validated method return type");
+    let success_type = swift_cpp_method_success_type(method);
+    let return_type = swift_cpp_value_type(success_type).expect("validated method return type");
     let async_modifier = if method.is_async { " async" } else { "" };
+    let throws_modifier = swift_cpp_method_error_type(method)
+        .map(|error| format!(" throws({})", error.name))
+        .unwrap_or_default();
     out.push_str(&format!(
-        "\n{indent}public func {}({parameters}){async_modifier} -> {return_type} {{\n",
+        "\n{indent}public func {}({parameters}){async_modifier}{throws_modifier} -> {return_type} {{\n",
         method.name
     ));
     let method_name = adapter_method.unwrap_or(&method.name);
     let call = format!("{receiver}.{}({arguments})", cpp_identifier(method_name));
+    if let Some(error_type) = swift_cpp_method_error_type(method) {
+        render_swift_cpp_typed_error_call(
+            out,
+            method,
+            success_type,
+            &return_type,
+            error_type,
+            &call,
+            idl,
+            namespace,
+            depth,
+        );
+        out.push_str(&format!("{indent}}}\n"));
+        return;
+    }
     if method.is_async {
         out.push_str(&format!("{indent}    var nexaCppFuture = {call}\n"));
         let work_type = if return_type == "Void" {
@@ -3091,7 +3195,7 @@ fn render_swift_cpp_method(
         let converted = if return_type == "Void" {
             "nexaCppFuture.get()".to_owned()
         } else {
-            swift_cpp_result_expression(&method.return_type, "nexaCppFuture.get()", idl, namespace)
+            swift_cpp_result_expression(success_type, "nexaCppFuture.get()", idl, namespace)
         };
         out.push_str(&format!(
             "{indent}    let nexaCppFutureWork = NexaCppFutureWork<{work_type}> {{ {converted} }}\n"
@@ -3111,15 +3215,69 @@ fn render_swift_cpp_method(
     if return_type == "Void" {
         out.push_str(&format!("{indent}    {call}\n"));
     } else {
-        let converted = swift_cpp_result_expression(&method.return_type, &call, idl, namespace);
+        let converted = swift_cpp_result_expression(success_type, &call, idl, namespace);
         out.push_str(&format!("{indent}    return {converted}\n"));
     }
     out.push_str(&format!("{indent}}}\n"));
 }
 
+#[allow(clippy::too_many_arguments)]
+fn render_swift_cpp_typed_error_call(
+    out: &mut String,
+    method: &Method,
+    success_type: &TypeRef,
+    return_type: &str,
+    error_type: &TypeRef,
+    call: &str,
+    idl: &PluginIdl,
+    namespace: &str,
+    depth: usize,
+) {
+    let indent = "    ".repeat(depth);
+    let converter = swift_cpp_error_converter_name(&error_type.name);
+    if method.is_async {
+        out.push_str(&format!("{indent}    var nexaCppFuture = {call}\n"));
+        let result_type = format!("Result<{return_type}, {}>", error_type.name);
+        let work_body = if return_type == "Void" {
+            format!(
+                "var nexaCppTypedResult = nexaCppFuture.get(); if nexaCppTypedResult.has_value() {{ return .success(()) }}; return .failure({converter}(nexaCppTypedResult.nexaSwiftError()))"
+            )
+        } else {
+            let converted = swift_cpp_result_expression(
+                success_type,
+                "nexaCppTypedResult.nexaSwiftValue()",
+                idl,
+                namespace,
+            );
+            format!(
+                "var nexaCppTypedResult = nexaCppFuture.get(); if nexaCppTypedResult.has_value() {{ return .success({converted}) }}; return .failure({converter}(nexaCppTypedResult.nexaSwiftError()))"
+            )
+        };
+        out.push_str(&format!(
+            "{indent}    let nexaCppFutureWork = NexaCppFutureWork<{result_type}> {{ {work_body} }}\n{indent}    let nexaCppTypedResult = await withCheckedContinuation {{ (continuation: CheckedContinuation<{result_type}, Never>) in\n{indent}        DispatchQueue.global(qos: .userInitiated).async {{\n{indent}            continuation.resume(returning: nexaCppFutureWork.run())\n{indent}        }}\n{indent}    }}\n{indent}    return try nexaCppTypedResult.get()\n"
+        ));
+        return;
+    }
+
+    out.push_str(&format!("{indent}    var nexaCppTypedResult = {call}\n"));
+    out.push_str(&format!(
+        "{indent}    guard nexaCppTypedResult.has_value() else {{ throw {converter}(nexaCppTypedResult.nexaSwiftError()) }}\n"
+    ));
+    if return_type == "Void" {
+        return;
+    }
+    let converted = swift_cpp_result_expression(
+        success_type,
+        "nexaCppTypedResult.nexaSwiftValue()",
+        idl,
+        namespace,
+    );
+    out.push_str(&format!("{indent}    return {converted}\n"));
+}
+
 fn render_result_type(out: &mut String) {
     out.push_str(
-        "template <class Success, class Failure>\nclass NexaResult {\npublic:\n    static NexaResult success(Success value) {\n        return NexaResult(Storage{std::in_place_index<0>, std::move(value)});\n    }\n    static NexaResult failure(Failure error) {\n        return NexaResult(Storage{std::in_place_index<1>, std::move(error)});\n    }\n    bool has_value() const noexcept { return storage_.index() == 0; }\n    Success& value() & { return std::get<0>(storage_); }\n    const Success& value() const & { return std::get<0>(storage_); }\n    Failure& error() & { return std::get<1>(storage_); }\n    const Failure& error() const & { return std::get<1>(storage_); }\nprivate:\n    using Storage = std::variant<Success, Failure>;\n    explicit NexaResult(Storage storage) : storage_(std::move(storage)) {}\n    Storage storage_;\n};\n\ntemplate <class Failure>\nclass NexaResult<void, Failure> {\npublic:\n    static NexaResult success() { return NexaResult(std::nullopt); }\n    static NexaResult failure(Failure error) {\n        return NexaResult(std::optional<Failure>(std::move(error)));\n    }\n    bool has_value() const noexcept { return !error_.has_value(); }\n    Failure& error() & { return *error_; }\n    const Failure& error() const & { return *error_; }\nprivate:\n    explicit NexaResult(std::optional<Failure> error) : error_(std::move(error)) {}\n    std::optional<Failure> error_;\n};\n\n",
+        "template <class Success, class Failure>\nclass NexaResult {\npublic:\n    static NexaResult success(Success value) {\n        return NexaResult(Storage{std::in_place_index<0>, std::move(value)});\n    }\n    static NexaResult failure(Failure error) {\n        return NexaResult(Storage{std::in_place_index<1>, std::move(error)});\n    }\n    bool has_value() const noexcept { return storage_.index() == 0; }\n    Success& value() & { return std::get<0>(storage_); }\n    const Success& value() const & { return std::get<0>(storage_); }\n    Failure& error() & { return std::get<1>(storage_); }\n    const Failure& error() const & { return std::get<1>(storage_); }\n    Success nexaSwiftValue() { return std::move(std::get<0>(storage_)); }\n    Failure nexaSwiftError() { return std::move(std::get<1>(storage_)); }\nprivate:\n    using Storage = std::variant<Success, Failure>;\n    explicit NexaResult(Storage storage) : storage_(std::move(storage)) {}\n    Storage storage_;\n};\n\ntemplate <class Failure>\nclass NexaResult<void, Failure> {\npublic:\n    static NexaResult success() { return NexaResult(std::nullopt); }\n    static NexaResult failure(Failure error) {\n        return NexaResult(std::optional<Failure>(std::move(error)));\n    }\n    bool has_value() const noexcept { return !error_.has_value(); }\n    Failure& error() & { return *error_; }\n    const Failure& error() const & { return *error_; }\n    Failure nexaSwiftError() { return std::move(*error_); }\nprivate:\n    explicit NexaResult(std::optional<Failure> error) : error_(std::move(error)) {}\n    std::optional<Failure> error_;\n};\n\n",
     );
 }
 
@@ -3494,6 +3652,107 @@ fn render_named_type(out: &mut String, ty: &NamedType) {
             );
             out.push_str(">;\n    Value value;\n};\n");
         }
+    }
+}
+
+fn render_swift_cpp_error_bridges(out: &mut String, idl: &PluginIdl) {
+    let error_names = idl
+        .interfaces
+        .iter()
+        .filter(|interface| {
+            matches!(
+                interface.kind,
+                InterfaceKind::Service | InterfaceKind::NativeClass
+            )
+        })
+        .flat_map(|interface| &interface.methods)
+        .filter_map(swift_cpp_method_error_type)
+        .map(|ty| ty.name.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    for error_name in error_names {
+        let error = idl
+            .types
+            .iter()
+            .find(|ty| ty.kind == NamedTypeKind::Error && ty.name == error_name)
+            .expect("typed errors are validated by the plugin IDL parser");
+        let bridge = cpp_swift_error_bridge_name(idl, error_name);
+        let name = cpp_identifier(error_name);
+        out.push_str(&format!("struct {bridge} {{\n    static std::uint8_t caseIndex(const {name}& error) noexcept {{ return static_cast<std::uint8_t>(error.value.index()); }}\n"));
+        for (case_index, case) in error.cases.iter().enumerate() {
+            let case_type = cpp_case_type_name(&case.name);
+            for (parameter_index, parameter) in case.parameters.iter().enumerate() {
+                out.push_str(&format!(
+                    "    static {} payload_{case_index}_{parameter_index}(const {name}& error) {{ return std::get<{name}::{case_type}>(error.value).{}; }}\n",
+                    cpp_type(&parameter.ty),
+                    cpp_identifier(&parameter.name)
+                ));
+            }
+        }
+        out.push_str("};\n\n");
+    }
+}
+
+fn render_swift_cpp_error_converters(out: &mut String, idl: &PluginIdl, namespace: &str) {
+    let error_names = idl
+        .interfaces
+        .iter()
+        .filter(|interface| {
+            matches!(
+                interface.kind,
+                InterfaceKind::Service | InterfaceKind::NativeClass
+            )
+        })
+        .flat_map(|interface| &interface.methods)
+        .filter_map(swift_cpp_method_error_type)
+        .map(|ty| ty.name.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    for error_name in error_names {
+        let Some(error) = idl
+            .types
+            .iter()
+            .find(|ty| ty.kind == NamedTypeKind::Error && ty.name == error_name)
+        else {
+            continue;
+        };
+        let bridge = format!(
+            "{namespace}.{}",
+            cpp_swift_error_bridge_name(idl, error_name)
+        );
+        out.push_str(&format!(
+            "private func {}(_ error: {namespace}.{error_name}) -> {error_name} {{\n    switch {bridge}.caseIndex(error) {{\n",
+            swift_cpp_error_converter_name(error_name)
+        ));
+        for (case_index, case) in error.cases.iter().enumerate() {
+            if case.parameters.is_empty() {
+                out.push_str(&format!(
+                    "    case {case_index}: return {error_name}.{}\n",
+                    case.name
+                ));
+                continue;
+            }
+            let payload = case
+                .parameters
+                .iter()
+                .enumerate()
+                .map(|(parameter_index, parameter)| {
+                    let bridge_call =
+                        format!("{bridge}.payload_{case_index}_{parameter_index}(error)");
+                    let value =
+                        swift_cpp_result_expression(&parameter.ty, &bridge_call, idl, namespace);
+                    format!("{}: {value}", parameter.name)
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!(
+                "    case {case_index}: return {error_name}.{}({payload})\n",
+                case.name
+            ));
+        }
+        out.push_str(
+            "    default: preconditionFailure(\"C++ error variant is outside the declared contract\")\n    }\n}\n\n",
+        );
     }
 }
 
@@ -4245,6 +4504,17 @@ fn cpp_optional_bridge_name(idl: &PluginIdl) -> String {
     unique_cpp_type_name(idl, "NexaCppOptionalBridge")
 }
 
+fn cpp_swift_error_bridge_name(idl: &PluginIdl, error_name: &str) -> String {
+    unique_cpp_type_name(
+        idl,
+        &format!("NexaCppErrorBridge{}", cpp_identifier(error_name)),
+    )
+}
+
+fn swift_cpp_error_converter_name(error_name: &str) -> String {
+    format!("nexaCppErrorTo{}", cpp_identifier(error_name))
+}
+
 fn unique_cpp_type_name(idl: &PluginIdl, base: &str) -> String {
     if !cpp_name_is_declared(idl, base) {
         return base.to_owned();
@@ -4423,12 +4693,24 @@ mod tests {
         assert!(adapters.contains("public func now() async -> Int64"));
 
         let throwing = nexa_plugin_idl::parse(
-            "error Failure { rejected } service Clock { async fn read() throws Failure }",
+            "error Failure { rejected, malformed(message: String, payload: Bytes) } service Clock { async fn read() throws Failure async fn readValue() -> Result<Int32, Failure> }",
         )
         .expect("throwing native IDL should parse");
-        let error = render_swift_adapters(&throwing, "dev.example.cpp-plugin")
-            .expect_err("unsupported C++ throwing signatures must fail project generation");
-        assert!(error.contains("typed throwing methods"));
+        let adapters = render_swift_adapters(&throwing, "dev.example.cpp-plugin")
+            .expect("typed async C++ errors should generate Swift adapters");
+        assert!(adapters.contains("public func read() async throws(Failure) -> Void"));
+        assert!(adapters.contains("public func readValue() async throws(Failure) -> Int32"));
+        assert!(adapters.contains("Failure.malformed(message: String("));
+        assert!(adapters.contains("payload: Data("));
+        assert!(adapters.contains("return try nexaCppTypedResult.get()"));
+
+        let throwing_collection = nexa_plugin_idl::parse(
+            "error Failure { rejected } service Clock { async fn values() -> Result<Array<Int32>, Failure> }",
+        )
+        .expect("async typed-collection IDL should parse");
+        let error = render_swift_adapters(&throwing_collection, "dev.example.cpp-plugin")
+            .expect_err("typed async collection signatures should fail generation");
+        assert!(error.contains("typed throwing adapters"));
 
         let async_collection =
             nexa_plugin_idl::parse("service Clock { async fn history() -> Array<Int32> }")

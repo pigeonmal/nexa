@@ -151,8 +151,10 @@ opt-in source compilation, and direct Swift/C++ ownership are implemented.
 Both platforms adapt synchronous and non-throwing async scalar, optional scalar,
 string, and byte service/class methods; iOS waits on futures off the main queue,
 and Android uses `Dispatchers.IO`. Android classes require `dispose()` for
-deterministic release. Async collection signatures, typed throwing adapters,
-and events remain open.
+deterministic release. iOS translates declared async typed errors from C++
+`NexaResult` values for supported scalar, string, and byte results. Android
+typed error translation and C++ events remain open; async collection
+signatures are also unsupported.
 
 iOS bridges optional primitive, string, and byte values; flat primitive,
 string, and byte arrays; compatible sets; recursively nested arrays; and maps
@@ -201,12 +203,15 @@ type-check generated Swift `Data` to C++ byte-vector adapters and set facades.
 
 ## Remaining work
 
-1. Extend generated C++ host adapters beyond synchronous calls. Current support
-   includes optional values, recursive arrays, flat maps, and selected set
-   types. Both platforms still need nested `Set`/`Map` combinations,
-   async/throwing calls, and events. Android maps currently support flat
-   primitive/string keys and values, excluding floating keys, byte-array values,
-   optional maps, and nested collections.
+1. Complete the remaining generated C++ host adapter cases. Both platforms
+   support non-throwing async scalar, optional scalar, string, and byte methods;
+   iOS also translates declared typed errors for supported scalar/string/byte
+   results. Android typed errors, events on both platforms, async collection
+   signatures, and collection combinations outside the covered shapes remain
+   open. Android map keys exclude floating-point values, and nullable maps are
+   supported only at the outer map level.
+2. Reuse native resources across separate route lifetimes; route parameters
+   currently stay scalar.
 
 The VideoPlayer example includes headless Swift and Android/JVM smoke tests for
 independent instance behavior and deterministic disposal using fake media
