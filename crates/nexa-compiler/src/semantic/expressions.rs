@@ -559,7 +559,13 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
                 || named_arguments.values().any(references_state)
         }
         ast::Expr::Closure { body, .. } => references_state(body),
-        ast::Expr::QualifiedCall { arguments, .. } => arguments.values().any(references_state),
+        ast::Expr::QualifiedCall {
+            arguments,
+            named_arguments,
+            ..
+        } => {
+            arguments.iter().any(references_state) || named_arguments.values().any(references_state)
+        }
         ast::Expr::Index {
             collection, index, ..
         } => references_state(collection) || references_state(index),
@@ -995,11 +1001,13 @@ pub(super) fn lower_expr(
             namespace,
             name,
             arguments,
+            named_arguments,
             span,
         } => lower_native_call(
             namespace,
             name,
             arguments,
+            named_arguments,
             *span,
             expected,
             symbols,
@@ -1216,11 +1224,13 @@ pub(super) fn lower_expr(
                     namespace,
                     name,
                     arguments,
+                    named_arguments,
                     span: call_span,
                 } => lower_native_call(
                     namespace,
                     name,
                     arguments,
+                    named_arguments,
                     *call_span,
                     expected,
                     symbols,
@@ -1623,7 +1633,8 @@ fn lower_call(
 fn lower_native_call(
     namespace: &str,
     name: &str,
-    arguments: &BTreeMap<String, ast::Expr>,
+    arguments: &[ast::Expr],
+    named_arguments: &BTreeMap<String, ast::Expr>,
     span: Span,
     expected: Option<&Type>,
     symbols: &HashMap<String, (Type, bool)>,
@@ -1637,6 +1648,7 @@ fn lower_native_call(
             namespace,
             name,
             arguments,
+            named_arguments,
             span,
             expected,
             symbols,
@@ -1644,6 +1656,12 @@ fn lower_native_call(
             allow_await,
             awaited,
         );
+    }
+    if !arguments.is_empty() {
+        return Err(CompileError::new(
+            span,
+            "built-in native API calls require named arguments",
+        ));
     }
     let (return_type, is_async, specs): (Type, bool, Vec<(&str, Type, Option<ast::Expr>)>) =
         match qualified_name.as_str() {
@@ -1709,7 +1727,10 @@ fn lower_native_call(
     require_expected(expected, &return_type, span)?;
 
     let known = specs.iter().map(|(name, ..)| *name).collect::<HashSet<_>>();
-    if let Some(unknown) = arguments.keys().find(|name| !known.contains(name.as_str())) {
+    if let Some(unknown) = named_arguments
+        .keys()
+        .find(|name| !known.contains(name.as_str()))
+    {
         return Err(CompileError::new(
             span,
             format!("unknown option `{unknown}` for `{qualified_name}`"),
@@ -1717,7 +1738,7 @@ fn lower_native_call(
     }
     let mut lowered = Vec::with_capacity(specs.len());
     for (argument_name, argument_type, default) in specs {
-        let argument = arguments
+        let argument = named_arguments
             .get(argument_name)
             .or(default.as_ref())
             .ok_or_else(|| {
@@ -1755,7 +1776,8 @@ fn is_core_native_namespace(namespace: &str) -> bool {
 fn lower_plugin_call(
     namespace: &str,
     name: &str,
-    arguments: &BTreeMap<String, ast::Expr>,
+    arguments: &[ast::Expr],
+    named_arguments: &BTreeMap<String, ast::Expr>,
     span: Span,
     expected: Option<&Type>,
     symbols: &HashMap<String, (Type, bool)>,
@@ -1787,27 +1809,58 @@ fn lower_plugin_call(
         ));
     }
     require_expected(expected, &signature.return_type, span)?;
-    let known = signature
-        .parameters
-        .iter()
-        .map(|(name, _)| name.as_str())
-        .collect::<HashSet<_>>();
-    if let Some(unknown) = arguments.keys().find(|name| !known.contains(name.as_str())) {
-        return Err(CompileError::new(
-            span,
-            format!("unknown argument `{unknown}` for plugin method `{qualified_name}`"),
-        ));
-    }
-    let mut lowered = Vec::with_capacity(signature.parameters.len());
-    for (argument_name, argument_type) in &signature.parameters {
-        let argument = arguments.get(argument_name).ok_or_else(|| {
-            CompileError::new(
+    let ordered_arguments = if named_arguments.is_empty() {
+        if arguments.len() != signature.parameters.len() {
+            return Err(CompileError::new(
                 span,
-                format!("plugin method `{qualified_name}` requires `{argument_name}`"),
-            )
-        })?;
+                format!(
+                    "plugin method `{qualified_name}` expects {} argument(s), found {}",
+                    signature.parameters.len(),
+                    arguments.len()
+                ),
+            ));
+        }
+        signature
+            .parameters
+            .iter()
+            .zip(arguments.iter())
+            .map(|((name, ty), argument)| (name, ty, argument))
+            .collect::<Vec<_>>()
+    } else {
+        let known = signature
+            .parameters
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<HashSet<_>>();
+        if let Some(unknown) = named_arguments
+            .keys()
+            .find(|name| !known.contains(name.as_str()))
+        {
+            return Err(CompileError::new(
+                span,
+                format!("unknown argument `{unknown}` for plugin method `{qualified_name}`"),
+            ));
+        }
+        signature
+            .parameters
+            .iter()
+            .map(|(name, ty)| {
+                named_arguments
+                    .get(name)
+                    .map(|argument| (name, ty, argument))
+                    .ok_or_else(|| {
+                        CompileError::new(
+                            span,
+                            format!("plugin method `{qualified_name}` requires `{name}`"),
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let mut lowered = Vec::with_capacity(signature.parameters.len());
+    for (argument_name, argument_type, argument) in ordered_arguments {
         lowered.push((
-            argument_name.clone(),
+            argument_name.to_owned(),
             lower_expr(
                 argument,
                 Some(argument_type),
@@ -2620,6 +2673,7 @@ mod tests {
         let error = lower_plugin_call(
             "Camera",
             "capture",
+            &[],
             &BTreeMap::new(),
             Span::default(),
             None,

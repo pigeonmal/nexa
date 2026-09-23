@@ -35,7 +35,7 @@ app DemoApp {
         Column {
             Text("Result: ${result}")
             Button("Compute C++") {
-                result = FastMath.add(a: 10, b: 20)
+                result = FastMath.add(10, 20)
             }
         }
     }

@@ -115,6 +115,8 @@ std::future<std::int64_t> runHeavyJob(int32_t threads, double precision) noexcep
 
 Import the plugin at the top of your `.nx` file:
 
+Plugin service methods accept positional arguments in `.nxid` declaration order or named arguments when you prefer explicit labels.
+
 ```nexa
 plugin "fast-engine" as FastEngine
 
@@ -125,7 +127,7 @@ app PluginApp {
         Column {
             Text("Result: ${result}")
             Button("Execute C++ Native Function") {
-                result = FastEngine.add(a: 15, b: 27)
+                result = FastEngine.add(15, 27)
             }
         }
     }

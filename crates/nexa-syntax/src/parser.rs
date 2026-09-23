@@ -2090,7 +2090,7 @@ impl Parser {
                 };
                 if self.take(&Kind::LParen) {
                     let (mut arguments, named_arguments) =
-                        self.method_call_arguments_after_open()?;
+                        self.call_arguments_after_open_with_names()?;
                     if self.check(&Kind::LBrace) {
                         arguments.push(self.closure_expression()?);
                     }
@@ -2468,7 +2468,7 @@ impl Parser {
         Ok(arguments)
     }
 
-    fn method_call_arguments_after_open(
+    fn call_arguments_after_open_with_names(
         &mut self,
     ) -> Result<(Vec<Expr>, BTreeMap<String, Expr>), CompileError> {
         let named = matches!(
@@ -2496,7 +2496,7 @@ impl Parser {
                 break;
             }
         }
-        self.expect(Kind::RParen, "expected `)` after method arguments")?;
+        self.expect(Kind::RParen, "expected `)` after call arguments")?;
         Ok((Vec::new(), arguments))
     }
 
@@ -2527,29 +2527,12 @@ impl Parser {
         span: Span,
     ) -> Result<Expr, CompileError> {
         self.expect(Kind::LParen, "expected `(` after qualified function name")?;
-        let mut arguments = BTreeMap::new();
-        while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
-            let (argument_name, argument_span) = self.ident()?;
-            if arguments.contains_key(&argument_name) {
-                return Err(CompileError::new(
-                    argument_span,
-                    format!("argument `{argument_name}` was provided more than once"),
-                ));
-            }
-            self.expect(Kind::Colon, "expected `:` after argument name")?;
-            arguments.insert(argument_name, self.expr()?);
-            if !self.take(&Kind::Comma) {
-                break;
-            }
-        }
-        self.expect(
-            Kind::RParen,
-            "expected `)` after qualified function arguments",
-        )?;
+        let (arguments, named_arguments) = self.call_arguments_after_open_with_names()?;
         Ok(Expr::QualifiedCall {
             namespace,
             name,
             arguments,
+            named_arguments,
             span,
         })
     }

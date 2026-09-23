@@ -855,9 +855,18 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
                     .any(|argument| expression_references_name(argument, name))
         }
         ast::Expr::Closure { body, .. } => expression_references_name(body, name),
-        ast::Expr::QualifiedCall { arguments, .. } => arguments
-            .values()
-            .any(|argument| expression_references_name(argument, name)),
+        ast::Expr::QualifiedCall {
+            arguments,
+            named_arguments,
+            ..
+        } => {
+            arguments
+                .iter()
+                .any(|argument| expression_references_name(argument, name))
+                || named_arguments
+                    .values()
+                    .any(|argument| expression_references_name(argument, name))
+        }
         ast::Expr::Index {
             collection, index, ..
         } => {
@@ -962,8 +971,15 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
             }
         }
         ast::Expr::Closure { body, .. } => walk_expression(body, names, used),
-        ast::Expr::QualifiedCall { arguments, .. } => {
-            for argument in arguments.values() {
+        ast::Expr::QualifiedCall {
+            arguments,
+            named_arguments,
+            ..
+        } => {
+            for argument in arguments {
+                walk_expression(argument, names, used);
+            }
+            for argument in named_arguments.values() {
                 walk_expression(argument, names, used);
             }
         }

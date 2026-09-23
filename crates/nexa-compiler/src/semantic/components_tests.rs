@@ -206,7 +206,8 @@ use std::collections::{BTreeMap, HashMap};
             Box::new(ast::Expr::QualifiedCall {
                 namespace: "File".to_owned(),
                 name: "readText".to_owned(),
-                arguments: BTreeMap::from([(
+                arguments: Vec::new(),
+                named_arguments: BTreeMap::from([(
                     "path".to_owned(),
                     ast::Expr::String("notes.txt".to_owned(), span),
                 )]),
@@ -894,7 +895,8 @@ use std::collections::{BTreeMap, HashMap};
         let fresh_player = ast::Expr::QualifiedCall {
             namespace: "Video".to_owned(),
             name: "VideoPlayer".to_owned(),
-            arguments: BTreeMap::new(),
+            arguments: Vec::new(),
+            named_arguments: BTreeMap::new(),
             span: Span::default(),
         };
         let reset = ast::Stmt::Assign {

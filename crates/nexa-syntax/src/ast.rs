@@ -549,7 +549,8 @@ pub enum Expr {
     QualifiedCall {
         namespace: String,
         name: String,
-        arguments: BTreeMap<String, Expr>,
+        arguments: Vec<Expr>,
+        named_arguments: BTreeMap<String, Expr>,
         span: Span,
     },
     Index {
