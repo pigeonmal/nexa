@@ -257,10 +257,10 @@ made.
 
 ## Remaining architectural work
 
-Add C++ event contracts on both platforms, then support async collection
-signatures and broader nested `Set`/`Map` combinations. Android and iOS typed
-error adapters now translate supported `NexaResult` failures into native
-exception/error cases.
+Add C++ event contracts on both platforms and broaden nested `Set`/`Map`
+combinations. Android and iOS typed-error adapters translate supported
+`NexaResult` failures into native exception/error cases, and async methods now
+use the existing collection adapters on the background execution path.
 Recursive `Array` adapters now have iOS Swift/C++ typecheck and Android
 Kotlin/JNI runtime coverage, and flat-map adapters have per-platform type
 coverage. Navigation gives each screen destination independent native state and

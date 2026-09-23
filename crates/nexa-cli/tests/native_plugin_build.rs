@@ -1659,6 +1659,8 @@ service Counter {
     async fn pingAsync()
     async fn read(value: Bool) throws LookupError
     async fn readValue(value: Int32) -> Result<Int32, LookupError>
+    async fn echoAsyncIntegers(values: Array<Int32>) -> Array<Int32>
+    async fn echoAsyncMap(values: Map<String, Int32>) -> Map<String, Int32>
     fn echoIntegers(values: Array<Int32>) -> Array<Int32>
     fn echoUnsigned(values: Array<UInt32>) -> Array<UInt32>
     fn echoDoubles(values: Array<Float64>) -> Array<Float64>
@@ -1760,6 +1762,12 @@ std::future<NexaResult<std::int32_t, LookupError>> readValue(std::int32_t value)
     if (value >= 0) return readyFuture(NexaResult<std::int32_t, LookupError>::success(value));
     return readyFuture(NexaResult<std::int32_t, LookupError>::failure(
         LookupError{LookupError::Value{LookupError::MissingCase{}}}));
+}
+std::future<std::vector<std::int32_t>> echoAsyncIntegers(std::vector<std::int32_t> values) noexcept {
+    return readyFuture(std::move(values));
+}
+std::future<std::map<std::string, std::int32_t>> echoAsyncMap(std::map<std::string, std::int32_t> values) noexcept {
+    return readyFuture(std::move(values));
 }
 std::vector<std::int32_t> echoIntegers(std::vector<std::int32_t> values) noexcept { return values; }
 std::vector<std::uint32_t> echoUnsigned(std::vector<std::uint32_t> values) noexcept { return values; }
@@ -1891,6 +1899,14 @@ std::unique_ptr<MeterSpec> makeMeterImpl(double initial, std::string label, std:
     assert!(bindings.contains("@Throws(LookupError::class)"));
     assert!(bindings.contains("override suspend fun read(value: Boolean): Unit"));
     assert!(bindings.contains("override suspend fun readValue(value: Int): Int"));
+    assert!(
+        bindings.contains("override suspend fun echoAsyncIntegers(values: List<Int>): List<Int>")
+    );
+    assert!(
+        bindings.contains(
+            "override suspend fun echoAsyncMap(values: Map<String, Int>): Map<String, Int>"
+        )
+    );
     assert!(bindings.contains("override suspend fun validate(value: Boolean): Unit"));
     assert!(bindings.contains("internal object NexaPlugin0_CppErrorFactory"));
     assert!(bindings.contains(
@@ -1987,6 +2003,10 @@ fun main() = runBlocking {
     check(CounterPlugin.instance.echoTextAsync(asyncText) == asyncText)
     val asyncBytes = byteArrayOf(0, -1, 42)
     check(CounterPlugin.instance.echoBytesAsync(asyncBytes).contentEquals(asyncBytes))
+    val asyncValues = listOf(Int.MIN_VALUE, 0, Int.MAX_VALUE)
+    check(CounterPlugin.instance.echoAsyncIntegers(asyncValues) == asyncValues)
+    val asyncMap = mapOf("Nexa\u0000 🚀" to Int.MIN_VALUE, "last" to Int.MAX_VALUE)
+    check(CounterPlugin.instance.echoAsyncMap(asyncMap) == asyncMap)
     CounterPlugin.instance.pingAsync()
     CounterPlugin.instance.read(false)
     val malformed = try {

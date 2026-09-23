@@ -90,6 +90,12 @@ service Lookup {
     async fn echoTextAsync(value: String) -> String
     async fn echoPayloadAsync(value: Bytes) -> Bytes
     async fn flushAsync()
+    async fn echoAsyncValues(values: Array<Int32>) -> Array<Int32>
+    async fn echoAsyncValuesResult(values: Array<Int32>) -> Result<Array<Int32>, LookupError>
+    async fn echoAsyncMap(values: Map<Int32, String>) -> Map<Int32, String>
+    async fn echoAsyncMapResult(values: Map<Int32, String>) -> Result<Map<Int32, String>, LookupError>
+    async fn echoAsyncSet(values: Set<Int32>) -> Set<Int32>
+    async fn echoAsyncBooleans(values: Array<Bool>) -> Array<Bool>
     async fn readAsync() throws LookupError
     async fn lookupAsync() -> Result<Int32, LookupError>
 }
@@ -101,6 +107,7 @@ native class Store {
     property history: Array<Array<Int32>>
     fn echo(entries: Map<Int32, String>) -> Map<Int32, String>
     fn echoNestedMaps(values: Map<Int32, Map<Int32, Bytes>>) -> Map<Int32, Map<Int32, Bytes>>
+    async fn echoAsyncEntries(values: Map<Int32, String>) -> Map<Int32, String>
     fn echoHistory(values: Array<Array<Int32>>) -> Array<Array<Int32>>
     async fn currentCount() -> Int32
     fn dispose()
@@ -151,6 +158,12 @@ func mapAdapterProbe() async {
     _ = await LookupPlugin.shared.echoTextAsync(value: "Nexa 🚀")
     _ = await LookupPlugin.shared.echoPayloadAsync(value: Data([0, 1, 255]))
     await LookupPlugin.shared.flushAsync()
+    _ = await LookupPlugin.shared.echoAsyncValues(values: [Int32.min, 0, Int32.max])
+    _ = try? await LookupPlugin.shared.echoAsyncValuesResult(values: [])
+    _ = await LookupPlugin.shared.echoAsyncMap(values: [1: "one"])
+    _ = try? await LookupPlugin.shared.echoAsyncMapResult(values: [:])
+    _ = await LookupPlugin.shared.echoAsyncSet(values: Set([1, 2]))
+    _ = await LookupPlugin.shared.echoAsyncBooleans(values: [true, false])
     _ = try? await LookupPlugin.shared.readAsync()
     _ = try? await LookupPlugin.shared.lookupAsync()
     _ = LookupPlugin.shared.mapBool(values: [false: true, true: false])
@@ -196,6 +209,7 @@ func mapAdapterProbe() async {
     store.history = nestedIntegers
     _ = store.echo(entries: numbers)
     _ = store.echoNestedMaps(values: nestedPayloadMap)
+    _ = await store.echoAsyncEntries(values: numbers)
     _ = store.echoHistory(values: nestedIntegers)
     _ = await store.currentCount()
     store.dispose()

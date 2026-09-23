@@ -44,6 +44,7 @@ pub(crate) fn render(idl: &PluginIdl, plugin_id: &str) -> String {
         render_named_type(&mut out, ty);
         out.push('\n');
     }
+    render_cpp_swift_future_adapters(&mut out, idl);
     render_swift_cpp_error_bridges(&mut out, idl);
     for interface in &idl.interfaces {
         match interface.kind {
@@ -808,24 +809,7 @@ fn validate_android_cpp_method(
             }
         }
     }
-    if method.is_async
-        && method
-            .parameters
-            .iter()
-            .any(|parameter| android_cpp_is_collection(&parameter.ty))
-    {
-        return Err(format!(
-            "Android C++ async adapters do not yet support collection parameters; `{interface}.{}` uses an async collection contract",
-            method.name
-        ));
-    }
     let success_type = android_cpp_method_success_type(method);
-    if method.is_async && android_cpp_is_collection(success_type) {
-        return Err(format!(
-            "Android C++ async adapters do not yet support collection returns; `{interface}.{}` uses an async collection contract",
-            method.name
-        ));
-    }
     for parameter in &method.parameters {
         ensure_android_cpp_value(interface, &parameter.name, &parameter.ty, false)?;
     }
@@ -863,10 +847,6 @@ fn android_cpp_method_success_type(method: &Method) -> &TypeRef {
     } else {
         &method.return_type
     }
-}
-
-fn android_cpp_is_collection(ty: &TypeRef) -> bool {
-    matches!(ty.name.as_str(), "Array" | "Set" | "Map")
 }
 
 fn ensure_android_cpp_value(
@@ -2868,17 +2848,6 @@ fn validate_swift_cpp_method(
                 }
             }
         }
-        if method
-            .parameters
-            .iter()
-            .any(|parameter| swift_cpp_is_collection(&parameter.ty))
-            || swift_cpp_is_collection(swift_cpp_method_success_type(method))
-        {
-            return Err(format!(
-                "C++ Swift typed throwing adapters do not yet support collection parameters or returns; `{interface}.{}` uses a typed error collection contract",
-                method.name
-            ));
-        }
         for parameter in &method.parameters {
             ensure_swift_cpp_value(interface, &parameter.name, &parameter.ty, false)?;
         }
@@ -2889,23 +2858,6 @@ fn validate_swift_cpp_method(
             true,
         );
     }
-    if method.is_async
-        && method
-            .parameters
-            .iter()
-            .any(|parameter| swift_cpp_is_collection(&parameter.ty))
-    {
-        return Err(format!(
-            "C++ Swift async adapters do not yet support collection parameters; `{interface}.{}` uses an async collection contract",
-            method.name
-        ));
-    }
-    if method.is_async && swift_cpp_is_collection(&method.return_type) {
-        return Err(format!(
-            "C++ Swift async adapters do not yet support collection returns; `{interface}.{}` uses an async collection contract",
-            method.name
-        ));
-    }
     for parameter in &method.parameters {
         ensure_swift_cpp_value(interface, &parameter.name, &parameter.ty, false)?;
     }
@@ -2915,10 +2867,6 @@ fn validate_swift_cpp_method(
         swift_cpp_method_success_type(method),
         true,
     )
-}
-
-fn swift_cpp_is_collection(ty: &TypeRef) -> bool {
-    matches!(ty.name.as_str(), "Array" | "Set" | "Map")
 }
 
 fn swift_cpp_method_error_type(method: &Method) -> Option<&TypeRef> {
@@ -3158,20 +3106,22 @@ fn swift_cpp_needs_vector_bridge(ty: &TypeRef) -> bool {
 }
 
 fn swift_cpp_method_uses_collection_adapter(method: &Method) -> bool {
-    let method_is_supported =
-        !method.is_async && method.throws.is_none() && method.return_type.name != "Result";
-    let values_are_supported = method_is_supported
-        && method
-            .parameters
-            .iter()
-            .all(|parameter| swift_cpp_value_type(&parameter.ty).is_some())
-        && swift_cpp_value_type(&method.return_type).is_some();
+    let success_type = swift_cpp_method_success_type(method);
+    let values_are_supported = method
+        .parameters
+        .iter()
+        .all(|parameter| swift_cpp_value_type(&parameter.ty).is_some())
+        && swift_cpp_value_type(success_type).is_some();
     values_are_supported
         && (method
             .parameters
             .iter()
             .any(|parameter| swift_cpp_needs_vector_bridge(&parameter.ty))
-            || swift_cpp_needs_vector_bridge(&method.return_type))
+            || swift_cpp_needs_vector_bridge(success_type))
+}
+
+fn swift_cpp_future_adapter_needed(method: &Method) -> bool {
+    method.is_async && swift_cpp_needs_vector_bridge(swift_cpp_method_success_type(method))
 }
 
 fn swift_cpp_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
@@ -3440,6 +3390,7 @@ fn render_swift_cpp_method(
     );
     let success_type = swift_cpp_method_success_type(method);
     let return_type = swift_cpp_value_type(success_type).expect("validated method return type");
+    let call_on_worker = method.is_async && adapter_method.is_some();
     let async_modifier = if method.is_async { " async" } else { "" };
     let throws_modifier = swift_cpp_method_error_type(method)
         .map(|error| format!(" throws({})", error.name))
@@ -3449,7 +3400,13 @@ fn render_swift_cpp_method(
         method.name
     ));
     let method_name = adapter_method.unwrap_or(&method.name);
-    let call = format!("{receiver}.{}({arguments})", cpp_identifier(method_name));
+    let mut call = format!("{receiver}.{}({arguments})", cpp_identifier(method_name));
+    if call_on_worker && receiver == "nexaCppObject" {
+        out.push_str(&format!(
+            "{indent}    let nexaCppObjectForAsync = nexaCppObject\n"
+        ));
+        call = call.replacen("nexaCppObject", "nexaCppObjectForAsync", 1);
+    }
     if let Some(error_type) = swift_cpp_method_error_type(method) {
         render_swift_cpp_typed_error_call(
             out,
@@ -3458,6 +3415,7 @@ fn render_swift_cpp_method(
             &return_type,
             error_type,
             &call,
+            call_on_worker,
             idl,
             namespace,
             depth,
@@ -3466,19 +3424,31 @@ fn render_swift_cpp_method(
         return;
     }
     if method.is_async {
-        out.push_str(&format!("{indent}    var nexaCppFuture = {call}\n"));
+        if !call_on_worker {
+            out.push_str(&format!("{indent}    var nexaCppFuture = {call}\n"));
+        }
         let work_type = if return_type == "Void" {
             "Void"
         } else {
             return_type.as_str()
         };
-        let converted = if return_type == "Void" {
-            "nexaCppFuture.get()".to_owned()
+        let work_body = if return_type == "Void" {
+            if call_on_worker {
+                format!("var nexaCppFuture = {call}; nexaCppFuture.get()")
+            } else {
+                "nexaCppFuture.get()".to_owned()
+            }
         } else {
-            swift_cpp_result_expression(success_type, "nexaCppFuture.get()", idl, namespace)
+            let converted =
+                swift_cpp_result_expression(success_type, "nexaCppFuture.get()", idl, namespace);
+            if call_on_worker {
+                format!("var nexaCppFuture = {call}; {converted}")
+            } else {
+                converted
+            }
         };
         out.push_str(&format!(
-            "{indent}    let nexaCppFutureWork = NexaCppFutureWork<{work_type}> {{ {converted} }}\n"
+            "{indent}    let nexaCppFutureWork = NexaCppFutureWork<{work_type}> {{ {work_body} }}\n"
         ));
         if return_type == "Void" {
             out.push_str(&format!(
@@ -3509,6 +3479,7 @@ fn render_swift_cpp_typed_error_call(
     return_type: &str,
     error_type: &TypeRef,
     call: &str,
+    call_on_worker: bool,
     idl: &PluginIdl,
     namespace: &str,
     depth: usize,
@@ -3516,11 +3487,18 @@ fn render_swift_cpp_typed_error_call(
     let indent = "    ".repeat(depth);
     let converter = swift_cpp_error_converter_name(&error_type.name);
     if method.is_async {
-        out.push_str(&format!("{indent}    var nexaCppFuture = {call}\n"));
         let result_type = format!("Result<{return_type}, {}>", error_type.name);
+        if !call_on_worker {
+            out.push_str(&format!("{indent}    var nexaCppFuture = {call}\n"));
+        }
         let work_body = if return_type == "Void" {
             format!(
-                "var nexaCppTypedResult = nexaCppFuture.get(); if nexaCppTypedResult.has_value() {{ return .success(()) }}; return .failure({converter}(nexaCppTypedResult.nexaSwiftError()))"
+                "{}var nexaCppTypedResult = nexaCppFuture.get(); if nexaCppTypedResult.has_value() {{ return .success(()) }}; return .failure({converter}(nexaCppTypedResult.nexaSwiftError()))",
+                if call_on_worker {
+                    format!("var nexaCppFuture = {call}; ")
+                } else {
+                    String::new()
+                }
             )
         } else {
             let converted = swift_cpp_result_expression(
@@ -3530,7 +3508,12 @@ fn render_swift_cpp_typed_error_call(
                 namespace,
             );
             format!(
-                "var nexaCppTypedResult = nexaCppFuture.get(); if nexaCppTypedResult.has_value() {{ return .success({converted}) }}; return .failure({converter}(nexaCppTypedResult.nexaSwiftError()))"
+                "{}var nexaCppTypedResult = nexaCppFuture.get(); if nexaCppTypedResult.has_value() {{ return .success({converted}) }}; return .failure({converter}(nexaCppTypedResult.nexaSwiftError()))",
+                if call_on_worker {
+                    format!("var nexaCppFuture = {call}; ")
+                } else {
+                    String::new()
+                }
             )
         };
         out.push_str(&format!(
@@ -4193,7 +4176,8 @@ fn render_swift_service_collection_adapter(
     interface: &Interface,
     method: &Method,
 ) {
-    let return_type = cpp_swift_collection_bridge_type(&method.return_type, idl);
+    let success_type = swift_cpp_method_success_type(method);
+    let return_type = cpp_swift_collection_bridge_type(success_type, idl);
     let parameters = cpp_swift_collection_bridge_parameters(&method.parameters, idl);
     let arguments = method
         .parameters
@@ -4209,10 +4193,28 @@ fn render_swift_service_collection_adapter(
         cpp_identifier(&method.name)
     );
     let adapter_name = cpp_swift_service_adapter_name(&interface.name, &method.name);
+    if method.is_async {
+        if swift_cpp_future_adapter_needed(method) {
+            let future_adapter = cpp_swift_future_adapter_name(idl, interface, method);
+            out.push_str(&format!(
+                "inline {future_adapter} {adapter_name}({parameters}) noexcept {{\n    return {future_adapter}({}::{}({arguments}));\n}}\n",
+                cpp_identifier(&interface.name),
+                cpp_identifier(&method.name)
+            ));
+        } else {
+            out.push_str(&format!(
+                "inline {} {adapter_name}({parameters}) noexcept {{\n    return {}::{}({arguments});\n}}\n",
+                cpp_method_return(method),
+                cpp_identifier(&interface.name),
+                cpp_identifier(&method.name)
+            ));
+        }
+        return;
+    }
     out.push_str(&format!(
         "inline {return_type} {adapter_name}({parameters}) noexcept {{\n"
     ));
-    render_cpp_swift_collection_result(out, &method.return_type, &call, idl, 1);
+    render_cpp_swift_collection_result(out, success_type, &call, idl, 1);
     out.push_str("}\n");
 }
 
@@ -4258,7 +4260,8 @@ fn render_cpp_swift_collection_method_adapter(
     method: &Method,
     idl: &PluginIdl,
 ) {
-    let return_type = cpp_swift_collection_bridge_type(&method.return_type, idl);
+    let success_type = swift_cpp_method_success_type(method);
+    let return_type = cpp_swift_collection_bridge_type(success_type, idl);
     let parameters = cpp_swift_collection_bridge_parameters(&method.parameters, idl);
     let arguments = method
         .parameters
@@ -4270,10 +4273,24 @@ fn render_cpp_swift_collection_method_adapter(
         .join(", ");
     let call = format!("{}({arguments})", cpp_identifier(&method.name));
     let adapter_name = cpp_swift_class_method_adapter_name(interface, &method.name);
+    if method.is_async {
+        if swift_cpp_future_adapter_needed(method) {
+            let future_adapter = cpp_swift_future_adapter_name(idl, interface, method);
+            out.push_str(&format!(
+                "    {future_adapter} {adapter_name}({parameters}) noexcept {{ return {future_adapter}({call}); }}\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "    {} {adapter_name}({parameters}) noexcept {{ return {call}; }}\n",
+                cpp_method_return(method)
+            ));
+        }
+        return;
+    }
     out.push_str(&format!(
         "    {return_type} {adapter_name}({parameters}) noexcept {{\n"
     ));
-    render_cpp_swift_collection_result(out, &method.return_type, &call, idl, 2);
+    render_cpp_swift_collection_result(out, success_type, &call, idl, 2);
     out.push_str("    }\n");
 }
 
@@ -4358,11 +4375,86 @@ fn render_cpp_swift_collection_result(
     }
 }
 
+fn render_cpp_swift_future_adapters(out: &mut String, idl: &PluginIdl) {
+    for interface in &idl.interfaces {
+        if !matches!(
+            interface.kind,
+            InterfaceKind::Service | InterfaceKind::NativeClass
+        ) {
+            continue;
+        }
+        for method in &interface.methods {
+            let success_type = swift_cpp_method_success_type(method);
+            if method.is_async
+                && swift_cpp_needs_vector_bridge(success_type)
+                && swift_cpp_value_type(success_type).is_some()
+                && method
+                    .parameters
+                    .iter()
+                    .all(|parameter| swift_cpp_value_type(&parameter.ty).is_some())
+            {
+                render_cpp_swift_future_adapter(out, idl, interface, method);
+            }
+        }
+    }
+}
+
+fn render_cpp_swift_future_adapter(
+    out: &mut String,
+    idl: &PluginIdl,
+    interface: &Interface,
+    method: &Method,
+) {
+    let adapter_name = cpp_swift_future_adapter_name(idl, interface, method);
+    let success_type = swift_cpp_method_success_type(method);
+    let bridge_success = cpp_swift_collection_bridge_type(success_type, idl);
+    let future_type = cpp_method_return(method);
+    let error_type = swift_cpp_method_error_type(method);
+    let bridge_result = error_type
+        .map(|error| format!("NexaResult<{bridge_success}, {}>", cpp_type(error)))
+        .unwrap_or_else(|| bridge_success.clone());
+
+    out.push_str(&format!(
+        "class {adapter_name} {{\npublic:\n    explicit {adapter_name}({future_type} future) noexcept : future_(std::move(future)) {{}}\n    {bridge_result} get() noexcept {{\n"
+    ));
+    if let Some(error_type) = error_type {
+        let cpp_error = cpp_type(error_type);
+        out.push_str(&format!(
+            "        auto result = future_.get();\n        if (!result.has_value()) return NexaResult<{bridge_success}, {cpp_error}>::failure(std::move(result.error()));\n        return NexaResult<{bridge_success}, {cpp_error}>::success([&]() -> {bridge_success} {{\n"
+        ));
+        render_cpp_swift_collection_result(out, success_type, "result.value()", idl, 3);
+        out.push_str("        }());\n");
+    } else {
+        out.push_str("        auto result = future_.get();\n");
+        out.push_str(&format!("        return [&]() -> {bridge_success} {{\n"));
+        render_cpp_swift_collection_result(out, success_type, "result", idl, 3);
+        out.push_str("        }();\n");
+    }
+    out.push_str(&format!(
+        "    }}\nprivate:\n    {future_type} future_;\n}};\n\n"
+    ));
+}
+
 fn cpp_swift_service_adapter_name(interface: &str, method: &str) -> String {
     format!(
         "nexaSwiftAdapter_{}_{}",
         cpp_identifier(interface),
         cpp_identifier(method)
+    )
+}
+
+fn cpp_swift_future_adapter_name(
+    idl: &PluginIdl,
+    interface: &Interface,
+    method: &Method,
+) -> String {
+    unique_cpp_type_name(
+        idl,
+        &format!(
+            "NexaCppSwiftFuture{}_{}",
+            cpp_identifier(&interface.name),
+            cpp_identifier(&method.name)
+        ),
     )
 }
 
@@ -4988,16 +5080,17 @@ mod tests {
             "error Failure { rejected } service Clock { async fn values() -> Result<Array<Int32>, Failure> }",
         )
         .expect("async typed-collection IDL should parse");
-        let error = render_swift_adapters(&throwing_collection, "dev.example.cpp-plugin")
-            .expect_err("typed async collection signatures should fail generation");
-        assert!(error.contains("typed throwing adapters"));
+        let adapters = render_swift_adapters(&throwing_collection, "dev.example.cpp-plugin")
+            .expect("typed async array returns should use the existing vector converter");
+        assert!(adapters.contains("async throws(Failure) -> [Int32]"));
 
         let async_collection =
-            nexa_plugin_idl::parse("service Clock { async fn history() -> Array<Int32> }")
+            nexa_plugin_idl::parse("service Clock { async fn history() -> Array<Int32> async fn count(values: Array<Int32>) -> Int32 }")
                 .expect("async collection native IDL should parse");
-        let error = render_swift_adapters(&async_collection, "dev.example.cpp-plugin")
-            .expect_err("async collection signatures should fail project generation");
-        assert!(error.contains("collection returns"));
+        let adapters = render_swift_adapters(&async_collection, "dev.example.cpp-plugin")
+            .expect("async collection signatures should use the existing vector converters");
+        assert!(adapters.contains("public func history() async -> [Int32]"));
+        assert!(adapters.contains("public func count(values: [Int32]) async -> Int32"));
 
         let events = nexa_plugin_idl::parse(
             "native class Watcher { init() event changed(value: Int32) fn dispose() }",
@@ -5348,29 +5441,35 @@ mod tests {
         let async_collection =
             nexa_plugin_idl::parse("service Clock { async fn values() -> Array<Int32> }")
                 .expect("async collection native IDL should parse");
-        let error = render_android_adapters(
+        let (kotlin, jni) = render_android_adapters(
             &async_collection,
             "dev.example.cpp-plugin",
             "Clock",
             "dev.example.app",
             0,
         )
-        .expect_err("async collection signatures should fail generation");
-        assert!(error.contains("collection returns"));
+        .expect("async collection return should use the existing JNI converters");
+        assert!(kotlin.contains("external fun service_Clock_values(): IntArray"));
+        assert!(kotlin.contains("override suspend fun values(): List<Int>"));
+        assert!(jni.contains("Clock::values()"));
+        assert!(jni.contains("nexaCppFuture.get()"));
 
         let async_collection_parameter = nexa_plugin_idl::parse(
             "service Clock { async fn count(values: Array<Int32>) -> Int32 }",
         )
         .expect("async collection parameter IDL should parse");
-        let error = render_android_adapters(
+        let (kotlin, jni) = render_android_adapters(
             &async_collection_parameter,
             "dev.example.cpp-plugin",
             "Clock",
             "dev.example.app",
             0,
         )
-        .expect_err("async collection parameters should fail generation");
-        assert!(error.contains("collection parameters"));
+        .expect("async collection parameter should use the existing JNI converters");
+        assert!(kotlin.contains("override suspend fun count(values: List<Int>): Int"));
+        assert!(kotlin.contains("values.toIntArray()"));
+        assert!(jni.contains("nexaJniArrayArgument0"));
+        assert!(jni.contains("GetIntArrayRegion"));
 
         let throwing = nexa_plugin_idl::parse(
             r#"error Failure { rejected, malformed(code: UInt32, message: String, payload: Bytes) }
