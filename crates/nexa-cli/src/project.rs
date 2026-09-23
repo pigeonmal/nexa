@@ -463,8 +463,10 @@ fn generate_android(
     let source_dir = root.join("android/app/src/main/java").join(&package_path);
     fs::create_dir_all(&source_dir)
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
-    let (generated, project_features) = KotlinBackend.generate_with_project_features(module);
-    let plugin_packages = plugins::copy_android_plugin_sources(root, module, &package, config)?;
+    let (generated, mut project_features) = KotlinBackend.generate_with_project_features(module);
+    let (plugin_packages, plugin_uses_coroutines) =
+        plugins::copy_android_plugin_sources(root, module, &package, config)?;
+    project_features.uses_coroutines |= plugin_uses_coroutines;
     plugins::copy_android_plugin_cpp_sources(root, module, &package)?;
     let local_aars = plugins::copy_android_plugin_artifacts(root, module)?;
     plugins::copy_android_plugin_resources(root, module)?;

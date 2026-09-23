@@ -562,11 +562,12 @@ pub(super) fn copy_android_plugin_sources(
     module: &Module,
     app_package: &str,
     config: &ProjectConfig,
-) -> Result<Vec<String>, String> {
+) -> Result<(Vec<String>, bool), String> {
     let destination = root.join("android/app/src/main/java");
     let marker = root.join("android/app/.nexa-plugin-sources");
     let mut generated = Vec::new();
     let mut packages = std::collections::BTreeSet::new();
+    let mut uses_coroutines = false;
     let has_plugin_config = config.plugins().any(|plugin| {
         !plugin.options.is_empty()
             && module
@@ -615,6 +616,12 @@ pub(super) fn copy_android_plugin_sources(
             ));
         }
         let contract = nexa_plugin_idl::parse_file(Path::new(&plugin.idl_path))?;
+        uses_coroutines |= !plugin.cpp_sources.is_empty()
+            && contract
+                .interfaces
+                .iter()
+                .flat_map(|interface| &interface.methods)
+                .any(|method| method.is_async);
         let binding_name = format!("NexaPlugin{plugin_index}_Bindings.kt");
         let binding_path = destination
             .join(package.replace('.', "/"))
@@ -665,7 +672,7 @@ pub(super) fn copy_android_plugin_sources(
         fs::write(&marker, generated.join("\n") + "\n")
             .map_err(|error| format!("{}: {error}", marker.display()))?;
     }
-    Ok(packages.into_iter().collect())
+    Ok((packages.into_iter().collect(), uses_coroutines))
 }
 
 /// Copies plugin-owned assets into native resource roots and returns whether

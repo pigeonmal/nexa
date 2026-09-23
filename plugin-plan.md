@@ -1959,11 +1959,13 @@ maps. Android outer maps may be optional; Kotlin preserves `null` separately fro
 empty map and C++ carries the distinction through `std::optional`. Nested
 `Array` values with primitive, string, or byte leaves use recursive adapters on
 both platforms.
-iOS also adapts non-throwing async scalar, string, and byte methods (including
-`Void`) by waiting for C++ futures away from the main queue; async collection
-signatures fail with a generation diagnostic. Typed throwing and event adapters
-remain unsupported, and collection combinations outside the supported map-value
-cases remain open.
+Both platforms adapt non-throwing async scalar, optional scalar, string, and
+byte methods (including `Void`) from C++ futures. Swift waits away from the
+main queue;
+Android uses `Dispatchers.IO` and includes the coroutine dependency only when a
+reachable C++ plugin needs it. Async collection signatures fail with a
+generation diagnostic. Typed throwing and event adapters remain unsupported,
+and collection combinations outside the supported map-value cases remain open.
 The optional `cpp.standard` manifest field selects the minimum C++17, C++20,
 or C++23 level required by reachable C++ sources; generated iOS and Android
 targets use the highest declared level, defaulting to C++20.
@@ -1987,7 +1989,7 @@ constructors, properties, and methods, including unsigned carriers.
 Remaining host integration includes:
 
 ```text
-Android async/throwing/event adapters, iOS typed throwing/event adapters, async
+Android throwing/event adapters, iOS typed throwing/event adapters, async
 collection signatures, and collection nesting outside the supported map-value
 cases remain open.
 Android maps exclude floating-point keys and optional maps nested as map values;
@@ -2033,10 +2035,13 @@ screen state. Route parameters remain scalar; reusing resources across separate
 route lifetimes remains open.
 The optional C++ phase has IDL contracts,
 opt-in source compilation, direct iOS adapters, and generated Android JNI for
-synchronous non-throwing scalar, string, and byte-array services and classes
-with explicit disposal. iOS also bridges non-throwing async scalar, optional
-scalar, string, byte, and void futures for service and native-class methods.
-Swift 6 generated-code typechecking exercises each shape. Both platform byte
+synchronous methods and non-throwing async scalar, optional scalar, string,
+and byte methods on services and native classes, with explicit disposal. Async
+Kotlin wrappers wait on `Dispatchers.IO`, and coroutine dependencies are
+feature-gated from reachable C++ plugin contracts. Swift bridges non-throwing
+async scalar, optional scalar,
+string, byte, and void futures for service and native-class methods. Swift 6
+generated-code typechecking exercises each iOS shape. Both platform byte
 adapters have generated project build coverage. Android unsigned scalar values
 also have round-trip smoke coverage. iOS C++ adapters also bridge optional
 scalar, string, and byte
@@ -2072,8 +2077,8 @@ these shapes. The optional host JVM matrix round-trips these maps when
 `kotlinc` is available. Generated iOS
 typechecking and Android host JNI runtime tests
 also cover nested Boolean/numeric arrays, strings, bytes, empty rows, and empty
-outer arrays. Android async/throwing/event adapters, iOS typed throwing and
-event adapters, async collection signatures, and broader collection
+outer arrays. Android throwing/event adapters, iOS typed throwing and event
+adapters, async collection signatures, and broader collection
 combinations outside the supported map-value cases remain open.
 Network pinning uses the same case-insensitive 64-character SHA-256 hash of
 DER-encoded SPKI on both platforms. iOS validates system trust before matching

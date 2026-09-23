@@ -197,7 +197,12 @@ convert these shapes with headless C++ compilation and optional host-JVM
 round-trip coverage.
 Floating-point keys, byte-array sets, optional nested maps, and collection shapes
 outside that subset remain unsupported to preserve Kotlin/C++ map semantics.
-C++ event, async, and throwing adapters also remain unsupported.
+Both C++ platforms support non-throwing async scalar, optional scalar,
+`String`, and `Bytes` service and native-class methods. iOS waits on C++ futures
+away from the main queue; Android exposes Kotlin `suspend` methods and runs
+blocking JNI/future work on `Dispatchers.IO`. The coroutine dependency is added
+only for reachable C++ plugins that need it. Async collection signatures fail during generation.
+Typed C++ error translation and C++ events remain unsupported.
 Android optional C++ values support `Bool`, signed and unsigned integers,
 floating-point, `String`, and `Bytes`. Generated R8 rules
 preserve JNI lookup names. Plugin authors implement the generated C++ contract

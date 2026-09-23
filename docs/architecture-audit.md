@@ -257,9 +257,10 @@ made.
 
 ## Remaining architectural work
 
-Add async, error, and event contracts to optional C++ adapters, then support
-nested `Set`/`Map` combinations. Recursive `Array` adapters now have iOS
-Swift/C++ typecheck and Android Kotlin/JNI runtime coverage, and flat-map
-adapters have per-platform type coverage. Navigation gives each screen
-destination independent native state and a unique Swift route identity. Direct
-Swift/Kotlin remains the default path.
+Add typed error and event contracts to optional C++ adapters, then support
+async collection signatures and broader nested `Set`/`Map` combinations.
+Recursive `Array` adapters now have iOS Swift/C++ typecheck and Android
+Kotlin/JNI runtime coverage, and flat-map adapters have per-platform type
+coverage. Navigation gives each screen destination independent native state and
+a unique Swift route identity; reusing native resources across separate route
+lifetimes remains open. Direct Swift/Kotlin remains the default path.

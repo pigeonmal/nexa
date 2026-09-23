@@ -1648,6 +1648,11 @@ fn generated_android_cpp_plugin_uses_jni_adapters_and_compiles_with_ndk_when_ava
         plugin.join("native.nxid"),
         r#"service Counter {
     fn increment(value: Int32) -> Int32
+    async fn incrementAsync(value: Int32) -> Int32
+    async fn maybeAsync(value: Int32?) -> Int32?
+    async fn echoTextAsync(value: String) -> String
+    async fn echoBytesAsync(value: Bytes) -> Bytes
+    async fn pingAsync()
     fn echoIntegers(values: Array<Int32>) -> Array<Int32>
     fn echoUnsigned(values: Array<UInt32>) -> Array<UInt32>
     fn echoDoubles(values: Array<Float64>) -> Array<Float64>
@@ -1703,6 +1708,7 @@ native class Meter {
     fn echoValues(values: Array<Int32>) -> Array<Int32>
     fn maybeNumber(value: Int64?) -> Int64?
     fn echoMetrics(values: Map<String, Int32>) -> Map<String, Int32>
+    async fn currentValue() -> Float64
     fn clear()
     fn dispose()
 }
@@ -1714,14 +1720,30 @@ native class Meter {
         r#"#include "NexaPluginBindings.hpp"
 #include <atomic>
 #include <memory>
+#include <future>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace plugin_dev::plugin_example::plugin_android_dash_cpp {
 namespace { std::atomic<std::int32_t> destroyed_meters{0}; }
+template<class T> std::future<T> readyFuture(T value) noexcept {
+    std::promise<T> promise;
+    promise.set_value(std::move(value));
+    return promise.get_future();
+}
+std::future<void> readyFuture() noexcept {
+    std::promise<void> promise;
+    promise.set_value();
+    return promise.get_future();
+}
 namespace Counter {
 std::int32_t increment(std::int32_t value) noexcept { return value + 1; }
+std::future<std::int32_t> incrementAsync(std::int32_t value) noexcept { return readyFuture(value + 1); }
+std::future<std::optional<std::int32_t>> maybeAsync(std::optional<std::int32_t> value) noexcept { return readyFuture(value); }
+std::future<std::string> echoTextAsync(std::string value) noexcept { return readyFuture(std::move(value)); }
+std::future<std::vector<std::uint8_t>> echoBytesAsync(std::vector<std::uint8_t> value) noexcept { return readyFuture(std::move(value)); }
+std::future<void> pingAsync() noexcept { return readyFuture(); }
 std::vector<std::int32_t> echoIntegers(std::vector<std::int32_t> values) noexcept { return values; }
 std::vector<std::uint32_t> echoUnsigned(std::vector<std::uint32_t> values) noexcept { return values; }
 std::vector<double> echoDoubles(std::vector<double> values) noexcept { return values; }
@@ -1789,6 +1811,7 @@ public:
     std::vector<std::int32_t> echoValues(std::vector<std::int32_t> values) noexcept override { return values; }
     std::optional<std::int64_t> maybeNumber(std::optional<std::int64_t> value) noexcept override { return value; }
     std::map<std::string, std::int32_t> echoMetrics(std::map<std::string, std::int32_t> values) noexcept override { return values; }
+    std::future<double> currentValue() noexcept override { return readyFuture(value_); }
     void clear() noexcept override { value_ = 0; }
     void dispose() noexcept override {}
 private:
@@ -1837,6 +1860,16 @@ std::unique_ptr<MeterSpec> makeMeterImpl(double initial, std::string label, std:
     let bindings = fs::read_to_string(package.join("NexaPlugin0_Bindings.kt"))
         .expect("generated Kotlin plugin bindings should be present");
     assert!(bindings.contains("external fun service_Counter_increment(value: Int): Int"));
+    assert!(bindings.contains("external fun service_Counter_incrementAsync(value: Int): Int"));
+    assert!(bindings.contains("override suspend fun incrementAsync(value: Int): Int"));
+    assert!(bindings.contains("override suspend fun maybeAsync(value: Int?): Int?"));
+    assert!(bindings.contains("override suspend fun echoTextAsync(value: String): String"));
+    assert!(bindings.contains("override suspend fun echoBytesAsync(value: ByteArray): ByteArray"));
+    assert!(bindings.contains("override suspend fun pingAsync(): Unit"));
+    assert!(bindings.contains("kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO)"));
+    assert!(bindings.contains(
+        "override suspend fun currentValue(): Double = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { synchronized(this) { NexaPlugin0_CppBindings.call_Meter_currentValue(requireNativeHandle()) } }"
+    ));
     assert!(
         bindings.contains("external fun service_Counter_echoIntegers(values: IntArray): IntArray")
     );
@@ -1893,6 +1926,16 @@ std::unique_ptr<MeterSpec> makeMeterImpl(double initial, std::string label, std:
     assert!(bindings.contains("public class MeterImpl"));
     assert!(bindings.contains("NexaPlugin0_CppBindings.dispose_Meter(handle)"));
     assert!(bindings.contains("System.loadLibrary(\"nexa_plugins\")"));
+    let gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
+        .expect("generated Android Gradle configuration should be readable");
+    assert!(
+        gradle
+            .contains("implementation(\"org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0\")")
+    );
+    let jni = fs::read_to_string(output.join("android/app/src/main/cpp/Plugin0/NexaPluginJni.cpp"))
+        .expect("generated C++ JNI adapters should be readable");
+    assert!(jni.contains("auto nexaCppFuture = Counter::incrementAsync"));
+    assert!(jni.contains("nexaCppFuture.get()"));
 
     let kotlinc = kotlin_compiler();
     let kotlin_jar = temp.0.join("NexaPluginBindings.jar");
@@ -1902,8 +1945,18 @@ std::unique_ptr<MeterSpec> makeMeterImpl(double initial, std::string label, std:
             &smoke_test,
             r#"package com.nexa.androidcppjnitest
 
-fun main() {
+import kotlinx.coroutines.runBlocking
+
+fun main() = runBlocking {
     check(CounterPlugin.instance.increment(41) == 42)
+    check(CounterPlugin.instance.incrementAsync(41) == 42)
+    check(CounterPlugin.instance.maybeAsync(42) == 42)
+    check(CounterPlugin.instance.maybeAsync(null) == null)
+    val asyncText = "Nexa\u0000 🚀"
+    check(CounterPlugin.instance.echoTextAsync(asyncText) == asyncText)
+    val asyncBytes = byteArrayOf(0, -1, 42)
+    check(CounterPlugin.instance.echoBytesAsync(asyncBytes).contentEquals(asyncBytes))
+    CounterPlugin.instance.pingAsync()
     check(CounterPlugin.instance.echoIntegers(listOf(Int.MIN_VALUE, -1, 0, 42, Int.MAX_VALUE)) == listOf(Int.MIN_VALUE, -1, 0, 42, Int.MAX_VALUE))
     check(CounterPlugin.instance.echoIntegers(emptyList()).isEmpty())
     check(CounterPlugin.instance.echoUnsigned(listOf(0u, 1u, UInt.MAX_VALUE)) == listOf(0u, 1u, UInt.MAX_VALUE))
@@ -1994,6 +2047,7 @@ fun main() {
     val first = Meter(2.5, embeddedNullAndUnicode, 13, initialMetrics)
     val second = Meter(11.0, "second", null, emptyMap())
     check(first.value == 2.5)
+    check(first.currentValue() == 2.5)
     check(first.label == embeddedNullAndUnicode)
     check(first.metrics == initialMetrics)
     first.metrics = mapOf("updated" to Int.MIN_VALUE)
@@ -2047,7 +2101,40 @@ fun main() {
 "#,
         )
         .expect("JNI runtime smoke test should be written");
+        let coroutine_support = temp.0.join("CoroutineSupport.kt");
+        fs::write(
+            &coroutine_support,
+            r#"package kotlinx.coroutines
+
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.startCoroutine
+
+object Dispatchers {
+    val IO: CoroutineContext = EmptyCoroutineContext
+}
+
+suspend fun <T> withContext(context: CoroutineContext, block: suspend () -> T): T = block()
+
+fun <T> runBlocking(block: suspend () -> T): T {
+    var value: Any? = null
+    var failure: Throwable? = null
+    block.startCoroutine(object : Continuation<T> {
+        override val context: CoroutineContext = EmptyCoroutineContext
+        override fun resumeWith(result: Result<T>) {
+            result.fold({ value = it }, { failure = it })
+        }
+    })
+    failure?.let { throw it }
+    @Suppress("UNCHECKED_CAST")
+    return value as T
+}
+"#,
+        )
+        .expect("coroutine host-test shim should be written");
         let compiled = Command::new(kotlinc)
+            .arg(&coroutine_support)
             .arg(&package.join("NexaPlugin0_Bindings.kt"))
             .arg(&smoke_test)
             .arg("-include-runtime")
@@ -2332,6 +2419,12 @@ fn generated_android_cpp_adapters_roundtrip_primitive_nullable_and_collection_ma
     let bindings = package.join("NexaPlugin0_Bindings.kt");
     let generated_kotlin =
         fs::read_to_string(&bindings).expect("generated Android C++ bindings should be staged");
+    let gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
+        .expect("generated Android Gradle configuration should be readable");
+    assert!(
+        !gradle.contains("kotlinx-coroutines-android"),
+        "synchronous C++ plugins should not pull in coroutine dependencies"
+    );
     for ty in CXX_PRIMITIVE_TYPES {
         assert!(
             generated_kotlin.contains(&format!("echo{}(value: {})", ty.suffix, ty.kotlin)),

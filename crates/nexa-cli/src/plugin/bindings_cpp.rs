@@ -770,9 +770,26 @@ fn validate_android_cpp_method(
     method: &Method,
     is_dispose: bool,
 ) -> Result<(), String> {
-    if method.is_async || method.throws.is_some() || method.return_type.name == "Result" {
+    if method.throws.is_some() || method.return_type.name == "Result" {
         return Err(format!(
-            "Android C++ adapters currently require synchronous non-throwing methods; `{interface}.{}` is async or throwing",
+            "Android C++ adapters do not yet support typed throwing methods; `{interface}.{}` declares `throws` or returns `Result`",
+            method.name
+        ));
+    }
+    if method.is_async
+        && method
+            .parameters
+            .iter()
+            .any(|parameter| android_cpp_is_collection(&parameter.ty))
+    {
+        return Err(format!(
+            "Android C++ async adapters do not yet support collection parameters; `{interface}.{}` uses an async collection contract",
+            method.name
+        ));
+    }
+    if method.is_async && android_cpp_is_collection(&method.return_type) {
+        return Err(format!(
+            "Android C++ async adapters do not yet support collection returns; `{interface}.{}` uses an async collection contract",
             method.name
         ));
     }
@@ -781,6 +798,7 @@ fn validate_android_cpp_method(
     }
     if is_dispose {
         if !method.parameters.is_empty()
+            || method.is_async
             || method.return_type.name != "Void"
             || method.return_type.optional
         {
@@ -792,6 +810,10 @@ fn validate_android_cpp_method(
         ensure_android_cpp_value(interface, &method.name, &method.return_type, true)?;
     }
     Ok(())
+}
+
+fn android_cpp_is_collection(ty: &TypeRef) -> bool {
+    matches!(ty.name.as_str(), "Array" | "Set" | "Map")
 }
 
 fn ensure_android_cpp_value(
@@ -1273,6 +1295,19 @@ fn render_kotlin_service_adapter(
         .collect::<Vec<_>>()
         .join(", ");
     let return_type = android_kotlin_type(&method.return_type, false);
+    if method.is_async {
+        let native_call = format!("{bindings_class}.{native_name}({arguments})");
+        let expression = if return_type == "Unit" {
+            native_call
+        } else {
+            kotlin_from_jni_expression(native_call, &method.return_type)
+        };
+        out.push_str(&format!(
+            "    override suspend fun {}({parameters}): {return_type} = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {{ {expression} }}\n",
+            method.name
+        ));
+        return;
+    }
     if return_type == "Unit" {
         out.push_str(&format!(
             "    override fun {}({parameters}) {{ {bindings_class}.{native_name}({arguments}) }}\n",
@@ -1512,10 +1547,23 @@ fn render_kotlin_cpp_class(
             .join(", ");
         let return_type = android_kotlin_type(&method.return_type, false);
         let native_name = format!("call_{}_{}", interface.name, method.name);
-        out.push_str("    @Synchronized\n");
-        if return_type == "Unit" {
+        if method.is_async {
+            let call = if return_type == "Unit" {
+                format!("NexaPlugin{plugin_index}_CppBindings.{native_name}({arguments})")
+            } else {
+                let native_call =
+                    format!("NexaPlugin{plugin_index}_CppBindings.{native_name}({arguments})");
+                kotlin_from_jni_expression(native_call, &method.return_type)
+            };
+            out.push_str(&format!(
+                "    override suspend fun {}({parameters}): {return_type} = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {{ synchronized(this) {{ {call} }} }}\n",
+                method.name
+            ));
+        } else if return_type == "Unit" {
+            out.push_str("    @Synchronized\n");
             out.push_str(&format!("    override fun {}({parameters}) {{ NexaPlugin{plugin_index}_CppBindings.{native_name}({arguments}) }}\n", method.name));
         } else {
+            out.push_str("    @Synchronized\n");
             let native_call =
                 format!("NexaPlugin{plugin_index}_CppBindings.{native_name}({arguments})");
             let result = kotlin_from_jni_expression(native_call, &method.return_type);
@@ -1557,6 +1605,12 @@ fn render_jni_service_method(
         method_name,
         arguments.join(", ")
     );
+    let call = if method.is_async {
+        out.push_str(&format!("        auto nexaCppFuture = {call};\n"));
+        "nexaCppFuture.get()".to_owned()
+    } else {
+        call
+    };
     if android_cpp_is_void(&method.return_type) {
         out.push_str(&format!("        {call};\n"));
     } else {
@@ -1740,6 +1794,12 @@ fn render_jni_class_method(
         cpp_identifier(&method.name),
         arguments.join(", ")
     );
+    let call = if method.is_async {
+        out.push_str(&format!("        auto nexaCppFuture = {call};\n"));
+        "nexaCppFuture.get()".to_owned()
+    } else {
+        call
+    };
     if android_cpp_is_void(&method.return_type) {
         out.push_str(&format!("        {call};\n"));
     } else {
@@ -4575,6 +4635,10 @@ mod tests {
             r#"
             service Counter {
                 fn echo(value: Int32) -> Int32
+                async fn echoAsync(value: Int32) -> Int32
+                async fn echoTextAsync(value: String) -> String
+                async fn echoBytesAsync(value: Bytes) -> Bytes
+                async fn flushAsync()
                 fn echoText(value: String) -> String
                 fn echoBytes(value: Bytes) -> Bytes
                 fn echoUByte(value: UInt8) -> UInt8
@@ -4596,6 +4660,7 @@ mod tests {
                 fn echoBytes(value: Bytes) -> Bytes
                 fn echoUnsigned(value: UInt64) -> UInt64
                 fn maybeNumber(value: Int64?) -> Int64?
+                async fn currentValue() -> Int32
                 fn dispose()
             }
             "#,
@@ -4615,6 +4680,16 @@ mod tests {
         assert!(kotlin.contains("external fun service_Counter_echo(value: Int): Int"));
         assert!(kotlin.contains("public object CounterPlugin : Counter"));
         assert!(kotlin.contains("NexaPlugin2_CppBindings.service_Counter_echo(value)"));
+        assert!(kotlin.contains(
+            "override suspend fun echoAsync(value: Int): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { NexaPlugin2_CppBindings.service_Counter_echoAsync(value) }"
+        ));
+        assert!(kotlin.contains("override suspend fun echoTextAsync(value: String): String"));
+        assert!(
+            kotlin.contains("override suspend fun echoBytesAsync(value: ByteArray): ByteArray")
+        );
+        assert!(kotlin.contains("override suspend fun flushAsync(): Unit"));
+        assert!(jni.contains("auto nexaCppFuture = Counter::echoAsync"));
+        assert!(jni.contains("nexaCppFuture.get()"));
         assert!(kotlin.contains("public class MeterImpl"));
         assert!(kotlin.contains("private var nativeHandle: Long"));
         assert!(kotlin.contains("value: Double"));
@@ -4651,6 +4726,9 @@ mod tests {
             "set(value) = NexaPlugin2_CppBindings.set_Meter_unsignedValue(requireNativeHandle(), value.toInt())"
         ));
         assert!(kotlin.contains("override fun echoBytes(value: ByteArray): ByteArray"));
+        assert!(kotlin.contains(
+            "override suspend fun currentValue(): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { synchronized(this) { NexaPlugin2_CppBindings.call_Meter_currentValue(requireNativeHandle()) } }"
+        ));
         assert!(kotlin.contains("external fun service_Counter_maybeInt(value: Int?): Int?"));
         assert!(kotlin.contains("external fun service_Counter_maybeText(value: String?): String?"));
         assert!(kotlin.contains("override fun maybeInt(value: Int?): Int?"));
@@ -4693,15 +4771,58 @@ mod tests {
 
         let asynchronous = nexa_plugin_idl::parse("service Clock { async fn now() -> Int64 }")
             .expect("async native IDL should parse");
-        let error = render_android_adapters(
+        let (kotlin, jni) = render_android_adapters(
             &asynchronous,
             "dev.example.cpp-plugin",
             "Clock",
             "dev.example.app",
             0,
         )
-        .expect_err("unsupported C++ async signatures must fail generation");
-        assert!(error.contains("synchronous non-throwing methods"));
+        .expect("async scalar C++ signatures should generate Kotlin and JNI adapters");
+        assert!(kotlin.contains("override suspend fun now(): Long"));
+        assert!(kotlin.contains("kotlinx.coroutines.Dispatchers.IO"));
+        assert!(jni.contains("nexaCppFuture.get()"));
+
+        let async_collection =
+            nexa_plugin_idl::parse("service Clock { async fn values() -> Array<Int32> }")
+                .expect("async collection native IDL should parse");
+        let error = render_android_adapters(
+            &async_collection,
+            "dev.example.cpp-plugin",
+            "Clock",
+            "dev.example.app",
+            0,
+        )
+        .expect_err("async collection signatures should fail generation");
+        assert!(error.contains("collection returns"));
+
+        let async_collection_parameter = nexa_plugin_idl::parse(
+            "service Clock { async fn count(values: Array<Int32>) -> Int32 }",
+        )
+        .expect("async collection parameter IDL should parse");
+        let error = render_android_adapters(
+            &async_collection_parameter,
+            "dev.example.cpp-plugin",
+            "Clock",
+            "dev.example.app",
+            0,
+        )
+        .expect_err("async collection parameters should fail generation");
+        assert!(error.contains("collection parameters"));
+
+        let throwing = nexa_plugin_idl::parse(
+            "error Failure { rejected } service Clock { async fn read() throws Failure }",
+        )
+        .expect("throwing native IDL should parse");
+        let error = render_android_adapters(
+            &throwing,
+            "dev.example.cpp-plugin",
+            "Clock",
+            "dev.example.app",
+            0,
+        )
+        .expect_err("typed throwing signatures should fail generation");
+        assert!(error.contains("typed throwing methods"));
 
         let events = nexa_plugin_idl::parse(
             "native class Watcher { init() event changed(value: Int32) fn dispose() }",

@@ -118,9 +118,12 @@ preserves them with typed `throws(ErrorType)` and `do`/`catch`, and Kotlin uses
 variants and payloads. Cases must cover all variants for a single typed error;
 an `else` arm is required for untyped errors or multiple error types.
 
-The current threading contract has no hidden background dispatch. iOS native
-class methods are main-actor isolated; Kotlin methods stay on the caller's
-dispatcher, so plugin authors must switch dispatchers when an SDK requires it.
+The regular Swift/Kotlin implementation path has no hidden background
+dispatch. iOS native class methods are main-actor isolated; Kotlin methods stay
+on the caller's dispatcher, so plugin authors must switch dispatchers when an
+SDK requires it. Generated C++ async wrappers are the exception: iOS waits on
+futures off the main queue, and Android runs blocking JNI/future calls on
+`Dispatchers.IO`.
 Native class `dispose()` methods must be synchronous, non-throwing,
 parameterless `Void` methods. Within each action sequence, semantic lowering
 tracks explicit disposals through sequential statements and conservatively
@@ -143,38 +146,23 @@ app-owned instance still used by another route. Each screen destination has its
 own state lifetime: Compose scopes state to its back-stack entry, and SwiftUI
 uses a unique route identity for each destination. Route parameters stay scalar;
 reusing resources across separate route lifetimes remains open.
-Plugin
-implementations should clear callbacks they retain. C++ contracts, opt-in
-source compilation, direct Swift/C++ ownership, and synchronous non-throwing
-primitive, string, and byte adapters are implemented for iOS and Android
-services and native classes. Both platform adapters bridge optional primitive,
-string, and byte values through C++ `std::optional`; Android uses nullable
-Kotlin and JNI carriers.
-Android classes require `dispose()` for deterministic release. Android strings
-are converted between JNI UTF-16 and the C++ UTF-8 contract, including embedded
-NUL and supplementary Unicode characters; `Bytes` uses length-aware
-`ByteArray`/`std::vector<uint8_t>` copies. Unsigned Kotlin `UByte`, `UShort`,
-`UInt`, and `ULong` map through signed JNI primitives without losing bits.
-The iOS adapters use generated `std::optional` factories for Swift inputs and
-explicit `Optional(fromCxx:)` conversion for C++ results. Flat `Array` values
-of primitive, string, and byte types convert through generated `std::vector`
-aliases. Boolean, integer, and byte sets use vector façades around C++
-`std::set`; floating-point and string sets are rejected because C++ ordering
-does not match Swift equality for NaN and canonically equivalent strings.
-Recursive arrays are supported on iOS. Async, throwing, and event adapters,
-plus nested `Set`/`Map` combinations, remain open.
-Android JNI bridges flat primitive arrays through JVM primitive
-arrays and `std::vector`, including unsigned values through bit-preserving
-signed carriers. Flat `Array<String>` and `Array<Bytes>` values use JNI object
-arrays with per-element conversion. `Set` supports Boolean, integer, and String
-elements; floating-point and byte-array sets are rejected because their equality
-and ordering semantics differ. Android flat maps now convert primitive and
-String keys and values, preserving unsigned carriers; floating-point keys,
-byte-array values, optional maps, and nested collections are rejected. Recursive
-arrays are supported on Android. Async, throwing, and event conversions, plus
-nested `Set`/`Map` combinations, remain open. iOS string calls explicitly
-convert between Swift `String` and C++ `std::string`, and byte values
-explicitly copy between Swift `Data` and C++ `std::vector<uint8_t>`.
+Plugin implementations should clear callbacks they retain. C++ contracts,
+opt-in source compilation, and direct Swift/C++ ownership are implemented.
+Both platforms adapt synchronous and non-throwing async scalar, optional scalar,
+string, and byte service/class methods; iOS waits on futures off the main queue,
+and Android uses `Dispatchers.IO`. Android classes require `dispose()` for
+deterministic release. Async collection signatures, typed throwing adapters,
+and events remain open.
+
+iOS bridges optional primitive, string, and byte values; flat primitive,
+string, and byte arrays; compatible sets; recursively nested arrays; and maps
+with supported keys and nested collection values. Swift `String`/`Data`
+conversions are explicit, and vector façades preserve compatible `std::set`
+semantics. Android bridges optional scalars, nested arrays, compatible sets,
+maps with primitive/string keys and supported primitive, string, byte, array,
+set, or nested-map values, and nullable outer maps. JNI uses length-aware
+string/byte conversions and preserves unsigned bit patterns. Platform-specific
+collection combinations outside those supported shapes remain open.
 
 ## Migration map
 
