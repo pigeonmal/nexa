@@ -914,17 +914,22 @@ fn android_cpp_type(ty: &TypeRef) -> Option<String> {
         let [key, value] = ty.arguments.as_slice() else {
             return None;
         };
-        if ty.optional
+        if !android_map_is_supported(ty)
             || !android_map_element_is_supported(key, true)
             || !android_map_value_is_supported(value)
         {
             return None;
         }
-        return Some(format!(
+        let map_type = format!(
             "std::map<{}, {}>",
             android_cpp_type(key)?,
             android_cpp_type(value)?
-        ));
+        );
+        return Some(if ty.optional {
+            format!("std::optional<{map_type}>")
+        } else {
+            map_type
+        });
     }
     if matches!(ty.name.as_str(), "Array" | "Set") {
         let [element] = ty.arguments.as_slice() else {
@@ -995,7 +1000,7 @@ fn android_map_element_is_supported(ty: &TypeRef, is_key: bool) -> bool {
 
 fn android_map_value_is_supported(ty: &TypeRef) -> bool {
     if ty.name == "Map" {
-        return android_map_is_supported(ty);
+        return !ty.optional && android_map_is_supported(ty);
     }
     if android_map_element_is_supported(ty, false)
         || (ty.name == "Bytes" && !ty.optional && ty.arguments.is_empty())
@@ -1022,7 +1027,7 @@ fn android_cpp_map_type(ty: &TypeRef) -> Option<(&TypeRef, &TypeRef)> {
 }
 
 fn android_map_is_supported(ty: &TypeRef) -> bool {
-    if ty.name != "Map" || ty.optional {
+    if ty.name != "Map" {
         return false;
     }
     let [key, value] = ty.arguments.as_slice() else {
@@ -1133,11 +1138,16 @@ fn android_primitive_array(ty: &TypeRef) -> Option<AndroidPrimitiveArray> {
 
 fn android_kotlin_type(ty: &TypeRef, jni_carrier: bool) -> String {
     if let Some((key, value)) = android_cpp_map_type(ty) {
-        return format!(
+        let base = format!(
             "Map<{}, {}>",
             android_kotlin_type(key, jni_carrier),
             android_kotlin_type(value, jni_carrier)
         );
+        return if ty.optional {
+            format!("{base}?")
+        } else {
+            base
+        };
     }
     if matches!(ty.name.as_str(), "Array" | "Set") {
         if let Some(element) = ty.arguments.first() {
@@ -1270,7 +1280,11 @@ fn render_kotlin_service_adapter(
 
 fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
     if let Some((key, map_value)) = android_cpp_map_type(ty) {
-        let mut expression = value.to_owned();
+        let mut expression = if ty.optional {
+            "nexaOptionalMap".to_owned()
+        } else {
+            value.to_owned()
+        };
         if let Some(conversion) = android_cpp_value(key).and_then(|scalar| scalar.kotlin_to_jni) {
             expression = format!("{expression}.mapKeys {{ it.key.{conversion}() }}");
         }
@@ -1279,7 +1293,15 @@ fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
             expression =
                 format!("{expression}.mapValues {{ (_, nexaMapValue) -> {converted_value} }}");
         }
-        return expression;
+        if (!ty.optional && expression == value) || (ty.optional && expression == "nexaOptionalMap")
+        {
+            return value.to_owned();
+        }
+        return if ty.optional {
+            format!("{value}?.let {{ nexaOptionalMap -> {expression} }}")
+        } else {
+            expression
+        };
     }
     if matches!(ty.name.as_str(), "Array" | "Set") {
         let element = &ty.arguments[0];
@@ -1332,7 +1354,11 @@ fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
 
 fn kotlin_from_jni_expression(expression: String, ty: &TypeRef) -> String {
     if let Some((key, map_value)) = android_cpp_map_type(ty) {
-        let mut result = expression;
+        let mut result = if ty.optional {
+            "nexaOptionalMap".to_owned()
+        } else {
+            expression.clone()
+        };
         if let Some(conversion) = android_cpp_value(key).and_then(|scalar| scalar.kotlin_from_jni) {
             result = format!("{result}.mapKeys {{ it.key.{conversion}() }}");
         }
@@ -1340,7 +1366,14 @@ fn kotlin_from_jni_expression(expression: String, ty: &TypeRef) -> String {
         if converted_value != "nexaMapValue" {
             result = format!("{result}.mapValues {{ (_, nexaMapValue) -> {converted_value} }}");
         }
-        return result;
+        if (!ty.optional && result == expression) || (ty.optional && result == "nexaOptionalMap") {
+            return expression;
+        }
+        return if ty.optional {
+            format!("{expression}?.let {{ nexaOptionalMap -> {result} }}")
+        } else {
+            result
+        };
     }
     if matches!(ty.name.as_str(), "Array" | "Set") {
         let element = &ty.arguments[0];
@@ -2193,7 +2226,11 @@ fn render_jni_map_argument_conversion(
     local: &str,
 ) -> String {
     let (key, map_value) = android_cpp_map_type(ty).expect("validated Android map type");
-    let cpp_type = android_cpp_type(ty).expect("validated Android map C++ type");
+    let map_cpp_type = format!(
+        "std::map<{}, {}>",
+        android_cpp_type(key).expect("validated Android map key type"),
+        android_cpp_type(map_value).expect("validated Android map value type")
+    );
     let key_converter =
         render_android_jni_map_converter(out, key, &format!("{local}Key"), false, failure_return);
     let value_converter = render_android_jni_map_converter(
@@ -2203,9 +2240,15 @@ fn render_jni_map_argument_conversion(
         false,
         failure_return,
     );
-    out.push_str(&format!(
-        "        auto {local} = fromJniMap<{cpp_type}>(env, {value}, {key_converter}, {value_converter});\n        if (env->ExceptionCheck()) {failure_return}\n",
-    ));
+    if ty.optional {
+        out.push_str(&format!(
+            "        std::optional<{map_cpp_type}> {local};\n        if ({value} != nullptr) {{\n            {local}.emplace(fromJniMap<{map_cpp_type}>(env, {value}, {key_converter}, {value_converter}));\n            if (env->ExceptionCheck()) {failure_return}\n        }}\n",
+        ));
+    } else {
+        out.push_str(&format!(
+            "        auto {local} = fromJniMap<{map_cpp_type}>(env, {value}, {key_converter}, {value_converter});\n        if (env->ExceptionCheck()) {failure_return}\n",
+        ));
+    }
     format!("std::move({local})")
 }
 
@@ -2258,9 +2301,15 @@ fn render_jni_return(out: &mut String, ty: &TypeRef, expression: &str) {
             true,
             "return nullptr;",
         );
-        out.push_str(&format!(
-            "            return toJniMap(env, {expression}, {key_converter}, {value_converter});\n        }}();\n",
-        ));
+        if ty.optional {
+            out.push_str(&format!(
+                "            auto nexaJniOptionalMapReturn = {expression};\n            if (!nexaJniOptionalMapReturn.has_value()) return nullptr;\n            return toJniMap(env, *nexaJniOptionalMapReturn, {key_converter}, {value_converter});\n        }}();\n",
+            ));
+        } else {
+            out.push_str(&format!(
+                "            return toJniMap(env, {expression}, {key_converter}, {value_converter});\n        }}();\n",
+            ));
+        }
         return;
     }
     if matches!(ty.name.as_str(), "Array" | "Set") {
@@ -4867,7 +4916,7 @@ mod tests {
         assert!(jni.contains("SetIntArrayRegion"));
 
         let reference_maps = nexa_plugin_idl::parse(
-            "service Lookup { fn strings(items: Map<Int32, Array<String>>) -> Map<Int32, Array<String>> fn bytes(items: Map<Int32, Array<Bytes>>) -> Map<Int32, Array<Bytes>> fn byteValues(items: Map<Int32, Bytes>) -> Map<Int32, Bytes> fn nested(items: Map<Int32, Map<String, Bytes>>) -> Map<Int32, Map<String, Bytes>> fn labels(items: Map<Int32, Set<String>>) -> Map<Int32, Set<String>> }",
+            "service Lookup { fn strings(items: Map<Int32, Array<String>>) -> Map<Int32, Array<String>> fn bytes(items: Map<Int32, Array<Bytes>>) -> Map<Int32, Array<Bytes>> fn byteValues(items: Map<Int32, Bytes>) -> Map<Int32, Bytes> fn optional(items: Map<UInt32, Bytes>?) -> Map<UInt32, Bytes>? fn nested(items: Map<Int32, Map<String, Bytes>>) -> Map<Int32, Map<String, Bytes>> fn labels(items: Map<Int32, Set<String>>) -> Map<Int32, Set<String>> }",
         )
         .expect("maps with reference collection values should parse");
         let (kotlin, jni) = render_android_adapters(
@@ -4881,11 +4930,21 @@ mod tests {
         assert!(kotlin.contains("Map<Int, Array<String>>"));
         assert!(kotlin.contains("Map<Int, Array<ByteArray>>"));
         assert!(kotlin.contains("Map<Int, ByteArray>"));
+        assert!(kotlin.contains("Map<Int, ByteArray>?"));
+        assert!(kotlin.contains("Map<UInt, ByteArray>?"));
+        assert!(kotlin.contains(
+            "items?.let { nexaOptionalMap -> nexaOptionalMap.mapKeys { it.key.toInt() } }"
+        ));
+        assert!(kotlin.contains("nexaOptionalMap.mapKeys { it.key.toUInt() }"));
         assert!(kotlin.contains("Map<Int, Map<String, ByteArray>>"));
         assert!(kotlin.contains("Map<Int, Set<String>>"));
         assert!(jni.contains("std::map<std::int32_t, std::vector<std::string>>"));
         assert!(jni.contains("std::map<std::int32_t, std::vector<std::vector<std::uint8_t>>>"));
         assert!(jni.contains("std::map<std::int32_t, std::vector<std::uint8_t>>"));
+        assert!(jni.contains(
+            "std::optional<std::map<std::uint32_t, std::vector<std::uint8_t>>> nexaJniMapArgument0"
+        ));
+        assert!(jni.contains("nexaJniOptionalMapReturn.has_value()"));
         assert!(
             jni.contains(
                 "std::map<std::int32_t, std::map<std::string, std::vector<std::uint8_t>>>"
@@ -4903,7 +4962,6 @@ mod tests {
             "Map<Bytes, Int32>",
             "Map<String, Int32?>",
             "Map<String?, Int32>",
-            "Map<String, Int32>?",
         ] {
             let idl = nexa_plugin_idl::parse(&format!(
                 "service Lookup {{ fn values(items: {unsupported}) -> Int32 }}"

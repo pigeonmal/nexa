@@ -191,9 +191,11 @@ Floating-point and byte-array sets remain unsupported because their Kotlin and
 C++ equality/order semantics differ. Android `Map` keys support primitive or
 String types; map values support primitive, string, or byte values, arrays of
 primitive/string/byte values, compatible primitive or string sets, and
-recursively nested maps. Generated JNI adapters convert these shapes with
-headless C++ compilation and optional host-JVM round-trip coverage.
-Floating-point keys, byte-array sets, optional maps, and collection shapes
+recursively nested maps. Top-level maps may be nullable and preserve the
+difference between `null` and an empty map through JNI. Generated adapters
+convert these shapes with headless C++ compilation and optional host-JVM
+round-trip coverage.
+Floating-point keys, byte-array sets, optional nested maps, and collection shapes
 outside that subset remain unsupported to preserve Kotlin/C++ map semantics.
 C++ event, async, and throwing adapters also remain unsupported.
 Android optional C++ values support `Bool`, signed and unsigned integers,
