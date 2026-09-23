@@ -1472,6 +1472,7 @@ fn declared_cpp_sources_are_compiled_by_generated_ios_project_when_xcode_is_avai
 }
 native class CounterValue {
     init(initial: Int32?, values: Set<Int32>)
+    event changed(value: Int32, title: String, payload: Bytes)
     property value: Int32
     property title: String
     property payload: Bytes
@@ -1485,6 +1486,7 @@ native class CounterValue {
     fn echoValues(values: Array<Int32>) -> Array<Int32>
     fn echoSet(values: Set<Int32>) -> Set<Int32>
     fn increment()
+    fn notify(value: Int32)
 }
 "#,
     )
@@ -1499,6 +1501,7 @@ native class CounterValue {
         r#"#include "NexaPluginBindings.hpp"
 #include "details/Native.hpp"
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 namespace plugin_dev::plugin_example::plugin_cpp_dash_source {
@@ -1538,6 +1541,8 @@ public:
     std::vector<std::int32_t> echoValues(std::vector<std::int32_t> values) noexcept override { return values; }
     std::set<std::int32_t> echoSet(std::set<std::int32_t> values) noexcept override { return values; }
     void increment() noexcept override { ++value_; }
+    void setOnChanged(std::function<void(std::int32_t, std::string, std::vector<std::uint8_t>)> handler) noexcept override { on_changed_ = std::move(handler); }
+    void notify(std::int32_t value) noexcept override { if (on_changed_) on_changed_(value, title_, payload_); }
 private:
     std::int32_t value_;
     std::string title_;
@@ -1546,6 +1551,7 @@ private:
     std::optional<std::vector<std::uint8_t>> maybe_payload_;
     std::vector<std::int32_t> samples_;
     std::set<std::int32_t> values_;
+    std::function<void(std::int32_t, std::string, std::vector<std::uint8_t>)> on_changed_;
 };
 std::unique_ptr<CounterValueSpec> makeCounterValueImpl(std::optional<std::int32_t> initial, std::set<std::int32_t> values) {
     return std::make_unique<CounterValueImpl>(initial, std::move(values));
@@ -1700,6 +1706,7 @@ service Counter {
 }
 native class Meter {
     init(initial: Float64, label: String, initialCount: Int32?, metrics: Map<String, Int32>)
+    event changed(value: Int32, label: String, payload: Bytes)
     property value: Float64
     property label: String
     property payload: Bytes
@@ -1718,6 +1725,7 @@ native class Meter {
     fn maybeNumber(value: Int64?) -> Int64?
     fn echoMetrics(values: Map<String, Int32>) -> Map<String, Int32>
     async fn currentValue() -> Float64
+    fn publish(value: Int32)
     fn clear()
     fn dispose()
 }
@@ -1842,6 +1850,12 @@ public:
     std::optional<std::int64_t> maybeNumber(std::optional<std::int64_t> value) noexcept override { return value; }
     std::map<std::string, std::int32_t> echoMetrics(std::map<std::string, std::int32_t> values) noexcept override { return values; }
     std::future<double> currentValue() noexcept override { return readyFuture(value_); }
+    void setOnChanged(std::function<void(std::int32_t, std::string, std::vector<std::uint8_t>)> handler) noexcept override { on_changed_ = std::move(handler); }
+    void publish(std::int32_t value) noexcept override {
+        if (!on_changed_) return;
+        std::thread event_thread([this, value] { on_changed_(value, label_, payload_); });
+        event_thread.join();
+    }
     void clear() noexcept override { value_ = 0; }
     void dispose() noexcept override {}
 private:
@@ -1854,6 +1868,7 @@ private:
     std::optional<std::string> maybe_label_;
     std::optional<std::vector<std::uint8_t>> maybe_payload_;
     std::map<std::string, std::int32_t> metrics_;
+    std::function<void(std::int32_t, std::string, std::vector<std::uint8_t>)> on_changed_;
 };
 std::unique_ptr<MeterSpec> makeMeterImpl(double initial, std::string label, std::optional<std::int32_t> initial_count, std::map<std::string, std::int32_t> metrics) {
     return std::make_unique<MeterImpl>(initial, std::move(label), initial_count, std::move(metrics));
@@ -1970,6 +1985,8 @@ std::unique_ptr<MeterSpec> makeMeterImpl(double initial, std::string label, std:
     assert!(bindings.contains("public object CounterPlugin : Counter"));
     assert!(bindings.contains("public val instance: CounterPlugin get() = this"));
     assert!(bindings.contains("public class MeterImpl"));
+    assert!(bindings.contains("override var onChanged: ((Int, String, ByteArray) -> Unit)?"));
+    assert!(bindings.contains("@JvmName(\"nexaDispatch\")"));
     assert!(bindings.contains("NexaPlugin0_CppBindings.dispose_Meter(handle)"));
     assert!(bindings.contains("System.loadLibrary(\"nexa_plugins\")"));
     let gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
@@ -1993,6 +2010,7 @@ std::unique_ptr<MeterSpec> makeMeterImpl(double initial, std::string label, std:
             r#"package com.nexa.androidcppjnitest
 
 import kotlinx.coroutines.runBlocking
+import java.util.concurrent.atomic.AtomicReference
 
 fun main() = runBlocking {
     check(CounterPlugin.instance.increment(41) == 42)
@@ -2115,6 +2133,21 @@ fun main() = runBlocking {
     val initialMetrics = mapOf("first" to 1, "second" to Int.MAX_VALUE)
     val first = Meter(2.5, embeddedNullAndUnicode, 13, initialMetrics)
     val second = Meter(11.0, "second", null, emptyMap())
+    val firstEvent = AtomicReference<Triple<Int, String, ByteArray>?>(null)
+    val secondEvent = AtomicReference<Triple<Int, String, ByteArray>?>(null)
+    first.onChanged = { value, label, payload -> firstEvent.set(Triple(value, label, payload)) }
+    second.onChanged = { value, label, payload -> secondEvent.set(Triple(value, label, payload)) }
+    first.payload = binaryPayload
+    first.publish(42)
+    second.publish(-7)
+    check(firstEvent.get()?.first == 42 && firstEvent.get()?.second == embeddedNullAndUnicode)
+    check(firstEvent.get()?.third?.contentEquals(binaryPayload) == true)
+    check(secondEvent.get()?.first == -7 && secondEvent.get()?.second == "second")
+    check(secondEvent.get()?.third?.isEmpty() == true)
+    first.onChanged = null
+    firstEvent.set(null)
+    first.publish(43)
+    check(firstEvent.get() == null)
     check(first.value == 2.5)
     check(first.currentValue() == 2.5)
     check(first.label == embeddedNullAndUnicode)
@@ -2210,8 +2243,30 @@ fun <T> runBlocking(block: suspend () -> T): T {
 "#,
         )
         .expect("coroutine host-test shim should be written");
+        let android_os_support = temp.0.join("AndroidOsSupport.kt");
+        fs::write(
+            &android_os_support,
+            r#"package android.os
+
+class Looper private constructor() {
+    companion object {
+        private val mainLooper = Looper()
+        @JvmStatic fun getMainLooper(): Looper = mainLooper
+    }
+}
+
+class Handler(@Suppress("UNUSED_PARAMETER") looper: Looper) {
+    fun post(operation: Runnable): Boolean {
+        operation.run()
+        return true
+    }
+}
+"#,
+        )
+        .expect("Android event main-loop host shim should be written");
         let compiled = Command::new(kotlinc)
             .arg(&coroutine_support)
+            .arg(&android_os_support)
             .arg(&package.join("NexaPlugin0_Bindings.kt"))
             .arg(&smoke_test)
             .arg("-include-runtime")
@@ -2244,6 +2299,9 @@ fun <T> runBlocking(block: suspend () -> T): T {
             .contains("-keep class com.nexa.androidcppjnitest.NexaPlugin0_CppErrorFactory { *; }")
     );
     assert!(proguard.contains("-keep class com.nexa.androidcppjnitest.LookupError$* { *; }"));
+    assert!(proguard.contains(
+        "-keep class com.nexa.androidcppjnitest.NexaPlugin0_CppEventMeter_changed { *; }"
+    ));
 
     let native_root = output.join("android/app/src/main/cpp");
     let sdk = env::var_os("ANDROID_HOME")

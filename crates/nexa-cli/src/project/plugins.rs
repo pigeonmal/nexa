@@ -333,6 +333,18 @@ pub(super) fn android_plugin_proguard_rules(
                 plugin.namespace
             ));
             let contract = nexa_plugin_idl::parse_file(Path::new(&plugin.idl_path))?;
+            for interface in contract
+                .interfaces
+                .iter()
+                .filter(|interface| interface.kind == nexa_plugin_idl::InterfaceKind::NativeClass)
+            {
+                for event in &interface.events {
+                    output.push_str(&format!(
+                        "-keep class {package}.NexaPlugin{plugin_index}_CppEvent{}_{} {{ *; }}\n",
+                        interface.name, event.name
+                    ));
+                }
+            }
             let errors = contract
                 .interfaces
                 .iter()

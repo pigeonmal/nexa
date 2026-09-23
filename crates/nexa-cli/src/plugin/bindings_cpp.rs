@@ -7,9 +7,16 @@ use nexa_plugin_idl::{
 
 pub(crate) fn render(idl: &PluginIdl, plugin_id: &str) -> String {
     let mut out = String::from(
-        "#pragma once\n\n#include <atomic>\n#include <cstdint>\n#include <exception>\n#include <functional>\n#include <future>\n#include <map>\n#include <memory>\n#include <optional>\n#include <set>\n#include <string>\n#include <tuple>\n#include <utility>\n#include <variant>\n#include <vector>\n\n#if __has_include(<swift/bridging>)\n#include <swift/bridging>\n#define NEXA_CXX_SWIFT_SHARED_REFERENCE(...) SWIFT_SHARED_REFERENCE(__VA_ARGS__)\n#define NEXA_CXX_SWIFT_RETURNS_RETAINED SWIFT_RETURNS_RETAINED\n#define NEXA_CXX_SWIFT_NONNULL _Nonnull\n#else\n#define NEXA_CXX_SWIFT_SHARED_REFERENCE(...)\n#define NEXA_CXX_SWIFT_RETURNS_RETAINED\n#define NEXA_CXX_SWIFT_NONNULL\n#endif\n\n",
+        "#pragma once\n\n#include <atomic>\n#include <cstdint>\n#include <exception>\n#include <functional>\n#include <future>\n#include <map>\n#include <memory>\n#include <optional>\n#include <set>\n#include <string>\n#include <tuple>\n#include <utility>\n#include <variant>\n#include <vector>\n\n#if __has_include(<swift/bridging>)\n#include <swift/bridging>\n#define NEXA_CXX_SWIFT_SHARED_REFERENCE(...) SWIFT_SHARED_REFERENCE(__VA_ARGS__)\n#define NEXA_CXX_SWIFT_RETURNS_RETAINED SWIFT_RETURNS_RETAINED\n#define NEXA_CXX_SWIFT_NONNULL _Nonnull\n#define NEXA_CXX_SWIFT_NULLABLE _Nullable\n#else\n#define NEXA_CXX_SWIFT_SHARED_REFERENCE(...)\n#define NEXA_CXX_SWIFT_RETURNS_RETAINED\n#define NEXA_CXX_SWIFT_NONNULL\n#define NEXA_CXX_SWIFT_NULLABLE\n#endif\n\n",
     );
     out.push_str(&format!("namespace {} {{\n\n", cpp_namespace(plugin_id)));
+    if idl.interfaces.iter().any(|interface| {
+        interface.kind == InterfaceKind::NativeClass && !interface.events.is_empty()
+    }) {
+        out.push_str(
+            "class NexaCppSwiftEventContextHandle final {\n    using Release = void (*)(void* NEXA_CXX_SWIFT_NONNULL);\n    struct State {\n        std::size_t references;\n        void* NEXA_CXX_SWIFT_NONNULL context;\n        Release release;\n        State(void* value, Release callback) : references(1), context(value), release(callback) {}\n    };\n    State* state_;\n    void retain() noexcept { if (state_ != nullptr) __atomic_add_fetch(&state_->references, std::size_t{1}, __ATOMIC_RELAXED); }\n    void relinquish() noexcept {\n        if (state_ != nullptr && __atomic_sub_fetch(&state_->references, std::size_t{1}, __ATOMIC_ACQ_REL) == 0) {\n            state_->release(state_->context);\n            delete state_;\n        }\n    }\npublic:\n    NexaCppSwiftEventContextHandle(void* NEXA_CXX_SWIFT_NONNULL context, Release release) : state_(new State(context, release)) {}\n    NexaCppSwiftEventContextHandle(const NexaCppSwiftEventContextHandle& other) noexcept : state_(other.state_) { retain(); }\n    NexaCppSwiftEventContextHandle(NexaCppSwiftEventContextHandle&& other) noexcept : state_(std::exchange(other.state_, nullptr)) {}\n    ~NexaCppSwiftEventContextHandle() { relinquish(); }\n    void* NEXA_CXX_SWIFT_NONNULL get() const noexcept { return state_->context; }\n};\n\n",
+        );
+    }
     out.push_str(&format!(
         "using {} = std::vector<std::uint8_t>;\n\n",
         cpp_byte_buffer_alias_name(idl)
@@ -80,7 +87,7 @@ pub(crate) fn render(idl: &PluginIdl, plugin_id: &str) -> String {
     out.push_str("} // namespace ");
     out.push_str(&cpp_namespace(plugin_id));
     out.push_str(
-        "\n\n#undef NEXA_CXX_SWIFT_SHARED_REFERENCE\n#undef NEXA_CXX_SWIFT_RETURNS_RETAINED\n#undef NEXA_CXX_SWIFT_NONNULL\n",
+        "\n\n#undef NEXA_CXX_SWIFT_SHARED_REFERENCE\n#undef NEXA_CXX_SWIFT_RETURNS_RETAINED\n#undef NEXA_CXX_SWIFT_NONNULL\n#undef NEXA_CXX_SWIFT_NULLABLE\n",
     );
     out
 }
@@ -104,6 +111,18 @@ pub(crate) fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<
         );
     }
     render_swift_cpp_error_converters(&mut out, idl, &namespace);
+    for interface in idl
+        .interfaces
+        .iter()
+        .filter(|interface| interface.kind == InterfaceKind::NativeClass)
+    {
+        for event in &interface.events {
+            for parameter in &event.parameters {
+                ensure_swift_cpp_value(&interface.name, &parameter.name, &parameter.ty, false)?;
+            }
+            render_swift_cpp_event_adapters(&mut out, idl, plugin_id, &namespace, interface, event);
+        }
+    }
     let mut generated = false;
 
     for interface in &idl.interfaces {
@@ -160,18 +179,17 @@ pub(crate) fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<
                 for method in &interface.methods {
                     validate_swift_cpp_method(idl, &interface.name, method)?;
                 }
-                if !interface.events.is_empty() {
-                    return Err(format!(
-                        "C++ Swift adapters do not yet support native class events on `{}`",
-                        interface.name
-                    ));
-                }
                 generated = true;
                 let cpp_type = format!("{namespace}.{}Spec", cpp_identifier(&interface.name));
                 out.push_str(&format!(
                     "@MainActor\npublic final class {0}Impl: {0}Spec {{\n    private let nexaCppObject: {cpp_type}\n",
                     interface.name
                 ));
+                for event in &interface.events {
+                    let context = swift_cpp_event_context_name(plugin_id, interface, event);
+                    let backing = swift_cpp_event_backing_name(interface, event);
+                    out.push_str(&format!("    private var {backing}: {context}?\n"));
+                }
                 let constructor = interface.constructors.first();
                 let parameters = constructor
                     .map(|constructor| swift_cpp_parameters(&constructor.parameters))
@@ -228,20 +246,38 @@ pub(crate) fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<
                     }
                     out.push_str("\n    }\n");
                 }
-                for method in &interface.methods {
-                    render_swift_cpp_method(
-                        &mut out,
-                        "nexaCppObject",
-                        swift_cpp_method_uses_collection_adapter(method)
-                            .then(|| cpp_swift_class_method_adapter_name(interface, &method.name))
-                            .as_deref(),
-                        idl,
-                        &namespace,
-                        &byte_buffer_type,
-                        &optional_bridge,
-                        method,
-                        1,
+                for event in &interface.events {
+                    render_swift_cpp_event_property(
+                        &mut out, plugin_id, interface, event, &namespace,
                     );
+                }
+                for method in &interface.methods {
+                    if method.name == "dispose"
+                        && !interface.events.is_empty()
+                        && method.parameters.is_empty()
+                        && !method.is_async
+                        && swift_cpp_method_error_type(method).is_none()
+                        && swift_cpp_value_type(swift_cpp_method_success_type(method))
+                            .is_some_and(|ty| ty == "Void")
+                    {
+                        render_swift_cpp_dispose(&mut out, interface, method);
+                    } else {
+                        render_swift_cpp_method(
+                            &mut out,
+                            "nexaCppObject",
+                            swift_cpp_method_uses_collection_adapter(method)
+                                .then(|| {
+                                    cpp_swift_class_method_adapter_name(interface, &method.name)
+                                })
+                                .as_deref(),
+                            idl,
+                            &namespace,
+                            &byte_buffer_type,
+                            &optional_bridge,
+                            method,
+                            1,
+                        );
+                    }
                 }
                 out.push_str("}\n\n");
             }
@@ -254,6 +290,188 @@ pub(crate) fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<
     } else {
         Ok(String::new())
     }
+}
+
+fn render_swift_cpp_event_adapters(
+    out: &mut String,
+    idl: &PluginIdl,
+    plugin_id: &str,
+    namespace: &str,
+    interface: &Interface,
+    event: &Event,
+) {
+    let context = swift_cpp_event_context_name(plugin_id, interface, event);
+    let delivery = swift_cpp_event_delivery_name(plugin_id, interface, event);
+    let callback_type = swift_cpp_event_callback_type(event);
+    let token = swift_cpp_event_token(plugin_id, interface, event);
+    let invoke_symbol = format!("nexaCppEventInvoke{token}");
+    let release_symbol = format!("nexaCppEventRelease{token}");
+
+    out.push_str(&format!(
+        "private final class {context}: @unchecked Sendable {{\n    let callback: {callback_type}\n    private let lock = NSLock()\n    private var active = true\n    init(_ callback: @escaping {callback_type}) {{ self.callback = callback }}\n    func deactivate() {{ lock.lock(); active = false; lock.unlock() }}\n    func isActive() -> Bool {{ lock.lock(); defer {{ lock.unlock() }}; return active }}\n}}\n\n"
+    ));
+    out.push_str(&format!(
+        "private final class {delivery}: @unchecked Sendable {{\n    let context: {context}\n"
+    ));
+    for (index, parameter) in event.parameters.iter().enumerate() {
+        let ty = swift_cpp_value_type(&parameter.ty).expect("event type was validated");
+        out.push_str(&format!("    let value{index}: {ty}\n"));
+    }
+    let initializers = std::iter::once(format!("context: {context}"))
+        .chain(
+            event
+                .parameters
+                .iter()
+                .enumerate()
+                .map(|(index, parameter)| {
+                    format!(
+                        "value{index}: {}",
+                        swift_cpp_value_type(&parameter.ty).expect("validated event type")
+                    )
+                }),
+        )
+        .collect::<Vec<_>>()
+        .join(", ");
+    out.push_str(&format!(
+        "    init({initializers}) {{ self.context = context"
+    ));
+    for (index, _) in event.parameters.iter().enumerate() {
+        out.push_str(&format!("; self.value{index} = value{index}"));
+    }
+    out.push_str(" }\n    @MainActor func deliver() {\n        guard context.isActive() else { return }\n        context.callback(");
+    out.push_str(
+        &(0..event.parameters.len())
+            .map(|index| format!("value{index}"))
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+    out.push_str(")\n    }\n}\n\n");
+
+    let raw_parameters = std::iter::once("_ rawContext: UnsafeMutableRawPointer".to_owned())
+        .chain(
+            event
+                .parameters
+                .iter()
+                .enumerate()
+                .map(|(index, _)| format!("_ rawValue{index}: UnsafeRawPointer")),
+        )
+        .collect::<Vec<_>>()
+        .join(", ");
+    out.push_str(&format!(
+        "@_cdecl(\"{invoke_symbol}\")\nprivate func {invoke_symbol}({raw_parameters}) {{\n    let context = Unmanaged<{context}>.fromOpaque(rawContext).takeUnretainedValue()\n    guard context.isActive() else {{ return }}\n"
+    ));
+    let mut delivery_arguments = vec!["context: context".to_owned()];
+    for (index, parameter) in event.parameters.iter().enumerate() {
+        out.push_str(&format!(
+            "    let nexaCxxEventValue{index} = {namespace}.{}(rawValue{index})\n",
+            cpp_swift_event_copy_adapter_name(idl, interface, event, index)
+        ));
+        let swift_value = swift_cpp_result_expression(
+            &parameter.ty,
+            &format!("nexaCxxEventValue{index}"),
+            idl,
+            namespace,
+        );
+        out.push_str(&format!("    let value{index} = {swift_value}\n"));
+        delivery_arguments.push(format!("value{index}: value{index}"));
+    }
+    out.push_str(&format!(
+        "    let delivery = {delivery}({})\n    Task {{ @MainActor in delivery.deliver() }}\n}}\n\n",
+        delivery_arguments.join(", ")
+    ));
+    out.push_str(&format!(
+        "@_cdecl(\"{release_symbol}\")\nprivate func {release_symbol}(_ rawContext: UnsafeMutableRawPointer) {{\n    let context = Unmanaged<{context}>.fromOpaque(rawContext).takeRetainedValue()\n    Task {{ @MainActor in withExtendedLifetime(context) {{ }} }}\n}}\n\n"
+    ));
+}
+
+fn render_swift_cpp_event_property(
+    out: &mut String,
+    plugin_id: &str,
+    interface: &Interface,
+    event: &Event,
+    _namespace: &str,
+) {
+    let property = nexa_plugin_idl::event_callback_property(&event.name);
+    let callback_type = swift_cpp_event_callback_type(event);
+    let backing = swift_cpp_event_backing_name(interface, event);
+    let token = swift_cpp_event_token(plugin_id, interface, event);
+    let invoke_symbol = format!("nexaCppEventInvoke{token}");
+    let release_symbol = format!("nexaCppEventRelease{token}");
+    let setter = cpp_swift_event_setter_name(interface, event);
+    out.push_str(&format!(
+        "\n    public var {property}: ({callback_type})? {{\n        get {{ {backing}?.callback }}\n        set {{\n            {backing}?.deactivate()\n            guard let callback = newValue else {{\n                {backing} = nil\n                nexaCppObject.{setter}(nil, nil, nil)\n                return\n            }}\n            let context = {context}(callback)\n            {backing} = context\n            nexaCppObject.{setter}({invoke_symbol}, Unmanaged.passRetained(context).toOpaque(), {release_symbol})\n        }}\n    }}\n",
+        context = swift_cpp_event_context_name(plugin_id, interface, event)
+    ));
+}
+
+fn render_swift_cpp_dispose(out: &mut String, interface: &Interface, method: &Method) {
+    out.push_str(&format!("\n    public func {}() -> Void {{\n", method.name));
+    for event in &interface.events {
+        let backing = swift_cpp_event_backing_name(interface, event);
+        let setter = cpp_swift_event_setter_name(interface, event);
+        out.push_str(&format!(
+            "        {backing}?.deactivate()\n        {backing} = nil\n        nexaCppObject.{setter}(nil, nil, nil)\n"
+        ));
+    }
+    out.push_str("        nexaCppObject.dispose()\n    }\n");
+}
+
+fn swift_cpp_event_callback_type(event: &Event) -> String {
+    let parameters = event
+        .parameters
+        .iter()
+        .map(|parameter| swift_cpp_value_type(&parameter.ty).expect("validated event type"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("({parameters}) -> Void")
+}
+
+fn swift_cpp_event_token(plugin_id: &str, interface: &Interface, event: &Event) -> String {
+    format!(
+        "{}_{}_{}",
+        cpp_identifier(plugin_id),
+        cpp_identifier(&interface.name),
+        cpp_identifier(&event.name)
+    )
+}
+
+fn swift_cpp_event_context_name(plugin_id: &str, interface: &Interface, event: &Event) -> String {
+    format!(
+        "NexaCppEventContext_{}",
+        swift_cpp_event_token(plugin_id, interface, event)
+    )
+}
+
+fn swift_cpp_event_delivery_name(plugin_id: &str, interface: &Interface, event: &Event) -> String {
+    format!(
+        "NexaCppEventDelivery_{}",
+        swift_cpp_event_token(plugin_id, interface, event)
+    )
+}
+
+fn swift_cpp_event_backing_name(interface: &Interface, event: &Event) -> String {
+    let mut occupied = std::collections::BTreeSet::new();
+    occupied.extend(
+        interface
+            .properties
+            .iter()
+            .map(|property| property.name.clone()),
+    );
+    occupied.extend(interface.methods.iter().map(|method| method.name.clone()));
+    occupied.extend(
+        interface
+            .events
+            .iter()
+            .map(|event| nexa_plugin_idl::event_callback_property(&event.name)),
+    );
+    let base = format!("_nexaCppEventContext{}", cpp_identifier(&event.name));
+    let mut candidate = base.clone();
+    let mut suffix = 1usize;
+    while occupied.contains(&candidate) {
+        candidate = format!("{base}{suffix}");
+        suffix += 1;
+    }
+    candidate
 }
 
 /// Emits Kotlin wrappers and JNI declarations for the synchronous Android value
@@ -269,6 +487,7 @@ pub(crate) fn render_android_adapters(
 ) -> Result<(String, String), String> {
     let mut native_declarations = String::new();
     let mut kotlin_implementations = String::new();
+    let mut kotlin_event_bridges = String::new();
     let mut jni = String::new();
     let class_name = format!("NexaPlugin{plugin_index}_CppBindings");
     let mut service_interfaces = Vec::new();
@@ -322,11 +541,36 @@ pub(crate) fn render_android_adapters(
                         )?;
                     }
                 }
-                if !interface.events.is_empty() {
-                    return Err(format!(
-                        "Android C++ adapters do not yet support native class events on `{}`",
-                        interface.name
-                    ));
+                for event in &interface.events {
+                    for parameter in &event.parameters {
+                        ensure_android_cpp_value(
+                            &interface.name,
+                            &parameter.name,
+                            &parameter.ty,
+                            false,
+                        )?;
+                    }
+                    let setter = format!(
+                        "set_{}_{}",
+                        interface.name,
+                        nexa_plugin_idl::event_callback_property(&event.name)
+                    );
+                    render_kotlin_native_event_declaration(&mut native_declarations, &setter);
+                    render_jni_event_setter(
+                        &mut jni,
+                        plugin_id,
+                        package,
+                        &class_name,
+                        interface,
+                        event,
+                        &setter,
+                    );
+                    render_kotlin_event_bridge(
+                        &mut kotlin_event_bridges,
+                        interface,
+                        event,
+                        plugin_index,
+                    );
                 }
                 for property in &interface.properties {
                     ensure_android_cpp_value(&interface.name, &property.name, &property.ty, false)?;
@@ -479,6 +723,12 @@ pub(crate) fn render_android_adapters(
         kotlin_output.push_str("}\n\n");
     }
 
+    if !kotlin_event_bridges.is_empty() {
+        kotlin_output.push_str(&format!(
+            "private object NexaPlugin{plugin_index}_CppEventDispatcher {{\n    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())\n    fun post(operation: () -> Unit) {{ mainHandler.post(operation) }}\n}}\n\n"
+        ));
+        kotlin_output.push_str(&kotlin_event_bridges);
+    }
     kotlin_output.push_str(&kotlin_implementations);
     let mut jni_output = render_android_jni_prelude(plugin_id);
     render_android_jni_error_converters(&mut jni_output, idl, package, plugin_index);
@@ -688,6 +938,70 @@ public:
 private:
     JNIEnv* env_;
     T value_;
+};
+
+class ScopedJniEnvironment {
+public:
+    explicit ScopedJniEnvironment(JavaVM* vm) noexcept : vm_(vm) {
+        if (vm_ == nullptr) return;
+        void* rawEnvironment = nullptr;
+        const jint status = vm_->GetEnv(&rawEnvironment, JNI_VERSION_1_6);
+        if (status == JNI_OK) {
+            environment_ = static_cast<JNIEnv*>(rawEnvironment);
+        } else if (status == JNI_EDETACHED && attachCurrentThread() == JNI_OK) {
+            attached_ = true;
+        }
+    }
+    ScopedJniEnvironment(const ScopedJniEnvironment&) = delete;
+    ScopedJniEnvironment& operator=(const ScopedJniEnvironment&) = delete;
+    ~ScopedJniEnvironment() {
+        if (attached_) vm_->DetachCurrentThread();
+    }
+    JNIEnv* get() const noexcept { return environment_; }
+private:
+    jint attachCurrentThread() noexcept {
+#if defined(__ANDROID__)
+        return vm_->AttachCurrentThread(&environment_, nullptr);
+#else
+        return vm_->AttachCurrentThread(reinterpret_cast<void**>(&environment_), nullptr);
+#endif
+    }
+    JavaVM* vm_{};
+    JNIEnv* environment_{};
+    bool attached_{};
+};
+
+class JniGlobalReference {
+public:
+    JniGlobalReference(JNIEnv* env, jobject value) {
+        if (env == nullptr || value == nullptr || env->GetJavaVM(&vm_) != JNI_OK) return;
+        value_ = env->NewGlobalRef(value);
+    }
+    JniGlobalReference(const JniGlobalReference&) = delete;
+    JniGlobalReference& operator=(const JniGlobalReference&) = delete;
+    ~JniGlobalReference() {
+        if (value_ == nullptr) return;
+        ScopedJniEnvironment scope(vm_);
+        if (auto* env = scope.get()) env->DeleteGlobalRef(value_);
+    }
+    JavaVM* vm() const noexcept { return vm_; }
+    jobject get() const noexcept { return value_; }
+private:
+    JavaVM* vm_{};
+    jobject value_{};
+};
+
+class ScopedJniLocalFrame {
+public:
+    ScopedJniLocalFrame(JNIEnv* env, jint capacity) noexcept
+        : env_(env), active_(env_ != nullptr && env_->PushLocalFrame(capacity) == JNI_OK) {}
+    ScopedJniLocalFrame(const ScopedJniLocalFrame&) = delete;
+    ScopedJniLocalFrame& operator=(const ScopedJniLocalFrame&) = delete;
+    ~ScopedJniLocalFrame() { if (active_) env_->PopLocalFrame(nullptr); }
+    bool active() const noexcept { return active_; }
+private:
+    JNIEnv* env_{};
+    bool active_{};
 };
 
 void requireJniMapOperation(JNIEnv* env, const char* message) {
@@ -1303,6 +1617,12 @@ fn render_kotlin_native_dispose_declaration(out: &mut String, native_name: &str)
     out.push_str(&format!("    external fun {native_name}(handle: Long)\n"));
 }
 
+fn render_kotlin_native_event_declaration(out: &mut String, native_name: &str) {
+    out.push_str(&format!(
+        "    external fun {native_name}(handle: Long, callback: Any?)\n"
+    ));
+}
+
 fn render_kotlin_service_adapter(
     out: &mut String,
     method: &Method,
@@ -1554,6 +1874,16 @@ fn render_kotlin_cpp_class(
         }
         out.push('\n');
     }
+    for event in &interface.events {
+        let property = nexa_plugin_idl::event_callback_property(&event.name);
+        let bridge = android_cpp_event_bridge_name(plugin_index, interface, event);
+        let setter = format!("set_{}_{}", interface.name, property);
+        let callback_type = android_kotlin_event_callback_type(event);
+        let backing = android_cpp_event_backing_name(interface, event);
+        out.push_str(&format!(
+            "    private var {backing}: {bridge}? = null\n    override var {property}: {callback_type}?\n        @Synchronized get() = {backing}?.callback\n        @Synchronized set(value) {{\n            val previous = {backing}\n            previous?.deactivate()\n            val next = value?.let {{ {bridge}(it) }}\n            NexaPlugin{plugin_index}_CppBindings.{setter}(requireNativeHandle(), next)\n            {backing} = next\n        }}\n"
+        ));
+    }
     for method in &interface.methods {
         if method.name == "dispose" {
             continue;
@@ -1608,7 +1938,107 @@ fn render_kotlin_cpp_class(
             ));
         }
     }
-    out.push_str(&format!("    @Synchronized\n    override fun dispose() {{\n        val handle = nativeHandle\n        if (handle == 0L) return\n        nativeHandle = 0L\n        NexaPlugin{plugin_index}_CppBindings.dispose_{}(handle)\n    }}\n}}\n", interface.name));
+    out.push_str(&format!("    @Synchronized\n    override fun dispose() {{\n        val handle = nativeHandle\n        if (handle == 0L) return\n        nativeHandle = 0L\n"));
+    for event in &interface.events {
+        let backing = android_cpp_event_backing_name(interface, event);
+        out.push_str(&format!(
+            "        {backing}?.deactivate()\n        {backing} = null\n"
+        ));
+    }
+    out.push_str(&format!(
+        "        NexaPlugin{plugin_index}_CppBindings.dispose_{}(handle)\n    }}\n}}\n",
+        interface.name
+    ));
+}
+
+fn android_cpp_event_backing_name(interface: &Interface, event: &Event) -> String {
+    let mut occupied = std::collections::BTreeSet::new();
+    occupied.extend(
+        interface
+            .properties
+            .iter()
+            .map(|property| property.name.clone()),
+    );
+    occupied.extend(interface.methods.iter().map(|method| method.name.clone()));
+    occupied.extend(
+        interface
+            .events
+            .iter()
+            .map(|event| nexa_plugin_idl::event_callback_property(&event.name)),
+    );
+    let base = format!("nexaCppEvent{}Bridge", cpp_identifier(&event.name));
+    let mut candidate = base.clone();
+    let mut suffix = 1usize;
+    while occupied.contains(&candidate) {
+        candidate = format!("{base}{suffix}");
+        suffix += 1;
+    }
+    candidate
+}
+
+fn render_kotlin_event_bridge(
+    out: &mut String,
+    interface: &Interface,
+    event: &Event,
+    plugin_index: usize,
+) {
+    let name = android_cpp_event_bridge_name(plugin_index, interface, event);
+    let callback_type = android_kotlin_event_callback_type(event);
+    out.push_str(&format!("private class {name}(val callback: {callback_type}) {{\n    @Volatile private var active = true\n    fun deactivate() {{ active = false }}\n"));
+    let parameters = event
+        .parameters
+        .iter()
+        .enumerate()
+        .map(|(index, parameter)| {
+            format!(
+                "nexaArg{index}: {}",
+                android_kotlin_type(&parameter.ty, true)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let conversions = event
+        .parameters
+        .iter()
+        .enumerate()
+        .map(|(index, parameter)| {
+            format!(
+                "        val nexaEventValue{index} = {}\n",
+                kotlin_from_jni_expression(format!("nexaArg{index}"), &parameter.ty)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    let arguments = (0..event.parameters.len())
+        .map(|index| format!("nexaEventValue{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    out.push_str(&format!(
+        "    @JvmName(\"nexaDispatch\")\n    fun dispatchFromNative({parameters}) {{\n{}        if (!active) return\n        NexaPlugin{plugin_index}_CppEventDispatcher.post {{ if (active) callback({arguments}) }}\n    }}\n}}\n\n",
+        conversions
+    ));
+}
+
+fn android_cpp_event_bridge_name(
+    plugin_index: usize,
+    interface: &Interface,
+    event: &Event,
+) -> String {
+    format!(
+        "NexaPlugin{plugin_index}_CppEvent{}_{}",
+        cpp_identifier(&interface.name),
+        cpp_identifier(&event.name)
+    )
+}
+
+fn android_kotlin_event_callback_type(event: &Event) -> String {
+    let parameters = event
+        .parameters
+        .iter()
+        .map(|parameter| android_kotlin_type(&parameter.ty, false))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("(({parameters}) -> Unit)")
 }
 
 fn render_jni_service_method(
@@ -1875,10 +2305,159 @@ fn render_jni_dispose(
     ));
     render_jni_boundary_start(out, "void");
     out.push_str(&format!(
-        "        auto* handle = requireHandle<{cpp_type_name}>(env, rawHandle);\n        if (handle == nullptr) return;\n        std::unique_ptr<{cpp_type_name}> instance = std::move(*handle);\n        delete handle;\n        instance->dispose();\n"
+        "        auto* handle = requireHandle<{cpp_type_name}>(env, rawHandle);\n        if (handle == nullptr) return;\n        std::unique_ptr<{cpp_type_name}> instance = std::move(*handle);\n        delete handle;\n"
     ));
+    for event in &interface.events {
+        out.push_str(&format!(
+            "        instance->{}({{}});\n",
+            cpp_setter_name(&nexa_plugin_idl::event_callback_property(&event.name))
+        ));
+    }
+    out.push_str("        instance->dispose();\n");
     render_jni_boundary_end(out);
     out.push_str("}\n\n");
+}
+
+fn render_jni_event_setter(
+    out: &mut String,
+    plugin_id: &str,
+    package: &str,
+    class_name: &str,
+    interface: &Interface,
+    event: &Event,
+    native_name: &str,
+) {
+    let cpp_type_name = format!(
+        "{}::{}Spec",
+        cpp_namespace(plugin_id),
+        cpp_identifier(&interface.name)
+    );
+    let symbol = jni_symbol(package, class_name, native_name);
+    let descriptor = event
+        .parameters
+        .iter()
+        .map(|parameter| android_jni_callback_descriptor(&parameter.ty))
+        .collect::<String>();
+    let setter = cpp_setter_name(&nexa_plugin_idl::event_callback_property(&event.name));
+    out.push_str(&format!(
+        "extern \"C\" JNIEXPORT void JNICALL {symbol}(JNIEnv* env, jobject thiz, jlong rawHandle, jobject callback) {{\n    (void)thiz;\n"
+    ));
+    render_jni_boundary_start(out, "void");
+    out.push_str(&format!(
+        "        auto* handle = requireHandle<{cpp_type_name}>(env, rawHandle);\n        if (handle == nullptr) return;\n"
+    ));
+    out.push_str(
+        "        jmethodID nexaDispatch = nullptr;\n        std::shared_ptr<JniGlobalReference> nexaCallback;\n",
+    );
+    out.push_str(
+        "        if (callback != nullptr) {\n            ScopedLocalRef<jclass> nexaCallbackClass(env, env->GetObjectClass(callback));\n            if (nexaCallbackClass.get() == nullptr) return;\n",
+    );
+    out.push_str(&format!(
+        "            nexaDispatch = env->GetMethodID(nexaCallbackClass.get(), \"nexaDispatch\", \"({descriptor})V\");\n            if (nexaDispatch == nullptr) return;\n            nexaCallback = std::make_shared<JniGlobalReference>(env, callback);\n            if (nexaCallback->get() == nullptr) return;\n        }}\n        if (callback == nullptr) {{ (*handle)->{setter}({{}}); return; }}\n"
+    ));
+    let lambda_parameters = event
+        .parameters
+        .iter()
+        .enumerate()
+        .map(|(index, parameter)| format!("const {}& nexaValue{index}", cpp_type(&parameter.ty)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    out.push_str(&format!(
+        "        (*handle)->{setter}([nexaCallback, nexaDispatch]({lambda_parameters}) noexcept {{\n            try {{\n                ScopedJniEnvironment nexaEnvironment(nexaCallback->vm());\n                JNIEnv* nexaEnv = nexaEnvironment.get();\n                if (nexaEnv == nullptr) return;\n                JNIEnv* env = nexaEnv;\n                ScopedJniLocalFrame nexaLocalFrame(nexaEnv, {});\n                if (!nexaLocalFrame.active()) {{ if (nexaEnv->ExceptionCheck()) nexaEnv->ExceptionClear(); return; }}\n                ScopedLocalRef<jobject> nexaCallbackLocal(nexaEnv, nexaEnv->NewLocalRef(nexaCallback->get()));\n                if (nexaCallbackLocal.get() == nullptr || nexaEnv->ExceptionCheck()) {{ if (nexaEnv->ExceptionCheck()) nexaEnv->ExceptionClear(); return; }}\n                std::array<jvalue, {}> nexaArguments{{}};\n",
+        (event.parameters.len() * 4 + 8).max(16),
+        event.parameters.len(),
+    ));
+    for (index, parameter) in event.parameters.iter().enumerate() {
+        let jni_type =
+            android_jni_type(&parameter.ty).expect("validated event parameter has a JNI carrier");
+        out.push_str(&format!(
+            "                auto nexaArgument{index} = [&]() -> {jni_type} {{\n"
+        ));
+        render_jni_return(out, &parameter.ty, &format!("nexaValue{index}"));
+        out.push_str("                }();\n                if (nexaEnv->ExceptionCheck()) { nexaEnv->ExceptionClear(); return; }\n");
+        let field = match jni_type.as_str() {
+            "jboolean" => "z",
+            "jbyte" => "b",
+            "jshort" => "s",
+            "jint" => "i",
+            "jlong" => "j",
+            "jfloat" => "f",
+            "jdouble" => "d",
+            _ => "l",
+        };
+        let value = if field == "l" {
+            format!("static_cast<jobject>(nexaArgument{index})")
+        } else {
+            format!("nexaArgument{index}")
+        };
+        out.push_str(&format!(
+            "                nexaArguments[{index}].{field} = {value};\n"
+        ));
+    }
+    out.push_str(
+        "                nexaEnv->CallVoidMethodA(nexaCallbackLocal.get(), nexaDispatch, nexaArguments.data());\n                if (nexaEnv->ExceptionCheck()) nexaEnv->ExceptionClear();\n            } catch (...) { }\n        });\n",
+    );
+    render_jni_boundary_end(out);
+    out.push_str("}\n\n");
+}
+
+fn android_jni_callback_descriptor(ty: &TypeRef) -> String {
+    if android_cpp_map_type(ty).is_some() {
+        return "Ljava/util/Map;".to_owned();
+    }
+    if matches!(ty.name.as_str(), "Array" | "Set") {
+        let element = &ty.arguments[0];
+        if android_primitive_array(element).is_some() {
+            let code = android_primitive_descriptor(element);
+            return format!("[{code}");
+        }
+        return format!("[{}", android_jni_callback_descriptor(element));
+    }
+    let scalar = android_cpp_value(ty).expect("validated event callback type");
+    if ty.optional {
+        return match ty.name.as_str() {
+            "String" => "Ljava/lang/String;".to_owned(),
+            "Bytes" => "[B".to_owned(),
+            _ => {
+                let wrapper = match scalar.jni_kotlin {
+                    "Boolean" => "java/lang/Boolean",
+                    "Byte" => "java/lang/Byte",
+                    "Short" => "java/lang/Short",
+                    "Int" => "java/lang/Integer",
+                    "Long" => "java/lang/Long",
+                    "Float" => "java/lang/Float",
+                    "Double" => "java/lang/Double",
+                    _ => unreachable!("validated optional scalar carrier has a wrapper"),
+                };
+                format!("L{wrapper};")
+            }
+        };
+    }
+    match scalar.jni {
+        "jboolean" => "Z".to_owned(),
+        "jbyte" => "B".to_owned(),
+        "jshort" => "S".to_owned(),
+        "jint" => "I".to_owned(),
+        "jlong" => "J".to_owned(),
+        "jfloat" => "F".to_owned(),
+        "jdouble" => "D".to_owned(),
+        "jstring" => "Ljava/lang/String;".to_owned(),
+        "jbyteArray" => "[B".to_owned(),
+        _ => unreachable!("validated event callback type has a JVM descriptor"),
+    }
+}
+
+fn android_primitive_descriptor(ty: &TypeRef) -> &'static str {
+    match ty.name.as_str() {
+        "Bool" => "Z",
+        "Int8" | "UInt8" => "B",
+        "Int16" | "UInt16" => "S",
+        "Int32" | "UInt32" => "I",
+        "Int64" | "UInt64" => "J",
+        "Float32" => "F",
+        "Float64" => "D",
+        _ => unreachable!("validated primitive array element has a descriptor"),
+    }
 }
 
 fn render_jni_boundary_start(out: &mut String, return_type: &str) {
@@ -3635,6 +4214,11 @@ fn render_swift_array_aliases(out: &mut String, idl: &PluginIdl) {
             }
             collect_swift_array_types(&method.return_type, &mut add);
         }
+        for event in &interface.events {
+            for parameter in &event.parameters {
+                collect_swift_array_types(&parameter.ty, &mut add);
+            }
+        }
     }
     arrays.reverse();
     for array in arrays {
@@ -3689,6 +4273,11 @@ fn arrays_with_bool_facades(idl: &PluginIdl) -> Vec<TypeRef> {
                 collect_swift_array_types(&parameter.ty, &mut add);
             }
             collect_swift_array_types(&method.return_type, &mut add);
+        }
+        for event in &interface.events {
+            for parameter in &event.parameters {
+                collect_swift_array_types(&parameter.ty, &mut add);
+            }
         }
     }
     arrays
@@ -3774,6 +4363,11 @@ fn render_swift_map_adapters(out: &mut String, idl: &PluginIdl) {
                 collect_swift_map_types(&parameter.ty, &mut maps);
             }
             collect_swift_map_types(&method.return_type, &mut maps);
+        }
+        for event in &interface.events {
+            for parameter in &event.parameters {
+                collect_swift_map_types(&parameter.ty, &mut maps);
+            }
         }
     }
 
@@ -4054,10 +4648,153 @@ fn render_contract(out: &mut String, interface: &Interface, idl: &PluginIdl) {
     }
     for event in &interface.events {
         render_event_setter(out, event);
+        render_cpp_swift_event_setter(out, idl, interface, event);
     }
     out.push_str(
         "private:\n    mutable std::atomic<std::size_t> swift_references_{1};\n} NEXA_CXX_SWIFT_SHARED_REFERENCE(.nexaRetainForSwift, .nexaReleaseFromSwift);\n",
     );
+    for event in &interface.events {
+        for (index, parameter) in event.parameters.iter().enumerate() {
+            render_cpp_swift_event_copy_adapter(out, idl, interface, event, index, &parameter.ty);
+        }
+    }
+}
+
+fn render_cpp_swift_event_setter(
+    out: &mut String,
+    idl: &PluginIdl,
+    interface: &Interface,
+    event: &Event,
+) {
+    let callback_name = cpp_swift_event_callback_type_name(idl, interface, event);
+    let release_name = cpp_swift_event_release_type_name(idl, interface, event);
+    let setter = cpp_setter_name(&nexa_plugin_idl::event_callback_property(&event.name));
+    let method = cpp_swift_event_setter_name(interface, event);
+    let parameters = event
+        .parameters
+        .iter()
+        .enumerate()
+        .map(|(index, parameter)| {
+            format!("const {}& nexaEventValue{index}", cpp_type(&parameter.ty))
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let callback_parameters = std::iter::once("void* NEXA_CXX_SWIFT_NONNULL".to_owned())
+        .chain((0..event.parameters.len()).map(|_| "const void* NEXA_CXX_SWIFT_NONNULL".to_owned()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    out.push_str(&format!(
+        "    using {callback_name} = void (*)({callback_parameters});\n    using {release_name} = void (*)(void* NEXA_CXX_SWIFT_NONNULL);\n    void {method}({callback_name} NEXA_CXX_SWIFT_NULLABLE callback, void* NEXA_CXX_SWIFT_NULLABLE context, {release_name} NEXA_CXX_SWIFT_NULLABLE release) noexcept {{\n        if (callback == nullptr) {{\n            {setter}({{}});\n            if (context != nullptr && release != nullptr) release(context);\n            return;\n        }}\n        if (context == nullptr || release == nullptr) {{\n            {setter}({{}});\n            if (context != nullptr && release != nullptr) release(context);\n            return;\n        }}\n        NexaCppSwiftEventContextHandle retainedContext(context, release);\n        {setter}([retainedContext = std::move(retainedContext), callback]({parameters}) noexcept {{\n            callback(retainedContext.get(){});\n        }});\n    }}\n",
+        if event.parameters.is_empty() {
+            String::new()
+        } else {
+            (0..event.parameters.len())
+                .map(|index| format!(", static_cast<const void*>(&nexaEventValue{index})"))
+                .collect::<String>()
+        }
+    ));
+}
+
+fn render_cpp_swift_event_copy_adapter(
+    out: &mut String,
+    idl: &PluginIdl,
+    interface: &Interface,
+    event: &Event,
+    index: usize,
+    ty: &TypeRef,
+) {
+    let name = cpp_swift_event_copy_adapter_name(idl, interface, event, index);
+    let return_type = cpp_swift_collection_bridge_type(ty, idl);
+    let value = format!("*static_cast<const {}*>(rawValue)", cpp_type(ty));
+    let converted = if swift_cpp_map_types(ty).is_some() {
+        format!(
+            "{}({value})",
+            cpp_swift_map_conversion_name(idl, ty, "ToEntries")
+        )
+    } else if ty.name == "Array" && swift_cpp_array_leaf(ty).is_some_and(|leaf| leaf.name == "Bool")
+    {
+        format!(
+            "{}({value})",
+            cpp_swift_array_conversion_name(idl, ty, "FromNative")
+        )
+    } else if swift_cpp_needs_vector_bridge(ty) {
+        format!("{return_type}({value}.begin(), {value}.end())")
+    } else {
+        value
+    };
+    out.push_str(&format!(
+        "inline {return_type} {name}(const void* NEXA_CXX_SWIFT_NONNULL rawValue) noexcept {{ return {converted}; }}\n"
+    ));
+}
+
+fn cpp_swift_event_callback_type_name(
+    idl: &PluginIdl,
+    interface: &Interface,
+    event: &Event,
+) -> String {
+    unique_cpp_type_name(
+        idl,
+        &format!(
+            "NexaCppSwiftEventCallback{}_{}",
+            cpp_identifier(&interface.name),
+            cpp_identifier(&event.name)
+        ),
+    )
+}
+
+fn cpp_swift_event_release_type_name(
+    idl: &PluginIdl,
+    interface: &Interface,
+    event: &Event,
+) -> String {
+    unique_cpp_type_name(
+        idl,
+        &format!(
+            "NexaCppSwiftEventRelease{}_{}",
+            cpp_identifier(&interface.name),
+            cpp_identifier(&event.name)
+        ),
+    )
+}
+
+fn cpp_swift_event_setter_name(interface: &Interface, event: &Event) -> String {
+    let base = format!("nexaSwiftSetEvent{}", cpp_identifier(&event.name));
+    let mut occupied = std::collections::BTreeSet::new();
+    occupied.extend(
+        interface
+            .methods
+            .iter()
+            .map(|method| cpp_identifier(&method.name)),
+    );
+    occupied.extend(
+        interface
+            .events
+            .iter()
+            .map(|event| cpp_setter_name(&nexa_plugin_idl::event_callback_property(&event.name))),
+    );
+    let mut candidate = base.clone();
+    let mut suffix = 1usize;
+    while occupied.contains(&candidate) {
+        candidate = format!("{base}{suffix}");
+        suffix += 1;
+    }
+    candidate
+}
+
+fn cpp_swift_event_copy_adapter_name(
+    idl: &PluginIdl,
+    interface: &Interface,
+    event: &Event,
+    index: usize,
+) -> String {
+    unique_cpp_type_name(
+        idl,
+        &format!(
+            "nexaSwiftCopyEvent{}_{}_{index}",
+            cpp_identifier(&interface.name),
+            cpp_identifier(&event.name)
+        ),
+    )
 }
 
 fn render_getter(out: &mut String, property: &Property) {
@@ -4829,6 +5566,11 @@ fn optional_swift_cpp_types(idl: &PluginIdl) -> Vec<String> {
             }
             add(&method.return_type);
         }
+        for event in &interface.events {
+            for parameter in &event.parameters {
+                add(&parameter.ty);
+            }
+        }
     }
     names
 }
@@ -5096,9 +5838,10 @@ mod tests {
             "native class Watcher { init() event changed(value: Int32) fn dispose() }",
         )
         .expect("native class event IDL should parse");
-        let error = render_swift_adapters(&events, "dev.example.cpp-plugin")
-            .expect_err("unsupported C++ event adapters must fail project generation");
-        assert!(error.contains("do not yet support native class events"));
+        let adapters = render_swift_adapters(&events, "dev.example.cpp-plugin")
+            .expect("Swift event adapters should preserve instance-scoped callbacks");
+        assert!(adapters.contains("public var onChanged: ((Int32) -> Void)?"));
+        assert!(adapters.contains("nexaCppEventInvokedev_example_cpp_plugin_Watcher_changed"));
     }
 
     #[test]
@@ -5518,15 +6261,17 @@ mod tests {
             "native class Watcher { init() event changed(value: Int32) fn dispose() }",
         )
         .expect("native class event IDL should parse");
-        let error = render_android_adapters(
+        let (kotlin, jni) = render_android_adapters(
             &events,
             "dev.example.cpp-plugin",
             "Watcher",
             "dev.example.app",
             0,
         )
-        .expect_err("unsupported C++ event adapters must fail generation");
-        assert!(error.contains("do not yet support native class events"));
+        .expect("Android event adapters should preserve instance-scoped callbacks");
+        assert!(kotlin.contains("override var onChanged: ((Int) -> Unit)?"));
+        assert!(jni.contains("GetMethodID(nexaCallbackClass.get(), \"nexaDispatch\", \"(I)V\")"));
+        assert!(jni.contains("instance->setOnChanged({})"));
 
         let optional =
             nexa_plugin_idl::parse("service Lookup { fn maybe(value: UInt64?) -> UInt64? }")

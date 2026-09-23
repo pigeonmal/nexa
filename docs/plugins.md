@@ -207,8 +207,10 @@ for reachable C++ plugins that need it. Async service and native-class methods
 accept collection parameters and returns supported by their synchronous
 adapters; conversion runs on the target's existing background async path.
 Android maps C++ `NexaResult` failures to the declared Kotlin sealed exception
-cases for non-optional primitive, string, and byte payloads. C++ event adapters
-remain unsupported.
+cases for non-optional primitive, string, and byte payloads. Native-class C++
+events use per-instance callbacks; Swift delivers them on the main actor and
+Android posts them to the main looper. Replacing or disposing a callback
+deactivates pending deliveries and releases retained callback state.
 Android optional C++ values support `Bool`, signed and unsigned integers,
 floating-point, `String`, and `Bytes`. Generated R8 rules
 preserve JNI lookup names. Plugin authors implement the generated C++ contract

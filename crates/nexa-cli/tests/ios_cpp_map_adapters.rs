@@ -101,6 +101,7 @@ service Lookup {
 }
 native class Store {
     init(entries: Map<Int32, String>, payloads: Map<Bytes, Bytes>, history: Array<Array<Int32>>)
+    event updated(value: Int32, label: String, payload: Bytes, entries: Map<Int32, String>, flags: Array<Bool>)
     property entries: Map<Int32, String>
     property payloads: Map<Bytes, Bytes>
     property nestedPayloads: Map<Int32, Map<Int32, Bytes>>
@@ -199,6 +200,9 @@ func mapAdapterProbe() async {
     _ = LookupPlugin.shared.echoNestedStrings(values: nestedStrings)
     _ = LookupPlugin.shared.echoNestedPayloads(values: nestedPayloads)
     let store = StoreImpl(entries: numbers, payloads: payloads, history: nestedIntegers)
+    store.onUpdated = { value, label, payload, entries, flags in
+        _ = (value, label, payload, entries, flags)
+    }
     _ = store.entries
     store.entries = numbers
     _ = store.payloads

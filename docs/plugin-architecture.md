@@ -156,8 +156,10 @@ deterministic release. iOS translates declared async typed errors from C++
 translates async `NexaResult` failures into the declared Kotlin sealed
 exception cases for supported scalar, string, and byte payloads. Async methods
 also accept supported collection parameters and return values, with collection
-conversion performed on the existing background execution path. C++ events
-remain open.
+conversion performed on the existing background execution path. Native-class
+C++ events use per-instance callbacks; Swift delivers them on the main actor and
+Android posts them to the main looper. Callback replacement and disposal
+deactivate pending deliveries and release retained callback state.
 
 iOS bridges optional primitive, string, and byte values; flat primitive,
 string, and byte arrays; compatible sets; recursively nested arrays; and maps
@@ -210,8 +212,8 @@ type-check generated Swift `Data` to C++ byte-vector adapters and set facades.
    support non-throwing async scalar, optional scalar, string, and byte methods;
    iOS also translates declared typed errors for supported scalar/string/byte
    results. Android supports async typed errors with non-optional primitive,
-   string, and byte payloads. C++ events on both platforms and collection
-   combinations outside the covered shapes remain open. Android map keys
+   string, and byte payloads. Native-class C++ events are supported on both
+   platforms; collection combinations outside the covered shapes remain open. Android map keys
    exclude floating-point values, and nullable maps are
    supported only at the outer map level.
 2. Reuse native resources across separate route lifetimes; route parameters
