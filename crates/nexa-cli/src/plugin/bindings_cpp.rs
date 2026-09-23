@@ -83,7 +83,7 @@ pub(crate) fn render(idl: &PluginIdl, plugin_id: &str) -> String {
     out
 }
 
-/// Emits direct Swift adapters for supported synchronous C++ plugin values.
+/// Emits direct Swift adapters for supported C++ plugin values.
 /// Unsupported signatures fail generation instead of producing a wrapper that
 /// cannot honor the IDL.
 pub(crate) fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<String, String> {
@@ -91,6 +91,16 @@ pub(crate) fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<
     let byte_buffer_type = format!("{namespace}.{}", cpp_byte_buffer_alias_name(idl));
     let optional_bridge = format!("{namespace}.{}", cpp_optional_bridge_name(idl));
     let mut out = String::from("import CxxStdlib\nimport Foundation\n\n");
+    if idl
+        .interfaces
+        .iter()
+        .flat_map(|interface| &interface.methods)
+        .any(|method| method.is_async)
+    {
+        out.push_str(
+            "private final class NexaCppFutureWork<Output>: @unchecked Sendable {\n    private let operation: () -> Output\n    init(_ operation: @escaping () -> Output) { self.operation = operation }\n    func run() -> Output { operation() }\n}\n\n",
+        );
+    }
     let mut generated = false;
 
     for interface in &idl.interfaces {
@@ -2491,9 +2501,26 @@ fn jni_mangle(value: &str) -> String {
 }
 
 fn validate_swift_cpp_method(interface: &str, method: &Method) -> Result<(), String> {
-    if method.is_async || method.throws.is_some() || method.return_type.name == "Result" {
+    if method.throws.is_some() || method.return_type.name == "Result" {
         return Err(format!(
-            "C++ Swift adapters currently require synchronous non-throwing methods; `{interface}.{}` is async or throwing",
+            "C++ Swift adapters do not yet support typed throwing methods; `{interface}.{}` declares `throws` or returns `Result`",
+            method.name
+        ));
+    }
+    if method.is_async
+        && method
+            .parameters
+            .iter()
+            .any(|parameter| swift_cpp_is_collection(&parameter.ty))
+    {
+        return Err(format!(
+            "C++ Swift async adapters do not yet support collection parameters; `{interface}.{}` uses an async collection contract",
+            method.name
+        ));
+    }
+    if method.is_async && swift_cpp_is_collection(&method.return_type) {
+        return Err(format!(
+            "C++ Swift async adapters do not yet support collection returns; `{interface}.{}` uses an async collection contract",
             method.name
         ));
     }
@@ -2501,6 +2528,10 @@ fn validate_swift_cpp_method(interface: &str, method: &Method) -> Result<(), Str
         ensure_swift_cpp_value(interface, &parameter.name, &parameter.ty, false)?;
     }
     ensure_swift_cpp_value(interface, &method.name, &method.return_type, true)
+}
+
+fn swift_cpp_is_collection(ty: &TypeRef) -> bool {
+    matches!(ty.name.as_str(), "Array" | "Set" | "Map")
 }
 
 fn ensure_swift_cpp_value(
@@ -2983,12 +3014,40 @@ fn render_swift_cpp_method(
     );
     let return_type =
         swift_cpp_value_type(&method.return_type).expect("validated method return type");
+    let async_modifier = if method.is_async { " async" } else { "" };
     out.push_str(&format!(
-        "\n{indent}public func {}({parameters}) -> {return_type} {{\n",
+        "\n{indent}public func {}({parameters}){async_modifier} -> {return_type} {{\n",
         method.name
     ));
     let method_name = adapter_method.unwrap_or(&method.name);
     let call = format!("{receiver}.{}({arguments})", cpp_identifier(method_name));
+    if method.is_async {
+        out.push_str(&format!("{indent}    var nexaCppFuture = {call}\n"));
+        let work_type = if return_type == "Void" {
+            "Void"
+        } else {
+            return_type.as_str()
+        };
+        let converted = if return_type == "Void" {
+            "nexaCppFuture.get()".to_owned()
+        } else {
+            swift_cpp_result_expression(&method.return_type, "nexaCppFuture.get()", idl, namespace)
+        };
+        out.push_str(&format!(
+            "{indent}    let nexaCppFutureWork = NexaCppFutureWork<{work_type}> {{ {converted} }}\n"
+        ));
+        if return_type == "Void" {
+            out.push_str(&format!(
+                "{indent}    await withCheckedContinuation {{ (continuation: CheckedContinuation<Void, Never>) in\n{indent}        DispatchQueue.global(qos: .userInitiated).async {{\n{indent}            nexaCppFutureWork.run()\n{indent}            continuation.resume()\n{indent}        }}\n{indent}    }}\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "{indent}    return await withCheckedContinuation {{ (continuation: CheckedContinuation<{return_type}, Never>) in\n{indent}        DispatchQueue.global(qos: .userInitiated).async {{\n{indent}            continuation.resume(returning: nexaCppFutureWork.run())\n{indent}        }}\n{indent}    }}\n"
+            ));
+        }
+        out.push_str(&format!("{indent}}}\n"));
+        return;
+    }
     if return_type == "Void" {
         out.push_str(&format!("{indent}    {call}\n"));
     } else {
@@ -4220,13 +4279,18 @@ mod tests {
     }
 
     #[test]
-    fn swift_cpp_adapters_use_direct_calls_and_reject_unsupported_async_contracts() {
+    fn swift_cpp_adapters_bridge_async_scalar_string_and_byte_methods() {
         let idl = nexa_plugin_idl::parse(
             r#"
             service Counter {
                 fn echo(value: Int32) -> Int32
                 fn echoText(value: String) -> String
                 fn echoBytes(value: Bytes) -> Bytes
+                async fn echoAsync(value: Int32) -> Int32
+                async fn echoOptionalAsync(value: Int32?) -> Int32?
+                async fn echoTextAsync(value: String) -> String
+                async fn echoBytesAsync(value: Bytes) -> Bytes
+                async fn flush()
                 fn echoUByte(value: UInt8) -> UInt8
                 fn echoUShort(value: UInt16) -> UInt16
                 fn echoUInt(value: UInt32) -> UInt32
@@ -4240,6 +4304,7 @@ mod tests {
                 fn increment()
                 fn echo(value: String) -> String
                 fn echoBytes(value: Bytes) -> Bytes
+                async fn currentValue() -> Int32
             }
             "#,
         )
@@ -4274,12 +4339,28 @@ mod tests {
             "return String(plugin_dev.plugin_example.plugin_cpp_dash_plugin.Counter.echoText(std.string(value)))"
         ));
         assert!(adapters.contains("return String(nexaCppObject.echo(std.string(value)))"));
+        assert!(
+            adapters.contains("private final class NexaCppFutureWork<Output>: @unchecked Sendable")
+        );
+        assert!(adapters.contains("public func echoAsync(value: Int32) async -> Int32"));
+        assert!(adapters.contains("public func echoOptionalAsync(value: Int32?) async -> Int32?"));
+        assert!(adapters.contains("public func echoTextAsync(value: String) async -> String"));
+        assert!(adapters.contains("public func echoBytesAsync(value: Data) async -> Data"));
+        assert!(adapters.contains("public func flush() async -> Void"));
+        assert!(adapters.contains("return await withCheckedContinuation"));
+        assert!(adapters.contains("public func currentValue() async -> Int32"));
+
+        let synchronous = nexa_plugin_idl::parse("service Clock { fn now() -> Int64 }")
+            .expect("synchronous native IDL should parse");
+        let adapters = render_swift_adapters(&synchronous, "dev.example.cpp-plugin")
+            .expect("synchronous native contract should generate Swift adapters");
+        assert!(!adapters.contains("NexaCppFutureWork"));
 
         let asynchronous = nexa_plugin_idl::parse("service Clock { async fn now() -> Int64 }")
             .expect("async native IDL should parse");
-        let error = render_swift_adapters(&asynchronous, "dev.example.cpp-plugin")
-            .expect_err("unsupported C++ async signatures must fail project generation");
-        assert!(error.contains("synchronous non-throwing methods"));
+        let adapters = render_swift_adapters(&asynchronous, "dev.example.cpp-plugin")
+            .expect("async scalar C++ signatures should generate Swift adapters");
+        assert!(adapters.contains("public func now() async -> Int64"));
 
         let throwing = nexa_plugin_idl::parse(
             "error Failure { rejected } service Clock { async fn read() throws Failure }",
@@ -4287,7 +4368,14 @@ mod tests {
         .expect("throwing native IDL should parse");
         let error = render_swift_adapters(&throwing, "dev.example.cpp-plugin")
             .expect_err("unsupported C++ throwing signatures must fail project generation");
-        assert!(error.contains("synchronous non-throwing methods"));
+        assert!(error.contains("typed throwing methods"));
+
+        let async_collection =
+            nexa_plugin_idl::parse("service Clock { async fn history() -> Array<Int32> }")
+                .expect("async collection native IDL should parse");
+        let error = render_swift_adapters(&async_collection, "dev.example.cpp-plugin")
+            .expect_err("async collection signatures should fail project generation");
+        assert!(error.contains("collection returns"));
 
         let events = nexa_plugin_idl::parse(
             "native class Watcher { init() event changed(value: Int32) fn dispose() }",

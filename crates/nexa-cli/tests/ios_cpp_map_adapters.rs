@@ -34,8 +34,7 @@ fn command_available(program: &str, args: &[&str]) -> bool {
 }
 
 #[test]
-fn generated_ios_cpp_map_adapters_typecheck_service_and_native_class_maps_when_swift_is_available()
-{
+fn generated_ios_cpp_adapters_typecheck_maps_and_async_methods_when_swift_is_available() {
     if !command_available("swiftc", &["--version"]) {
         return;
     }
@@ -82,6 +81,11 @@ fn generated_ios_cpp_map_adapters_typecheck_service_and_native_class_maps_when_s
     fn echoNestedBooleans(values: Array<Array<Bool>>) -> Array<Array<Bool>>
     fn echoNestedStrings(values: Array<Array<String>>) -> Array<Array<String>>
     fn echoNestedPayloads(values: Array<Array<Bytes>>) -> Array<Array<Bytes>>
+    async fn echoAsync(value: Int32) -> Int32
+    async fn echoOptionalAsync(value: Int32?) -> Int32?
+    async fn echoTextAsync(value: String) -> String
+    async fn echoPayloadAsync(value: Bytes) -> Bytes
+    async fn flushAsync()
 }
 native class Store {
     init(entries: Map<Int32, String>, payloads: Map<Bytes, Bytes>, history: Array<Array<Int32>>)
@@ -92,6 +96,7 @@ native class Store {
     fn echo(entries: Map<Int32, String>) -> Map<Int32, String>
     fn echoNestedMaps(values: Map<Int32, Map<Int32, Bytes>>) -> Map<Int32, Map<Int32, Bytes>>
     fn echoHistory(values: Array<Array<Int32>>) -> Array<Array<Int32>>
+    async fn currentCount() -> Int32
     fn dispose()
 }
 "#,
@@ -134,7 +139,12 @@ native class Store {
         r#"import Foundation
 
 @MainActor
-func mapAdapterProbe() {
+func mapAdapterProbe() async {
+    _ = await LookupPlugin.shared.echoAsync(value: 42)
+    _ = await LookupPlugin.shared.echoOptionalAsync(value: nil)
+    _ = await LookupPlugin.shared.echoTextAsync(value: "Nexa 🚀")
+    _ = await LookupPlugin.shared.echoPayloadAsync(value: Data([0, 1, 255]))
+    await LookupPlugin.shared.flushAsync()
     _ = LookupPlugin.shared.mapBool(values: [false: true, true: false])
     _ = LookupPlugin.shared.mapInt8(values: [-1: 1])
     _ = LookupPlugin.shared.mapInt16(values: [-2: 2])
@@ -179,6 +189,7 @@ func mapAdapterProbe() {
     _ = store.echo(entries: numbers)
     _ = store.echoNestedMaps(values: nestedPayloadMap)
     _ = store.echoHistory(values: nestedIntegers)
+    _ = await store.currentCount()
     store.dispose()
 }
 "#,
@@ -188,6 +199,8 @@ func mapAdapterProbe() {
     let checked = Command::new("swiftc")
         .args([
             "-typecheck",
+            "-swift-version",
+            "6",
             "-cxx-interoperability-mode=default",
             "-import-objc-header",
         ])
