@@ -34,11 +34,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build Nexa CLI
         run: cargo build -p nexa-cli --locked
-      - name: Generate and compile a native iOS app
+      - name: Generate and compile the iOS networking app
         shell: bash
         run: |
           project="$RUNNER_TEMP/nexa-ios-compile"
-          target/debug/nexa create CiIos --directory "$project"
+          target/debug/nexa create NetworkFetchSmoke --directory "$project"
+          cp "$GITHUB_WORKSPACE/tests/fixtures/dev_network_fetch.nx" "$project/App.nx"
           cd "$project"
           "$GITHUB_WORKSPACE/target/debug/nexa" test --ios
 
@@ -56,11 +57,12 @@ jobs:
       - uses: android-actions/setup-android@v4
       - name: Build Nexa CLI
         run: cargo build -p nexa-cli --locked
-      - name: Generate Android compile project
+      - name: Generate Android networking compile project
         shell: bash
         run: |
           project="$GITHUB_WORKSPACE/build/ci-android"
-          target/debug/nexa create CiAndroid --directory "$project"
+          target/debug/nexa create NetworkFetchSmoke --directory "$project"
+          cp "$GITHUB_WORKSPACE/tests/fixtures/dev_network_fetch.nx" "$project/App.nx"
       - uses: gradle/actions/setup-gradle@v6
         with:
           cache-provider: basic
