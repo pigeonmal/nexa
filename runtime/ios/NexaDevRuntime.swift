@@ -1265,6 +1265,23 @@ private final class NexaDevStateStore: ObservableObject {
     }
 }
 
+private struct NexaDevContentSlot: @unchecked Sendable {
+    let nodes: [Any]
+    let scope: String
+    let parameters: [String: Any]
+}
+
+private struct NexaDevContentSlotKey: EnvironmentKey {
+    static let defaultValue: NexaDevContentSlot? = nil
+}
+
+private extension EnvironmentValues {
+    var nexaDevContentSlot: NexaDevContentSlot? {
+        get { self[NexaDevContentSlotKey.self] }
+        set { self[NexaDevContentSlotKey.self] = newValue }
+    }
+}
+
 @MainActor
 private struct NexaDevNodeList: View {
     let nodes: [Any]
@@ -1273,6 +1290,7 @@ private struct NexaDevNodeList: View {
     var focusedField: FocusState<String?>.Binding
     var parameters: [String: Any] = [:]
     var stateScope: String = "app"
+    @Environment(\.nexaDevContentSlot) private var contentSlot
 
     var body: some View {
         let _ = store.revision
@@ -1285,10 +1303,17 @@ private struct NexaDevNodeList: View {
     }
 
     private func renderNode(_ rawNode: Any, locals: [String: Any], scope: String) -> AnyView {
-        guard let tagged = rawNode as? [String: Any], let (kind, payload) = tagged.first else {
+        let kind: String
+        let fields: [String: Any]
+        if let unitVariant = rawNode as? String {
+            kind = unitVariant
+            fields = [:]
+        } else if let tagged = rawNode as? [String: Any], let (tag, payload) = tagged.first {
+            kind = tag
+            fields = payload as? [String: Any] ?? [:]
+        } else {
             return AnyView(EmptyView())
         }
-        let fields = payload as? [String: Any] ?? [:]
         switch kind {
         case "Layout":
             let children = fields["children"] as? [Any] ?? []
@@ -1328,6 +1353,39 @@ private struct NexaDevNodeList: View {
                 return AnyView(Text(text).font(.system(size: size)))
             }
             return AnyView(Text(text))
+        case "Content":
+            guard let contentSlot else { return AnyView(EmptyView()) }
+            return AnyView(NexaDevNodeList(
+                nodes: contentSlot.nodes,
+                module: module,
+                store: store,
+                focusedField: focusedField,
+                parameters: contentSlot.parameters,
+                stateScope: contentSlot.scope
+            ))
+        case "ComponentCall":
+            let name = fields["name"] as? String ?? ""
+            guard let component = (module["components"] as? [[String: Any]])?.first(where: {
+                $0["name"] as? String == name
+            }) else { return AnyView(EmptyView()) }
+            var componentParameters: [String: Any] = [:]
+            for argument in fields["arguments"] as? [[Any]] ?? [] where argument.count >= 2 {
+                guard let parameter = argument[0] as? String else { continue }
+                componentParameters[parameter] = store.evaluate(argument[1], locals: locals, scope: scope)
+            }
+            let slot = NexaDevContentSlot(
+                nodes: fields["children"] as? [Any] ?? [],
+                scope: scope,
+                parameters: locals
+            )
+            return AnyView(NexaDevNodeList(
+                nodes: component["body"] as? [Any] ?? [],
+                module: module,
+                store: store,
+                focusedField: focusedField,
+                parameters: componentParameters,
+                stateScope: "component/\(name)"
+            ).environment(\.nexaDevContentSlot, slot))
         case "Button":
             let label = store.stringify(store.evaluate(fields["label"] ?? "", locals: locals, scope: scope))
             let actions = fields["actions"] as? [Any] ?? []

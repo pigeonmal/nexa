@@ -624,8 +624,8 @@
       },
       {
         "name": "Content",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "ComponentCall",
@@ -1124,6 +1124,10 @@
       "android": "covered"
     },
     "permission_status_api_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "custom_component_arguments_and_content_projection": {
       "ios": "covered",
       "android": "covered"
     },

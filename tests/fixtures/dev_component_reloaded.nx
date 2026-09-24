@@ -1,0 +1,16 @@
+component Card(title: String) {
+    body {
+        Column {
+            Text("Card: $title")
+            Content()
+        }
+    }
+}
+
+app ComponentSmoke {
+    body {
+        Card(title: "Reloaded") {
+            Text("Projected child")
+        }
+    }
+}

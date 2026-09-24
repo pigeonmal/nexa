@@ -1,0 +1,5 @@
+app ComponentSmoke {
+    body {
+        Text("Initial")
+    }
+}

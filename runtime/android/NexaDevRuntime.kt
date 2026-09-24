@@ -116,6 +116,18 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 
 private val LocalNexaDevNavController = staticCompositionLocalOf<NavHostController?> { null }
+private data class NexaDevContentSlot(
+    val nodes: JSONArray,
+    val scope: String,
+    val parameters: Map<String, Any>,
+)
+private val LocalNexaDevContentSlot = staticCompositionLocalOf<NexaDevContentSlot?> { null }
+
+private fun nexaDevNodeObject(rawNode: Any?): JSONObject = when (rawNode) {
+    is JSONObject -> rawNode
+    is String -> JSONObject().put(rawNode, JSONObject.NULL)
+    else -> JSONObject()
+}
 
 private fun openNexaUrl(context: Context, value: String) {
     val uri = Uri.parse(value)
@@ -1151,7 +1163,7 @@ private fun ColumnScope.RenderColumnChildren(
 ) {
     for (index in 0 until nodes.length()) {
         androidx.compose.runtime.key(index) {
-            val child = nodes.optJSONObject(index) ?: JSONObject()
+            val child = nexaDevNodeObject(nodes.opt(index))
             val modifier = if (child.has("FastList") || child.has("RefreshControl")) Modifier.weight(1f) else Modifier
             NexaDevNode(child, module, store, locals, scope, modifier)
         }
@@ -1171,6 +1183,52 @@ private fun NexaDevNode(
     val kind = node.keys().asSequence().firstOrNull() ?: return
     val fields = node.optJSONObject(kind) ?: JSONObject()
     when (kind) {
+        "Content" -> {
+            val slot = LocalNexaDevContentSlot.current ?: return
+            NexaDevNodeList(
+                slot.nodes,
+                module,
+                store,
+                parameters = slot.parameters,
+                scope = slot.scope,
+            )
+        }
+        "ComponentCall" -> {
+            val name = fields.optString("name")
+            val components = module.optJSONArray("components") ?: JSONArray()
+            var component: JSONObject? = null
+            for (index in 0 until components.length()) {
+                val candidate = components.optJSONObject(index) ?: continue
+                if (candidate.optString("name") == name) {
+                    component = candidate
+                    break
+                }
+            }
+            val resolved = component ?: return
+            val parameters = mutableMapOf<String, Any>()
+            val arguments = fields.optJSONArray("arguments") ?: JSONArray()
+            for (index in 0 until arguments.length()) {
+                val argument = arguments.optJSONArray(index) ?: continue
+                val parameter = argument.optString(0)
+                if (parameter.isNotEmpty()) {
+                    parameters[parameter] = store.evaluate(argument.opt(1), locals, scope)
+                }
+            }
+            val slot = NexaDevContentSlot(
+                fields.optJSONArray("children") ?: JSONArray(),
+                scope,
+                locals,
+            )
+            CompositionLocalProvider(LocalNexaDevContentSlot provides slot) {
+                NexaDevNodeList(
+                    resolved.optJSONArray("body") ?: JSONArray(),
+                    module,
+                    store,
+                    parameters = parameters,
+                    scope = "component/$name",
+                )
+            }
+        }
         "Layout" -> {
             val children = fields.optJSONArray("children") ?: JSONArray()
             val spacing = fields.optDouble("spacing", 0.0).dp
@@ -1668,7 +1726,7 @@ private fun RenderChildren(
 ) {
     for (index in 0 until nodes.length()) {
         androidx.compose.runtime.key(index) {
-            NexaDevNode(nodes.optJSONObject(index) ?: JSONObject(), module, store, locals, scope)
+            NexaDevNode(nexaDevNodeObject(nodes.opt(index)), module, store, locals, scope)
         }
     }
 }
