@@ -77,7 +77,7 @@ fn inventory_tracks_every_public_ir_node_and_interpreter_variant() {
                         assert_eq!(
                             status,
                             Some("covered"),
-                            "{enum_name}::{} has no {platform} emulator scenario",
+                            "{enum_name}::{} has no {platform} coverage evidence",
                             entry["name"]
                         );
                     }

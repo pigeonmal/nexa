@@ -119,7 +119,10 @@ fn android_aot_dependencies_remain_feature_gated() {
 }
 
 mod template_generation {
+    use std::fs;
+
     use crate::ProjectConfig;
+    use crate::templates;
     use crate::templates::*;
 
     fn ios_project_file(
@@ -448,6 +451,117 @@ mod template_generation {
         let manifest = android_manifest("Demo", "com.example.demo", false, &config, &[plugin]);
         assert!(manifest.contains("android.permission.CAMERA"));
         assert!(manifest.contains("android.permission.RECORD_AUDIO"));
+    }
+
+    #[test]
+    fn every_configured_permission_maps_to_ios_and_android_manifests() {
+        let path = std::env::temp_dir().join(format!(
+            "nexa-all-permissions-{}-{}.nx",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        fs::write(
+            &path,
+            r#"config { permissions {
+                camera: "Camera purpose",
+                microphone: "Microphone purpose",
+                photos: "Photos purpose",
+                location: "Location purpose",
+                notifications: "Notifications purpose",
+                contacts: "Contacts purpose",
+                calendar: "Calendar purpose",
+                bluetooth: "Bluetooth purpose"
+            } }"#,
+        )
+        .expect("write permission config");
+        let config = ProjectConfig::parse_file(&path, &[], "Permissions")
+            .expect("parse all configured permissions");
+        fs::remove_file(path).expect("remove permission config");
+
+        let plist =
+            ios_info_plist("Permissions", &config, &[]).expect("generate iOS permission metadata");
+        let manifest = templates::android_manifest(
+            "Permissions",
+            "com.example.permissions",
+            false,
+            &config,
+            &[],
+        );
+        let platform_permissions = [
+            (
+                "camera",
+                Some("NSCameraUsageDescription"),
+                &["android.permission.CAMERA"][..],
+            ),
+            (
+                "microphone",
+                Some("NSMicrophoneUsageDescription"),
+                &["android.permission.RECORD_AUDIO"][..],
+            ),
+            (
+                "photos",
+                Some("NSPhotoLibraryUsageDescription"),
+                &[
+                    "android.permission.READ_MEDIA_IMAGES",
+                    "android.permission.READ_EXTERNAL_STORAGE",
+                ][..],
+            ),
+            (
+                "location",
+                Some("NSLocationWhenInUseUsageDescription"),
+                &[
+                    "android.permission.ACCESS_COARSE_LOCATION",
+                    "android.permission.ACCESS_FINE_LOCATION",
+                ][..],
+            ),
+            (
+                "notifications",
+                None,
+                &["android.permission.POST_NOTIFICATIONS"][..],
+            ),
+            (
+                "contacts",
+                Some("NSContactsUsageDescription"),
+                &[
+                    "android.permission.READ_CONTACTS",
+                    "android.permission.WRITE_CONTACTS",
+                ][..],
+            ),
+            (
+                "calendar",
+                Some("NSCalendarsFullAccessUsageDescription"),
+                &[
+                    "android.permission.READ_CALENDAR",
+                    "android.permission.WRITE_CALENDAR",
+                ][..],
+            ),
+            (
+                "bluetooth",
+                Some("NSBluetoothAlwaysUsageDescription"),
+                &[
+                    "android.permission.BLUETOOTH_SCAN",
+                    "android.permission.BLUETOOTH_CONNECT",
+                ][..],
+            ),
+        ];
+        for (name, ios_key, android_permissions) in platform_permissions {
+            if let Some(key) = ios_key {
+                assert!(
+                    plist.contains(&format!("<key>{key}</key>")),
+                    "missing iOS {name}"
+                );
+            }
+            for permission in android_permissions {
+                assert!(
+                    manifest.contains(permission),
+                    "missing Android {name} permission {permission}"
+                );
+            }
+        }
+        assert!(!plist.contains("NSNotificationsUsageDescription"));
     }
 
     #[test]

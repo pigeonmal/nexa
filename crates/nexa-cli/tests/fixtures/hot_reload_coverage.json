@@ -5,18 +5,18 @@
     "PluginEntitlementValue": [
       {
         "name": "String",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Bool",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Strings",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "Permission": [
@@ -27,38 +27,38 @@
       },
       {
         "name": "Microphone",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Photos",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Location",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Notifications",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Contacts",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Calendar",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Bluetooth",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "NumericType": [
