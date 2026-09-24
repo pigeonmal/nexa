@@ -1118,6 +1118,10 @@
     "async_app_and_screen_on_appear": {
       "ios": "covered",
       "android": "covered"
+    },
+    "file_and_path_apis_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
     }
   },
   "runtime_features": {

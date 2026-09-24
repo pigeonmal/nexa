@@ -16,7 +16,7 @@ use nexa_syntax::ast::Program;
 
 // Bump when compiler or backend semantics change without a source-graph change.
 // This prevents old generated native units from surviving a generator update.
-const CACHE_VERSION: &str = "build-v91";
+const CACHE_VERSION: &str = "build-v92";
 
 pub(super) fn restore_warnings(entry: &Path, key: &str) -> Result<Option<Vec<String>>, String> {
     let path = cache_directory(entry).join(format!("{key}.warnings"));

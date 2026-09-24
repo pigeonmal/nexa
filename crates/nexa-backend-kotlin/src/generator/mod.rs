@@ -61,6 +61,11 @@ pub(super) fn generate_for_dev_with_project_features(
     // the same first-party Cronet adapter available even if the initial app
     // does not call Network yet.
     features.uses_network_api = true;
+    // File and Path calls can be introduced by a hot reload after the first
+    // native build, so keep the same first-party helpers available in dev.
+    features.uses_path_api = true;
+    features.uses_file_api = true;
+    features.uses_file_async = true;
     features.uses_native_library = true;
     let project_features = project_features_from_analysis(module, &features);
     let generated = generate_with_analysis(module, &features);

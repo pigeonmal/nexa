@@ -1,0 +1,7 @@
+app DevFileApiSmoke {
+    state status: String = "Waiting"
+
+    body {
+        Text("File: $status")
+    }
+}

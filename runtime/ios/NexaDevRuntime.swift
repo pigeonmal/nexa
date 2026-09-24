@@ -976,13 +976,6 @@ private final class NexaDevStateStore: ObservableObject {
     ) async throws -> Any {
         let namespace = call["namespace"] as? String ?? ""
         let name = call["name"] as? String ?? ""
-        guard namespace == "Network", name == "fetch" || name == "download" else {
-            throw NSError(
-                domain: "NexaDevRuntime",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Unsupported async native call \\(namespace).\\(name)"]
-            )
-        }
         var options: [String: Any] = [:]
         for argument in call["arguments"] as? [[Any]] ?? [] where argument.count >= 2 {
             guard let argumentName = argument[0] as? String else { continue }
@@ -993,6 +986,46 @@ private final class NexaDevStateStore: ObservableObject {
         }
         func numberOption(_ key: String, _ fallback: Double) -> Double {
             (options[key] as? NSNumber)?.doubleValue ?? fallback
+        }
+        if namespace == "Path" {
+            switch name {
+            case "documents": return NexaPath.documents()
+            case "caches": return NexaPath.caches()
+            case "temporary": return NexaPath.temporary()
+            case "appSupport": return NexaPath.appSupport()
+            case "join": return NexaPath.join(stringOption("path"), stringOption("component"))
+            default:
+                throw NSError(
+                    domain: "NexaDevRuntime",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Unsupported native call \\(namespace).\\(name)"]
+                )
+            }
+        }
+        if namespace == "File", name == "exists" {
+            return NexaFile.exists(stringOption("path"))
+        }
+        if namespace == "File" {
+            switch name {
+            case "readText": return try await NexaFile.readText(stringOption("path"))
+            case "writeText": return try await NexaFile.writeText(
+                stringOption("contents"), to: stringOption("path")
+            )
+            case "delete": return try await NexaFile.delete(stringOption("path"))
+            default:
+                throw NSError(
+                    domain: "NexaDevRuntime",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Unsupported async native call \\(namespace).\\(name)"]
+                )
+            }
+        }
+        guard namespace == "Network", name == "fetch" || name == "download" else {
+            throw NSError(
+                domain: "NexaDevRuntime",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Unsupported async native call \\(namespace).\\(name)"]
+            )
         }
         let headers = options["headers"] as? [String: String] ?? [:]
         let pins = Set(options["certificatePins"] as? Set<String> ?? [])
@@ -1113,7 +1146,40 @@ private final class NexaDevStateStore: ObservableObject {
             }
             guard let body = function["body"] else { return NSNull() }
             return evaluate(body, locals: functionScope, scope: scope)
+        case "NativeCall":
+            guard let call = payload as? [String: Any] else { return NSNull() }
+            return invokeNativeSync(call, locals: locals, scope: scope)
         default: return NSNull()
+        }
+    }
+
+    private func invokeNativeSync(
+        _ call: [String: Any],
+        locals: [String: Any],
+        scope: String
+    ) -> Any {
+        let namespace = call["namespace"] as? String ?? ""
+        let name = call["name"] as? String ?? ""
+        var options: [String: Any] = [:]
+        for argument in call["arguments"] as? [[Any]] ?? [] where argument.count >= 2 {
+            guard let argumentName = argument[0] as? String else { continue }
+            options[argumentName] = evaluate(argument[1], locals: locals, scope: scope)
+        }
+        func stringOption(_ key: String) -> String { options[key] as? String ?? "" }
+        switch namespace {
+        case "Path":
+            switch name {
+            case "documents": return NexaPath.documents()
+            case "caches": return NexaPath.caches()
+            case "temporary": return NexaPath.temporary()
+            case "appSupport": return NexaPath.appSupport()
+            case "join": return NexaPath.join(stringOption("path"), stringOption("component"))
+            default: return NSNull()
+            }
+        case "File":
+            return name == "exists" ? NexaFile.exists(stringOption("path")) : NSNull()
+        default:
+            return NSNull()
         }
     }
 

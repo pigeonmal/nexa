@@ -641,9 +641,6 @@ private class NexaDevStateStore(private val context: Context) {
     ): Any {
         val namespace = call.optString("namespace")
         val name = call.optString("name")
-        if (namespace != "Network" || name !in setOf("fetch", "download")) {
-            throw IllegalStateException("Nexa dev runtime does not support async native call $namespace.$name")
-        }
         val options = linkedMapOf<String, Any>()
         val arguments = call.optJSONArray("arguments") ?: JSONArray()
         for (index in 0 until arguments.length()) {
@@ -657,6 +654,30 @@ private class NexaDevStateStore(private val context: Context) {
             options[key] as? Boolean ?: fallback
         fun numberOption(key: String, fallback: Double): Double =
             (options[key] as? Number)?.toDouble() ?: fallback
+        if (namespace == "Path") {
+            return when (name) {
+                "documents" -> NexaPath.documents(context)
+                "caches" -> NexaPath.caches(context)
+                "temporary" -> NexaPath.temporary(context)
+                "appSupport" -> NexaPath.appSupport(context)
+                "join" -> NexaPath.join(stringOption("path"), stringOption("component"))
+                else -> throw IllegalStateException("Unsupported native call $namespace.$name")
+            }
+        }
+        if (namespace == "File" && name == "exists") {
+            return NexaFile.exists(stringOption("path"))
+        }
+        if (namespace == "File") {
+            return when (name) {
+                "readText" -> NexaFile.readText(stringOption("path"))
+                "writeText" -> NexaFile.writeText(stringOption("contents"), stringOption("path"))
+                "delete" -> NexaFile.delete(stringOption("path"))
+                else -> throw IllegalStateException("Unsupported async native call $namespace.$name")
+            }
+        }
+        if (namespace != "Network" || name !in setOf("fetch", "download")) {
+            throw IllegalStateException("Nexa dev runtime does not support async native call $namespace.$name")
+        }
         val headers = (options["headers"] as? Map<*, *>)
             ?.mapNotNull { (key, value) ->
                 val header = key as? String ?: return@mapNotNull null
@@ -790,6 +811,31 @@ private class NexaDevStateStore(private val context: Context) {
                 )
             }
             "Call" -> invokeFunction(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
+            "NativeCall" -> invokeNativeSync(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
+            else -> JSONObject.NULL
+        }
+    }
+
+    private fun invokeNativeSync(call: JSONObject, locals: Map<String, Any>, scope: String): Any {
+        val namespace = call.optString("namespace")
+        val name = call.optString("name")
+        val options = linkedMapOf<String, Any>()
+        val arguments = call.optJSONArray("arguments") ?: JSONArray()
+        for (index in 0 until arguments.length()) {
+            val argument = arguments.optJSONArray(index) ?: continue
+            options[argument.optString(0)] = evaluate(argument.opt(1), locals, scope)
+        }
+        fun stringOption(key: String): String = options[key] as? String ?: ""
+        return when (namespace) {
+            "Path" -> when (name) {
+                "documents" -> NexaPath.documents(context)
+                "caches" -> NexaPath.caches(context)
+                "temporary" -> NexaPath.temporary(context)
+                "appSupport" -> NexaPath.appSupport(context)
+                "join" -> NexaPath.join(stringOption("path"), stringOption("component"))
+                else -> JSONObject.NULL
+            }
+            "File" -> if (name == "exists") NexaFile.exists(stringOption("path")) else JSONObject.NULL
             else -> JSONObject.NULL
         }
     }

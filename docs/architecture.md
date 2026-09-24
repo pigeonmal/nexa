@@ -51,3 +51,7 @@ val progress = remember { mutableDoubleStateOf(0.0) }
 
 ### 4. Typed C++ Bridging
 C++ native plugins use generated bindings and standard C++ types such as `std::int32_t` and `std::vector<std::uint8_t>`. The bindings avoid a serialization format, while converting collection values at language boundaries may copy their contents.
+
+## 3. Generated Source Cache
+
+The CLI fingerprints the source graph and a generator schema version before reusing generated native output. The schema is advanced when compiler or backend behavior changes without a source edit, so cached projects cannot retain stale generated code. `build-v92` includes the development host's first-party File and Path helpers required when those APIs are added by hot reload.

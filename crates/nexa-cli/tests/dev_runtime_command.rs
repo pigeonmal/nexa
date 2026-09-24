@@ -165,6 +165,9 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(kotlin.contains("AsyncImage("));
     assert!(kotlin.contains("imageLoader = nexaImageLoader()"));
     assert!(!kotlin.contains("URL(url).openConnection()"));
+    assert!(kotlin.contains("NexaFile.readText(stringOption(\"path\"))"));
+    assert!(kotlin.contains("NexaPath.temporary(context)"));
+    assert!(kotlin.contains("private fun invokeNativeSync("));
 
     let generated_android =
         fs::read_to_string(output.join(
@@ -174,12 +177,25 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(generated_android.contains("public object NexaNetwork"));
     assert!(generated_android.contains("object NexaCronetRuntime"));
     assert!(generated_android.contains(".setStoragePath(cacheDirectory.absolutePath)"));
+    assert!(generated_android.contains("public object NexaPath"));
+    assert!(generated_android.contains("public object NexaFile"));
+    assert!(generated_android.contains("public suspend fun readText(path: String)"));
 
     let generated_ios =
         fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_native_library.swift"))
             .expect("read generated iOS dev APIs");
     assert!(generated_ios.contains("public enum NexaNetwork"));
     assert!(generated_ios.contains("enum NexaURLSessionSupport"));
+    assert!(generated_ios.contains("public enum NexaPath"));
+    assert!(generated_ios.contains("public enum NexaFile"));
+    assert!(
+        generated_ios
+            .contains("public static func readText(_ path: String) async throws -> String")
+    );
+    let swift_runtime = fs::read_to_string(output.join("ios/RuntimeSmoke/NexaDevRuntime.swift"))
+        .expect("read Swift DevRuntime");
+    assert!(swift_runtime.contains("try await NexaFile.readText(stringOption(\"path\"))"));
+    assert!(swift_runtime.contains("private func invokeNativeSync("));
 
     let activity = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/MainActivity.kt"),

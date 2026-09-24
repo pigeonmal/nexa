@@ -199,6 +199,11 @@ pub(super) fn generate_for_dev(module: &Module) -> String {
     // Calls to Nexa's async native APIs can appear after the dev host has been
     // built. Keep the same URLSession adapter as release output in that host.
     features.uses_network_api = true;
+    // File and Path calls can be introduced by a hot reload after the first
+    // native build, so keep the same first-party helpers available in dev.
+    features.uses_path_api = true;
+    features.uses_file_api = true;
+    features.uses_file_async = true;
     features.uses_native_library = true;
     generate_with_analysis(module, features)
 }

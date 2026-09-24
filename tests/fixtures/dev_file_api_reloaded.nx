@@ -1,0 +1,23 @@
+app DevFileApiSmoke {
+    state status: String = "Waiting"
+    state path: String = Path.join(path: Path.temporary(), component: "nexa-dev-file-hot-reload.txt")
+    state fileExists: Bool = false
+
+    body {
+        OnAppear async {
+            try {
+                await File.writeText(
+                    path: Path.join(path: Path.temporary(), component: "nexa-dev-file-hot-reload.txt"),
+                    contents: "FILE_OK"
+                )
+                fileExists = File.exists(path: path)
+                status = await File.readText(path: path)
+                await File.delete(path: path)
+            } catch {
+                status = "ERROR"
+            }
+        }
+        Text("File: $status")
+        Text("Exists: $fileExists")
+    }
+}
