@@ -227,23 +227,7 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     }
     let entry = find_entry(&root)?;
     if command == "release" && matches!(platform.as_str(), "android" | "all") {
-        let required = [
-            "NEXA_ANDROID_KEYSTORE",
-            "NEXA_ANDROID_KEY_ALIAS",
-            "NEXA_ANDROID_STORE_PASSWORD",
-            "NEXA_ANDROID_KEY_PASSWORD",
-        ];
-        let missing = required
-            .iter()
-            .filter(|key| env::var_os(key).is_none())
-            .copied()
-            .collect::<Vec<_>>();
-        if !missing.is_empty() {
-            return Err(format!(
-                "Android release signing requires {} in the environment",
-                missing.join(", ")
-            ));
-        }
+        validate_android_release_signing()?;
     }
     let project_name = nexa_syntax::parse_program(
         &fs::read_to_string(&entry).map_err(|error| format!("{}: {error}", entry.display()))?,
@@ -974,23 +958,16 @@ fn build_android(root: &Path, mode: BuildMode, dev_port: Option<u16>) -> Result<
     #[cfg(not(windows))]
     let mut command = Command::new(&gradle);
     command.current_dir(root.join("android")).arg(task);
+    if matches!(mode, BuildMode::Release) {
+        let keystore = validate_android_release_signing()?;
+        command.env("NEXA_ANDROID_KEYSTORE", keystore);
+    }
     run_command(command, "Android build")?;
     match mode {
         BuildMode::Dev => launch_android_emulator(root, dev_port)?,
         BuildMode::DevCompile => {}
         BuildMode::Test => println!("Android Kotlin and native project compile passed."),
         BuildMode::Release => {
-            let signed = [
-                "NEXA_ANDROID_KEYSTORE",
-                "NEXA_ANDROID_KEY_ALIAS",
-                "NEXA_ANDROID_STORE_PASSWORD",
-                "NEXA_ANDROID_KEY_PASSWORD",
-            ]
-            .iter()
-            .all(|key| env::var_os(key).is_some());
-            if !signed {
-                return Err("Android release signing requires NEXA_ANDROID_KEYSTORE, NEXA_ANDROID_KEY_ALIAS, NEXA_ANDROID_STORE_PASSWORD, and NEXA_ANDROID_KEY_PASSWORD in the environment".to_owned());
-            }
             let aab = root.join("android/app/build/outputs/bundle/release/app-release.aab");
             let size = fs::metadata(&aab)
                 .map_err(|error| {
@@ -1010,6 +987,50 @@ fn build_android(root: &Path, mode: BuildMode, dev_port: Option<u16>) -> Result<
         }
     }
     Ok(())
+}
+
+fn validate_android_release_signing() -> Result<PathBuf, String> {
+    let required = [
+        "NEXA_ANDROID_KEYSTORE",
+        "NEXA_ANDROID_KEY_ALIAS",
+        "NEXA_ANDROID_STORE_PASSWORD",
+        "NEXA_ANDROID_KEY_PASSWORD",
+    ];
+    let missing = required
+        .iter()
+        .filter(|key| env::var(key).map_or(true, |value| value.trim().is_empty()))
+        .copied()
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(format!(
+            "Android release signing requires non-empty {} environment variables",
+            missing.join(", ")
+        ));
+    }
+
+    let keystore = env::var_os("NEXA_ANDROID_KEYSTORE")
+        .map(PathBuf::from)
+        .ok_or_else(|| "Android release signing requires NEXA_ANDROID_KEYSTORE".to_owned())?;
+    let keystore = if keystore.is_absolute() {
+        keystore
+    } else {
+        env::current_dir()
+            .map_err(|error| format!("cannot resolve the Android keystore path: {error}"))?
+            .join(keystore)
+    };
+    let keystore = keystore.canonicalize().map_err(|error| {
+        format!(
+            "NEXA_ANDROID_KEYSTORE does not point to an existing file ({}): {error}",
+            keystore.display()
+        )
+    })?;
+    if !keystore.is_file() {
+        return Err(format!(
+            "NEXA_ANDROID_KEYSTORE must point to a file: {}",
+            keystore.display()
+        ));
+    }
+    Ok(keystore)
 }
 
 fn doctor() -> Result<(), String> {

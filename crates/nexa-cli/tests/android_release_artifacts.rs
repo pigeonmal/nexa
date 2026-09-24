@@ -32,7 +32,7 @@ fn android_release_requires_and_reports_the_generated_aab() {
     let fake_java = fake_bin.join("java");
     fs::write(
         &fake_java,
-        "#!/bin/sh\nif [ \"${NEXA_FAKE_ANDROID_NO_ARTIFACT:-0}\" = 1 ]; then exit 0; fi\nmkdir -p app/build/outputs/bundle/release\nprintf 'signed bundle' > app/build/outputs/bundle/release/app-release.aab\nexit 0\n",
+        "#!/bin/sh\nprintf '%s' \"$NEXA_ANDROID_KEYSTORE\" > \"$NEXA_FAKE_ANDROID_MARKER\"\nif [ \"${NEXA_FAKE_ANDROID_NO_ARTIFACT:-0}\" = 1 ]; then exit 0; fi\nmkdir -p app/build/outputs/bundle/release\nprintf 'signed bundle' > app/build/outputs/bundle/release/app-release.aab\nexit 0\n",
     )
     .expect("write fake Java tool");
     let mut permissions = fs::metadata(&fake_java)
@@ -46,25 +46,103 @@ fn android_release_requires_and_reports_the_generated_aab() {
         search_paths.extend(std::env::split_paths(&existing));
     }
     let path = std::env::join_paths(search_paths).expect("compose fake tool PATH");
-    let release = |without_artifact: bool| {
+    let keystore = project.join("keys/release.jks");
+    fs::create_dir_all(keystore.parent().expect("keystore parent"))
+        .expect("create project keystore directory");
+    fs::write(&keystore, "test keystore").expect("create fake keystore file");
+    let marker = scratch.join("gradle-ran");
+    let required = [
+        "NEXA_ANDROID_KEYSTORE",
+        "NEXA_ANDROID_KEY_ALIAS",
+        "NEXA_ANDROID_STORE_PASSWORD",
+        "NEXA_ANDROID_KEY_PASSWORD",
+    ];
+    let credentials = vec![
+        (required[0], Some("keys/release.jks".into())),
+        (required[1], Some("release".into())),
+        (required[2], Some("test-password".into())),
+        (required[3], Some("test-password".into())),
+    ];
+    let release = |signing: &[(&str, Option<std::ffi::OsString>)], without_artifact: bool| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_nexa"));
         command
             .args(["release", "--android"])
             .current_dir(&project)
             .env("PATH", &path)
             .env("JAVA_HOME", &fake_jdk)
-            .env("NEXA_ANDROID_KEYSTORE", scratch.join("release.jks"))
-            .env("NEXA_ANDROID_KEY_ALIAS", "release")
-            .env("NEXA_ANDROID_STORE_PASSWORD", "test-password")
-            .env("NEXA_ANDROID_KEY_PASSWORD", "test-password")
+            .env("NEXA_FAKE_ANDROID_MARKER", &marker)
             .env(
                 "NEXA_FAKE_ANDROID_NO_ARTIFACT",
                 if without_artifact { "1" } else { "0" },
             );
+        for key in required {
+            command.env_remove(key);
+        }
+        for (key, value) in signing {
+            if let Some(value) = value {
+                command.env(key, value);
+            }
+        }
         command.output().expect("run Nexa Android release")
     };
 
-    let missing = release(true);
+    for missing_key in required {
+        let mut signing = credentials.clone();
+        signing
+            .iter_mut()
+            .find(|(key, _)| *key == missing_key)
+            .unwrap()
+            .1 = None;
+        let failure = release(&signing, false);
+        assert!(!failure.status.success(), "{missing_key} must be required");
+        assert!(
+            String::from_utf8_lossy(&failure.stderr).contains(missing_key),
+            "stderr: {}",
+            String::from_utf8_lossy(&failure.stderr)
+        );
+        assert!(
+            !marker.exists(),
+            "Gradle must not run without {missing_key}"
+        );
+    }
+
+    for blank_key in required {
+        let mut signing = credentials.clone();
+        signing
+            .iter_mut()
+            .find(|(key, _)| *key == blank_key)
+            .unwrap()
+            .1 = Some("  ".into());
+        let failure = release(&signing, false);
+        assert!(!failure.status.success(), "{blank_key} must not be blank");
+        assert!(String::from_utf8_lossy(&failure.stderr).contains(blank_key));
+        assert!(
+            !marker.exists(),
+            "Gradle must not run with blank {blank_key}"
+        );
+    }
+
+    let mut nonexistent_keystore = credentials.clone();
+    nonexistent_keystore[0].1 = Some(scratch.join("missing.jks").into_os_string());
+    let failure = release(&nonexistent_keystore, false);
+    assert!(!failure.status.success());
+    assert!(String::from_utf8_lossy(&failure.stderr).contains("existing file"));
+    assert!(
+        !marker.exists(),
+        "Gradle must not run with a missing keystore"
+    );
+
+    let mut directory_keystore = credentials.clone();
+    directory_keystore[0].1 = Some(scratch.clone().into_os_string());
+    let failure = release(&directory_keystore, false);
+    assert!(!failure.status.success());
+    assert!(String::from_utf8_lossy(&failure.stderr).contains("must point to a file"));
+    assert!(
+        !marker.exists(),
+        "Gradle must not run with a directory keystore"
+    );
+
+    let missing = release(&credentials, true);
     assert!(!missing.status.success(), "missing AAB must fail release");
     assert!(
         String::from_utf8_lossy(&missing.stderr).contains("did not create"),
@@ -72,7 +150,8 @@ fn android_release_requires_and_reports_the_generated_aab() {
         String::from_utf8_lossy(&missing.stderr)
     );
 
-    let successful = release(false);
+    fs::remove_file(&marker).expect("remove fake Gradle marker before successful run");
+    let successful = release(&credentials, false);
     assert!(
         successful.status.success(),
         "stdout: {}\nstderr: {}",
@@ -85,6 +164,17 @@ fn android_release_requires_and_reports_the_generated_aab() {
             .is_file()
     );
     assert!(String::from_utf8_lossy(&successful.stdout).contains("Created signed Android AAB at"));
+    assert!(
+        marker.is_file(),
+        "Gradle should run after signing validation"
+    );
+    assert_eq!(
+        fs::read_to_string(&marker).expect("read Gradle keystore path"),
+        keystore
+            .canonicalize()
+            .expect("resolve project-relative keystore")
+            .to_string_lossy()
+    );
 
     fs::remove_dir_all(scratch).expect("clean test scratch files");
 }
