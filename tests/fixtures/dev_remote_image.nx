@@ -1,0 +1,11 @@
+app RemoteImageSmoke {
+    body {
+        Column {
+            Image(
+                url: "https://www.gstatic.com/webp/gallery/1.webp",
+                description: "Remote image",
+                scale: Fit
+            )
+        }
+    }
+}

@@ -1111,6 +1111,10 @@
       "ios": "covered",
       "android": "covered"
     },
+    "remote_image_sources_render_and_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
+    },
     "async_app_and_screen_on_appear": {
       "ios": "covered",
       "android": "covered"
@@ -1122,8 +1126,8 @@
       "android": "covered"
     },
     "remote_image_loading": {
-      "ios": "pending",
-      "android": "pending"
+      "ios": "covered",
+      "android": "covered"
     },
     "async_native_calls": {
       "ios": "pending",
