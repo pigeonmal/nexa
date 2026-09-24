@@ -1122,6 +1122,10 @@
     "file_and_path_apis_hot_reload": {
       "ios": "covered",
       "android": "covered"
+    },
+    "permission_status_api_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
     }
   },
   "runtime_features": {

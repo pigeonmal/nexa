@@ -83,7 +83,9 @@ if [[ "$platform" == android ]]; then
     for _ in $(seq 1 90); do
         adb shell uiautomator dump /sdcard/nexa-file-api.xml >/dev/null 2>&1
         adb exec-out cat /sdcard/nexa-file-api.xml >"$xml"
-        if grep -Fq 'text="File: FILE_OK"' "$xml" && grep -Fq 'text="Exists: true"' "$xml"; then
+        if grep -Fq 'text="File: FILE_OK"' "$xml" \
+            && grep -Fq 'text="Exists: true"' "$xml" \
+            && grep -Eq 'text="Permission: (granted|denied|restricted|notDetermined)"' "$xml"; then
             echo "Nexa Android dev File/Path hot reload passed."
             exit 0
         fi

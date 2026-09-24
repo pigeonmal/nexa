@@ -35,23 +35,33 @@ pub(crate) fn render(
     include_request: bool,
     used: &HashSet<Permission>,
     dynamic: bool,
+    expose_to_dev_runtime: bool,
 ) {
     let permissions = selected_permissions(used, dynamic);
-    out.push_str("\nprivate enum class NexaPermission {\n");
+    let visibility = if expose_to_dev_runtime {
+        "public"
+    } else {
+        "private"
+    };
+    out.push_str(&format!("\n{visibility} enum class NexaPermission {{\n"));
     for permission in &permissions {
         out.push_str(&format!("    {},\n", case_name(*permission)));
     }
+    out.push_str("}\n\n");
+    out.push_str(visibility);
     out.push_str(
-        r#"}
-
-private enum class NexaPermissionStatus {
+        r#" enum class NexaPermissionStatus {
     granted,
     denied,
     restricted,
     notDetermined,
 }
 
-private object NexaPermissions {
+"#,
+    );
+    out.push_str(visibility);
+    out.push_str(
+        r#" object NexaPermissions {
     fun status(context: android.content.Context, permission: NexaPermission): NexaPermissionStatus {
         return when (permission) {
 "#,

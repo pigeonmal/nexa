@@ -1020,6 +1020,39 @@ private final class NexaDevStateStore: ObservableObject {
                 )
             }
         }
+        if namespace == "Permissions" {
+            let permissionName = stringOption("permission")
+            let permission: NexaPermission
+            switch permissionName {
+            case "Camera": permission = .Camera
+            case "Microphone": permission = .Microphone
+            case "Photos": permission = .Photos
+            case "Location": permission = .Location
+            case "Notifications": permission = .Notifications
+            case "Contacts": permission = .Contacts
+            case "Calendar": permission = .Calendar
+            case "Bluetooth": permission = .Bluetooth
+            default:
+                throw NSError(
+                    domain: "NexaDevRuntime",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Unsupported permission \(permissionName)"]
+                )
+            }
+            let status: NexaPermissionStatus
+            if name == "request" {
+                status = await NexaPermissions.request(permission)
+            } else if name == "status" {
+                status = await NexaPermissions.status(permission)
+            } else {
+                throw NSError(
+                    domain: "NexaDevRuntime",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Unsupported permission call \(name)"]
+                )
+            }
+            return String(describing: status)
+        }
         guard namespace == "Network", name == "fetch" || name == "download" else {
             throw NSError(
                 domain: "NexaDevRuntime",
@@ -1091,6 +1124,7 @@ private final class NexaDevStateStore: ObservableObject {
         case "Number":
             let number = (payload as? [String: Any])?["raw"] as? String ?? "0"
             return number.contains(".") ? (Double(number) ?? 0) as Any : (Int64(number) ?? 0) as Any
+        case "EnumValue": return (payload as? [String: Any])?["case_name"] as? String ?? ""
         case "State":
             let parts = payload as? [Any] ?? []
             guard let name = parts.first as? String else { return NSNull() }

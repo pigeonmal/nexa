@@ -7,6 +7,8 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -125,6 +127,10 @@ private fun openNexaUrl(context: Context, value: String) {
 internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
     val applicationContext = LocalContext.current.applicationContext
     val store = remember(applicationContext) { NexaDevStateStore(applicationContext) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result -> NexaRuntime.dispatchPermissionResult(result) }
+    SideEffect { NexaRuntime.bindPermissionLauncher(permissionLauncher) }
     LaunchedEffect(serverURL, sessionToken) {
         NexaDevSocketClient(serverURL, sessionToken, store).connect()
     }
@@ -667,6 +673,14 @@ private class NexaDevStateStore(private val context: Context) {
         if (namespace == "File" && name == "exists") {
             return NexaFile.exists(stringOption("path"))
         }
+        if (namespace == "Permissions") {
+            val permission = NexaPermission.valueOf(stringOption("permission"))
+            return when (name) {
+                "status" -> NexaPermissions.status(context, permission).name
+                "request" -> NexaPermissions.request(context, permission).name
+                else -> throw IllegalStateException("Unsupported permission call $namespace.$name")
+            }
+        }
         if (namespace == "File") {
             return when (name) {
                 "readText" -> NexaFile.readText(stringOption("path"))
@@ -775,6 +789,7 @@ private class NexaDevStateStore(private val context: Context) {
                 val number = (payload as? JSONObject)?.optString("raw", "0") ?: "0"
                 if (number.contains('.')) number.toDoubleOrNull() ?: 0.0 else number.toLongOrNull() ?: 0L
             }
+            "EnumValue" -> (payload as? JSONObject)?.optString("case_name") ?: ""
             "State" -> {
                 val tuple = payload as? JSONArray ?: return JSONObject.NULL
                 val name = tuple.optString(0)

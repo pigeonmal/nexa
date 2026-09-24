@@ -46,16 +46,23 @@ pub(crate) fn render(
     include_request: bool,
     used: &HashSet<Permission>,
     dynamic: bool,
+    expose_to_dev_runtime: bool,
 ) {
     let permissions = selected_permissions(used, dynamic);
-    out.push_str("\nprivate enum NexaPermission {\n");
+    let visibility = if expose_to_dev_runtime {
+        "public"
+    } else {
+        "private"
+    };
+    let member_visibility = if expose_to_dev_runtime { "public " } else { "" };
+    out.push_str(&format!("\n{visibility} enum NexaPermission {{\n"));
     for permission in &permissions {
         out.push_str(&format!("    case {}\n", case_name(*permission)));
     }
+    out.push_str("}\n\n");
+    out.push_str(visibility);
     out.push_str(
-        r#"}
-
-private enum NexaPermissionStatus {
+        r#" enum NexaPermissionStatus {
     case granted
     case denied
     case restricted
@@ -70,9 +77,11 @@ private enum NexaPermissionStatus {
     if include_request && permissions.contains(&Permission::Bluetooth) {
         out.push_str(bluetooth_requester());
     }
+    out.push_str(visibility);
+    out.push_str(" enum NexaPermissions {\n    ");
+    out.push_str(member_visibility);
     out.push_str(
-        r#"private enum NexaPermissions {
-    static func status(_ permission: NexaPermission) async -> NexaPermissionStatus {
+        r#"static func status(_ permission: NexaPermission) async -> NexaPermissionStatus {
         switch permission {
 "#,
     );
@@ -81,8 +90,10 @@ private enum NexaPermissionStatus {
     }
     out.push_str("        }\n    }\n\n");
     if include_request {
+        out.push_str("    ");
+        out.push_str(member_visibility);
         out.push_str(
-            r#"    static func request(_ permission: NexaPermission) async -> NexaPermissionStatus {
+            r#"static func request(_ permission: NexaPermission) async -> NexaPermissionStatus {
         switch permission {
 "#,
         );

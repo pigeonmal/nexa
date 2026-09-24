@@ -43,6 +43,7 @@ pub(crate) struct Features {
     pub(crate) uses_file_async: bool,
     pub(crate) uses_permissions: bool,
     pub(crate) uses_permission_request: bool,
+    pub(crate) expose_permissions_to_dev_runtime: bool,
     pub(crate) used_permissions: HashSet<Permission>,
     pub(crate) dynamic_permission: bool,
     pub(crate) uses_placeholder: bool,

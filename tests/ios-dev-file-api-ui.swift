@@ -7,6 +7,8 @@ final class NexaDevFileApiTests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["File: FILE_OK"].waitForExistence(timeout: 60))
         XCTAssertTrue(app.staticTexts["Exists: true"].exists)
+        let permissionStatuses = ["granted", "denied", "restricted", "notDetermined"]
+        XCTAssertTrue(permissionStatuses.contains { app.staticTexts["Permission: \($0)"].exists })
         XCTAssertFalse(app.staticTexts["File: ERROR"].exists)
     }
 }

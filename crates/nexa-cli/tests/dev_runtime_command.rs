@@ -168,6 +168,8 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(kotlin.contains("NexaFile.readText(stringOption(\"path\"))"));
     assert!(kotlin.contains("NexaPath.temporary(context)"));
     assert!(kotlin.contains("private fun invokeNativeSync("));
+    assert!(kotlin.contains("NexaPermissions.status(context, permission).name"));
+    assert!(kotlin.contains("NexaRuntime.bindPermissionLauncher(permissionLauncher)"));
 
     let generated_android =
         fs::read_to_string(output.join(
@@ -180,6 +182,12 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(generated_android.contains("public object NexaPath"));
     assert!(generated_android.contains("public object NexaFile"));
     assert!(generated_android.contains("public suspend fun readText(path: String)"));
+    let generated_android_permissions = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_permissions.kt"),
+    )
+    .expect("read generated Android permission APIs");
+    assert!(generated_android_permissions.contains("public enum class NexaPermission"));
+    assert!(generated_android_permissions.contains("public object NexaPermissions"));
 
     let generated_ios =
         fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_native_library.swift"))
@@ -196,6 +204,12 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
         .expect("read Swift DevRuntime");
     assert!(swift_runtime.contains("try await NexaFile.readText(stringOption(\"path\"))"));
     assert!(swift_runtime.contains("private func invokeNativeSync("));
+    assert!(swift_runtime.contains("NexaPermissions.status(permission)"));
+    let generated_ios_permissions =
+        fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_permissions.swift"))
+            .expect("read generated iOS permission APIs");
+    assert!(generated_ios_permissions.contains("public enum NexaPermission"));
+    assert!(generated_ios_permissions.contains("public enum NexaPermissions"));
 
     let activity = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/MainActivity.kt"),

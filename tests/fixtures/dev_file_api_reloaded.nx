@@ -2,6 +2,7 @@ app DevFileApiSmoke {
     state status: String = "Waiting"
     state path: String = Path.join(path: Path.temporary(), component: "nexa-dev-file-hot-reload.txt")
     state fileExists: Bool = false
+    state permissionStatus: PermissionStatus = PermissionStatus.notDetermined
 
     body {
         OnAppear async {
@@ -12,6 +13,7 @@ app DevFileApiSmoke {
                 )
                 fileExists = File.exists(path: path)
                 status = await File.readText(path: path)
+                permissionStatus = await Permissions.status(permission: Notifications)
                 await File.delete(path: path)
             } catch {
                 status = "ERROR"
@@ -19,5 +21,6 @@ app DevFileApiSmoke {
         }
         Text("File: $status")
         Text("Exists: $fileExists")
+        Text("Permission: $permissionStatus")
     }
 }

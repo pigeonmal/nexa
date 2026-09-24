@@ -66,6 +66,22 @@ pub(super) fn generate_for_dev_with_project_features(
     features.uses_path_api = true;
     features.uses_file_api = true;
     features.uses_file_async = true;
+    features.uses_permissions = true;
+    features.uses_permission_request = true;
+    features.dynamic_permission = true;
+    features.used_permissions = [
+        nexa_ir::Permission::Camera,
+        nexa_ir::Permission::Microphone,
+        nexa_ir::Permission::Photos,
+        nexa_ir::Permission::Location,
+        nexa_ir::Permission::Notifications,
+        nexa_ir::Permission::Contacts,
+        nexa_ir::Permission::Calendar,
+        nexa_ir::Permission::Bluetooth,
+    ]
+    .into_iter()
+    .collect();
+    features.expose_permissions_to_dev_runtime = true;
     features.uses_native_library = true;
     let project_features = project_features_from_analysis(module, &features);
     let generated = generate_with_analysis(module, &features);
@@ -264,6 +280,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
             features.uses_permission_request,
             &features.used_permissions,
             features.dynamic_permission,
+            features.expose_permissions_to_dev_runtime,
         );
     }
     out.push_str("// nexa-unit:functions\n");
