@@ -39,6 +39,10 @@ final class NexaDevComponentTests: XCTestCase {
         for label in ["Link role", "Header role", "Image role", "No role"] {
             assertAccessibleLabel(label, in: app)
         }
+        let externalLink = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "External link"))
+            .firstMatch
+        XCTAssertTrue(externalLink.exists, "Missing external link node: \(app.debugDescription)")
 
         for placeholder in ["Keyboard text", "Keyboard number", "Keyboard email", "Keyboard phone", "Keyboard url"] {
             XCTAssertTrue(app.textFields[placeholder].exists, "Missing text field: \(placeholder)")

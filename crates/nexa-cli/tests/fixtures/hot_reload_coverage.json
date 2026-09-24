@@ -1023,7 +1023,7 @@
       "ios": "covered",
       "android": "covered"
     },
-    "link_renders_and_hot_reloads": {
+    "external_link_node_added_by_hot_reload": {
       "ios": "covered",
       "android": "covered"
     },

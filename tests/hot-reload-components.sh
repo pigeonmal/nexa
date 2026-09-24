@@ -142,6 +142,7 @@ if [[ "$platform" == android ]]; then
             && grep -Fq 'text="Accessible header"' "$xml" \
             && grep -Fq 'text="Accessible image"' "$xml" \
             && grep -Fq 'text="Accessible none"' "$xml" \
+            && grep -Fq 'text="External link"' "$xml" \
             && grep -Fq 'text="Keyboard text"' "$xml" \
             && grep -Fq 'text="Keyboard number"' "$xml" \
             && grep -Fq 'text="Keyboard email"' "$xml" \

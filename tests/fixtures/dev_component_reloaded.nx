@@ -130,8 +130,9 @@ app ComponentSmoke {
                 Accessibility(label: "Link role", role: Link) { Text("Accessible link", fontSize: 8) }
                 Accessibility(label: "Header role", role: Header) { Text("Accessible header", fontSize: 8) }
                 Accessibility(label: "Image role", role: Image) { Text("Accessible image", fontSize: 8) }
-                Accessibility(label: "No role", role: None) { Text("Accessible none", fontSize: 8) }
+            Accessibility(label: "No role", role: None) { Text("Accessible none", fontSize: 8) }
             }
+            Link(url: "https://example.com") { Text("External link", fontSize: 8) }
             TextInput(value: keyboardText, placeholder: "Keyboard text", keyboard: Text, capitalization: Sentences)
             TextInput(value: keyboardNumber, placeholder: "Keyboard number", keyboard: Number, capitalization: None)
             TextInput(value: keyboardEmail, placeholder: "Keyboard email", keyboard: Email, capitalization: Words)
