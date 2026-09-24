@@ -176,5 +176,19 @@ fn android_release_requires_and_reports_the_generated_aab() {
             .to_string_lossy()
     );
 
+    fs::remove_file(&marker).expect("remove Gradle marker before stale artifact check");
+    let stale = release(&credentials, true);
+    assert!(
+        !stale.status.success(),
+        "a previous AAB must not count as new output"
+    );
+    assert!(String::from_utf8_lossy(&stale.stderr).contains("did not create"));
+    assert!(
+        !project
+            .join("build/android/app/build/outputs/bundle/release/app-release.aab")
+            .exists(),
+        "the previous AAB should be removed before release"
+    );
+
     fs::remove_dir_all(scratch).expect("clean test scratch files");
 }

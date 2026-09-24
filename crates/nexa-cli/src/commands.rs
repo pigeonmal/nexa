@@ -762,6 +762,12 @@ fn build_platforms(
 }
 
 fn build_ios(root: &Path, app_name: &str, mode: BuildMode) -> Result<(), String> {
+    let archive = root
+        .join("artifacts/ios")
+        .join(format!("{app_name}.xcarchive"));
+    if matches!(mode, BuildMode::Release) {
+        remove_generated_path(&archive)?;
+    }
     let manual_profile = if matches!(mode, BuildMode::Release) {
         match env::var("NEXA_IOS_PROVISIONING_PROFILE") {
             Ok(profile) if !profile.trim().is_empty() => Some(profile),
@@ -831,13 +837,7 @@ fn build_ios(root: &Path, app_name: &str, mode: BuildMode) -> Result<(), String>
             if let Ok(team_id) = env::var("NEXA_IOS_TEAM_ID") {
                 command.arg(format!("DEVELOPMENT_TEAM={team_id}"));
             }
-            command
-                .arg("-archivePath")
-                .arg(
-                    root.join("artifacts/ios")
-                        .join(format!("{app_name}.xcarchive")),
-                )
-                .arg("archive");
+            command.arg("-archivePath").arg(&archive).arg("archive");
             command.arg("-allowProvisioningUpdates");
         }
     }
@@ -846,9 +846,6 @@ fn build_ios(root: &Path, app_name: &str, mode: BuildMode) -> Result<(), String>
         launch_ios_simulator(root, app_name)?;
     }
     if matches!(mode, BuildMode::Release) {
-        let archive = root
-            .join("artifacts/ios")
-            .join(format!("{app_name}.xcarchive"));
         let archived_app = archive
             .join("Products/Applications")
             .join(format!("{app_name}.app"));
@@ -859,6 +856,7 @@ fn build_ios(root: &Path, app_name: &str, mode: BuildMode) -> Result<(), String>
             ));
         }
         let export_dir = root.join("artifacts/ios/ipa");
+        remove_generated_path(&export_dir)?;
         let options_path = root.join("ExportOptions.plist");
         let Some(options_parent) = options_path.parent() else {
             return Err("invalid export options path".to_owned());
@@ -949,6 +947,10 @@ fn build_android(root: &Path, mode: BuildMode, dev_port: Option<u16>) -> Result<
         BuildMode::Test => ":app:assembleDebug",
         BuildMode::Release => ":app:bundleRelease",
     };
+    let aab = root.join("android/app/build/outputs/bundle/release/app-release.aab");
+    if matches!(mode, BuildMode::Release) {
+        remove_generated_path(&aab)?;
+    }
     #[cfg(windows)]
     let mut command = {
         let mut command = Command::new("cmd");
@@ -968,7 +970,6 @@ fn build_android(root: &Path, mode: BuildMode, dev_port: Option<u16>) -> Result<
         BuildMode::DevCompile => {}
         BuildMode::Test => println!("Android Kotlin and native project compile passed."),
         BuildMode::Release => {
-            let aab = root.join("android/app/build/outputs/bundle/release/app-release.aab");
             let size = fs::metadata(&aab)
                 .map_err(|error| {
                     format!(
@@ -987,6 +988,25 @@ fn build_android(root: &Path, mode: BuildMode, dev_port: Option<u16>) -> Result<
         }
     }
     Ok(())
+}
+
+fn remove_generated_path(path: &Path) -> Result<(), String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+    };
+    let remove = if metadata.file_type().is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    };
+    remove.map_err(|error| {
+        format!(
+            "cannot remove previous generated release output {}: {error}",
+            path.display()
+        )
+    })
 }
 
 fn validate_android_release_signing() -> Result<PathBuf, String> {

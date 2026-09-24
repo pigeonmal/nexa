@@ -108,19 +108,19 @@ exit 0
         String::from_utf8_lossy(&missing.stderr)
     );
 
-    let release = release(false, false);
+    let successful = release(false, false);
     assert!(
-        release.status.success(),
+        successful.status.success(),
         "stdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&release.stdout),
-        String::from_utf8_lossy(&release.stderr)
+        String::from_utf8_lossy(&successful.stdout),
+        String::from_utf8_lossy(&successful.stderr)
     );
 
     let options = fs::read_to_string(project.join("build/ExportOptions.plist"))
         .expect("release export options");
     assert!(options.contains("<key>signingStyle</key><string>manual</string>"));
     assert!(options.contains("<key>dev.nexa.cisigning</key><string>PROFILE-UUID-123</string>"));
-    let invocations = fs::read_to_string(log).expect("captured xcodebuild invocations");
+    let invocations = fs::read_to_string(&log).expect("captured xcodebuild invocations");
     assert!(invocations.contains("CODE_SIGN_STYLE=Manual"));
     assert!(invocations.contains("CODE_SIGN_IDENTITY=Apple Distribution"));
     assert!(invocations.contains("PROVISIONING_PROFILE_SPECIFIER=PROFILE-UUID-123"));
@@ -133,6 +133,34 @@ exit 0
         project
             .join("build/artifacts/ios/ipa/CiSigning.ipa")
             .is_file()
+    );
+
+    let stale_archive = release(true, false);
+    assert!(
+        !stale_archive.status.success(),
+        "a previous archive must not count as new output"
+    );
+    assert!(
+        String::from_utf8_lossy(&stale_archive.stderr).contains("did not contain the app product")
+    );
+    assert!(
+        !project
+            .join("build/artifacts/ios/CiSigning.xcarchive")
+            .exists(),
+        "the previous archive should be removed before release"
+    );
+
+    let stale_ipa = release(false, true);
+    assert!(
+        !stale_ipa.status.success(),
+        "a previous IPA must not count as new output"
+    );
+    assert!(String::from_utf8_lossy(&stale_ipa.stderr).contains("did not create an IPA"));
+    assert!(
+        !project
+            .join("build/artifacts/ios/ipa/CiSigning.ipa")
+            .exists(),
+        "the previous IPA should be removed before export"
     );
 
     fs::remove_dir_all(scratch).expect("clean test scratch files");
