@@ -64,8 +64,10 @@ jobs:
           target/debug/nexa create NetworkFetchSmoke --directory "$project"
           cp "$GITHUB_WORKSPACE/tests/fixtures/dev_network_fetch.nx" "$project/App.nx"
       - uses: gradle/actions/setup-gradle@v6
+        # The Android project is generated into the ignored build/ directory;
+        # the basic provider requires a Gradle build-file hash from tracked files.
         with:
-          cache-provider: basic
+          cache-provider: enhanced
       - name: Compile the native Android app
         shell: bash
         run: |
