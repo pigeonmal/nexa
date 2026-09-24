@@ -669,6 +669,12 @@ private struct NexaDevRoute: Hashable {
     let token: String
 }
 
+private enum NexaDevActionFlow: Equatable {
+    case normal
+    case `break`
+    case `continue`
+}
+
 @MainActor
 private final class NexaDevStateStore: ObservableObject {
     @Published private(set) var revision = 0
@@ -678,6 +684,7 @@ private final class NexaDevStateStore: ObservableObject {
     private var values: [String: Any] = [:]
     private var typeSignatures: [String: String] = [:]
     private var functions: [String: [String: Any]] = [:]
+    private var structs: [String: [[String: Any]]] = [:]
     private var routeArguments: [String: (screen: String, values: [String: Any], signature: String)] = [:]
     private var navigationRoot: String?
     private var activeFunctions = Set<String>()
@@ -687,6 +694,20 @@ private final class NexaDevStateStore: ObservableObject {
     func install(module: [String: Any]) {
         let screens = module["screens"] as? [[String: Any]] ?? []
         let appStates = module["states"] as? [[String: Any]] ?? []
+        functions = Dictionary(
+            (module["functions"] as? [[String: Any]] ?? []).compactMap { function in
+                guard let name = function["name"] as? String else { return nil }
+                return (name, function)
+            },
+            uniquingKeysWith: { _, newest in newest }
+        )
+        structs = Dictionary(
+            (module["structs"] as? [[String: Any]] ?? []).compactMap { declaration in
+                guard let name = declaration["name"] as? String else { return nil }
+                return (name, declaration["fields"] as? [[String: Any]] ?? [])
+            },
+            uniquingKeysWith: { _, newest in newest }
+        )
         var nextValues: [String: Any] = [:]
         var nextTypes: [String: String] = [:]
         let declarations = appStates.map { ("app", $0) } + screens.flatMap { screen in
@@ -726,13 +747,6 @@ private final class NexaDevStateStore: ObservableObject {
                 return (nextValues["\(binding.scope)/state/\(state)"] as? Bool) == true
             }?.key
         }
-        self.functions = Dictionary(
-            (module["functions"] as? [[String: Any]] ?? []).compactMap { function in
-                guard let name = function["name"] as? String else { return nil }
-                return (name, function)
-            },
-            uniquingKeysWith: { _, newest in newest }
-        )
         let rootNode = (module["body"] as? [[String: Any]] ?? []).first { $0["NavigationStack"] != nil }
         let rootIndex = (rootNode?["NavigationStack"] as? [String: Any])?["root"] as? Int
         let nextRoot = rootIndex.flatMap { screens.indices.contains($0) ? screens[$0]["name"] as? String : nil }
@@ -820,20 +834,116 @@ private final class NexaDevStateStore: ObservableObject {
     }
 
     func perform(_ actions: [Any], scope: String, locals: [String: Any]) {
+        _ = performActions(actions, scope: scope, locals: locals)
+    }
+
+    @discardableResult
+    private func performActions(_ actions: [Any], scope: String, locals: [String: Any]) -> NexaDevActionFlow {
         for action in actions {
+            if let unitVariant = action as? String {
+                if unitVariant == "Break" { return .break }
+                if unitVariant == "Continue" { return .continue }
+                continue
+            }
             guard let tagged = action as? [String: Any] else { continue }
             if let assignment = tagged["Assign"] as? [String: Any],
                let name = assignment["name"] as? String,
                let expression = assignment["value"] {
                 setValue(name, value: evaluate(expression, locals: locals, scope: scope), scope: scope)
                 revision += 1
+            } else if let expression = tagged["Expression"] {
+                _ = evaluate(expression, locals: locals, scope: scope)
             } else if let branch = tagged["If"] as? [String: Any],
                       let condition = branch["condition"] {
                 let selected = truthy(evaluate(condition, locals: locals, scope: scope))
                     ? branch["then_branch"] as? [Any]
                     : branch["else_branch"] as? [Any]
-                perform(selected ?? [], scope: scope, locals: locals)
+                let flow = performActions(selected ?? [], scope: scope, locals: locals)
+                if flow != .normal { return flow }
+            } else if let loop = tagged["For"] as? [String: Any],
+                      let name = loop["name"] as? String,
+                      let iterableExpression = loop["iterable"] {
+                let values = evaluate(iterableExpression, locals: locals, scope: scope)
+                let items: [Any]
+                if let array = values as? [Any] { items = array }
+                else if let range = values as? Range<Int> { items = Array(range) }
+                else if let range = values as? ClosedRange<Int> { items = Array(range) }
+                else { items = [] }
+                iterationLoop: for item in items {
+                    var iterationLocals = locals
+                    iterationLocals[name] = item
+                    switch performActions(loop["body"] as? [Any] ?? [], scope: scope, locals: iterationLocals) {
+                    case .break: break iterationLoop
+                    case .normal, .continue: continue
+                    }
+                }
+            } else if let loop = tagged["ForMap"] as? [String: Any],
+                      let keyName = loop["key_name"] as? String,
+                      let valueName = loop["value_name"] as? String,
+                      let iterableExpression = loop["iterable"],
+                      let map = evaluate(iterableExpression, locals: locals, scope: scope) as? [String: Any] {
+                iterationLoop: for key in map.keys.sorted() {
+                    var iterationLocals = locals
+                    iterationLocals[keyName] = key
+                    iterationLocals[valueName] = map[key] ?? NSNull()
+                    switch performActions(loop["body"] as? [Any] ?? [], scope: scope, locals: iterationLocals) {
+                    case .break: break iterationLoop
+                    case .normal, .continue: continue
+                    }
+                }
+            } else if let loop = tagged["While"] as? [String: Any], let condition = loop["condition"] {
+                iterationLoop: for _ in 0..<10_000 {
+                    guard truthy(evaluate(condition, locals: locals, scope: scope)) else { break }
+                    switch performActions(loop["body"] as? [Any] ?? [], scope: scope, locals: locals) {
+                    case .break: break iterationLoop
+                    case .normal, .continue: continue
+                    }
+                }
+            } else if let mutation = tagged["CollectionMutation"] as? [String: Any],
+                      let name = mutation["name"] as? String {
+                performCollectionMutation(mutation, name: name, scope: scope, locals: locals)
+            } else if let tryCatch = tagged["TryCatch"] as? [String: Any] {
+                let flow = performActions(tryCatch["body"] as? [Any] ?? [], scope: scope, locals: locals)
+                if flow != .normal { return flow }
+            } else if tagged["Break"] != nil {
+                return .break
+            } else if tagged["Continue"] != nil {
+                return .continue
             }
+        }
+        return .normal
+    }
+
+    private func performCollectionMutation(
+        _ mutation: [String: Any],
+        name: String,
+        scope: String,
+        locals: [String: Any]
+    ) {
+        let arguments = (mutation["arguments"] as? [Any] ?? []).map { evaluate($0, locals: locals, scope: scope) }
+        switch mutation["operation"] as? String {
+        case "ArrayAppend":
+            var array = value(name, scope: scope) as? [Any] ?? []
+            if let item = arguments.first { array.append(item) }
+            setValue(name, value: array, scope: scope)
+        case "ArrayRemoveAt":
+            var array = value(name, scope: scope) as? [Any] ?? []
+            if let index = (arguments.first as? NSNumber)?.intValue, array.indices.contains(index) { array.remove(at: index) }
+            setValue(name, value: array, scope: scope)
+        case "SetInsert", "SetRemove":
+            var set = value(name, scope: scope) as? Set<String> ?? []
+            if let item = arguments.first.map(stringify) {
+                if mutation["operation"] as? String == "SetInsert" { set.insert(item) } else { set.remove(item) }
+            }
+            setValue(name, value: set, scope: scope)
+        case "MapSet", "MapRemove":
+            var map = value(name, scope: scope) as? [String: Any] ?? [:]
+            if let key = arguments.first.map(stringify) {
+                if mutation["operation"] as? String == "MapSet", arguments.count > 1 { map[key] = arguments[1] }
+                else { map.removeValue(forKey: key) }
+            }
+            setValue(name, value: map, scope: scope)
+        default: break
         }
     }
 
@@ -1113,6 +1223,15 @@ private final class NexaDevStateStore: ObservableObject {
     }
 
     func evaluate(_ expression: Any, locals: [String: Any], scope: String = "app") -> Any {
+        if let unit = expression as? String {
+            switch unit {
+            case "IsRegularWidth": return UIScreen.main.bounds.width >= 600
+            case "IsCompactWidth": return UIScreen.main.bounds.width < 600
+            case "IsRegularHeight": return UIScreen.main.bounds.height >= 600
+            case "IsCompactHeight": return UIScreen.main.bounds.height < 600
+            default: return NSNull()
+            }
+        }
         guard let tagged = expression as? [String: Any], let (kind, payload) = tagged.first else {
             return NSNull()
         }
@@ -1188,8 +1307,12 @@ private final class NexaDevStateStore: ObservableObject {
             let body = closurePayload["body"] ?? NSNull()
             func apply(_ item: Any, _ accumulator: Any? = nil) -> Any {
                 var closureLocals = locals
-                if let parameter = parameters.first { closureLocals[parameter] = item }
-                if let accumulator, parameters.count > 1 { closureLocals[parameters[1]] = accumulator }
+                if parameters.count > 1, let accumulator {
+                    closureLocals[parameters[0]] = accumulator
+                    closureLocals[parameters[1]] = item
+                } else if let parameter = parameters.first {
+                    closureLocals[parameter] = item
+                }
                 return evaluate(body, locals: closureLocals, scope: scope)
             }
             switch fields["operation"] as? String {
@@ -1208,7 +1331,9 @@ private final class NexaDevStateStore: ObservableObject {
                   let indexExpression = fields["index"] else { return NSNull() }
             let index = (evaluate(indexExpression, locals: locals, scope: scope) as? NSNumber)?.intValue ?? -1
             if let values = collection as? [Any], values.indices.contains(index) { return values[index] }
-            if let values = collection as? [String: Any] { return values[stringify(indexExpression)] ?? NSNull() }
+            if let values = collection as? [String: Any] {
+                return values[stringify(evaluate(indexExpression, locals: locals, scope: scope))] ?? NSNull()
+            }
             return NSNull()
         case "Member":
             let fields = payload as? [String: Any] ?? [:]
@@ -1250,16 +1375,19 @@ private final class NexaDevStateStore: ObservableObject {
             guard let expr = field["expr"] else { return NSNull() }
             let result = evaluate(expr, locals: locals, scope: scope)
             return (result as? [String: Any])?["Ok"] ?? NSNull()
-        case "IsRegularWidth": return UIScreen.main.bounds.width >= 600
-        case "IsCompactWidth": return UIScreen.main.bounds.width < 600
-        case "IsRegularHeight": return UIScreen.main.bounds.height >= 600
-        case "IsCompactHeight": return UIScreen.main.bounds.height < 600
         case "Call":
             guard let call = payload as? [String: Any],
-                  let name = call["name"] as? String,
-                  let function = functions[name],
-                  activeFunctions.insert(name).inserted
-            else { return NSNull() }
+                  let name = call["name"] as? String else { return NSNull() }
+            if call["is_constructor"] as? Bool == true, let fields = structs[name] {
+                let arguments = call["arguments"] as? [Any] ?? []
+                var instance: [String: Any] = [:]
+                for (field, argument) in zip(fields, arguments) {
+                    guard let fieldName = field["name"] as? String else { continue }
+                    instance[fieldName] = evaluate(argument, locals: locals, scope: scope)
+                }
+                return instance
+            }
+            guard let function = functions[name], activeFunctions.insert(name).inserted else { return NSNull() }
             defer { activeFunctions.remove(name) }
             let parameters = function["parameters"] as? [[String: Any]] ?? []
             let arguments = call["arguments"] as? [Any] ?? []

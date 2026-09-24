@@ -86,7 +86,29 @@ if [[ "$platform" == android ]]; then
             && grep -Fq 'text="Contains: true"' "$xml" \
             && grep -Fq 'text="Index: 5"' "$xml" \
             && grep -Fq 'text="Coalesce: fallback"' "$xml" \
-            && grep -Fq 'text="Pair: 7"' "$xml"; then
+            && grep -Fq 'text="Pair: 7"' "$xml" \
+            && grep -Fq 'text="Mapped: 6"' "$xml" \
+            && grep -Fq 'text="Filtered: 8"' "$xml" \
+            && grep -Fq 'text="Reduced: 16"' "$xml" \
+            && grep -Fq 'text="Int8: 8, Int16: 16, Int64: 64"' "$xml" \
+            && grep -Fq 'text="UInt8: 8, UInt16: 16, UInt32: 32, UInt64: 64"' "$xml" \
+            && grep -Fq 'text="Float32: 3.5, Float64: 6.5"' "$xml" \
+            && grep -Fq 'text="Set: true"' "$xml" \
+            && grep -Fq 'text="Map: 42"' "$xml" \
+            && grep -Fq 'text="Triple: 4"' "$xml" \
+            && grep -Fq 'text="Enum: ready"' "$xml" \
+            && grep -Fq 'text="Result: 42"' "$xml" \
+            && grep -Fq 'text="Result error: null"' "$xml" \
+            && grep -Fq 'text="Struct: Ada"' "$xml" \
+            && grep -Fq 'text="Array mutation: 2"' "$xml" \
+            && grep -Fq 'text="Set mutation: true"' "$xml" \
+            && grep -Fq 'text="Map mutation: 2"' "$xml" \
+            && grep -Fq 'text="For: 6, While: 3"' "$xml" \
+            && grep -Fq 'text="Break: 2, Continue: 5"' "$xml" \
+            && grep -Fq 'text="ForMap: 2, TryCatch: 1"' "$xml" \
+            && grep -Fq 'text="Other comparisons: true, true, true, true, true, true"' "$xml" \
+            && grep -Fq 'text="Size classes: false, true, true, false"' "$xml" \
+            && grep -Fq 'text="Native path: ' "$xml"; then
             echo "Nexa Android custom component and Content hot reload passed."
             exit 0
         fi

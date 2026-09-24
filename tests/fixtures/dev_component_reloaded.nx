@@ -1,3 +1,8 @@
+struct Profile {
+    id: Int64,
+    name: String,
+}
+
 component Card(title: String) {
     body {
         Column {
@@ -8,10 +13,80 @@ component Card(title: String) {
 }
 
 app ComponentSmoke {
+    enum Mode {
+        ready,
+        busy
+    }
+
+    enum AppError {
+        unavailable
+    }
+
     state numbers: Array<Int32> = [3, 5, 8]
     state optional: String? = null
+    state numericInt8: Int8 = 8
+    state numericInt16: Int16 = 16
+    state numericInt64: Int64 = 64
+    state numericUInt8: UInt8 = 8
+    state numericUInt16: UInt16 = 16
+    state numericUInt32: UInt32 = 32
+    state numericUInt64: UInt64 = 64
+    state numericFloat32: Float32 = 3.5
+    state numericFloat64: Float64 = 6.5
+    state tags: Set<Int32> = [2, 4]
+    state scores: Map<String, Int32> = ["nexa": 42]
+    state coordinates: Triple<Int32, Int32, Int32> = Triple(2, 3, 4)
+    state mode: Mode = Mode.ready
+    state result: Result<Int32, AppError> = Ok(42)
+    state failure: Result<Int32, AppError> = Err(AppError.unavailable)
+    state profile: Profile = Profile(7, "Ada")
+    state actionArray: Array<Int32> = [1, 2]
+    state actionSet: Set<String> = ["a"]
+    state actionMap: Map<String, Int32> = ["a": 1]
+    state loopSum: Int32 = 0
+    state whileCount: Int32 = 0
+    state breakCount: Int32 = 0
+    state continueSum: Int32 = 0
+    state mapSum: Int32 = 0
+    state catchCount: Int32 = 0
 
     body {
+        OnAppear {
+            Path.documents()
+            actionArray.append(3)
+            actionArray.remove(0)
+            actionSet.insert("b")
+            actionSet.remove("a")
+            actionMap.set("b", 2)
+            actionMap.remove("a")
+
+            for index in 1..3 {
+                loopSum = loopSum + index
+            }
+            while whileCount < 3 {
+                whileCount = whileCount + 1
+            }
+            for index in 0..5 {
+                if index == 2 {
+                    break
+                }
+                breakCount = breakCount + 1
+            }
+            for index in 0..3 {
+                if index == 1 {
+                    continue
+                }
+                continueSum = continueSum + index
+            }
+            for (key, value) in actionMap {
+                mapSum = mapSum + value
+            }
+            try {
+                catchCount = catchCount + 1
+            } catch {
+                catchCount = 100
+            }
+        }
         Column {
             Card(title: "Reloaded") {
                 Text("Projected child")
@@ -21,6 +96,28 @@ app ComponentSmoke {
             Text("Index: \(numbers[1])")
             Text("Coalesce: \(optional ?? \"fallback\")")
             Text("Pair: \(Pair(7, 9).first)")
+            Text("Mapped: \(numbers.map { item -> item + 1 }[1])")
+            Text("Filtered: \(numbers.filter { item -> item > 5 }[0])")
+            Text("Reduced: \(numbers.reduce(0) { total, item -> total + item })")
+            Text("Int8: \(numericInt8), Int16: \(numericInt16), Int64: \(numericInt64)")
+            Text("UInt8: \(numericUInt8), UInt16: \(numericUInt16), UInt32: \(numericUInt32), UInt64: \(numericUInt64)")
+            Text("Float32: \(numericFloat32), Float64: \(numericFloat64)")
+            Text("Set: \(4 in tags)")
+            Text("Map: \(scores[\"nexa\"])")
+            Text("Triple: \(coordinates.third)")
+            Text("Enum: \(mode)")
+            Text("Result: \(result?)")
+            Text("Result error: \(failure?)")
+            Text("Struct: \(profile.name)")
+            Text("Array mutation: \(actionArray[0])")
+            Text("Set mutation: \(\"b\" in actionSet)")
+            Text("Map mutation: \(actionMap[\"b\"])")
+            Text("For: \(loopSum), While: \(whileCount)")
+            Text("Break: \(breakCount), Continue: \(continueSum)")
+            Text("ForMap: \(mapSum), TryCatch: \(catchCount)")
+            Text("Other comparisons: \(false || true), \(3 == 3), \(3 != 4), \(3 <= 3), \(4 > 3), \(!false)")
+            Text("Size classes: \(Layout.isRegularWidth), \(Layout.isCompactWidth), \(Layout.isRegularHeight), \(Layout.isCompactHeight)")
+            Text("Native path: \(Path.documents())")
         }
     }
 }

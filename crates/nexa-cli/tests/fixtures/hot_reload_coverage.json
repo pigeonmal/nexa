@@ -64,13 +64,13 @@
     "NumericType": [
       {
         "name": "Int8",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Int16",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Int32",
@@ -79,38 +79,38 @@
       },
       {
         "name": "Int64",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "UInt8",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "UInt16",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "UInt32",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "UInt64",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Float32",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Float64",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "HapticStyle": [
@@ -199,8 +199,8 @@
       },
       {
         "name": "Result",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Array",
@@ -209,13 +209,13 @@
       },
       {
         "name": "Set",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Map",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Pair",
@@ -224,13 +224,13 @@
       },
       {
         "name": "Triple",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Enum",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Plugin",
@@ -244,8 +244,8 @@
       },
       {
         "name": "Struct",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "Expr": [
@@ -276,8 +276,8 @@
       },
       {
         "name": "EnumValue",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Add",
@@ -306,13 +306,13 @@
       },
       {
         "name": "Set",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Map",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Pair",
@@ -321,8 +321,8 @@
       },
       {
         "name": "Triple",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Call",
@@ -331,18 +331,18 @@
       },
       {
         "name": "CollectionTransform",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Closure",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "NativeCall",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Index",
@@ -356,8 +356,8 @@
       },
       {
         "name": "Range",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Null",
@@ -381,55 +381,55 @@
       },
       {
         "name": "ResultOk",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "ResultErr",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Try",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "IsRegularWidth",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "IsCompactWidth",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "IsRegularHeight",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "IsCompactHeight",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "CollectionTransform": [
       {
         "name": "Map",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Filter",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Reduce",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "InterpolatedPart": [
@@ -452,8 +452,8 @@
       },
       {
         "name": "Or",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Contains",
@@ -462,13 +462,13 @@
       },
       {
         "name": "Equal",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "NotEqual",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Less",
@@ -477,13 +477,13 @@
       },
       {
         "name": "LessEqual",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Greater",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "GreaterEqual",
@@ -629,8 +629,8 @@
       },
       {
         "name": "ComponentCall",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "NativeComponentCall",
@@ -870,8 +870,8 @@
     "Action": [
       {
         "name": "Expression",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Assign",
@@ -890,75 +890,75 @@
       },
       {
         "name": "CollectionMutation",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "If",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "For",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "ForMap",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "While",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "TryCatch",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Break",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Continue",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "CollectionMutation": [
       {
         "name": "ArrayAppend",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "ArrayRemoveAt",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "SetInsert",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "SetRemove",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "MapSet",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "MapRemove",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ]
   },

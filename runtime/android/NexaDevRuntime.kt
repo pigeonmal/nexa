@@ -129,6 +129,8 @@ private fun nexaDevNodeObject(rawNode: Any?): JSONObject = when (rawNode) {
     else -> JSONObject()
 }
 
+private enum class NexaDevActionFlow { Normal, Break, Continue }
+
 private fun openNexaUrl(context: Context, value: String) {
     val uri = Uri.parse(value)
     if (uri.scheme !in setOf("https", "http", "mailto", "tel")) return
@@ -273,6 +275,7 @@ private class NexaDevStateStore(private val context: Context) {
     private val values = mutableStateMapOf<String, Any>()
     private var typeSignatures = mutableMapOf<String, String>()
     private var functions = mutableMapOf<String, JSONObject>()
+    private var structs = mutableMapOf<String, JSONArray>()
     private val activeFunctions = mutableSetOf<String>()
     var module by mutableStateOf<JSONObject?>(null)
         private set
@@ -300,6 +303,12 @@ private class NexaDevStateStore(private val context: Context) {
             val function = nextFunctions.optJSONObject(index) ?: return@mapNotNull null
             val name = function.optString("name").takeIf(String::isNotEmpty) ?: return@mapNotNull null
             name to function
+        }.toMap().toMutableMap()
+        val nextStructs = next.optJSONArray("structs") ?: JSONArray()
+        structs = (0 until nextStructs.length()).mapNotNull { index ->
+            val declaration = nextStructs.optJSONObject(index) ?: return@mapNotNull null
+            val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: return@mapNotNull null
+            name to (declaration.optJSONArray("fields") ?: JSONArray())
         }.toMap().toMutableMap()
         val nextValues = mutableMapOf<String, Any>()
         val nextTypes = mutableMapOf<String, String>()
@@ -542,7 +551,15 @@ private class NexaDevStateStore(private val context: Context) {
     }
 
     fun perform(actions: JSONArray, scope: String, locals: Map<String, Any>) {
+        performActions(actions, scope, locals)
+    }
+
+    private fun performActions(actions: JSONArray, scope: String, locals: Map<String, Any>): NexaDevActionFlow {
         for (index in 0 until actions.length()) {
+            when (actions.opt(index)) {
+                "Break" -> return NexaDevActionFlow.Break
+                "Continue" -> return NexaDevActionFlow.Continue
+            }
             val action = actions.optJSONObject(index) ?: continue
             val assignment = action.optJSONObject("Assign")
             if (assignment != null) {
@@ -551,10 +568,113 @@ private class NexaDevStateStore(private val context: Context) {
                 if (name.isNotEmpty() && expression != null) setState(name, evaluate(expression, locals, scope), scope)
                 continue
             }
-            val branch = action.optJSONObject("If") ?: continue
-            val condition = evaluate(branch.opt("condition"), locals, scope) as? Boolean ?: false
-            val selected = if (condition) branch.optJSONArray("then_branch") else branch.optJSONArray("else_branch")
-            if (selected != null) perform(selected, scope, locals)
+            action.opt("Expression")?.takeUnless { it == JSONObject.NULL }?.let { evaluate(it, locals, scope) }
+            val branch = action.optJSONObject("If")
+            if (branch != null) {
+                val condition = evaluate(branch.opt("condition"), locals, scope) as? Boolean ?: false
+                val selected = if (condition) branch.optJSONArray("then_branch") else branch.optJSONArray("else_branch")
+                if (selected != null) {
+                    val flow = performActions(selected, scope, locals)
+                    if (flow != NexaDevActionFlow.Normal) return flow
+                }
+                continue
+            }
+            val loop = action.optJSONObject("For")
+            if (loop != null) {
+                val name = loop.optString("name")
+                val iterable = evaluate(loop.opt("iterable"), locals, scope)
+                val items = when (iterable) {
+                    is Iterable<*> -> iterable.toList()
+                    is Map<*, *> -> iterable.keys.toList()
+                    else -> emptyList()
+                }
+                for (item in items) {
+                    val childLocals = locals + (name to (item ?: JSONObject.NULL))
+                    when (performActions(loop.optJSONArray("body") ?: JSONArray(), scope, childLocals)) {
+                        NexaDevActionFlow.Break -> break
+                        NexaDevActionFlow.Normal, NexaDevActionFlow.Continue -> Unit
+                    }
+                }
+                continue
+            }
+            val mapLoop = action.optJSONObject("ForMap")
+            if (mapLoop != null) {
+                val iterable = evaluate(mapLoop.opt("iterable"), locals, scope) as? Map<*, *> ?: emptyMap<Any, Any>()
+                for ((key, value) in iterable) {
+                    val childLocals = locals +
+                        (mapLoop.optString("key_name") to (key ?: JSONObject.NULL)) +
+                        (mapLoop.optString("value_name") to (value ?: JSONObject.NULL))
+                    when (performActions(mapLoop.optJSONArray("body") ?: JSONArray(), scope, childLocals)) {
+                        NexaDevActionFlow.Break -> break
+                        NexaDevActionFlow.Normal, NexaDevActionFlow.Continue -> Unit
+                    }
+                }
+                continue
+            }
+            val whileLoop = action.optJSONObject("While")
+            if (whileLoop != null) {
+                var iterations = 0
+                while (iterations++ < 10_000 && evaluate(whileLoop.opt("condition"), locals, scope) as? Boolean == true) {
+                    if (performActions(whileLoop.optJSONArray("body") ?: JSONArray(), scope, locals) == NexaDevActionFlow.Break) break
+                }
+                continue
+            }
+            val mutation = action.optJSONObject("CollectionMutation")
+            if (mutation != null) {
+                mutateCollection(mutation, scope, locals)
+                continue
+            }
+            val tryCatch = action.optJSONObject("TryCatch")
+            if (tryCatch != null) {
+                try {
+                    val flow = performActions(tryCatch.optJSONArray("body") ?: JSONArray(), scope, locals)
+                    if (flow != NexaDevActionFlow.Normal) return flow
+                } catch (_: Exception) {
+                    val catches = tryCatch.optJSONArray("error_catches")
+                    if (catches != null && catches.length() > 0) {
+                        val first = catches.optJSONObject(0)
+                        val flow = performActions(first?.optJSONArray("body") ?: JSONArray(), scope, locals)
+                        if (flow != NexaDevActionFlow.Normal) return flow
+                    } else {
+                        val flow = performActions(tryCatch.optJSONArray("catch_body") ?: JSONArray(), scope, locals)
+                        if (flow != NexaDevActionFlow.Normal) return flow
+                    }
+                }
+                continue
+            }
+            if (action.has("Break")) return NexaDevActionFlow.Break
+            if (action.has("Continue")) return NexaDevActionFlow.Continue
+        }
+        return NexaDevActionFlow.Normal
+    }
+
+    private fun Any?.orNullValue(): Any = this ?: JSONObject.NULL
+
+    private fun mutateCollection(mutation: JSONObject, scope: String, locals: Map<String, Any>) {
+        val name = mutation.optString("name")
+        val arguments = mutation.optJSONArray("arguments") ?: JSONArray()
+        val values = (0 until arguments.length()).map { evaluate(arguments.opt(it), locals, scope) }
+        when (mutation.optString("operation")) {
+            "ArrayAppend" -> setState(name, (state(name, scope) as? List<*> ?: emptyList<Any>()) + values.firstOrNull().orNullValue(), scope)
+            "ArrayRemoveAt" -> {
+                val array = (state(name, scope) as? List<*>)?.toMutableList() ?: mutableListOf()
+                (values.firstOrNull() as? Number)?.toInt()?.takeIf(array.indices::contains)?.let(array::removeAt)
+                setState(name, array, scope)
+            }
+            "SetInsert", "SetRemove" -> {
+                val set = (state(name, scope) as? Iterable<*>)?.toMutableSet() ?: mutableSetOf()
+                val value = values.firstOrNull().orNullValue()
+                if (mutation.optString("operation") == "SetInsert") set.add(value) else set.remove(value)
+                setState(name, set, scope)
+            }
+            "MapSet", "MapRemove" -> {
+                val map = (state(name, scope) as? Map<*, *>)?.entries
+                    ?.associate { it.key to it.value }?.toMutableMap() ?: mutableMapOf()
+                val key = values.firstOrNull().orNullValue()
+                if (mutation.optString("operation") == "MapSet" && values.size > 1) map[key] = values[1]
+                else map.remove(key)
+                setState(name, map, scope)
+            }
         }
     }
 
@@ -784,6 +904,13 @@ private class NexaDevStateStore(private val context: Context) {
     }
 
     fun evaluate(raw: Any?, locals: Map<String, Any>, scope: String = "app"): Any {
+        if (raw is String) return when (raw) {
+            "IsRegularWidth" -> context.resources.configuration.screenWidthDp >= 600
+            "IsCompactWidth" -> context.resources.configuration.screenWidthDp < 600
+            "IsRegularHeight" -> context.resources.configuration.screenHeightDp >= 600
+            "IsCompactHeight" -> context.resources.configuration.screenHeightDp < 600
+            else -> JSONObject.NULL
+        }
         val expression = raw as? JSONObject ?: return raw ?: JSONObject.NULL
         val kind = expression.keys().asSequence().firstOrNull() ?: return JSONObject.NULL
         val payload = expression.opt(kind)
@@ -872,8 +999,12 @@ private class NexaDevStateStore(private val context: Context) {
                 val body = closure.opt("body")
                 fun apply(item: Any?, accumulator: Any? = null): Any {
                     val closureLocals = locals.toMutableMap()
-                    if (parameters.length() > 0) closureLocals[parameters.optString(0)] = item ?: JSONObject.NULL
-                    if (accumulator != null && parameters.length() > 1) closureLocals[parameters.optString(1)] = accumulator
+                    if (accumulator != null && parameters.length() > 1) {
+                        closureLocals[parameters.optString(0)] = accumulator
+                        closureLocals[parameters.optString(1)] = item ?: JSONObject.NULL
+                    } else if (parameters.length() > 0) {
+                        closureLocals[parameters.optString(0)] = item ?: JSONObject.NULL
+                    }
                     return evaluate(body, closureLocals, scope)
                 }
                 when (fields.optString("operation")) {
@@ -938,10 +1069,6 @@ private class NexaDevStateStore(private val context: Context) {
                 val result = evaluate(fields.opt("expr"), locals, scope)
                 (result as? Map<*, *>)?.get("Ok") ?: JSONObject.NULL
             }
-            "IsRegularWidth" -> context.resources.configuration.screenWidthDp >= 600
-            "IsCompactWidth" -> context.resources.configuration.screenWidthDp < 600
-            "IsRegularHeight" -> context.resources.configuration.screenHeightDp >= 600
-            "IsCompactHeight" -> context.resources.configuration.screenHeightDp < 600
             "Call" -> invokeFunction(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
             "NativeCall" -> invokeNativeSync(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
             else -> JSONObject.NULL
@@ -974,6 +1101,16 @@ private class NexaDevStateStore(private val context: Context) {
 
     private fun invokeFunction(call: JSONObject, locals: Map<String, Any>, scope: String): Any {
         val name = call.optString("name")
+        if (call.optBoolean("is_constructor") && structs.containsKey(name)) {
+            val fields = structs[name] ?: JSONArray()
+            val arguments = call.optJSONArray("arguments") ?: JSONArray()
+            return buildMap {
+                for (index in 0 until minOf(fields.length(), arguments.length())) {
+                    val field = fields.optJSONObject(index) ?: continue
+                    put(field.optString("name"), evaluate(arguments.opt(index), locals, scope))
+                }
+            }
+        }
         val function = functions[name] ?: return JSONObject.NULL
         if (!activeFunctions.add(name)) return JSONObject.NULL
         try {
