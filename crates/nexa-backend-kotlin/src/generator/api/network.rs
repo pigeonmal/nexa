@@ -91,10 +91,14 @@ private object NexaCronetRuntime {
         synchronized(engines) {
             engines[applicationContext]?.get(pinKey)?.let { return it }
         }
-        val builder = CronetEngine.Builder(context.applicationContext)
+        val cacheDirectory = java.io.File(applicationContext.cacheDir, "nexa-cronet").apply {
+            mkdirs()
+        }
+        val builder = CronetEngine.Builder(applicationContext)
             .enableHttp2(true)
             .enableQuic(true)
             .enableBrotli(true)
+            .setStoragePath(cacheDirectory.absolutePath)
             .enableHttpCache(
                 CronetEngine.Builder.HTTP_CACHE_DISK,
                 64L * 1024L * 1024L,

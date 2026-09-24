@@ -97,7 +97,7 @@ public struct NexaDevRuntimeRoot: View {
             let actions = module["on_appear"] as? [Any] ?? []
             if module["on_appear_async"] as? Bool == true {
                 Task { @MainActor in
-                    await runtime.store.performAsync(actions, scope: "app", locals: [:])
+                    try? await runtime.store.performAsync(actions, scope: "app", locals: [:])
                 }
             } else {
                 runtime.store.perform(actions, scope: "app", locals: [:])
@@ -837,24 +837,41 @@ private final class NexaDevStateStore: ObservableObject {
         }
     }
 
-    func performAsync(_ actions: [Any], scope: String, locals: [String: Any]) async {
+    func performAsync(_ actions: [Any], scope: String, locals: [String: Any]) async throws {
         for action in actions {
             guard let tagged = action as? [String: Any] else { continue }
-            if let assignment = tagged["Assign"] as? [String: Any],
+            if let tryCatch = tagged["TryCatch"] as? [String: Any] {
+                do {
+                    try await performAsync(
+                        tryCatch["body"] as? [Any] ?? [],
+                        scope: scope,
+                        locals: locals
+                    )
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    NSLog("NexaDevRuntime async dev action failed: %@", String(describing: error))
+                    if let catchBody = tryCatch["catch_body"] as? [Any] {
+                        try await performAsync(catchBody, scope: scope, locals: locals)
+                    } else {
+                        throw error
+                    }
+                }
+            } else if let assignment = tagged["Assign"] as? [String: Any],
                let name = assignment["name"] as? String,
                let expression = assignment["value"] {
-                let value = await evaluateAsync(expression, locals: locals, scope: scope)
+                let value = try await evaluateAsync(expression, locals: locals, scope: scope)
                 setValue(name, value: value, scope: scope)
                 revision += 1
             } else if let branch = tagged["If"] as? [String: Any],
                       let condition = branch["condition"] {
-                let value = await evaluateAsync(condition, locals: locals, scope: scope)
+                let value = try await evaluateAsync(condition, locals: locals, scope: scope)
                 let selected = truthy(value)
                     ? branch["then_branch"] as? [Any]
                     : branch["else_branch"] as? [Any]
-                await performAsync(selected ?? [], scope: scope, locals: locals)
+                try await performAsync(selected ?? [], scope: scope, locals: locals)
             } else if let expression = tagged["Expression"] {
-                _ = await evaluateAsync(expression, locals: locals, scope: scope)
+                _ = try await evaluateAsync(expression, locals: locals, scope: scope)
             }
         }
     }
@@ -863,34 +880,61 @@ private final class NexaDevStateStore: ObservableObject {
         _ expression: Any,
         locals: [String: Any],
         scope: String
-    ) async -> Any {
+    ) async throws -> Any {
         guard let tagged = expression as? [String: Any], let (kind, payload) = tagged.first else {
             return NSNull()
         }
         switch kind {
         case "Await", "TryAwait":
-            return await evaluateAsync(payload, locals: locals, scope: scope)
+            return try await evaluateAsync(payload, locals: locals, scope: scope)
         case "Call":
             guard let call = payload as? [String: Any] else { return NSNull() }
-            return await invokeFunctionAsync(call, locals: locals, scope: scope)
+            return try await invokeFunctionAsync(call, locals: locals, scope: scope)
+        case "NativeCall":
+            guard let call = payload as? [String: Any] else { return NSNull() }
+            return try await invokeNativeAsync(call, locals: locals, scope: scope)
+        case "Member":
+            guard let member = payload as? [String: Any],
+                  let base = member["base"],
+                  let name = member["name"] as? String
+            else { return NSNull() }
+            let value = try await evaluateAsync(base, locals: locals, scope: scope)
+            return (value as? [String: Any])?[name] ?? NSNull()
+        case "Array", "Set":
+            let entries = payload as? [Any] ?? []
+            var values: [Any] = []
+            for entry in entries {
+                values.append(try await evaluateAsync(entry, locals: locals, scope: scope))
+            }
+            if kind == "Set" { return Set(values.compactMap { $0 as? String }) }
+            return values
+        case "Map":
+            let entries = payload as? [[Any]] ?? []
+            var values: [String: Any] = [:]
+            for pair in entries where pair.count >= 2 {
+                let key = try await evaluateAsync(pair[0], locals: locals, scope: scope)
+                let value = try await evaluateAsync(pair[1], locals: locals, scope: scope)
+                values[stringify(key)] = value
+            }
+            return values
         case "Add":
             let parts = payload as? [Any] ?? []
             guard parts.count >= 2 else { return 0 }
-            let left = await evaluateAsync(parts[0], locals: locals, scope: scope)
-            let right = await evaluateAsync(parts[1], locals: locals, scope: scope)
+            let left = try await evaluateAsync(parts[0], locals: locals, scope: scope)
+            let right = try await evaluateAsync(parts[1], locals: locals, scope: scope)
             if let left = left as? String, let right = right as? String { return left + right }
             let sum = number(left) + number(right)
             return sum.rounded() == sum ? Int64(sum) as Any : sum as Any
         case "Not":
-            return !truthy(await evaluateAsync(payload, locals: locals, scope: scope))
+            return !truthy(try await evaluateAsync(payload, locals: locals, scope: scope))
         case "Binary":
             guard let binary = payload as? [String: Any],
                   let op = binary["op"] as? String,
                   let leftExpression = binary["left"],
                   let rightExpression = binary["right"]
             else { return false }
-            let left = await evaluateAsync(leftExpression, locals: locals, scope: scope)
-            let right = await evaluateAsync(rightExpression, locals: locals, scope: scope)
+            let left = try await evaluateAsync(leftExpression, locals: locals, scope: scope)
+            let right = try await evaluateAsync(rightExpression, locals: locals, scope: scope)
             return compare(op, left, right)
         default:
             return evaluate(expression, locals: locals, scope: scope)
@@ -901,7 +945,7 @@ private final class NexaDevStateStore: ObservableObject {
         _ call: [String: Any],
         locals: [String: Any],
         scope: String
-    ) async -> Any {
+    ) async throws -> Any {
         guard let name = call["name"] as? String,
               let function = functions[name],
               activeFunctions.insert(name).inserted
@@ -913,16 +957,82 @@ private final class NexaDevStateStore: ObservableObject {
         var functionScope = locals
         for (parameter, argument) in zip(parameters, arguments) {
             guard let parameterName = parameter["name"] as? String else { continue }
-            functionScope[parameterName] = await evaluateAsync(argument, locals: functionScope, scope: scope)
+            functionScope[parameterName] = try await evaluateAsync(argument, locals: functionScope, scope: scope)
         }
         for local in function["locals"] as? [[String: Any]] ?? [] {
             guard let localName = local["name"] as? String,
                   let initial = local["initial"]
             else { continue }
-            functionScope[localName] = await evaluateAsync(initial, locals: functionScope, scope: scope)
+            functionScope[localName] = try await evaluateAsync(initial, locals: functionScope, scope: scope)
         }
         guard let body = function["body"] else { return NSNull() }
-        return await evaluateAsync(body, locals: functionScope, scope: scope)
+        return try await evaluateAsync(body, locals: functionScope, scope: scope)
+    }
+
+    private func invokeNativeAsync(
+        _ call: [String: Any],
+        locals: [String: Any],
+        scope: String
+    ) async throws -> Any {
+        let namespace = call["namespace"] as? String ?? ""
+        let name = call["name"] as? String ?? ""
+        guard namespace == "Network", name == "fetch" || name == "download" else {
+            throw NSError(
+                domain: "NexaDevRuntime",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Unsupported async native call \\(namespace).\\(name)"]
+            )
+        }
+        var options: [String: Any] = [:]
+        for argument in call["arguments"] as? [[Any]] ?? [] where argument.count >= 2 {
+            guard let argumentName = argument[0] as? String else { continue }
+            options[argumentName] = try await evaluateAsync(argument[1], locals: locals, scope: scope)
+        }
+        func stringOption(_ key: String, _ fallback: String = "") -> String {
+            options[key] as? String ?? fallback
+        }
+        func numberOption(_ key: String, _ fallback: Double) -> Double {
+            (options[key] as? NSNumber)?.doubleValue ?? fallback
+        }
+        let headers = options["headers"] as? [String: String] ?? [:]
+        let pins = Set(options["certificatePins"] as? Set<String> ?? [])
+        let body = (options["body"] as? String).map { Data($0.utf8) }
+        let url = stringOption("url")
+        let method = stringOption("method", "GET")
+        let timeout = numberOption("timeout", 30)
+        let useCache = options["useCache"] as? Bool ?? true
+        let followRedirects = options["followRedirects"] as? Bool ?? true
+        let maxResponseBytes = Int(numberOption("maxResponseBytes", 67_108_864))
+        if name == "download" {
+            return try await NexaNetwork.download(
+                url: url,
+                destinationPath: stringOption("destinationPath"),
+                method: method,
+                body: body,
+                headers: headers,
+                timeout: timeout,
+                useCache: useCache,
+                followRedirects: followRedirects,
+                maxResponseBytes: maxResponseBytes,
+                certificatePins: pins
+            )
+        }
+        let response = try await NexaNetwork.fetch(
+            url: url,
+            method: method,
+            body: body,
+            headers: headers,
+            timeout: timeout,
+            useCache: useCache,
+            followRedirects: followRedirects,
+            maxResponseBytes: maxResponseBytes,
+            certificatePins: pins
+        )
+        return [
+            "statusCode": response.statusCode,
+            "headers": response.headers,
+            "body": response.text
+        ]
     }
 
     func navigationRoute(screen: String, values: [String: Any], signature: String) -> NexaDevRoute {
@@ -1473,7 +1583,7 @@ private struct NexaDevNodeList: View {
             let actions = screen["on_appear"] as? [Any] ?? []
             if screen["on_appear_async"] as? Bool == true {
                 Task { @MainActor in
-                    await store.performAsync(actions, scope: scope, locals: parameters)
+                    try? await store.performAsync(actions, scope: scope, locals: parameters)
                 }
             } else {
                 store.perform(actions, scope: scope, locals: parameters)

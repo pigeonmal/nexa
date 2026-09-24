@@ -57,6 +57,10 @@ pub(super) fn generate_for_dev_with_project_features(
     // initial source has none, so the development host always carries the same
     // Coil/Cronet support that release output uses for remote images.
     features.uses_remote_image = true;
+    // Async native calls can be added while a dev session is running, so keep
+    // the same first-party Cronet adapter available even if the initial app
+    // does not call Network yet.
+    features.uses_network_api = true;
     features.uses_native_library = true;
     let project_features = project_features_from_analysis(module, &features);
     let generated = generate_with_analysis(module, &features);

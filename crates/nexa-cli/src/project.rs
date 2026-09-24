@@ -590,7 +590,7 @@ fn generate_ios(
     let directory = root.join("ios").join(app_name);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let screen = nexa_codegen::names::screen_name(&module.app_name);
-    let source = ios_generated_source(module, config)?;
+    let source = ios_generated_source(module, config, dev_session.is_some())?;
     let source_units = split_generated_units(&source, "swift");
     copy_config_icons(root, app_name, config)?;
     let ios_icon = config.ios_icon.as_ref().or(config.icon_source.as_ref());
@@ -776,7 +776,7 @@ fn generate_android(
     };
     let activity_content = if project_features.uses_network {
         format!(
-            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Cronet provider unavailable; continuing without network-backed features\", result.exception)\n            setContent {{ MaterialTheme {{ {compose_root} }} }}\n        }}\n"
+            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Play Services Cronet unavailable; using bundled Cronet when available\", result.exception)\n            setContent {{ MaterialTheme {{ {compose_root} }} }}\n        }}\n"
         )
     } else {
         format!("        setContent {{ MaterialTheme {{ {compose_root} }} }}\n")
@@ -948,8 +948,16 @@ fn copy_directory_contents(source: &Path, destination: &Path) -> Result<(), Stri
     Ok(())
 }
 
-fn ios_generated_source(module: &Module, config: &ProjectConfig) -> Result<String, String> {
-    let generated = SwiftBackend.generate(module);
+fn ios_generated_source(
+    module: &Module,
+    config: &ProjectConfig,
+    dev_runtime: bool,
+) -> Result<String, String> {
+    let generated = if dev_runtime {
+        SwiftBackend.generate_for_dev(module)
+    } else {
+        SwiftBackend.generate(module)
+    };
     if module.plugins.is_empty() {
         return Ok(generated);
     }

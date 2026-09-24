@@ -1,0 +1,14 @@
+app NetworkFetchSmoke {
+    state statusCode: Int32 = 0
+
+    body {
+        OnAppear async {
+            try {
+                statusCode = (await Network.fetch(url: "https://example.com")).statusCode
+            } catch {
+                statusCode = 599
+            }
+        }
+        Text("HTTP: $statusCode")
+    }
+}

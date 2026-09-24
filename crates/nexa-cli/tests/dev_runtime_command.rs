@@ -151,7 +151,7 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
 
     nexa_cli::generate_dev_project(
         &entry,
-        "android",
+        "all",
         &output,
         "RuntimeSmoke",
         "ws://127.0.0.1:43210",
@@ -166,12 +166,27 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(kotlin.contains("imageLoader = nexaImageLoader()"));
     assert!(!kotlin.contains("URL(url).openConnection()"));
 
+    let generated_android =
+        fs::read_to_string(output.join(
+            "android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_native_library.kt",
+        ))
+        .expect("read generated Android dev APIs");
+    assert!(generated_android.contains("public object NexaNetwork"));
+    assert!(generated_android.contains("object NexaCronetRuntime"));
+    assert!(generated_android.contains(".setStoragePath(cacheDirectory.absolutePath)"));
+
+    let generated_ios =
+        fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_native_library.swift"))
+            .expect("read generated iOS dev APIs");
+    assert!(generated_ios.contains("public enum NexaNetwork"));
+    assert!(generated_ios.contains("enum NexaURLSessionSupport"));
+
     let activity = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/MainActivity.kt"),
     )
     .expect("read Android dev activity");
     assert!(activity.contains("CronetProviderInstaller.installProvider(this)"));
-    assert!(activity.contains("continuing without network-backed features"));
+    assert!(activity.contains("using bundled Cronet when available"));
     assert!(activity.contains("setContent { MaterialTheme { NexaDevRuntimeRoot"));
     assert!(!activity.contains("Network provider unavailable"));
 
@@ -180,13 +195,77 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(gradle.contains("io.coil-kt.coil3:coil-compose"));
     assert!(gradle.contains("io.coil-kt.coil3:coil-network-core"));
     assert!(gradle.contains("com.google.android.gms:play-services-cronet"));
+    assert!(gradle.contains("org.chromium.net:cronet-embedded:143.7445.0"));
 
-    nexa_cli::generate_project(&entry, "android", &output, "RuntimeSmoke")
+    nexa_cli::generate_project(&entry, "all", &output, "RuntimeSmoke")
         .expect("regenerate the AOT host");
     let release_gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
         .expect("read regenerated AOT dependencies");
     assert!(!release_gradle.contains("io.coil-kt.coil3:coil-compose"));
     assert!(!release_gradle.contains("com.google.android.gms:play-services-cronet"));
+    assert!(!release_gradle.contains("org.chromium.net:cronet-embedded"));
+    assert!(
+        !output
+            .join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_native_library.kt")
+            .exists()
+    );
+    assert!(
+        !output
+            .join("ios/RuntimeSmoke/NexaGenerated_native_library.swift")
+            .exists()
+    );
+
+    fs::remove_dir_all(root).expect("remove temporary project");
+}
+
+#[test]
+fn development_async_network_calls_use_release_native_adapters() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dev_network_fetch.nx"),
+        &entry,
+    )
+    .expect("write async network smoke app");
+    let output = root.join("build");
+
+    for target in [nexa_compiler::Target::Swift, nexa_compiler::Target::Kotlin] {
+        nexa_compiler::compile_file_for_target(&entry, target)
+            .expect("async network smoke app should compile");
+    }
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "RuntimeSmoke",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate cross-platform network dev hosts");
+
+    let swift = fs::read_to_string(output.join("ios/RuntimeSmoke/NexaDevRuntime.swift"))
+        .expect("read Swift DevRuntime");
+    assert!(swift.contains("case \"NativeCall\":"));
+    assert!(swift.contains("NexaNetwork.fetch("));
+    assert!(swift.contains("tagged[\"TryCatch\"] as? [String: Any]"));
+    let generated_swift =
+        fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_native_library.swift"))
+            .expect("read generated Swift networking adapter");
+    assert!(generated_swift.contains("public enum NexaNetwork"));
+
+    let kotlin_path =
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevRuntime.kt");
+    let kotlin = fs::read_to_string(kotlin_path).expect("read Kotlin DevRuntime");
+    assert!(kotlin.contains("\"NativeCall\" -> invokeNativeAsync"));
+    assert!(kotlin.contains("NexaNetwork.fetch("));
+    assert!(kotlin.contains("action.optJSONObject(\"TryCatch\")"));
+    let generated_kotlin =
+        fs::read_to_string(output.join(
+            "android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_native_library.kt",
+        ))
+        .expect("read generated Kotlin networking adapter");
+    assert!(generated_kotlin.contains("public object NexaNetwork"));
 
     fs::remove_dir_all(root).expect("remove temporary project");
 }

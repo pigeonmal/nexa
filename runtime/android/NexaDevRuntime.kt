@@ -106,6 +106,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -122,7 +123,8 @@ private fun openNexaUrl(context: Context, value: String) {
 
 @Composable
 internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
-    val store = remember { NexaDevStateStore() }
+    val applicationContext = LocalContext.current.applicationContext
+    val store = remember(applicationContext) { NexaDevStateStore(applicationContext) }
     LaunchedEffect(serverURL, sessionToken) {
         NexaDevSocketClient(serverURL, sessionToken, store).connect()
     }
@@ -249,7 +251,7 @@ private fun NexaDevStatusBar(config: JSONObject?, isDarkTheme: Boolean) {
     }
 }
 
-private class NexaDevStateStore {
+private class NexaDevStateStore(private val context: Context) {
     private val values = mutableStateMapOf<String, Any>()
     private var typeSignatures = mutableMapOf<String, String>()
     private var functions = mutableMapOf<String, JSONObject>()
@@ -541,6 +543,19 @@ private class NexaDevStateStore {
     suspend fun performAsync(actions: JSONArray, scope: String, locals: Map<String, Any>) {
         for (index in 0 until actions.length()) {
             val action = actions.optJSONObject(index) ?: continue
+            val tryCatch = action.optJSONObject("TryCatch")
+            if (tryCatch != null) {
+                try {
+                    performAsync(tryCatch.optJSONArray("body") ?: JSONArray(), scope, locals)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    android.util.Log.e("NexaDevRuntime", "Async dev action failed", error)
+                    val catchBody = tryCatch.optJSONArray("catch_body")
+                    if (catchBody != null) performAsync(catchBody, scope, locals) else throw error
+                }
+                continue
+            }
             val assignment = action.optJSONObject("Assign")
             if (assignment != null) {
                 val name = assignment.optString("name")
@@ -569,6 +584,33 @@ private class NexaDevStateStore {
         return when (kind) {
             "Await", "TryAwait" -> evaluateAsync(payload, locals, scope)
             "Call" -> invokeFunctionAsync(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
+            "NativeCall" -> invokeNativeAsync(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
+            "Member" -> {
+                val member = payload as? JSONObject ?: return JSONObject.NULL
+                val base = evaluateAsync(member.opt("base"), locals, scope)
+                (base as? Map<*, *>)?.get(member.optString("name")) ?: JSONObject.NULL
+            }
+            "Array", "Set" -> {
+                val entries = payload as? JSONArray ?: return emptyList<Any>()
+                val values = buildList(entries.length()) {
+                    for (index in 0 until entries.length()) {
+                        add(evaluateAsync(entries.opt(index), locals, scope))
+                    }
+                }
+                if (kind == "Set") values.toSet() else values
+            }
+            "Map" -> {
+                val entries = payload as? JSONArray ?: return emptyMap<Any, Any>()
+                buildMap(entries.length()) {
+                    for (index in 0 until entries.length()) {
+                        val pair = entries.optJSONArray(index) ?: continue
+                        put(
+                            evaluateAsync(pair.opt(0), locals, scope),
+                            evaluateAsync(pair.opt(1), locals, scope),
+                        )
+                    }
+                }
+            }
             "Add" -> {
                 val tuple = payload as? JSONArray ?: return 0L
                 val left = evaluateAsync(tuple.opt(0), locals, scope)
@@ -590,6 +632,82 @@ private class NexaDevStateStore {
             }
             else -> evaluate(raw, locals, scope)
         }
+    }
+
+    private suspend fun invokeNativeAsync(
+        call: JSONObject,
+        locals: Map<String, Any>,
+        scope: String,
+    ): Any {
+        val namespace = call.optString("namespace")
+        val name = call.optString("name")
+        if (namespace != "Network" || name !in setOf("fetch", "download")) {
+            throw IllegalStateException("Nexa dev runtime does not support async native call $namespace.$name")
+        }
+        val options = linkedMapOf<String, Any>()
+        val arguments = call.optJSONArray("arguments") ?: JSONArray()
+        for (index in 0 until arguments.length()) {
+            val argument = arguments.optJSONArray(index) ?: continue
+            val argumentName = argument.optString(0)
+            options[argumentName] = evaluateAsync(argument.opt(1), locals, scope)
+        }
+        fun stringOption(key: String, fallback: String = ""): String =
+            options[key] as? String ?: fallback
+        fun booleanOption(key: String, fallback: Boolean): Boolean =
+            options[key] as? Boolean ?: fallback
+        fun numberOption(key: String, fallback: Double): Double =
+            (options[key] as? Number)?.toDouble() ?: fallback
+        val headers = (options["headers"] as? Map<*, *>)
+            ?.mapNotNull { (key, value) ->
+                val header = key as? String ?: return@mapNotNull null
+                val headerValue = value as? String ?: return@mapNotNull null
+                header to headerValue
+            }
+            ?.toMap()
+            ?: emptyMap()
+        val pins = (options["certificatePins"] as? Set<*>)
+            ?.mapNotNull { it as? String }
+            ?.toSet()
+            ?: emptySet()
+        val body = (options["body"] as? String)?.toByteArray(Charsets.UTF_8)
+        val timeoutMillis = (numberOption("timeout", 30.0) * 1000.0).toLong()
+        val maxResponseBytes = numberOption("maxResponseBytes", 67_108_864.0).toLong()
+        val url = stringOption("url")
+        val method = stringOption("method", "GET")
+        val useCache = booleanOption("useCache", true)
+        val followRedirects = booleanOption("followRedirects", true)
+        if (name == "download") {
+            return NexaNetwork.download(
+                context,
+                url,
+                stringOption("destinationPath"),
+                method,
+                body,
+                headers,
+                timeoutMillis,
+                useCache,
+                followRedirects,
+                maxResponseBytes,
+                pins,
+            )
+        }
+        val response = NexaNetwork.fetch(
+            context,
+            url,
+            method,
+            body,
+            headers,
+            timeoutMillis,
+            useCache,
+            followRedirects,
+            maxResponseBytes,
+            pins,
+        )
+        return mapOf(
+            "statusCode" to response.statusCode,
+            "headers" to response.headers,
+            "body" to response.text,
+        )
     }
 
     private suspend fun invokeFunctionAsync(call: JSONObject, locals: Map<String, Any>, scope: String): Any {

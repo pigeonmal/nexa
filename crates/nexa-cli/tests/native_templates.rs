@@ -79,6 +79,7 @@ fn android_dev_runtime_preloads_compose_and_platform_dependencies() {
         "io.coil-kt.coil3:coil-compose",
         "io.coil-kt.coil3:coil-network-core",
         "com.google.android.gms:play-services-cronet",
+        "org.chromium.net:cronet-embedded",
     ] {
         assert!(
             dependencies.contains(&format!("implementation(\"{dependency}")),
@@ -110,6 +111,7 @@ fn android_aot_dependencies_remain_feature_gated() {
         "io.coil-kt.coil3:coil-compose",
         "io.coil-kt.coil3:coil-network-core",
         "com.google.android.gms:play-services-cronet",
+        "org.chromium.net:cronet-embedded",
     ] {
         assert!(
             !dependencies.contains(dependency),

@@ -16,6 +16,10 @@ pub(super) use engine::{colors, expressions, features, functions, imports, struc
 
 pub(super) fn generate(module: &Module) -> String {
     let features = features::Features::analyze(module);
+    generate_with_analysis(module, features)
+}
+
+fn generate_with_analysis(module: &Module, features: features::Features) -> String {
     let app_focus_bindings = collect_focus_bindings(&module.body);
     let mut all_focus_bindings = app_focus_bindings.clone();
     for screen in &module.screens {
@@ -188,6 +192,15 @@ pub(super) fn generate(module: &Module) -> String {
     out.push_str("\n// nexa-unit:functions\n");
     functions::render(module, &mut out);
     out
+}
+
+pub(super) fn generate_for_dev(module: &Module) -> String {
+    let mut features = features::Features::analyze(module);
+    // Calls to Nexa's async native APIs can appear after the dev host has been
+    // built. Keep the same URLSession adapter as release output in that host.
+    features.uses_network_api = true;
+    features.uses_native_library = true;
+    generate_with_analysis(module, features)
 }
 
 fn collect_focus_bindings(nodes: &[Node]) -> BTreeSet<String> {
