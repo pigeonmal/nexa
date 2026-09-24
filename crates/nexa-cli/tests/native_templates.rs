@@ -217,6 +217,250 @@ mod template_generation {
         }
     }
 
+    /// Collect every `ID = { isa = ...` object key from a rendered pbxproj.
+    fn pbx_object_ids(project: &str) -> Vec<String> {
+        let mut ids = Vec::new();
+        let mut search = project;
+        while let Some(end) = search.find(" = { isa = ") {
+            let start = search[..end].rfind(['\t', ' ', '\n', '{']).map(|index| index + 1).unwrap_or(0);
+            ids.push(search[start..end].to_owned());
+            search = &search[end + 1..];
+        }
+        ids
+    }
+
+    fn is_pbx_id(value: &str) -> bool {
+        value.len() == 24
+            && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+            && value.bytes().all(|byte| !byte.is_ascii_lowercase())
+    }
+
+    /// Find the `PBXBuildFile` whose `fileRef` points at the file reference
+    /// with the given `path = ...` value.
+    fn pbx_object_id_on_line(project: &str, position: usize) -> String {
+        let line_start = project[..position].rfind('\n').map(|index| index + 1).unwrap_or(0);
+        let line = &project[line_start..];
+        let id = line
+            .split(" = ")
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        assert!(
+            is_pbx_id(&id),
+            "expected a 24-hex PBX object key on line `{line}`"
+        );
+        id
+    }
+
+    fn pbx_build_file_for_path(project: &str, path: &str) -> String {
+        let needle = format!("path = {path};");
+        let file_end = project
+            .find(&needle)
+            .unwrap_or_else(|| panic!("expected a file reference with `{needle}`"));
+        let file_id = pbx_object_id_on_line(project, file_end);
+        let build_needle = format!("isa = PBXBuildFile; fileRef = {file_id};");
+        let build_end = project
+            .find(&build_needle)
+            .expect("expected a build file for the file reference");
+        pbx_object_id_on_line(project, build_end)
+    }
+
+    #[test]
+    fn pbx_identifiers_stay_unique_at_plugin_scale() {
+        // Regression test for the old numeric-range scheme, where plugin file
+        // references at 30+index collided with generated file references at
+        // 40+index once 11 plugin Swift files existed. 30 plugin files, 10
+        // generated units, frameworks, XCFrameworks, SwiftPM packages, C++
+        // sources, splash, icons, assets, and plugin resources must all
+        // receive distinct 24-hex object identifiers.
+        let mut config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
+        config.splash_source = Some(std::path::PathBuf::from("assets/splash.png"));
+        config.ios_icon = Some(std::path::PathBuf::from("assets/AppIcon.icon"));
+
+        let mut generated = vec!["NexaGenerated.swift".to_owned()];
+        for index in 0..9 {
+            generated.push(format!("NexaGenerated_Section{index}.swift"));
+        }
+        let plugin_sources: Vec<String> = (0..30)
+            .map(|index| format!("NexaPlugin{index}_Bindings.swift"))
+            .collect();
+        let cpp_sources = vec![
+            "Plugin0/cpp/Sources/Decoder.cpp".to_owned(),
+            "Plugin1/cpp/Sources/Encoder.cpp".to_owned(),
+        ];
+        let xcframeworks = vec![
+            "Frameworks/NexaPlugin0_VideoSDK.xcframework".to_owned(),
+            "Frameworks/NexaPlugin1_AudioSDK.xcframework".to_owned(),
+        ];
+        let mut media_plugin = plugin("Media");
+        media_plugin.ios_frameworks = vec!["AVFoundation".to_owned(), "CoreMedia".to_owned()];
+        media_plugin.swift_packages.push(nexa_ir::SwiftPackage {
+            url: "https://example.com/media.git".to_owned(),
+            from: "2.3.0".to_owned(),
+            products: vec!["MediaKit".to_owned(), "MediaUI".to_owned()],
+        });
+        let mut maps_plugin = plugin("Maps");
+        maps_plugin.ios_frameworks = vec!["MapKit".to_owned()];
+        maps_plugin.swift_packages.push(nexa_ir::SwiftPackage {
+            url: "https://example.com/maps.git".to_owned(),
+            from: "1.0.0".to_owned(),
+            products: vec!["MapsKit".to_owned()],
+        });
+        let plugins = [media_plugin, maps_plugin];
+
+        let project = ios_project_file_with_config(
+            "Demo",
+            true,
+            true,
+            &generated,
+            &plugin_sources,
+            &cpp_sources,
+            &xcframeworks,
+            &plugins,
+            &config,
+        )
+        .expect("scaled iOS project should render");
+
+        // Generation must be deterministic: the same inputs produce the same
+        // identifiers on every run.
+        let again = ios_project_file_with_config(
+            "Demo",
+            true,
+            true,
+            &generated,
+            &plugin_sources,
+            &cpp_sources,
+            &xcframeworks,
+            &plugins,
+            &config,
+        )
+        .expect("scaled iOS project should render deterministically");
+        assert_eq!(project, again, "project generation must be deterministic");
+
+        let ids = pbx_object_ids(&project);
+        assert!(
+            ids.len() >= 100,
+            "expected a large object graph at this scale, found {} objects",
+            ids.len()
+        );
+        for id in &ids {
+            assert!(is_pbx_id(id), "PBX object key should be 24-hex: {id}");
+        }
+        let unique: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+        assert_eq!(
+            ids.len(),
+            unique.len(),
+            "every PBX object key must be unique at plugin scale"
+        );
+
+        // Spot-check that every input file is referenced exactly once.
+        for name in generated.iter().skip(1) {
+            assert_eq!(
+                project.matches(&format!("path = {name};")).count(),
+                1,
+                "generated unit {name} should have exactly one file reference"
+            );
+        }
+        for name in &plugin_sources {
+            assert_eq!(
+                project.matches(&format!("path = NexaPlugins/{name};")).count(),
+                1,
+                "plugin source {name} should have exactly one file reference"
+            );
+        }
+        for product in ["MediaKit", "MediaUI", "MapsKit"] {
+            assert!(
+                project.contains(&format!("productName = \"{product}\"")),
+                "SwiftPM product {product} should be present"
+            );
+        }
+        assert!(project.contains("Embed Frameworks"));
+        assert!(project.contains("path = Assets.xcassets"));
+        assert!(project.contains("path = NexaPluginResources"));
+        assert!(project.contains("AppIcon.icon"));
+        assert!(project.contains("LaunchScreen.storyboard"));
+
+        // The scheme must point at the target emitted into the project.
+        let scheme = ios_scheme("Demo");
+        let blueprint = scheme
+            .split("BlueprintIdentifier=\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .expect("scheme should reference the native target");
+        assert!(is_pbx_id(blueprint));
+        assert!(
+            project.contains(&format!("{blueprint} = {{ isa = PBXNativeTarget;")),
+            "scheme target should match the generated PBXNativeTarget"
+        );
+
+        // On macOS CI, prove the generated project parses with xcodebuild.
+        // SwiftPM remotes cannot be cloned in CI, so the xcodebuild leg uses
+        // a package-free variant at the same file-count scale; package object
+        // syntax is covered by the assertions above.
+        #[cfg(target_os = "macos")]
+        {
+            let no_package_plugins = [plugin("Media"), plugin("Maps")];
+            let list_project = ios_project_file_with_config(
+                "Demo",
+                true,
+                true,
+                &generated,
+                &plugin_sources,
+                &cpp_sources,
+                &xcframeworks,
+                &no_package_plugins,
+                &config,
+            )
+            .expect("package-free scaled project should render");
+            let list_ids = pbx_object_ids(&list_project);
+            let list_unique: std::collections::HashSet<&str> =
+                list_ids.iter().map(String::as_str).collect();
+            assert_eq!(
+                list_ids.len(),
+                list_unique.len(),
+                "every PBX object key must be unique in the xcodebuild variant"
+            );
+            let root = std::env::temp_dir().join(format!(
+                "nexa-pbx-scale-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system clock")
+                    .as_nanos()
+            ));
+            let proj_dir = root.join("Demo.xcodeproj");
+            std::fs::create_dir_all(proj_dir.join("xcshareddata/xcschemes"))
+                .expect("create xcodeproj layout");
+            std::fs::write(proj_dir.join("project.pbxproj"), &list_project)
+                .expect("write project.pbxproj");
+            std::fs::write(
+                proj_dir.join("xcshareddata/xcschemes/Demo.xcscheme"),
+                &scheme,
+            )
+            .expect("write scheme");
+            let output = std::process::Command::new("xcodebuild")
+                .arg("-list")
+                .arg("-project")
+                .arg(proj_dir.as_os_str())
+                .output();
+            match output {
+                Ok(output) if output.status.success() => {}
+                Ok(output) => {
+                    panic!(
+                        "xcodebuild -list rejected the project: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    eprintln!("skipping xcodebuild check: xcodebuild not installed");
+                }
+                Err(error) => panic!("failed to run xcodebuild -list: {error}"),
+            }
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+
     #[test]
     fn ios_debug_and_release_share_configured_identity_and_minimum_version() {
         let mut config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
@@ -355,10 +599,25 @@ mod template_generation {
         let resource_project = ios_project_file("Demo", false, true, &[], &[], &[], &[], &plugins)
             .expect("plugin resource bundle should be included in the Xcode project");
         assert!(resource_project.contains("path = NexaPluginResources"));
-        assert!(resource_project.contains(&format!(
-            "PBXResourcesBuildPhase; files = ( {} );",
-            pbx_identifier(10001)
-        )));
+        let resources_build_id = pbx_build_file_for_path(&resource_project, "NexaPluginResources");
+        assert!(
+            resource_project.contains(&format!(
+                "PBXResourcesBuildPhase; files = ( {resources_build_id} );"
+            )),
+            "plugin resource build file should be the only resources entry"
+        );
+
+        // Object identifiers are hash-derived from stable logical keys, so the
+        // previously colliding numeric ranges (plugin files at 30+index vs
+        // generated files at 40+index) can no longer overlap.
+        let ids = pbx_object_ids(&ios);
+        assert!(!ids.is_empty());
+        let unique: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+        assert_eq!(
+            ids.len(),
+            unique.len(),
+            "every PBX object key must be unique"
+        );
 
         let settings = android_settings("Demo", &plugins);
         assert!(settings.contains("maven { url = uri(\"https://maven.example.com/releases\") }"));

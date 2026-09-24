@@ -230,33 +230,127 @@ fn merge_swift_packages(plugins: &[nexa_ir::Plugin]) -> Result<Vec<nexa_ir::Swif
     Ok(packages)
 }
 
-fn render_swift_package_objects(packages: &[nexa_ir::SwiftPackage]) -> String {
-    let mut objects = String::new();
-    let mut product_index = 0;
-    for (package_index, package) in packages.iter().enumerate() {
-        objects.push_str(&format!(
-            "\n\t\t{} = {{ isa = XCRemoteSwiftPackageReference; repositoryURL = \"{}\"; requirement = {{ kind = upToNextMajorVersion; minimumVersion = \"{}\"; }}; }};",
-            pbx_identifier(1000 + package_index),
-            package.url,
-            package.from
-        ));
-        for product in &package.products {
-            objects.push_str(&format!(
-                "\n\t\t{} = {{ isa = XCSwiftPackageProductDependency; package = {}; productName = \"{}\"; }};\n\t\t{} = {{ isa = PBXBuildFile; productRef = {}; }};",
-                pbx_identifier(2000 + product_index),
-                pbx_identifier(1000 + package_index),
-                product,
-                pbx_identifier(3000 + product_index),
-                pbx_identifier(2000 + product_index)
-            ));
-            product_index += 1;
-        }
-    }
-    objects
+/// Single source of truth for every PBX object identifier in the generated
+/// Xcode project.
+///
+/// Identifiers are 24 uppercase hex characters (96 bits) derived from a stable
+/// hash of a logical key such as `file:plugin:<path>` or
+/// `package:<url>:<product>`. No numeric ranges are reserved: any object kind
+/// can grow without colliding with another kind. The astronomically unlikely
+/// hash collision is detected through the reverse map and resolved with a
+/// salted rehash (erroring only if the table cannot be resolved).
+#[derive(Default)]
+struct PbxIdAllocator {
+    key_to_id: std::collections::HashMap<String, String>,
+    id_to_key: std::collections::HashMap<String, String>,
 }
 
-pub(super) fn pbx_identifier(index: usize) -> String {
-    format!("BB{:022X}", index)
+impl PbxIdAllocator {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn id(&mut self, key: &str) -> Result<String, String> {
+        if let Some(existing) = self.key_to_id.get(key) {
+            return Ok(existing.clone());
+        }
+        let mut attempt = 0_u32;
+        loop {
+            let candidate = if attempt == 0 {
+                Self::stable_id(key)
+            } else {
+                Self::stable_id(&format!("{key}\u{0}#{attempt}"))
+            };
+            match self.id_to_key.get(&candidate) {
+                None => {
+                    self.key_to_id.insert(key.to_owned(), candidate.clone());
+                    self.id_to_key.insert(candidate.clone(), key.to_owned());
+                    return Ok(candidate);
+                }
+                Some(owner) if owner == key => return Ok(candidate),
+                Some(owner) => {
+                    let owner = owner.clone();
+                    let _ = owner;
+                    attempt += 1;
+                    if attempt > 1024 {
+                        return Err(format!(
+                            "PBX object ID collision while allocating `{key}`"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Pure stable 96-bit identifier for a logical key. Public within the
+    /// module so the scheme generator can reference the same target ID as
+    /// the project without sharing allocator state.
+    fn stable_id(key: &str) -> String {
+        let high = fnv1a64(key.as_bytes(), 0xcbf2_9ce4_8422_2325);
+        let low = fnv1a64(key.as_bytes(), 0x8422_2325_cbf2_9ce4);
+        format!("{high:016X}{:08X}", low & 0xffff_ffff)
+    }
+}
+
+fn fnv1a64(bytes: &[u8], basis: u64) -> u64 {
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut hash = basis;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(PRIME);
+    }
+    // Avalanche the hash so the low 32 bits used for the tail carry entropy.
+    hash ^= hash >> 29;
+    hash = hash.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    hash ^= hash >> 32;
+    hash
+}
+
+/// Typed Xcode project model. Objects are collected in a map and rendered
+/// exactly once; no string patching after rendering.
+struct PbxProject {
+    objects: std::collections::BTreeMap<String, String>,
+    root_id: String,
+}
+
+impl PbxProject {
+    fn new(root_id: String) -> Self {
+        Self {
+            objects: std::collections::BTreeMap::new(),
+            root_id,
+        }
+    }
+
+    fn insert(&mut self, id: String, body: String) -> Result<(), String> {
+        match self.objects.get(&id) {
+            Some(existing) if existing != &body => {
+                return Err(format!("PBX object ID collision for object `{id}`"));
+            }
+            Some(_) => return Ok(()),
+            None => {}
+        }
+        self.objects.insert(id, body);
+        Ok(())
+    }
+
+    fn render(&self) -> String {
+        let mut out = String::from(
+            "// !$*UTF8*$!\n{\n\tarchiveVersion = 1;\n\tclasses = {};\n\tobjectVersion = 77;\n\tobjects = {",
+        );
+        for (id, body) in &self.objects {
+            out.push_str(&format!("\n\t\t{id} = {{ {body} }};"));
+        }
+        out.push_str(&format!("\n\t}};\n\trootObject = {};\n}}", self.root_id));
+        out
+    }
+}
+
+fn render_settings(settings: &std::collections::BTreeMap<String, String>) -> String {
+    settings
+        .iter()
+        .map(|(key, value)| format!("{key} = {value};"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn minimum_ios_version(configured: &str, plugins: &[nexa_ir::Plugin]) -> Result<String, String> {
@@ -341,6 +435,10 @@ fn merge_maven_dependencies(plugins: &[nexa_ir::Plugin]) -> Result<Vec<String>, 
     Ok(dependencies)
 }
 
+/// Renders `project.pbxproj` in a single pass from typed objects. All PBX
+/// identifiers come from one [`PbxIdAllocator`]; see its docs for the key
+/// scheme.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn ios_project_file_with_config(
     app_name: &str,
     has_assets: bool,
@@ -354,39 +452,92 @@ pub(super) fn ios_project_file_with_config(
 ) -> Result<String, String> {
     let packages = merge_swift_packages(plugins)?;
     let frameworks = merge_ios_frameworks(plugins);
-    let product_count = packages
-        .iter()
-        .map(|package| package.products.len())
-        .sum::<usize>();
-    let package_reference_ids = (0..packages.len())
-        .map(|index| pbx_identifier(1000 + index))
-        .collect::<Vec<_>>();
-    let package_product_ids = (0..product_count)
-        .map(|index| pbx_identifier(2000 + index))
-        .collect::<Vec<_>>();
-    let package_build_ids = (0..product_count)
-        .map(|index| pbx_identifier(3000 + index))
-        .collect::<Vec<_>>();
-    let package_objects = render_swift_package_objects(&packages);
-    let framework_reference_ids = (0..frameworks.len())
-        .map(|index| pbx_identifier(4000 + index))
-        .collect::<Vec<_>>();
-    let framework_build_ids = (0..frameworks.len())
-        .map(|index| pbx_identifier(5000 + index))
-        .collect::<Vec<_>>();
-    let xcframework_link_ids = (0..xcframeworks.len())
-        .map(|index| pbx_identifier(7000 + index))
-        .collect::<Vec<_>>();
-    let framework_objects = render_ios_framework_objects(&frameworks);
-    let embed_phase = render_ios_xcframework_embed_phase(xcframeworks.len());
-    let mut project = ios_project_base_file(
-        app_name,
-        has_assets,
-        has_plugin_resources,
-        generated_sources,
-        plugin_sources,
-        xcframeworks,
-    );
+    let linker_flags = merge_ios_linker_flags(plugins);
+    let minimum_version = minimum_ios_version(&config.ios_min_version, plugins)?;
+
+    let mut alloc = PbxIdAllocator::new();
+    // Core object identifiers, each derived from a stable logical key.
+    let project_id = alloc.id("project")?;
+    let main_group_id = alloc.id("group:main")?;
+    let app_group_id = alloc.id("group:app")?;
+    let products_group_id = alloc.id("group:products")?;
+    let app_file_id = alloc.id("file:app")?;
+    let generated_root_id = alloc.id("file:generated:NexaGenerated.swift")?;
+    let info_id = alloc.id("file:info")?;
+    let product_id = alloc.id("file:product")?;
+    let app_build_id = alloc.id("build:app")?;
+    let generated_root_build_id = alloc.id("build:generated:NexaGenerated.swift")?;
+    let target_id = alloc.id("target:main")?;
+    let sources_phase_id = alloc.id("phase:sources")?;
+    let frameworks_phase_id = alloc.id("phase:frameworks")?;
+    let resources_phase_id = alloc.id("phase:resources")?;
+    let project_list_id = alloc.id("configList:project")?;
+    let target_list_id = alloc.id("configList:target")?;
+    let project_release_id = alloc.id("config:project:release")?;
+    let project_debug_id = alloc.id("config:project:debug")?;
+    let target_release_id = alloc.id("config:target:release")?;
+    let target_debug_id = alloc.id("config:target:debug")?;
+
+    // Per-file identifiers keyed by stable logical names. Unlike the previous
+    // numeric-range scheme (plugin files at 30+index colliding with generated
+    // files at 40+index once 11 plugin files existed), hash-derived keys
+    // cannot collide across kinds.
+    let mut generated_file_ids = Vec::new();
+    let mut generated_build_ids = Vec::new();
+    for name in generated_sources.iter().skip(1) {
+        generated_file_ids.push(alloc.id(&format!("file:generated:{name}"))?);
+        generated_build_ids.push(alloc.id(&format!("build:generated:{name}"))?);
+    }
+    let mut plugin_file_ids = Vec::new();
+    let mut plugin_build_ids = Vec::new();
+    for name in plugin_sources {
+        plugin_file_ids.push(alloc.id(&format!("file:plugin:{name}"))?);
+        plugin_build_ids.push(alloc.id(&format!("build:plugin:{name}"))?);
+    }
+    let mut cpp_file_ids = Vec::new();
+    let mut cpp_build_ids = Vec::new();
+    for source in cpp_sources {
+        cpp_file_ids.push(alloc.id(&format!("file:cpp:{source}"))?);
+        cpp_build_ids.push(alloc.id(&format!("build:cpp:{source}"))?);
+    }
+    let mut package_reference_ids = Vec::new();
+    let mut package_product_ids = Vec::new();
+    let mut package_build_ids = Vec::new();
+    for package in &packages {
+        package_reference_ids.push(alloc.id(&format!("package:{}", package.url))?);
+        for product in &package.products {
+            package_product_ids.push(alloc.id(&format!("package:{}:{product}", package.url))?);
+            package_build_ids.push(alloc.id(&format!("build:product:{}:{product}", package.url))?);
+        }
+    }
+    let mut framework_reference_ids = Vec::new();
+    let mut framework_build_ids = Vec::new();
+    for framework in &frameworks {
+        framework_reference_ids.push(alloc.id(&format!("file:framework:{framework}"))?);
+        framework_build_ids.push(alloc.id(&format!("build:framework:{framework}"))?);
+    }
+    let mut xcframework_reference_ids = Vec::new();
+    let mut xcframework_link_ids = Vec::new();
+    let mut xcframework_embed_ids = Vec::new();
+    for path in xcframeworks {
+        xcframework_reference_ids.push(alloc.id(&format!("file:xcframework:{path}"))?);
+        xcframework_link_ids.push(alloc.id(&format!("link:xcframework:{path}"))?);
+        xcframework_embed_ids.push(alloc.id(&format!("embed:xcframework:{path}"))?);
+    }
+    let embed_phase_id = if xcframeworks.is_empty() {
+        None
+    } else {
+        Some(alloc.id("phase:embed")?)
+    };
+    let asset_reference_id = alloc.id("file:assets")?;
+    let asset_build_id = alloc.id("build:assets")?;
+    let resources_reference_id = alloc.id("file:plugin-resources")?;
+    let resources_build_id = alloc.id("build:plugin-resources")?;
+    let icon_reference_id = alloc.id("file:icon")?;
+    let icon_build_id = alloc.id("build:icon")?;
+    let splash_reference_id = alloc.id("file:splash")?;
+    let splash_build_id = alloc.id("build:splash")?;
+
     let has_icon_composer = config
         .ios_icon
         .as_ref()
@@ -395,123 +546,104 @@ pub(super) fn ios_project_file_with_config(
             path.extension()
                 .is_some_and(|extension| extension == "icon")
         });
+
+    let mut pbx = PbxProject::new(project_id.clone());
+    let app_file = format!("{app_name}App.swift");
+
+    // App group children, assembled once in a deterministic order.
+    let mut app_children = vec![
+        app_file_id.clone(),
+        generated_root_id.clone(),
+        info_id.clone(),
+    ];
+    if has_assets {
+        app_children.push(asset_reference_id.clone());
+    }
+    app_children.extend(generated_file_ids.clone());
+    app_children.extend(plugin_file_ids.clone());
+    app_children.extend(xcframework_reference_ids.clone());
+    app_children.extend(cpp_file_ids.clone());
+    if has_plugin_resources {
+        app_children.push(resources_reference_id.clone());
+    }
+    let mut main_children = vec![app_group_id.clone(), products_group_id.clone()];
+    main_children.extend(framework_reference_ids.clone());
+
+    // Sources phase.
+    let mut source_files = vec![app_build_id.clone(), generated_root_build_id.clone()];
+    source_files.extend(generated_build_ids.clone());
+    source_files.extend(plugin_build_ids.clone());
+    source_files.extend(cpp_build_ids.clone());
+
+    // Frameworks phase: SwiftPM products, system frameworks, XCFramework links.
+    let mut frameworks_files = package_build_ids.clone();
+    frameworks_files.extend(framework_build_ids.clone());
+    frameworks_files.extend(xcframework_link_ids.clone());
+
+    // Resources phase.
+    let mut resource_files = Vec::new();
+    if has_assets {
+        resource_files.push(asset_build_id.clone());
+    }
     if has_icon_composer {
-        let reference_id = pbx_identifier(10012);
-        let build_id = pbx_identifier(10013);
-        project = project.replace(
-            "PBXResourcesBuildPhase; files = (",
-            &format!("PBXResourcesBuildPhase; files = ( {build_id},"),
-        );
-        let objects = format!(
-            "\n\t\t{reference_id} = {{ isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = {app_name}/AppIcon.icon; sourceTree = SOURCE_ROOT; }};\n\t\t{build_id} = {{ isa = PBXBuildFile; fileRef = {reference_id}; }};\n"
-        );
-        project = project.replace(
-            "AA0000000000000000000005 = { isa = PBXNativeTarget;",
-            &format!("{objects}\t\tAA0000000000000000000005 = {{ isa = PBXNativeTarget;"),
-        );
+        resource_files.push(icon_build_id.clone());
     }
     if config.splash_source.is_some() {
-        let reference_id = pbx_identifier(10020);
-        let build_id = pbx_identifier(10021);
-        project = project.replace(
-            "PBXResourcesBuildPhase; files = (",
-            &format!("PBXResourcesBuildPhase; files = ( {build_id},"),
-        );
-        let objects = format!(
-            "\n\t\t{reference_id} = {{ isa = PBXFileReference; lastKnownFileType = file.storyboard; path = {app_name}/LaunchScreen.storyboard; sourceTree = SOURCE_ROOT; }};\n\t\t{build_id} = {{ isa = PBXBuildFile; fileRef = {reference_id}; }};\n"
-        );
-        project = project.replace(
-            "AA0000000000000000000005 = { isa = PBXNativeTarget;",
-            &format!("{objects}\t\tAA0000000000000000000005 = {{ isa = PBXNativeTarget;"),
-        );
+        resource_files.push(splash_build_id.clone());
     }
-    add_ios_cpp_objects(&mut project, app_name, cpp_sources, plugins)?;
-    if !framework_reference_ids.is_empty() {
-        project = project.replace(
-            "children = ( AA0000000000000000000014, AA0000000000000000000004 );",
-            &format!(
-                "children = ( AA0000000000000000000014, AA0000000000000000000004, {} );",
-                framework_reference_ids.join(", ")
-            ),
-        );
+    if has_plugin_resources {
+        resource_files.push(resources_build_id.clone());
     }
-    project = project.replace(
-        "targets = ( AA0000000000000000000005 );",
-        &format!(
-            "targets = ( AA0000000000000000000005 ); packageReferences = ( {} );",
-            package_reference_ids.join(", ")
-        ),
-    );
-    project = project.replace(
-        "productType = \"com.apple.product-type.application\"; };",
-        &format!(
-            "productType = \"com.apple.product-type.application\"; packageProductDependencies = ( {} ); }};",
-            package_product_ids.join(", ")
-        ),
-    );
-    project = project.replace(
-        "PBXFrameworksBuildPhase; files = (); };",
-        &format!(
-            "PBXFrameworksBuildPhase; files = ( {} ); }};",
-            package_build_ids
-                .iter()
-                .chain(&framework_build_ids)
-                .chain(&xcframework_link_ids)
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-    );
-    if !package_objects.is_empty() || !framework_objects.is_empty() || !embed_phase.is_empty() {
-        let insertion = "\n\t\tAA0000000000000000000005 = { isa = PBXNativeTarget;";
-        project = project.replace(
-            insertion,
-            &format!("{package_objects}{framework_objects}{embed_phase}{insertion}"),
-        );
+
+    // Target build phases.
+    let mut target_phases = vec![
+        sources_phase_id.clone(),
+        frameworks_phase_id.clone(),
+        resources_phase_id.clone(),
+    ];
+    if let Some(embed_id) = &embed_phase_id {
+        target_phases.push(embed_id.clone());
     }
-    if !xcframeworks.is_empty() {
-        let embed_phase_id = pbx_identifier(9000);
-        project = project.replace(
-            "buildPhases = ( AA0000000000000000000008, AA0000000000000000000009, AA000000000000000000000A );",
-            &format!("buildPhases = ( AA0000000000000000000008, AA0000000000000000000009, AA000000000000000000000A, {embed_phase_id} );"),
-        );
-    }
-    let minimum_version = minimum_ios_version(&config.ios_min_version, plugins)?;
-    project = project.replace(
-        "IPHONEOS_DEPLOYMENT_TARGET = 17.0",
-        &format!("IPHONEOS_DEPLOYMENT_TARGET = {minimum_version}"),
+
+    // Build settings, typed as maps and rendered once.
+    let mut project_release = std::collections::BTreeMap::new();
+    project_release.insert(
+        "ALWAYS_SEARCH_USER_PATHS".to_owned(),
+        "NO".to_owned(),
     );
-    project = project.replace(
-        &format!(
-            "PRODUCT_BUNDLE_IDENTIFIER = com.nexa.{};",
-            app_name.to_ascii_lowercase()
-        ),
-        &format!(
-            "PRODUCT_BUNDLE_IDENTIFIER = {};",
-            config.ios_bundle_identifier
-        ),
+    project_release.insert("SWIFT_VERSION".to_owned(), "6.0".to_owned());
+    project_release.insert(
+        "SWIFT_OPTIMIZATION_LEVEL".to_owned(),
+        "\"-O\"".to_owned(),
     );
-    project = project.replace(
-        &format!(
-            "PRODUCT_BUNDLE_IDENTIFIER = com.nexa.{};",
-            app_name.to_ascii_lowercase()
-        ),
-        &format!(
-            "PRODUCT_BUNDLE_IDENTIFIER = {};",
-            config.ios_bundle_identifier
-        ),
+    project_release.insert(
+        "SWIFT_COMPILATION_MODE".to_owned(),
+        "wholemodule".to_owned(),
     );
-    let mut extra_target_settings = String::new();
-    let has_icon_composer = config
-        .ios_icon
-        .as_ref()
-        .or(config.icon_source.as_ref())
-        .is_some_and(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "icon")
-        });
+    project_release.insert("GCC_OPTIMIZATION_LEVEL".to_owned(), "s".to_owned());
+    project_release.insert("DEAD_CODE_STRIPPING".to_owned(), "YES".to_owned());
+    project_release.insert(
+        "IPHONEOS_DEPLOYMENT_TARGET".to_owned(),
+        minimum_version.clone(),
+    );
+    let mut project_debug = std::collections::BTreeMap::new();
+    project_debug.insert(
+        "ALWAYS_SEARCH_USER_PATHS".to_owned(),
+        "NO".to_owned(),
+    );
+    project_debug.insert("SWIFT_VERSION".to_owned(), "6.0".to_owned());
+    project_debug.insert(
+        "SWIFT_OPTIMIZATION_LEVEL".to_owned(),
+        "\"-Onone\"".to_owned(),
+    );
+    project_debug.insert(
+        "IPHONEOS_DEPLOYMENT_TARGET".to_owned(),
+        minimum_version.clone(),
+    );
+
+    let mut target_extra = String::new();
     if (config.ios_icon.is_some() || config.icon_source.is_some()) && !has_icon_composer {
-        extra_target_settings.push_str(" ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;");
+        target_extra.push_str(" ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;");
     }
     if plugins
         .iter()
@@ -521,122 +653,443 @@ pub(super) fn ios_project_file_with_config(
             .iter()
             .any(|value| value.starts_with("https://"))
     {
-        extra_target_settings.push_str(&format!(
+        target_extra.push_str(&format!(
             " CODE_SIGN_ENTITLEMENTS = {app_name}/Nexa.entitlements;"
         ));
     }
-    let linker_flags = merge_ios_linker_flags(plugins);
     if !linker_flags.is_empty() {
         let flags = linker_flags
             .iter()
             .map(|flag| pbx_quote(flag))
             .collect::<Vec<_>>()
             .join(", ");
-        extra_target_settings.push_str(&format!(" OTHER_LDFLAGS = ( \"$(inherited)\", {flags} );"));
+        target_extra.push_str(&format!(" OTHER_LDFLAGS = ( \"$(inherited)\", {flags} );"));
     }
-    if !extra_target_settings.is_empty() {
-        project = project.replace(
-            "TARGETED_DEVICE_FAMILY = \"1,2\";",
-            &format!("TARGETED_DEVICE_FAMILY = \"1,2\";{extra_target_settings}"),
-        );
-    }
-    Ok(project)
-}
+    let mut target_release = std::collections::BTreeMap::new();
+    target_release.insert(
+        "ALWAYS_SEARCH_USER_PATHS".to_owned(),
+        "NO".to_owned(),
+    );
+    target_release.insert(
+        "PRODUCT_BUNDLE_IDENTIFIER".to_owned(),
+        config.ios_bundle_identifier.clone(),
+    );
+    target_release.insert("PRODUCT_NAME".to_owned(), app_name.to_owned());
+    target_release.insert(
+        "INFOPLIST_FILE".to_owned(),
+        format!("{app_name}/Info.plist"),
+    );
+    target_release.insert(
+        "SUPPORTED_PLATFORMS".to_owned(),
+        "\"iphoneos iphonesimulator\"".to_owned(),
+    );
+    target_release.insert("SWIFT_VERSION".to_owned(), "6.0".to_owned());
+    target_release.insert(
+        "SWIFT_OPTIMIZATION_LEVEL".to_owned(),
+        "\"-O\"".to_owned(),
+    );
+    target_release.insert(
+        "SWIFT_COMPILATION_MODE".to_owned(),
+        "wholemodule".to_owned(),
+    );
+    target_release.insert("GCC_OPTIMIZATION_LEVEL".to_owned(), "s".to_owned());
+    target_release.insert("DEAD_CODE_STRIPPING".to_owned(), "YES".to_owned());
+    target_release.insert(
+        "IPHONEOS_DEPLOYMENT_TARGET".to_owned(),
+        minimum_version.clone(),
+    );
+    target_release.insert(
+        "TARGETED_DEVICE_FAMILY".to_owned(),
+        "\"1,2\"".to_owned(),
+    );
+    let mut target_debug = std::collections::BTreeMap::new();
+    target_debug.insert(
+        "ALWAYS_SEARCH_USER_PATHS".to_owned(),
+        "NO".to_owned(),
+    );
+    target_debug.insert(
+        "PRODUCT_BUNDLE_IDENTIFIER".to_owned(),
+        config.ios_bundle_identifier.clone(),
+    );
+    target_debug.insert("PRODUCT_NAME".to_owned(), app_name.to_owned());
+    target_debug.insert(
+        "INFOPLIST_FILE".to_owned(),
+        format!("{app_name}/Info.plist"),
+    );
+    target_debug.insert(
+        "SUPPORTED_PLATFORMS".to_owned(),
+        "\"iphoneos iphonesimulator\"".to_owned(),
+    );
+    target_debug.insert("SWIFT_VERSION".to_owned(), "6.0".to_owned());
+    target_debug.insert(
+        "SWIFT_OPTIMIZATION_LEVEL".to_owned(),
+        "\"-Onone\"".to_owned(),
+    );
+    target_debug.insert(
+        "IPHONEOS_DEPLOYMENT_TARGET".to_owned(),
+        minimum_version.clone(),
+    );
+    target_debug.insert(
+        "TARGETED_DEVICE_FAMILY".to_owned(),
+        "\"1,2\"".to_owned(),
+    );
 
-fn add_ios_cpp_objects(
-    project: &mut String,
-    app_name: &str,
-    cpp_sources: &[String],
-    plugins: &[nexa_ir::Plugin],
-) -> Result<(), String> {
-    if cpp_sources.is_empty() {
-        return Ok(());
-    }
-    let group_children = cpp_sources
-        .iter()
-        .enumerate()
-        .map(|(index, _)| format!(", {}", pbx_identifier(12000 + index)))
-        .collect::<String>();
-    *project = project.replacen(
-        "AA0000000000000000000012",
-        &format!("AA0000000000000000000012{group_children}"),
-        1,
-    );
-    let file_references = cpp_sources
-        .iter()
-        .enumerate()
-        .map(|(index, source)| {
-            format!(
-                "\n\t\t{} = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = {}; sourceTree = \"<group>\"; }};",
-                pbx_identifier(12000 + index),
-                pbx_quote(&format!("NexaPluginCpp/{source}"))
-            )
-        })
-        .collect::<String>();
-    let build_files = cpp_sources
-        .iter()
-        .enumerate()
-        .map(|(index, _)| {
-            format!(
-                "\n\t\t{} = {{ isa = PBXBuildFile; fileRef = {}; }};",
-                pbx_identifier(13000 + index),
-                pbx_identifier(12000 + index)
-            )
-        })
-        .collect::<String>();
-    let build_ids = cpp_sources
-        .iter()
-        .enumerate()
-        .map(|(index, _)| format!(", {}", pbx_identifier(13000 + index)))
-        .collect::<String>();
-    let group_marker = "AA0000000000000000000004 = { isa = PBXGroup;";
-    if let Some(position) = project.find(group_marker) {
-        project.insert_str(position, &file_references);
-    }
-    let build_marker = "AA0000000000000000000005 = { isa = PBXNativeTarget;";
-    if let Some(position) = project.find(build_marker) {
-        project.insert_str(position, &build_files);
-    }
-    let sources_marker = "PBXSourcesBuildPhase; files = (";
-    if let Some(position) = project.find(sources_marker) {
-        let phase_end = project[position..]
-            .find(" );")
-            .map(|end| position + end)
-            .unwrap_or(position + sources_marker.len());
-        project.insert_str(phase_end, &build_ids);
-    }
-    let mut include_paths = cpp_sources
-        .iter()
-        .filter_map(|source| Path::new(source).components().next())
-        .map(|component| component.as_os_str().to_string_lossy().into_owned())
-        .collect::<std::collections::BTreeSet<_>>();
-    for (index, plugin) in plugins.iter().enumerate() {
-        if plugin.cpp_sources.is_empty() {
-            continue;
+    if !cpp_sources.is_empty() {
+        let mut include_paths = cpp_sources
+            .iter()
+            .filter_map(|source| Path::new(source).components().next())
+            .map(|component| component.as_os_str().to_string_lossy().into_owned())
+            .collect::<std::collections::BTreeSet<_>>();
+        for (index, plugin) in plugins.iter().enumerate() {
+            if plugin.cpp_sources.is_empty() {
+                continue;
+            }
+            include_paths.extend(super::plugins::cpp_header_include_roots(plugin, index)?);
         }
-        include_paths.extend(super::plugins::cpp_header_include_roots(plugin, index)?);
-    }
-    let include_paths = include_paths
-        .into_iter()
-        .map(|plugin_root| {
-            pbx_quote(&format!(
-                "$(PROJECT_DIR)/{app_name}/NexaPluginCpp/{plugin_root}"
-            ))
-        })
-        .collect::<Vec<_>>();
-    let cpp_standard = super::plugins::minimum_cpp_standard(plugins);
-    let settings = format!(
-        "CLANG_CXX_LANGUAGE_STANDARD = \"c++{cpp_standard}\"; SWIFT_OBJC_INTEROP_MODE = objcxx; SWIFT_OBJC_BRIDGING_HEADER = {}; HEADER_SEARCH_PATHS = ( \"$(inherited)\", {} );",
-        pbx_quote(&format!(
+        let include_paths = include_paths
+            .into_iter()
+            .map(|plugin_root| {
+                pbx_quote(&format!(
+                    "$(PROJECT_DIR)/{app_name}/NexaPluginCpp/{plugin_root}"
+                ))
+            })
+            .collect::<Vec<_>>();
+        let cpp_standard = super::plugins::minimum_cpp_standard(plugins);
+        let bridging = pbx_quote(&format!(
             "$(PROJECT_DIR)/{app_name}/NexaPluginCpp-Bridging-Header.h"
-        )),
-        include_paths.join(", ")
+        ));
+        // Render C++ interop settings as explicit map entries instead of a
+        // string patch so every configuration (Debug and Release, project
+        // and target) receives them exactly once.
+        for settings in [
+            &mut project_release,
+            &mut project_debug,
+            &mut target_release,
+            &mut target_debug,
+        ] {
+            settings.insert(
+                "CLANG_CXX_LANGUAGE_STANDARD".to_owned(),
+                format!("\"c++{cpp_standard}\""),
+            );
+            settings.insert(
+                "SWIFT_OBJC_INTEROP_MODE".to_owned(),
+                "objcxx".to_owned(),
+            );
+            settings.insert("SWIFT_OBJC_BRIDGING_HEADER".to_owned(), bridging.clone());
+            settings.insert(
+                "HEADER_SEARCH_PATHS".to_owned(),
+                format!("( \"$(inherited)\", {} )", include_paths.join(", ")),
+            );
+        }
+    }
+
+    // Core objects.
+    let mut project_body = format!(
+        "isa = PBXProject; buildConfigurationList = {project_list_id}; compatibilityVersion = \"Xcode 27.0\"; mainGroup = {main_group_id}; productRefGroup = {products_group_id}; targets = ( {target_id} );"
     );
-    *project = project.replace(
-        "SWIFT_VERSION = 6.0;",
-        &format!("SWIFT_VERSION = 6.0; {settings}"),
+    if !package_reference_ids.is_empty() {
+        project_body.push_str(&format!(
+            " packageReferences = ( {} );",
+            package_reference_ids.join(", ")
+        ));
+    }
+    pbx.insert(project_id, project_body)?;
+    pbx.insert(
+        main_group_id,
+        format!(
+            "isa = PBXGroup; children = ( {} ); sourceTree = \"<group>\";",
+            main_children.join(", ")
+        ),
+    )?;
+    pbx.insert(
+        app_group_id,
+        format!(
+            "isa = PBXGroup; children = ( {} ); path = {app_name}; sourceTree = \"<group>\";",
+            app_children.join(", ")
+        ),
+    )?;
+    pbx.insert(
+        products_group_id,
+        format!("isa = PBXGroup; children = ( {product_id} ); name = Products; sourceTree = \"<group>\";"),
+    )?;
+    pbx.insert(
+        app_file_id.clone(),
+        format!("isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {app_file}; sourceTree = \"<group>\";"),
+    )?;
+    pbx.insert(
+        generated_root_id.clone(),
+        "isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexaGenerated.swift; sourceTree = \"<group>\";".to_owned(),
+    )?;
+    pbx.insert(
+        info_id.clone(),
+        "isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = \"<group>\";".to_owned(),
+    )?;
+    pbx.insert(
+        product_id.clone(),
+        format!("isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = {app_name}.app; sourceTree = BUILT_PRODUCTS_DIR;"),
+    )?;
+    pbx.insert(
+        app_build_id,
+        format!("isa = PBXBuildFile; fileRef = {app_file_id};"),
+    )?;
+    pbx.insert(
+        generated_root_build_id,
+        format!("isa = PBXBuildFile; fileRef = {generated_root_id};"),
+    )?;
+    if has_assets {
+        pbx.insert(
+            asset_reference_id.clone(),
+            "isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = \"<group>\";".to_owned(),
+        )?;
+        pbx.insert(
+            asset_build_id,
+            format!("isa = PBXBuildFile; fileRef = {asset_reference_id};"),
+        )?;
+    }
+    if has_plugin_resources {
+        pbx.insert(
+            resources_reference_id.clone(),
+            "isa = PBXFileReference; lastKnownFileType = folder; path = NexaPluginResources; sourceTree = \"<group>\";".to_owned(),
+        )?;
+        pbx.insert(
+            resources_build_id,
+            format!("isa = PBXBuildFile; fileRef = {resources_reference_id};"),
+        )?;
+    }
+    if has_icon_composer {
+        pbx.insert(
+            icon_reference_id.clone(),
+            format!("isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = {app_name}/AppIcon.icon; sourceTree = SOURCE_ROOT;"),
+        )?;
+        pbx.insert(
+            icon_build_id,
+            format!("isa = PBXBuildFile; fileRef = {icon_reference_id};"),
+        )?;
+    }
+    if config.splash_source.is_some() {
+        pbx.insert(
+            splash_reference_id.clone(),
+            format!("isa = PBXFileReference; lastKnownFileType = file.storyboard; path = {app_name}/LaunchScreen.storyboard; sourceTree = SOURCE_ROOT;"),
+        )?;
+        pbx.insert(
+            splash_build_id,
+            format!("isa = PBXBuildFile; fileRef = {splash_reference_id};"),
+        )?;
+    }
+
+    // Generated unit file references and build files.
+    for (name, file_id, build_id) in generated_sources
+        .iter()
+        .skip(1)
+        .zip(generated_file_ids.iter())
+        .zip(generated_build_ids.iter())
+        .map(|((name, file_id), build_id)| (name, file_id, build_id))
+    {
+        pbx.insert(
+            file_id.clone(),
+            format!("isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {name}; sourceTree = \"<group>\";"),
+        )?;
+        pbx.insert(
+            build_id.clone(),
+            format!("isa = PBXBuildFile; fileRef = {file_id};"),
+        )?;
+    }
+    // Plugin file references and build files.
+    for (name, file_id, build_id) in plugin_sources
+        .iter()
+        .zip(plugin_file_ids.iter())
+        .zip(plugin_build_ids.iter())
+        .map(|((name, file_id), build_id)| (name, file_id, build_id))
+    {
+        pbx.insert(
+            file_id.clone(),
+            format!("isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexaPlugins/{name}; sourceTree = \"<group>\";"),
+        )?;
+        pbx.insert(
+            build_id.clone(),
+            format!("isa = PBXBuildFile; fileRef = {file_id};"),
+        )?;
+    }
+    // C++ file references and build files.
+    for (source, file_id, build_id) in cpp_sources
+        .iter()
+        .zip(cpp_file_ids.iter())
+        .zip(cpp_build_ids.iter())
+        .map(|((source, file_id), build_id)| (source, file_id, build_id))
+    {
+        pbx.insert(
+            file_id.clone(),
+            format!(
+                "isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = {}; sourceTree = \"<group>\";",
+                pbx_quote(&format!("NexaPluginCpp/{source}"))
+            ),
+        )?;
+        pbx.insert(
+            build_id.clone(),
+            format!("isa = PBXBuildFile; fileRef = {file_id};"),
+        )?;
+    }
+    // SwiftPM packages.
+    for (package, reference_id) in packages.iter().zip(package_reference_ids.iter()) {
+        pbx.insert(
+            reference_id.clone(),
+            format!(
+                "isa = XCRemoteSwiftPackageReference; repositoryURL = \"{}\"; requirement = {{ kind = upToNextMajorVersion; minimumVersion = \"{}\"; }};",
+                package.url, package.from
+            ),
+        )?;
+    }
+    {
+        let mut product_ids = package_product_ids.iter();
+        let mut build_ids = package_build_ids.iter();
+        for (package, reference_id) in packages.iter().zip(package_reference_ids.iter()) {
+            for product in &package.products {
+                let product_id = product_ids
+                    .next()
+                    .cloned()
+                    .unwrap_or_else(|| PbxIdAllocator::stable_id(&format!("package:{}:{product}", package.url)));
+                let build_id = build_ids
+                    .next()
+                    .cloned()
+                    .unwrap_or_else(|| PbxIdAllocator::stable_id(&format!("build:product:{}:{product}", package.url)));
+                pbx.insert(
+                    product_id.clone(),
+                    format!("isa = XCSwiftPackageProductDependency; package = {reference_id}; productName = \"{product}\";"),
+                )?;
+                pbx.insert(
+                    build_id.clone(),
+                    format!("isa = PBXBuildFile; productRef = {product_id};"),
+                )?;
+            }
+        }
+    }
+    // System frameworks.
+    for (framework, file_id, build_id) in frameworks
+        .iter()
+        .zip(framework_reference_ids.iter())
+        .zip(framework_build_ids.iter())
+        .map(|((framework, file_id), build_id)| (framework, file_id, build_id))
+    {
+        pbx.insert(
+            file_id.clone(),
+            format!("isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = \"{framework}.framework\"; path = System/Library/Frameworks/{framework}.framework; sourceTree = SDKROOT;"),
+        )?;
+        pbx.insert(
+            build_id.clone(),
+            format!("isa = PBXBuildFile; fileRef = {file_id};"),
+        )?;
+    }
+    // XCFrameworks with link and embed build files.
+    for (path, file_id, link_id, embed_id) in xcframeworks
+        .iter()
+        .zip(xcframework_reference_ids.iter())
+        .zip(xcframework_link_ids.iter())
+        .zip(xcframework_embed_ids.iter())
+        .map(|(((path, file_id), link_id), embed_id)| (path, file_id, link_id, embed_id))
+    {
+        let quoted = pbx_quote(path);
+        pbx.insert(
+            file_id.clone(),
+            format!("isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = {quoted}; sourceTree = \"<group>\";"),
+        )?;
+        pbx.insert(
+            link_id.clone(),
+            format!("isa = PBXBuildFile; fileRef = {file_id};"),
+        )?;
+        pbx.insert(
+            embed_id.clone(),
+            format!("isa = PBXBuildFile; fileRef = {file_id}; settings = {{ ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy); }};"),
+        )?;
+    }
+    if let Some(embed_id) = &embed_phase_id {
+        pbx.insert(
+            embed_id.clone(),
+            format!(
+                "isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = \"\"; dstSubfolderSpec = 10; files = ( {} ); name = \"Embed Frameworks\"; runOnlyForDeploymentPostprocessing = 0;",
+                xcframework_embed_ids.join(", ")
+            ),
+        )?;
+    }
+
+    // Target and phases.
+    let mut target_body = format!(
+        "isa = PBXNativeTarget; buildConfigurationList = {target_list_id}; buildPhases = ( {} ); name = {app_name}; productName = {app_name}; productReference = {product_id}; productType = \"com.apple.product-type.application\";",
+        target_phases.join(", ")
     );
-    Ok(())
+    if !package_product_ids.is_empty() {
+        target_body.push_str(&format!(
+            " packageProductDependencies = ( {} );",
+            package_product_ids.join(", ")
+        ));
+    }
+    pbx.insert(target_id, target_body)?;
+    pbx.insert(
+        sources_phase_id,
+        format!(
+            "isa = PBXSourcesBuildPhase; files = ( {} );",
+            source_files.join(", ")
+        ),
+    )?;
+    pbx.insert(
+        frameworks_phase_id,
+        format!(
+            "isa = PBXFrameworksBuildPhase; files = ( {} );",
+            frameworks_files.join(", ")
+        ),
+    )?;
+    pbx.insert(
+        resources_phase_id,
+        format!(
+            "isa = PBXResourcesBuildPhase; files = ( {} );",
+            resource_files.join(", ")
+        ),
+    )?;
+    pbx.insert(
+        project_list_id.clone(),
+        format!(
+            "isa = XCConfigurationList; buildConfigurations = ( {project_release_id}, {project_debug_id} ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;"
+        ),
+    )?;
+    pbx.insert(
+        target_list_id.clone(),
+        format!(
+            "isa = XCConfigurationList; buildConfigurations = ( {target_release_id}, {target_debug_id} ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;"
+        ),
+    )?;
+    pbx.insert(
+        project_release_id,
+        format!(
+            "isa = XCBuildConfiguration; buildSettings = {{ {} }}; name = Release;",
+            render_settings(&project_release)
+        ),
+    )?;
+    pbx.insert(
+        project_debug_id,
+        format!(
+            "isa = XCBuildConfiguration; buildSettings = {{ {} }}; name = Debug;",
+            render_settings(&project_debug)
+        ),
+    )?;
+    let mut target_release_body = format!(
+        "isa = XCBuildConfiguration; buildSettings = {{ {}",
+        render_settings(&target_release)
+    );
+    if !target_extra.is_empty() {
+        target_release_body.push_str(&target_extra);
+    }
+    target_release_body.push_str(" }; name = Release;");
+    pbx.insert(target_release_id, target_release_body)?;
+    let mut target_debug_body = format!(
+        "isa = XCBuildConfiguration; buildSettings = {{ {}",
+        render_settings(&target_debug)
+    );
+    if !target_extra.is_empty() {
+        target_debug_body.push_str(&target_extra);
+    }
+    target_debug_body.push_str(" }; name = Debug;");
+    pbx.insert(target_debug_id, target_debug_body)?;
+
+    Ok(pbx.render())
 }
 
 fn merge_ios_frameworks(plugins: &[nexa_ir::Plugin]) -> Vec<String> {
@@ -663,227 +1116,29 @@ fn pbx_quote(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-fn render_ios_framework_objects(frameworks: &[String]) -> String {
-    let mut objects = String::new();
-    for (index, framework) in frameworks.iter().enumerate() {
-        let reference_id = pbx_identifier(4000 + index);
-        let build_id = pbx_identifier(5000 + index);
-        objects.push_str(&format!(
-            "\n\t\t{reference_id} = {{ isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = \"{framework}.framework\"; path = System/Library/Frameworks/{framework}.framework; sourceTree = SDKROOT; }};\n\t\t{build_id} = {{ isa = PBXBuildFile; fileRef = {reference_id}; }};"
-        ));
-    }
-    objects
-}
-
-fn render_ios_xcframework_objects(xcframeworks: &[String]) -> String {
-    let mut objects = String::new();
-    for (index, path) in xcframeworks.iter().enumerate() {
-        let reference_id = pbx_identifier(6000 + index);
-        let link_id = pbx_identifier(7000 + index);
-        let embed_id = pbx_identifier(8000 + index);
-        let path = pbx_quote(path);
-        objects.push_str(&format!(
-            "\n\t\t{reference_id} = {{ isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = {path}; sourceTree = \"<group>\"; }};\n\t\t{link_id} = {{ isa = PBXBuildFile; fileRef = {reference_id}; }};\n\t\t{embed_id} = {{ isa = PBXBuildFile; fileRef = {reference_id}; settings = {{ ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy); }}; }};"
-        ));
-    }
-    objects
-}
-
-fn render_ios_xcframework_embed_phase(count: usize) -> String {
-    if count == 0 {
-        return String::new();
-    }
-    let files = (0..count)
-        .map(|index| pbx_identifier(8000 + index))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let phase_id = pbx_identifier(9000);
-    format!(
-        "\n\t\t{phase_id} = {{ isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = \"\"; dstSubfolderSpec = 10; files = ( {files} ); name = \"Embed Frameworks\"; runOnlyForDeploymentPostprocessing = 0; }};"
-    )
-}
-
-fn ios_project_base_file(
-    app_name: &str,
-    has_assets: bool,
-    has_plugin_resources: bool,
-    generated_sources: &[String],
-    plugin_sources: &[String],
-    xcframeworks: &[String],
-) -> String {
-    let app_file = format!("{app_name}App.swift");
-    let asset_reference_id = pbx_identifier(10010);
-    let asset_build_id = pbx_identifier(10011);
-    let asset_group = if has_assets {
-        format!(", {asset_reference_id}")
-    } else {
-        String::new()
-    };
-    let asset_reference = if has_assets {
-        format!(
-            "\n\t\t{asset_reference_id} = {{ isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = \"<group>\"; }};"
-        )
-    } else {
-        String::new()
-    };
-    let asset_build_file = if has_assets {
-        format!(
-            "\n\t\t{asset_build_id} = {{ isa = PBXBuildFile; fileRef = {asset_reference_id}; }};"
-        )
-    } else {
-        String::new()
-    };
-    let resource_files = if has_assets {
-        asset_build_id.clone()
-    } else {
-        String::new()
-    };
-    let plugin_group_children = plugin_sources
-        .iter()
-        .enumerate()
-        .map(|(index, _)| format!(", AA00000000000000000000{:02}", 30 + index))
-        .collect::<String>();
-    let xcframework_group_children = (0..xcframeworks.len())
-        .map(|index| format!(", {}", pbx_identifier(6000 + index)))
-        .collect::<String>();
-    let xcframework_objects = render_ios_xcframework_objects(xcframeworks);
-    let plugin_file_references = plugin_sources
-        .iter()
-        .enumerate()
-        .map(|(index, name)| {
-            format!(
-                "\n\t\tAA00000000000000000000{:02} = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexaPlugins/{name}; sourceTree = \"<group>\"; }};",
-                30 + index
-            )
-        })
-        .collect::<String>();
-    let plugin_build_files = plugin_sources
-        .iter()
-        .enumerate()
-        .map(|(index, _)| {
-            format!(
-                "\n\t\tAA00000000000000000000{:02} = {{ isa = PBXBuildFile; fileRef = AA00000000000000000000{:02}; }};",
-                60 + index,
-                30 + index
-            )
-        })
-        .collect::<String>();
-    let plugin_build_ids = plugin_sources
-        .iter()
-        .enumerate()
-        .map(|(index, _)| format!(", AA00000000000000000000{:02}", 60 + index))
-        .collect::<String>();
-    let generated_group_children = generated_sources
-        .iter()
-        .skip(1)
-        .enumerate()
-        .map(|(index, _)| format!(", AA00000000000000000000{:02}", 40 + index))
-        .collect::<String>();
-    let generated_file_references = generated_sources
-        .iter()
-        .skip(1)
-        .enumerate()
-        .map(|(index, name)| {
-            format!(
-                "\n\t\tAA00000000000000000000{:02} = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {name}; sourceTree = \"<group>\"; }};",
-                40 + index
-            )
-        })
-        .collect::<String>();
-    let generated_build_files = generated_sources
-        .iter()
-        .skip(1)
-        .enumerate()
-        .map(|(index, _)| {
-            format!(
-                "\n\t\tAA00000000000000000000{:02} = {{ isa = PBXBuildFile; fileRef = AA00000000000000000000{:02}; }};",
-                90 + index,
-                40 + index
-            )
-        })
-        .collect::<String>();
-    let generated_build_ids = generated_sources
-        .iter()
-        .skip(1)
-        .enumerate()
-        .map(|(index, _)| format!(", AA00000000000000000000{:02}", 90 + index))
-        .collect::<String>();
-    let mut project = format!(
-        "// !$*UTF8*$!\n{{\n\tarchiveVersion = 1;\n\tclasses = {{}};\n\tobjectVersion = 77;\n\tobjects = {{\n\t\tAA0000000000000000000001 = {{ isa = PBXProject; buildConfigurationList = AA0000000000000000000002; compatibilityVersion = \"Xcode 16.0\"; mainGroup = AA0000000000000000000003; productRefGroup = AA0000000000000000000004; targets = ( AA0000000000000000000005 ); }};\n\t\tAA0000000000000000000003 = {{ isa = PBXGroup; children = ( AA0000000000000000000014, AA0000000000000000000004 ); sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000014 = {{ isa = PBXGroup; children = ( AA0000000000000000000010, AA0000000000000000000011, AA0000000000000000000012{asset_group}{generated_group_children}{plugin_group_children}{xcframework_group_children} ); path = {app_name}; sourceTree = \"<group>\"; }};{asset_reference}{generated_file_references}{plugin_file_references}{xcframework_objects}\n\t\tAA0000000000000000000004 = {{ isa = PBXGroup; children = ( AA0000000000000000000013 ); name = Products; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000010 = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {app_file}; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000011 = {{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexaGenerated.swift; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000012 = {{ isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = \"<group>\"; }};\n\t\tAA0000000000000000000013 = {{ isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = {app_name}.app; sourceTree = BUILT_PRODUCTS_DIR; }};\n\t\tAA0000000000000000000020 = {{ isa = PBXBuildFile; fileRef = AA0000000000000000000010; }};\n\t\tAA0000000000000000000021 = {{ isa = PBXBuildFile; fileRef = AA0000000000000000000011; }};{generated_build_files}{asset_build_file}{plugin_build_files}\n\t\tAA0000000000000000000005 = {{ isa = PBXNativeTarget; buildConfigurationList = AA0000000000000000000007; buildPhases = ( AA0000000000000000000008, AA0000000000000000000009, AA000000000000000000000A ); name = {app_name}; productName = {app_name}; productReference = AA0000000000000000000013; productType = \"com.apple.product-type.application\"; }};\n\t\tAA0000000000000000000008 = {{ isa = PBXSourcesBuildPhase; files = ( AA0000000000000000000020, AA0000000000000000000021{generated_build_ids}{plugin_build_ids} ); }};\n\t\tAA0000000000000000000009 = {{ isa = PBXFrameworksBuildPhase; files = (); }};\n\t\tAA000000000000000000000A = {{ isa = PBXResourcesBuildPhase; files = ( {resource_files} ); }};\n\t\tAA0000000000000000000002 = {{ isa = XCConfigurationList; buildConfigurations = ( AA0000000000000000000022 ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};\n\t\tAA0000000000000000000007 = {{ isa = XCConfigurationList; buildConfigurations = ( AA0000000000000000000023 ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};\n\t\tAA0000000000000000000022 = {{ isa = XCBuildConfiguration; buildSettings = {{ ALWAYS_SEARCH_USER_PATHS = NO; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = \"-O\"; SWIFT_COMPILATION_MODE = wholemodule; GCC_OPTIMIZATION_LEVEL = s; DEAD_CODE_STRIPPING = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; }}; name = Release; }};\n\t\tAA0000000000000000000023 = {{ isa = XCBuildConfiguration; buildSettings = {{ ALWAYS_SEARCH_USER_PATHS = NO; PRODUCT_BUNDLE_IDENTIFIER = com.nexa.{}; PRODUCT_NAME = {app_name}; INFOPLIST_FILE = {app_name}/Info.plist; SUPPORTED_PLATFORMS = \"iphoneos iphonesimulator\"; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = \"-O\"; SWIFT_COMPILATION_MODE = wholemodule; GCC_OPTIMIZATION_LEVEL = s; DEAD_CODE_STRIPPING = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; TARGETED_DEVICE_FAMILY = \"1,2\"; }}; name = Release; }};\n\t}};\n\trootObject = AA0000000000000000000001;\n}}\n",
-        app_name.to_ascii_lowercase()
-    )
-    .replace("compatibilityVersion = \"Xcode 16.0\"", "compatibilityVersion = \"Xcode 27.0\"")
-    .replace("SWIFT_VERSION = 5.0", "SWIFT_VERSION = 6.0")
-    .replace("IPHONEOS_DEPLOYMENT_TARGET = 16.0", "IPHONEOS_DEPLOYMENT_TARGET = 17.0");
-    project = project
-        .replace(
-            "buildConfigurations = ( AA0000000000000000000022 );",
-            "buildConfigurations = ( AA0000000000000000000022, AA0000000000000000000024 );",
-        )
-        .replace(
-            "buildConfigurations = ( AA0000000000000000000023 );",
-            "buildConfigurations = ( AA0000000000000000000023, AA0000000000000000000025 );",
-        );
-    let debug_configurations = "\n\t\tAA0000000000000000000024 = { isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; SWIFT_VERSION = 6.0; SWIFT_OPTIMIZATION_LEVEL = \"-Onone\"; IPHONEOS_DEPLOYMENT_TARGET = 17.0; }; name = Debug; };\n\t\tAA0000000000000000000025 = { isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; PRODUCT_BUNDLE_IDENTIFIER = com.nexa.APP_ID; PRODUCT_NAME = APP_NAME; INFOPLIST_FILE = APP_NAME/Info.plist; SUPPORTED_PLATFORMS = \"iphoneos iphonesimulator\"; SWIFT_VERSION = 6.0; SWIFT_OPTIMIZATION_LEVEL = \"-Onone\"; IPHONEOS_DEPLOYMENT_TARGET = 17.0; TARGETED_DEVICE_FAMILY = \"1,2\"; }; name = Debug; };\n";
-    let debug_configurations = debug_configurations
-        .replace("APP_ID", &app_name.to_ascii_lowercase())
-        .replace("APP_NAME", app_name);
-    project = project.replace(
-        "\n\t};\n\trootObject = AA0000000000000000000001;",
-        &format!("{debug_configurations}\n\t}};\n\trootObject = AA0000000000000000000001;"),
-    );
-    if has_plugin_resources {
-        let reference_id = pbx_identifier(10000);
-        let build_id = pbx_identifier(10001);
-        project = project.replacen(
-            "AA0000000000000000000012",
-            &format!("AA0000000000000000000012, {reference_id}"),
-            1,
-        );
-        let old_resource_phase = format!("PBXResourcesBuildPhase; files = ( {resource_files} );");
-        let mut resource_ids = Vec::new();
-        if !resource_files.is_empty() {
-            resource_ids.push(resource_files.as_str());
-        }
-        resource_ids.push(&build_id);
-        project = project.replace(
-            &old_resource_phase,
-            &format!(
-                "PBXResourcesBuildPhase; files = ( {} );",
-                resource_ids.join(", ")
-            ),
-        );
-        let insertion = "\n\t\tAA0000000000000000000005 = { isa = PBXNativeTarget;";
-        project = project.replace(
-            insertion,
-            &format!(
-                "\n\t\t{reference_id} = {{ isa = PBXFileReference; lastKnownFileType = folder; path = NexaPluginResources; sourceTree = \"<group>\"; }};\n\t\t{build_id} = {{ isa = PBXBuildFile; fileRef = {reference_id}; }};{insertion}"
-            ),
-        );
-    }
-    project
-}
-
 pub(super) fn ios_scheme(app_name: &str) -> String {
+    // The scheme must reference the same typed target identifier emitted into
+    // project.pbxproj by `ios_project_file_with_config`.
+    let target_id = PbxIdAllocator::stable_id("target:main");
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion="2700" version="1.7">
    <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES">
       <BuildActionEntries>
          <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
-            <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="AA0000000000000000000005" BuildableName="{app_name}.app" BlueprintName="{app_name}" ReferencedContainer="container:{app_name}.xcodeproj"/>
+            <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{target_id}" BuildableName="{app_name}.app" BlueprintName="{app_name}" ReferencedContainer="container:{app_name}.xcodeproj"/>
          </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction buildConfiguration="Debug" shouldUseLaunchSchemeArgsEnv="YES"/>
    <LaunchAction buildConfiguration="Debug" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" debugServiceExtension="internal" allowLocationSimulation="YES">
       <BuildableProductRunnable runnableDebuggingMode="0">
-         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="AA0000000000000000000005" BuildableName="{app_name}.app" BlueprintName="{app_name}" ReferencedContainer="container:{app_name}.xcodeproj"/>
+         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{target_id}" BuildableName="{app_name}.app" BlueprintName="{app_name}" ReferencedContainer="container:{app_name}.xcodeproj"/>
       </BuildableProductRunnable>
    </LaunchAction>
    <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES">
       <BuildableProductRunnable runnableDebuggingMode="0">
-         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="AA0000000000000000000005" BuildableName="{app_name}.app" BlueprintName="{app_name}" ReferencedContainer="container:{app_name}.xcodeproj"/>
+         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{target_id}" BuildableName="{app_name}.app" BlueprintName="{app_name}" ReferencedContainer="container:{app_name}.xcodeproj"/>
       </BuildableProductRunnable>
    </ProfileAction>
    <AnalyzeAction buildConfiguration="Release"/>
