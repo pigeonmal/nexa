@@ -1,0 +1,17 @@
+app DeepLinkDemo {
+    screen Home {
+        Column {
+            Text("Home")
+        }
+    }
+
+    screen ProductDetails(id: String, page: Int32) {
+        Column {
+            Text("Product $id, page $page")
+        }
+    }
+
+    body {
+        NavigationStack(root: Home)
+    }
+}

@@ -123,6 +123,7 @@ pub struct AppConfig {
     pub version: String,
     pub build_number: u32,
     pub staging_suffix: Option<String>,
+    pub deep_links: Vec<String>,
 }
 
 #[derive(Clone, Debug)]

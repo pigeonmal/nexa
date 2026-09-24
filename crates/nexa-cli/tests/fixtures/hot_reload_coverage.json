@@ -1134,6 +1134,10 @@
     "async_native_call_added_after_host_build": {
       "ios": "covered",
       "android": "covered"
+    },
+    "deep_link_routing": {
+      "ios": "covered",
+      "android": "covered"
     }
   },
   "runtime_features": {

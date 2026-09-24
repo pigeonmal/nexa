@@ -33,6 +33,7 @@ pub(super) struct ProjectConfig {
     pub(super) build_number: u32,
     pub(super) staging_suffix: String,
     pub(super) flavors: Vec<nexa_syntax::ast::FlavorConfig>,
+    pub(super) deep_links: Vec<String>,
     permissions: Vec<(Permission, String)>,
     plugins: Vec<PluginConfig>,
     pub(super) ios_min_version: String,
@@ -139,6 +140,10 @@ impl ProjectConfig {
             .as_ref()
             .and_then(|app| app.staging_suffix.clone())
             .unwrap_or_else(|| "staging".to_owned());
+        let deep_links = app
+            .as_ref()
+            .map(|app| app.deep_links.clone())
+            .unwrap_or_default();
         let ios_bundle_identifier = ios
             .as_ref()
             .and_then(|ios| ios.bundle_identifier.clone())
@@ -202,12 +207,14 @@ impl ProjectConfig {
             &android_application_id,
             false,
         )?;
+        validate_deep_links(path, &deep_links)?;
         Ok(Self {
             display_name,
             version,
             build_number,
             staging_suffix,
             flavors,
+            deep_links,
             permissions,
             plugins,
             ios_min_version,
@@ -237,6 +244,7 @@ impl ProjectConfig {
             build_number: 1,
             staging_suffix: "staging".to_owned(),
             flavors: Vec::new(),
+            deep_links: Vec::new(),
             permissions: Vec::new(),
             plugins,
             ios_min_version: "16.0".to_owned(),
@@ -262,11 +270,12 @@ impl ProjectConfig {
 
     pub(super) fn render(&self) -> String {
         let mut output = format!(
-            "config {{\n    app {{ displayName: {}, version: {}, buildNumber: {}, stagingSuffix: {} }}\n    assets {{ icon: {}, splash: {} }}\n    ios {{ minVersion: {}, bundleIdentifier: {}, icon: {} }}\n    android {{ minSdk: {}, targetSdk: {}, applicationId: {}, icon: {} }}\n    permissions {{\n",
+            "config {{\n    app {{ displayName: {}, version: {}, buildNumber: {}, stagingSuffix: {}, deepLinks: {} }}\n    assets {{ icon: {}, splash: {} }}\n    ios {{ minVersion: {}, bundleIdentifier: {}, icon: {} }}\n    android {{ minSdk: {}, targetSdk: {}, applicationId: {}, icon: {} }}\n    permissions {{\n",
             nexa_config_string(&self.display_name),
             nexa_config_string(&self.version),
             self.build_number,
             nexa_config_string(&self.staging_suffix),
+            render_string_array(&self.deep_links),
             self.icon_source
                 .as_ref()
                 .map(|path| nexa_config_string(&path.display().to_string()))
@@ -365,6 +374,60 @@ impl ProjectConfig {
         output.push_str("}\n");
         output
     }
+}
+
+fn render_string_array(values: &[String]) -> String {
+    format!(
+        "[{}]",
+        values
+            .iter()
+            .map(|value| nexa_config_string(value))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn validate_deep_links(config_path: &Path, values: &[String]) -> Result<(), String> {
+    let mut seen = std::collections::BTreeSet::new();
+    for value in values {
+        if !seen.insert(value) {
+            return Err(format!(
+                "{}: app deepLinks contains duplicate URL base `{value}`",
+                config_path.display()
+            ));
+        }
+        if let Some(scheme) = value.strip_suffix("://") {
+            let valid = scheme
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphabetic)
+                && scheme
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'.' | b'-'));
+            if valid {
+                continue;
+            }
+        }
+        if let Some(host) = value.strip_prefix("https://")
+            && !host.is_empty()
+            && !host.contains(['/', '?', '#', '@', ':'])
+            && host.split('.').all(|label| {
+                !label.is_empty()
+                    && label.as_bytes()[0].is_ascii_alphanumeric()
+                    && label
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                    && !label.ends_with('-')
+            })
+        {
+            continue;
+        }
+        return Err(format!(
+            "{}: app deepLinks entries must be a custom URL scheme ending in `://` or an HTTPS origin (found `{value}`)",
+            config_path.display()
+        ));
+    }
+    Ok(())
 }
 
 fn valid_application_id_segment(segment: &str) -> bool {

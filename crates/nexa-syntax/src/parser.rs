@@ -171,6 +171,7 @@ impl Parser {
         let mut version = None;
         let mut build_number = None;
         let mut staging_suffix = None;
+        let mut deep_links = Vec::new();
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             let (field, field_span) = self.ident()?;
             self.expect(Kind::Colon, "expected `:` after app metadata field")?;
@@ -179,6 +180,7 @@ impl Parser {
                 "version" => version = Some(self.config_string("app version")?),
                 "buildNumber" => build_number = Some(self.config_u32("app buildNumber")?),
                 "stagingSuffix" => staging_suffix = Some(self.config_string("app stagingSuffix")?),
+                "deepLinks" => deep_links = self.config_string_array("app deepLinks")?,
                 _ => {
                     return Err(CompileError::new(
                         field_span,
@@ -194,7 +196,34 @@ impl Parser {
             version: version.unwrap_or_else(|| "1.0.0".to_owned()),
             build_number: build_number.unwrap_or(1),
             staging_suffix,
+            deep_links,
         })
+    }
+
+    fn config_string_array(&mut self, context: &str) -> Result<Vec<String>, CompileError> {
+        let token = self.advance().clone();
+        let Kind::LBracket = token.kind else {
+            return Err(CompileError::new(
+                token.span,
+                format!("{context} must be an array of quoted strings"),
+            ));
+        };
+        let mut values = Vec::new();
+        while !self.check(&Kind::RBracket) && !self.check(&Kind::Eof) {
+            let item = self.advance().clone();
+            let Kind::String(value) = item.kind else {
+                return Err(CompileError::new(
+                    item.span,
+                    format!("{context} entries must be quoted strings"),
+                ));
+            };
+            values.push(value);
+            if !self.take(&Kind::Comma) && !self.check(&Kind::RBracket) {
+                return self.error_here(format!("expected `,` or `]` in {context}"));
+            }
+        }
+        self.expect(Kind::RBracket, "expected `]` after app deepLinks")?;
+        Ok(values)
     }
 
     fn config_flavors_decl(&mut self) -> Result<Vec<FlavorConfig>, CompileError> {

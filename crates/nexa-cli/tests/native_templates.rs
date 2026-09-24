@@ -607,7 +607,8 @@ mod template_generation {
             ),
         ];
 
-        let entitlements = ios_entitlements(&[plugin.clone()])
+        let config = ProjectConfig::from_defaults(&[], "Demo").expect("default app config");
+        let entitlements = ios_entitlements(&config, &[plugin.clone()])
             .expect("valid entitlements should render")
             .expect("the app should receive an entitlements file");
         assert!(entitlements.contains("<key>aps-environment</key><string>development</string>"));
@@ -624,6 +625,51 @@ mod template_generation {
     }
 
     #[test]
+    fn deep_link_bases_generate_ios_schemes_associated_domains_and_android_intents() {
+        let mut config =
+            ProjectConfig::from_defaults(&[], "DeepLinkDemo").expect("default app config");
+        config.deep_links = vec!["nexa://".to_owned(), "https://links.example.com".to_owned()];
+
+        let plist = ios_info_plist_with_dev_runtime("DeepLinkDemo", &config, &[], false)
+            .expect("render iOS URL scheme metadata");
+        assert!(
+            plist.contains("<key>CFBundleURLSchemes</key><array><string>nexa</string></array>")
+        );
+
+        let entitlements = ios_entitlements(&config, &[])
+            .expect("render iOS associated-domain entitlement")
+            .expect("universal links require an entitlement file");
+        assert!(entitlements.contains(
+            "<key>com.apple.developer.associated-domains</key><array><string>applinks:links.example.com</string></array>"
+        ));
+        let xcode_project = ios_project_file_with_config(
+            "DeepLinkDemo",
+            false,
+            false,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &config,
+        )
+        .expect("enable iOS associated-domain entitlements");
+        assert!(xcode_project.contains("CODE_SIGN_ENTITLEMENTS = DeepLinkDemo/Nexa.entitlements"));
+
+        let manifest = android_manifest(
+            "DeepLinkDemo",
+            "dev.example.deep_link_demo",
+            false,
+            &config,
+            &[],
+        );
+        assert!(manifest.contains("android:scheme=\"nexa\""));
+        assert!(manifest.contains("android:autoVerify=\"true\""));
+        assert!(manifest.contains("android:host=\"links.example.com\""));
+        assert_eq!(manifest.matches("android.intent.action.VIEW").count(), 2);
+    }
+
+    #[test]
     fn rejects_conflicting_plugin_entitlements() {
         let mut first = plugin("First");
         first.ios_entitlements.push((
@@ -636,7 +682,8 @@ mod template_generation {
             nexa_ir::PluginEntitlementValue::String("production".to_owned()),
         ));
 
-        let error = ios_entitlements(&[first, second])
+        let config = ProjectConfig::from_defaults(&[], "Demo").expect("default app config");
+        let error = ios_entitlements(&config, &[first, second])
             .expect_err("conflicting values for one entitlement must fail");
         assert!(error.contains("conflicting values"));
         assert!(error.contains("First"));

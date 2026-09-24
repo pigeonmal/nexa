@@ -655,7 +655,7 @@ fn generate_ios(
         )?,
     )?;
     let entitlements_path = directory.join("Nexa.entitlements");
-    if let Some(entitlements) = templates::ios_entitlements(&module.plugins)? {
+    if let Some(entitlements) = templates::ios_entitlements(config, &module.plugins)? {
         write_if_changed(&entitlements_path, &entitlements)?;
     } else if entitlements_path.is_file() {
         fs::remove_file(&entitlements_path)

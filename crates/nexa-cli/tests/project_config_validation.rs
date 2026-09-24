@@ -94,3 +94,31 @@ fn check_rejects_android_minimum_outside_target_range() {
         );
     }
 }
+
+#[test]
+fn check_validates_custom_and_https_deep_link_bases() {
+    let project = TempProject::new();
+    let valid =
+        project.check(r#"config { app { deepLinks: ["nexa://", "https://links.example.com"] } }"#);
+    assert!(
+        valid.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&valid.stdout),
+        String::from_utf8_lossy(&valid.stderr)
+    );
+
+    for deep_links in [
+        r#"["http://links.example.com"]"#,
+        r#"["https://links.example.com/path"]"#,
+        r#"["nexa://host/path"]"#,
+        r#"["nexa://", "nexa://"]"#,
+    ] {
+        let config = format!("config {{ app {{ deepLinks: {deep_links} }} }}");
+        let output = project.check(&config);
+        assert!(
+            !output.status.success(),
+            "accepted invalid deep-link bases {deep_links}"
+        );
+        assert!(String::from_utf8_lossy(&output.stderr).contains("deepLinks"));
+    }
+}

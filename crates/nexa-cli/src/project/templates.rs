@@ -79,8 +79,22 @@ pub(super) fn ios_info_plist_with_dev_runtime(
     } else {
         ""
     };
+    let schemes = config
+        .deep_links
+        .iter()
+        .filter_map(|value| value.strip_suffix("://"))
+        .map(|scheme| format!("<string>{}</string>", xml_escape(scheme)))
+        .collect::<String>();
+    let url_types = if schemes.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>{}</string><key>CFBundleURLSchemes</key><array>{schemes}</array></dict></array>",
+            xml_escape(&config.ios_bundle_identifier)
+        )
+    };
     Ok(format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleExecutable</key><string>{app_name}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string><key>LSRequiresIPhoneOS</key><true/>{splash}{dev_network}{entries}</dict></plist>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleExecutable</key><string>{app_name}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string><key>LSRequiresIPhoneOS</key><true/>{splash}{dev_network}{url_types}{entries}</dict></plist>\n",
         xml_escape(&config.display_name),
         xml_escape(&config.ios_bundle_identifier),
         xml_escape(&config.version),
@@ -92,7 +106,10 @@ pub(super) fn ios_launch_storyboard() -> String {
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?><document type=\"com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB\" version=\"3.0\" toolsVersion=\"23094\" targetRuntime=\"iOS.CocoaTouch\" useAutolayout=\"YES\" launchScreen=\"YES\" useTraitCollections=\"YES\"><scenes><scene sceneID=\"launch-scene\"><objects><viewController id=\"launch-controller\" sceneMemberID=\"viewController\"><view key=\"view\" contentMode=\"scaleToFill\" id=\"launch-view\"><rect key=\"frame\" x=\"0.0\" y=\"0.0\" width=\"393\" height=\"852\"/><subviews><imageView contentMode=\"scaleAspectFit\" image=\"NexaSplash\" translatesAutoresizingMaskIntoConstraints=\"NO\" id=\"launch-image\"><rect key=\"frame\" x=\"136\" y=\"366\" width=\"120\" height=\"120\"/></imageView></subviews><constraints><constraint firstItem=\"launch-image\" firstAttribute=\"centerX\" secondItem=\"launch-view\" secondAttribute=\"centerX\" id=\"center-x\"/><constraint firstItem=\"launch-image\" firstAttribute=\"centerY\" secondItem=\"launch-view\" secondAttribute=\"centerY\" id=\"center-y\"/><constraint firstItem=\"launch-image\" firstAttribute=\"width\" constant=\"120\" id=\"image-width\"/><constraint firstItem=\"launch-image\" firstAttribute=\"height\" constant=\"120\" id=\"image-height\"/></constraints><color key=\"backgroundColor\" systemColor=\"systemBackgroundColor\"/><viewLayoutGuide key=\"safeArea\" id=\"safe-area\"/></view></viewController><placeholder placeholderIdentifier=\"IBFirstResponder\" id=\"first-responder\" sceneMemberID=\"firstResponder\"/></objects></scene></scenes><resources><image name=\"NexaSplash\"/></resources></document>\n".to_owned()
 }
 
-pub(super) fn ios_entitlements(plugins: &[nexa_ir::Plugin]) -> Result<Option<String>, String> {
+pub(super) fn ios_entitlements(
+    config: &ProjectConfig,
+    plugins: &[nexa_ir::Plugin],
+) -> Result<Option<String>, String> {
     let mut values = std::collections::BTreeMap::<String, nexa_ir::PluginEntitlementValue>::new();
     let mut owners = std::collections::HashMap::<String, &str>::new();
     for plugin in plugins {
@@ -108,6 +125,35 @@ pub(super) fn ios_entitlements(plugins: &[nexa_ir::Plugin]) -> Result<Option<Str
             }
             values.entry(key.clone()).or_insert_with(|| value.clone());
             owners.entry(key.clone()).or_insert(&plugin.namespace);
+        }
+    }
+    let associated_domains = config
+        .deep_links
+        .iter()
+        .filter_map(|value| value.strip_prefix("https://"))
+        .map(|host| format!("applinks:{host}"))
+        .collect::<Vec<_>>();
+    if !associated_domains.is_empty() {
+        let key = "com.apple.developer.associated-domains";
+        match values.get_mut(key) {
+            Some(nexa_ir::PluginEntitlementValue::Strings(existing)) => {
+                for domain in associated_domains {
+                    if !existing.contains(&domain) {
+                        existing.push(domain);
+                    }
+                }
+            }
+            Some(_) => {
+                return Err(format!(
+                    "app deepLinks conflict with plugin entitlement `{key}`"
+                ));
+            }
+            None => {
+                values.insert(
+                    key.to_owned(),
+                    nexa_ir::PluginEntitlementValue::Strings(associated_domains),
+                );
+            }
         }
     }
     if values.is_empty() {
@@ -470,6 +516,10 @@ pub(super) fn ios_project_file_with_config(
     if plugins
         .iter()
         .any(|plugin| !plugin.ios_entitlements.is_empty())
+        || config
+            .deep_links
+            .iter()
+            .any(|value| value.starts_with("https://"))
     {
         extra_target_settings.push_str(&format!(
             " CODE_SIGN_ENTITLEMENTS = {app_name}/Nexa.entitlements;"
@@ -943,8 +993,29 @@ pub(super) fn android_manifest(
     } else {
         "@android:style/Theme.Material.Light.NoActionBar"
     };
+    let deep_link_filters = config
+        .deep_links
+        .iter()
+        .map(|value| {
+            let (auto_verify, data) = if let Some(host) = value.strip_prefix("https://") {
+                (
+                    " android:autoVerify=\"true\"",
+                    format!("<data android:scheme=\"https\" android:host=\"{}\" />", xml_escape(host)),
+                )
+            } else {
+                let scheme = value.trim_end_matches("://");
+                (
+                    "",
+                    format!("<data android:scheme=\"{}\" />", xml_escape(scheme)),
+                )
+            };
+            format!(
+                "            <intent-filter{auto_verify}><action android:name=\"android.intent.action.VIEW\"/><category android:name=\"android.intent.category.DEFAULT\"/><category android:name=\"android.intent.category.BROWSABLE\"/>{data}</intent-filter>\n"
+            )
+        })
+        .collect::<String>();
     format!(
-        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\">\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n        </activity>\n    </application>\n</manifest>\n",
+        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\">\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n{deep_link_filters}        </activity>\n    </application>\n</manifest>\n",
         xml_escape(&config.display_name),
     )
 }

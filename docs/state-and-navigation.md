@@ -49,6 +49,27 @@ app NavigationDemo {
 - **`NavigationLink(destination: ScreenName, when: condition)`**: Navigates onto the stack with platform push transitions and swipe-to-back gestures.
 - **`NavigationBack(label: "...")`**: Programmatic or custom back button.
 
+### Deep links
+
+Declare custom URL schemes and HTTPS link domains in `nexa.config.nx`:
+
+```nexa
+config {
+    app {
+        deepLinks: ["nexa://", "https://links.example.com"]
+    }
+}
+```
+
+Routes use the screen name converted to lowercase kebab case, followed by each
+screen parameter as a path segment. For example, `ProductDetails(id: String,
+page: Int32)` opens with `nexa://product-details/widget-17/5` or
+`https://links.example.com/product-details/widget-17/5`. Nexa registers custom
+schemes with iOS and Android, configures iOS Associated Domains and Android
+verified App Links for HTTPS origins, and decodes route parameters using their
+declared scalar types. HTTPS domains also need the platform association file
+hosted by the app owner.
+
 ---
 
 ## 2. Tab Bar Navigation: `AppBottomBar`

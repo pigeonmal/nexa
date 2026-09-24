@@ -1,5 +1,5 @@
 use nexa_codegen::names::navigation_case_name;
-use nexa_ir::{Expr, Module, Node, ScreenId};
+use nexa_ir::{Expr, Module, Node, ScreenId, Type};
 
 use crate::generator::engine::expressions::expression;
 use crate::generator::engine::expressions::text_expression;
@@ -51,7 +51,7 @@ pub(crate) fn render_navigation_stack(
     out: &mut String,
 ) {
     indent(out, depth);
-    out.push_str("NavigationStack {\n");
+    out.push_str("NavigationStack(path: $__nexaNavigationPath) {\n");
     indent(out, depth + 1);
     out.push_str(&screen_call(
         module,
@@ -100,8 +100,84 @@ pub(crate) fn render_navigation_stack(
     out.push_str("}\n");
     indent(out, depth + 2);
     out.push_str("}\n");
+    indent(out, depth + 1);
+    out.push_str(".onOpenURL { url in\n");
+    render_deep_link_dispatch(module, depth + 2, out);
+    indent(out, depth + 1);
+    out.push_str("}\n");
     indent(out, depth);
     out.push('}');
+}
+
+fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut String) {
+    indent(out, depth);
+    out.push_str("let scheme = url.scheme?.lowercased() ?? \"\"\n");
+    indent(out, depth);
+    out.push_str(
+        "var segments = url.pathComponents.dropFirst().map { $0.removingPercentEncoding ?? $0 }\n",
+    );
+    indent(out, depth);
+    out.push_str("if scheme != \"http\", scheme != \"https\", let host = url.host { segments.insert(host, at: 0) }\n");
+    indent(out, depth);
+    out.push_str("guard let route = segments.first?.lowercased() else { return }\n");
+    indent(out, depth);
+    out.push_str("switch route {\n");
+    for screen in &module.screens {
+        indent(out, depth + 1);
+        out.push_str(&format!("case \"{}\":\n", route_slug(&screen.name)));
+        indent(out, depth + 2);
+        out.push_str(&format!(
+            "guard segments.count == {} else {{ return }}\n",
+            screen.parameters.len() + 1
+        ));
+        let mut arguments = vec!["UUID()".to_owned()];
+        for (index, parameter) in screen.parameters.iter().enumerate() {
+            let raw = format!("segments[{}]", index + 1);
+            let name = format!("nexaArgument{index}");
+            match &parameter.ty {
+                Type::String => arguments.push(raw),
+                Type::Bool => {
+                    indent(out, depth + 2);
+                    out.push_str(&format!(
+                        "guard let {name} = Bool({raw}) else {{ return }}\n"
+                    ));
+                    arguments.push(name);
+                }
+                Type::Numeric(_) => {
+                    indent(out, depth + 2);
+                    out.push_str(&format!(
+                        "guard let {name} = {}({raw}) else {{ return }}\n",
+                        parameter.ty.swift()
+                    ));
+                    arguments.push(name);
+                }
+                _ => unreachable!("screen route arguments are restricted to scalar types"),
+            }
+        }
+        indent(out, depth + 2);
+        out.push_str("__nexaNavigationPath = NavigationPath()\n");
+        indent(out, depth + 2);
+        out.push_str(&format!(
+            "__nexaNavigationPath.append(NexaNavigationRoute.{}({}))\n",
+            navigation_case_name(screen.id),
+            arguments.join(", ")
+        ));
+    }
+    indent(out, depth + 1);
+    out.push_str("default: break\n");
+    indent(out, depth);
+    out.push_str("}\n");
+}
+
+fn route_slug(name: &str) -> String {
+    let mut slug = String::new();
+    for (index, character) in name.chars().enumerate() {
+        if character.is_ascii_uppercase() && index > 0 {
+            slug.push('-');
+        }
+        slug.extend(character.to_lowercase());
+    }
+    slug
 }
 
 pub(crate) fn render_screen_view(

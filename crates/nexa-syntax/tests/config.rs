@@ -79,6 +79,24 @@ fn parses_app_staging_suffix() {
 }
 
 #[test]
+fn parses_app_deep_link_bases() {
+    let config =
+        parse_config(r#"config { app { deepLinks: ["nexa://", "https://links.example.com"] } }"#)
+            .expect("valid deep-link bases");
+    assert_eq!(
+        config.app.expect("app block").deep_links,
+        ["nexa://", "https://links.example.com"]
+    );
+}
+
+#[test]
+fn rejects_non_string_deep_link_entries() {
+    let error = parse_config(r#"config { app { deepLinks: [true] } }"#)
+        .expect_err("deep-link bases must be strings");
+    assert!(error.to_string().contains("entries must be quoted strings"));
+}
+
+#[test]
 fn parses_named_flavors_with_optional_suffixes() {
     let config = parse_config(
         r#"config { flavors { staging { suffix: "staging" } production { suffix: "" } qa {} } }"#,

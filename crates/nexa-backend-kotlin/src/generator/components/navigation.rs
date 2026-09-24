@@ -12,6 +12,18 @@ use crate::generator::engine::imports::{ImportContext, ImportSet};
 
 pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
     let features = context.features;
+    imports.add(context.has_navigation, "android.app.Activity");
+    imports.add(context.has_navigation, "android.content.Context");
+    imports.add(context.has_navigation, "android.content.ContextWrapper");
+    imports.add(context.has_navigation, "android.net.Uri");
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.runtime.LaunchedEffect",
+    );
+    imports.add(
+        context.has_navigation,
+        "androidx.compose.ui.platform.LocalContext",
+    );
     imports.add(
         features.uses_navigation_link || features.uses_navigation_back,
         "androidx.compose.material3.TextButton",
@@ -171,6 +183,96 @@ pub(crate) fn render_navigation_stack(
     }
     indent(out, depth);
     out.push('}');
+    out.push('\n');
+    render_deep_link_dispatch(module, depth, out);
+}
+
+fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut String) {
+    indent(out, depth);
+    out.push_str("var nexaContext: Context = LocalContext.current\n");
+    indent(out, depth);
+    out.push_str("while (nexaContext is ContextWrapper && nexaContext !is Activity) nexaContext = nexaContext.baseContext\n");
+    indent(out, depth);
+    out.push_str("val nexaDeepLink = (nexaContext as? Activity)?.intent?.data\n");
+    indent(out, depth);
+    out.push_str("LaunchedEffect(nexaDeepLink) {\n");
+    indent(out, depth + 1);
+    out.push_str("val uri = nexaDeepLink ?: return@LaunchedEffect\n");
+    indent(out, depth + 1);
+    out.push_str("val segments = buildList {\n");
+    indent(out, depth + 2);
+    out.push_str("if (uri.scheme !in listOf(\"http\", \"https\")) uri.host?.let(::add)\n");
+    indent(out, depth + 2);
+    out.push_str("addAll(uri.pathSegments)\n");
+    indent(out, depth + 1);
+    out.push_str("}\n");
+    indent(out, depth + 1);
+    out.push_str("when {\n");
+    for screen in &module.screens {
+        indent(out, depth + 2);
+        out.push_str(&format!(
+            "segments.size == {} && segments[0].equals({}, ignoreCase = true) -> {{\n",
+            screen.parameters.len() + 1,
+            kotlin_string(&route_slug(&screen.name))
+        ));
+        let mut arguments = Vec::new();
+        for (index, parameter) in screen.parameters.iter().enumerate() {
+            let name = format!("nexaArgument{index}");
+            let raw = format!("segments[{}]", index + 1);
+            let parser = match &parameter.ty {
+                Type::String => {
+                    indent(out, depth + 3);
+                    out.push_str(&format!(
+                        "val {name} = {raw}.ifEmpty {{ return@LaunchedEffect }}\n"
+                    ));
+                    arguments.push(name);
+                    continue;
+                }
+                Type::Bool => "toBooleanStrictOrNull",
+                Type::Numeric(numeric) => match numeric {
+                    nexa_ir::NumericType::Int8 => "toByteOrNull",
+                    nexa_ir::NumericType::Int16 => "toShortOrNull",
+                    nexa_ir::NumericType::Int32 => "toIntOrNull",
+                    nexa_ir::NumericType::Int64 => "toLongOrNull",
+                    nexa_ir::NumericType::UInt8 => "toUByteOrNull",
+                    nexa_ir::NumericType::UInt16 => "toUShortOrNull",
+                    nexa_ir::NumericType::UInt32 => "toUIntOrNull",
+                    nexa_ir::NumericType::UInt64 => "toULongOrNull",
+                    nexa_ir::NumericType::Float32 => "toFloatOrNull",
+                    nexa_ir::NumericType::Float64 => "toDoubleOrNull",
+                },
+                _ => unreachable!("screen route arguments are restricted to scalar types"),
+            };
+            indent(out, depth + 3);
+            out.push_str(&format!(
+                "val {name} = {raw}.{parser}() ?: return@LaunchedEffect\n"
+            ));
+            arguments.push(name);
+        }
+        let mut route = kotlin_string(&navigation_route_name(screen.id));
+        for argument in arguments {
+            route.push_str(&format!(" + \"/\" + Uri.encode({argument}.toString())"));
+        }
+        indent(out, depth + 3);
+        out.push_str(&format!("navController.navigate({route})\n"));
+        indent(out, depth + 2);
+        out.push_str("}\n");
+    }
+    indent(out, depth + 1);
+    out.push_str("}\n");
+    indent(out, depth);
+    out.push_str("}\n");
+}
+
+fn route_slug(name: &str) -> String {
+    let mut slug = String::new();
+    for (index, character) in name.chars().enumerate() {
+        if character.is_ascii_uppercase() && index > 0 {
+            slug.push('-');
+        }
+        slug.extend(character.to_lowercase());
+    }
+    slug
 }
 
 fn render_screen_state(state: &nexa_ir::State, depth: usize, out: &mut String) {

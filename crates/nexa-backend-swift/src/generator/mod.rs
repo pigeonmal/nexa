@@ -69,6 +69,7 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Stri
     ));
     if !module.screens.is_empty() {
         out.push_str("    private static let __nexaRootScreenIdentity = UUID()\n");
+        out.push_str("    @State private var __nexaNavigationPath = NavigationPath()\n");
     }
     for state in &module.states {
         if state.is_native_class_constructor_binding() {
