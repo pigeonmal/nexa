@@ -871,8 +871,7 @@ fn copy_config_icons(root: &Path, app_name: &str, config: &ProjectConfig) -> Res
             .is_some_and(|extension| extension == "icon")
         {
             let destination = root.join("ios").join(app_name).join("AppIcon.icon");
-            fs::copy(source, &destination)
-                .map_err(|error| format!("{}: {error}", destination.display()))?;
+            assets::copy_icon_composer(source, &destination)?;
         } else {
             assets::generate_ios_icon(source, root, app_name)?;
         }

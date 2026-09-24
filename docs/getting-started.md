@@ -80,7 +80,7 @@ config {
 }
 ```
 
-The shared icon source generates an iOS AppIcon asset and Android density icons, adaptive and round launcher icons, and a monochrome adaptive layer for themed icons. Platform-specific `ios.icon` or `android.icon` paths override the shared source; iOS accepts an Xcode asset-catalog icon directory or an Icon Composer `.icon` file, while Android accepts a resource directory. Signing secrets belong in Xcode or CI and the Android signing environment variables, never in `nexa.config.nx`.
+The shared icon source generates an iOS AppIcon asset and Android density icons, adaptive and round launcher icons, and a monochrome adaptive layer for themed icons. Platform-specific `ios.icon` or `android.icon` paths override the shared source; iOS accepts an Xcode asset-catalog icon directory or an Icon Composer `.icon` asset, while Android accepts a resource directory. Signing secrets belong in Xcode or CI and the Android signing environment variables, never in `nexa.config.nx`.
 
 ## Example app
 

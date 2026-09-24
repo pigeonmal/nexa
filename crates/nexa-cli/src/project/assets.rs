@@ -270,6 +270,92 @@ pub(super) fn generate_ios_icon(source: &Path, root: &Path, app_name: &str) -> R
     )
 }
 
+pub(super) fn copy_icon_composer(source: &Path, destination: &Path) -> Result<(), String> {
+    let metadata =
+        fs::symlink_metadata(source).map_err(|error| format!("{}: {error}", source.display()))?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "Icon Composer assets cannot be symlinks: {}",
+            source.display()
+        ));
+    }
+    if !metadata.is_dir() && !metadata.is_file() {
+        return Err(format!(
+            "Icon Composer asset must be a file or package directory: {}",
+            source.display()
+        ));
+    }
+
+    match fs::symlink_metadata(destination) {
+        Ok(existing) if existing.file_type().is_dir() => {
+            fs::remove_dir_all(destination)
+                .map_err(|error| format!("{}: {error}", destination.display()))?;
+        }
+        Ok(_) => {
+            fs::remove_file(destination)
+                .map_err(|error| format!("{}: {error}", destination.display()))?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("{}: {error}", destination.display())),
+    }
+
+    if metadata.is_dir() {
+        fs::create_dir_all(destination)
+            .map_err(|error| format!("{}: {error}", destination.display()))?;
+        for entry in
+            fs::read_dir(source).map_err(|error| format!("{}: {error}", source.display()))?
+        {
+            let entry = entry.map_err(|error| format!("{}: {error}", source.display()))?;
+            copy_icon_composer_entry(&entry.path(), &destination.join(entry.file_name()))?;
+        }
+    } else {
+        let parent = destination.parent().ok_or_else(|| {
+            format!(
+                "invalid Icon Composer destination {}",
+                destination.display()
+            )
+        })?;
+        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+        fs::copy(source, destination)
+            .map_err(|error| format!("{}: {error}", destination.display()))?;
+    }
+    Ok(())
+}
+
+fn copy_icon_composer_entry(source: &Path, destination: &Path) -> Result<(), String> {
+    let metadata =
+        fs::symlink_metadata(source).map_err(|error| format!("{}: {error}", source.display()))?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "Icon Composer packages cannot contain symlinks: {}",
+            source.display()
+        ));
+    }
+    if metadata.is_dir() {
+        fs::create_dir_all(destination)
+            .map_err(|error| format!("{}: {error}", destination.display()))?;
+        for entry in
+            fs::read_dir(source).map_err(|error| format!("{}: {error}", source.display()))?
+        {
+            let entry = entry.map_err(|error| format!("{}: {error}", source.display()))?;
+            copy_icon_composer_entry(&entry.path(), &destination.join(entry.file_name()))?;
+        }
+    } else if metadata.is_file() {
+        let parent = destination
+            .parent()
+            .ok_or_else(|| format!("invalid Icon Composer path {}", destination.display()))?;
+        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+        fs::copy(source, destination)
+            .map_err(|error| format!("{}: {error}", destination.display()))?;
+    } else {
+        return Err(format!(
+            "Icon Composer packages contain an unsupported file type: {}",
+            source.display()
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn generate_android_icon(source: &Path, root: &Path) -> Result<(), String> {
     let image = image::open(source).map_err(|error| format!("{}: {error}", source.display()))?;
     let res = root.join("android/app/src/main/res");
