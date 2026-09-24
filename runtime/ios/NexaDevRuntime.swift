@@ -556,7 +556,7 @@ private struct NexaDevFastList: View {
                 else { return }
                 onScroll?(visibleIndex)
                 if canUpdateScrollPosition { onScrollPositionChanged(visibleIndex) }
-                if visibleRows.keys.max().map({ $0 >= count - 1 }) == true, !didReachEnd {
+                if visibleIndex >= count - 10, !didReachEnd {
                     didReachEnd = true
                     onEndReached?(visibleIndex)
                 } else if visibleIndex < count - 1 {
@@ -617,6 +617,11 @@ private struct NexaDevFastList: View {
             .frame(minHeight: horizontal ? nil : rowHeight.map { CGFloat($0) })
             .frame(maxWidth: horizontal ? nil : .infinity, alignment: .leading)
             .id(index)
+            .onAppear {
+                guard index >= count - 1, !didReachEnd else { return }
+                didReachEnd = true
+                onEndReached?(index)
+            }
             .background(GeometryReader { geometry in
                 let frame = geometry.frame(in: .named("nexa-dev-fast-list"))
                 Color.clear.preference(

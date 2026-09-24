@@ -678,8 +678,8 @@
       },
       {
         "name": "Sections",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "ListAxis": [
@@ -1084,6 +1084,18 @@
       "android": "covered"
     },
     "fast_list_items_source_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "fast_list_sections_headers_and_grid_rendered": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "fast_list_scroll_and_end_reached_callbacks": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "fast_list_refresh_action": {
       "ios": "covered",
       "android": "covered"
     }
