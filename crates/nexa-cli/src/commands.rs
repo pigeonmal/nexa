@@ -794,12 +794,25 @@ fn build_ios(root: &Path, app_name: &str, mode: BuildMode) -> Result<(), String>
         .arg("-scheme")
         .arg(app_name);
     match mode {
-        BuildMode::Dev | BuildMode::DevCompile | BuildMode::Test => {
+        BuildMode::Dev | BuildMode::DevCompile => {
             command.args([
                 "-configuration",
                 "Debug",
                 "-sdk",
                 "iphonesimulator",
+                "build",
+            ]);
+            command
+                .arg("-derivedDataPath")
+                .arg(root.join("ios-derived"));
+        }
+        BuildMode::Test => {
+            command.args([
+                "-configuration",
+                "Debug",
+                "-destination",
+                "generic/platform=iOS",
+                "CODE_SIGNING_ALLOWED=NO",
                 "build",
             ]);
             command
@@ -941,7 +954,7 @@ fn build_android(root: &Path, mode: BuildMode, dev_port: Option<u16>) -> Result<
     }
     let task = match mode {
         BuildMode::Dev | BuildMode::DevCompile => ":app:assembleDebug",
-        BuildMode::Test => ":app:compileDebugKotlin",
+        BuildMode::Test => ":app:assembleDebug",
         BuildMode::Release => ":app:bundleRelease",
     };
     #[cfg(windows)]
