@@ -56,10 +56,17 @@ jobs:
       - uses: android-actions/setup-android@v4
       - name: Build Nexa CLI
         run: cargo build -p nexa-cli --locked
-      - name: Generate and compile a native Android app
+      - name: Generate Android compile project
         shell: bash
         run: |
-          project="$RUNNER_TEMP/nexa-android-compile"
+          project="$GITHUB_WORKSPACE/build/ci-android"
           target/debug/nexa create CiAndroid --directory "$project"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+      - name: Compile the native Android app
+        shell: bash
+        run: |
+          project="$GITHUB_WORKSPACE/build/ci-android"
           cd "$project"
           "$GITHUB_WORKSPACE/target/debug/nexa" test --android
