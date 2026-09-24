@@ -8,7 +8,7 @@ use std::{
 };
 
 #[test]
-fn android_release_requires_and_reports_the_generated_aab() {
+fn android_release_validates_signing_and_reports_only_verified_aabs() {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system clock")
@@ -41,6 +41,18 @@ fn android_release_requires_and_reports_the_generated_aab() {
     permissions.set_mode(0o755);
     fs::set_permissions(&fake_java, permissions).expect("make fake Java executable");
 
+    let fake_jarsigner = fake_bin.join("jarsigner");
+    fs::write(
+        &fake_jarsigner,
+        "#!/bin/sh\ncase \"$NEXA_FAKE_ANDROID_VERIFY_MODE\" in\n  unsigned) echo 'jar is unsigned.'; exit 0 ;;\n  partial) echo 'jar verified.'; echo 'This jar contains unsigned entries.'; exit 0 ;;\n  invalid) echo 'signature invalid' >&2; exit 1 ;;\n  *) echo 'jar verified.'; exit 0 ;;\nesac\n",
+    )
+    .expect("write fake jarsigner");
+    let mut permissions = fs::metadata(&fake_jarsigner)
+        .expect("read fake jarsigner metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&fake_jarsigner, permissions).expect("make fake jarsigner executable");
+
     let mut search_paths = vec![fake_bin];
     if let Some(existing) = std::env::var_os("PATH") {
         search_paths.extend(std::env::split_paths(&existing));
@@ -63,7 +75,9 @@ fn android_release_requires_and_reports_the_generated_aab() {
         (required[2], Some("test-password".into())),
         (required[3], Some("test-password".into())),
     ];
-    let release = |signing: &[(&str, Option<std::ffi::OsString>)], without_artifact: bool| {
+    let release = |signing: &[(&str, Option<std::ffi::OsString>)],
+                   without_artifact: bool,
+                   verify_mode: &str| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_nexa"));
         command
             .args(["release", "--android"])
@@ -71,6 +85,7 @@ fn android_release_requires_and_reports_the_generated_aab() {
             .env("PATH", &path)
             .env("JAVA_HOME", &fake_jdk)
             .env("NEXA_FAKE_ANDROID_MARKER", &marker)
+            .env("NEXA_FAKE_ANDROID_VERIFY_MODE", verify_mode)
             .env(
                 "NEXA_FAKE_ANDROID_NO_ARTIFACT",
                 if without_artifact { "1" } else { "0" },
@@ -93,7 +108,7 @@ fn android_release_requires_and_reports_the_generated_aab() {
             .find(|(key, _)| *key == missing_key)
             .unwrap()
             .1 = None;
-        let failure = release(&signing, false);
+        let failure = release(&signing, false, "valid");
         assert!(!failure.status.success(), "{missing_key} must be required");
         assert!(
             String::from_utf8_lossy(&failure.stderr).contains(missing_key),
@@ -113,7 +128,7 @@ fn android_release_requires_and_reports_the_generated_aab() {
             .find(|(key, _)| *key == blank_key)
             .unwrap()
             .1 = Some("  ".into());
-        let failure = release(&signing, false);
+        let failure = release(&signing, false, "valid");
         assert!(!failure.status.success(), "{blank_key} must not be blank");
         assert!(String::from_utf8_lossy(&failure.stderr).contains(blank_key));
         assert!(
@@ -124,7 +139,7 @@ fn android_release_requires_and_reports_the_generated_aab() {
 
     let mut nonexistent_keystore = credentials.clone();
     nonexistent_keystore[0].1 = Some(scratch.join("missing.jks").into_os_string());
-    let failure = release(&nonexistent_keystore, false);
+    let failure = release(&nonexistent_keystore, false, "valid");
     assert!(!failure.status.success());
     assert!(String::from_utf8_lossy(&failure.stderr).contains("existing file"));
     assert!(
@@ -134,7 +149,7 @@ fn android_release_requires_and_reports_the_generated_aab() {
 
     let mut directory_keystore = credentials.clone();
     directory_keystore[0].1 = Some(scratch.clone().into_os_string());
-    let failure = release(&directory_keystore, false);
+    let failure = release(&directory_keystore, false, "valid");
     assert!(!failure.status.success());
     assert!(String::from_utf8_lossy(&failure.stderr).contains("must point to a file"));
     assert!(
@@ -142,7 +157,7 @@ fn android_release_requires_and_reports_the_generated_aab() {
         "Gradle must not run with a directory keystore"
     );
 
-    let missing = release(&credentials, true);
+    let missing = release(&credentials, true, "valid");
     assert!(!missing.status.success(), "missing AAB must fail release");
     assert!(
         String::from_utf8_lossy(&missing.stderr).contains("did not create"),
@@ -151,7 +166,7 @@ fn android_release_requires_and_reports_the_generated_aab() {
     );
 
     fs::remove_file(&marker).expect("remove fake Gradle marker before successful run");
-    let successful = release(&credentials, false);
+    let successful = release(&credentials, false, "valid");
     assert!(
         successful.status.success(),
         "stdout: {}\nstderr: {}",
@@ -176,8 +191,26 @@ fn android_release_requires_and_reports_the_generated_aab() {
             .to_string_lossy()
     );
 
+    let unsigned = release(&credentials, false, "unsigned");
+    assert!(!unsigned.status.success(), "unsigned AABs must be rejected");
+    assert!(String::from_utf8_lossy(&unsigned.stderr).contains("signature verification failed"));
+
+    let partially_signed = release(&credentials, false, "partial");
+    assert!(
+        !partially_signed.status.success(),
+        "AABs with unsigned entries must be rejected"
+    );
+    assert!(String::from_utf8_lossy(&partially_signed.stderr).contains("unsigned entries"));
+
+    let invalid = release(&credentials, false, "invalid");
+    assert!(
+        !invalid.status.success(),
+        "invalid AAB signatures must be rejected"
+    );
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("signature invalid"));
+
     fs::remove_file(&marker).expect("remove Gradle marker before stale artifact check");
-    let stale = release(&credentials, true);
+    let stale = release(&credentials, true, "valid");
     assert!(
         !stale.status.success(),
         "a previous AAB must not count as new output"

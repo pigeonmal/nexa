@@ -35,7 +35,7 @@ Use `nexa dev --compile-only` to compile the debug development host, including N
 
 `nexa test` generates and compiles the native projects without launching the app. `nexa release` creates an iOS archive and exported IPA plus a signed Android AAB. Use `--ios` or `--android` to build one platform. Add `--flavor staging` to `dev`, `test`, or `release` for a separate app identity such as `dev.nexa.myapp.staging`; `--staging` is a shorthand. Define flavors in `nexa.config.nx`, for example `flavors { staging { suffix: "staging" }, production { suffix: "" } }`. A missing suffix defaults to the flavor name, while an empty suffix keeps the configured base app ID. `nexa doctor` checks the required toolchains.
 
-Android releases require non-empty `NEXA_ANDROID_KEYSTORE`, `NEXA_ANDROID_KEY_ALIAS`, `NEXA_ANDROID_STORE_PASSWORD`, and `NEXA_ANDROID_KEY_PASSWORD` environment variables. The keystore path may be absolute or relative to the project directory, and must identify an existing file. Nexa validates these inputs before building and passes Gradle the resolved keystore path.
+Android releases require non-empty `NEXA_ANDROID_KEYSTORE`, `NEXA_ANDROID_KEY_ALIAS`, `NEXA_ANDROID_STORE_PASSWORD`, and `NEXA_ANDROID_KEY_PASSWORD` environment variables. The keystore path may be absolute or relative to the project directory, and must identify an existing file. Nexa validates these inputs before building, passes Gradle the resolved keystore path, and verifies the generated AAB signature before reporting success.
 
 Declare local or Git-pinned native plugin packages under `dependencies` in
 `nexa.config.nx`, then use each package ID in a `plugin "package.id" as Alias`

@@ -984,6 +984,7 @@ fn build_android(root: &Path, mode: BuildMode, dev_port: Option<u16>) -> Result<
                     aab.display()
                 ));
             }
+            verify_android_aab_signature(&aab)?;
             println!("Created signed Android AAB at {}", aab.display());
         }
     }
@@ -1007,6 +1008,55 @@ fn remove_generated_path(path: &Path) -> Result<(), String> {
             path.display()
         )
     })
+}
+
+fn verify_android_aab_signature(aab: &Path) -> Result<(), String> {
+    let jarsigner = env::var_os("JAVA_HOME")
+        .map(PathBuf::from)
+        .map(|java_home| {
+            java_home.join("bin").join(if cfg!(windows) {
+                "jarsigner.exe"
+            } else {
+                "jarsigner"
+            })
+        })
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("jarsigner"));
+    let output = Command::new(&jarsigner)
+        .args(["-verify", "-verbose:summary"])
+        .arg(aab)
+        .env("LC_ALL", "C")
+        .output()
+        .map_err(|error| {
+            format!(
+                "cannot verify Android AAB signature with {}: {error} (install a full JDK)",
+                jarsigner.display()
+            )
+        })?;
+    let report = String::from_utf8_lossy(&output.stdout);
+    let normalized_report = report.to_ascii_lowercase();
+    if !output.status.success()
+        || normalized_report.contains("jar is unsigned.")
+        || normalized_report.contains("unsigned entr")
+        || !normalized_report.contains("jar verified.")
+    {
+        let details = String::from_utf8_lossy(&output.stderr);
+        let details = if details.trim().is_empty() {
+            report.trim()
+        } else {
+            details.trim()
+        };
+        return Err(format!(
+            "Android AAB signature verification failed for {}: {}",
+            aab.display(),
+            if details.is_empty() {
+                "the bundle is unsigned or has an invalid signature"
+            } else {
+                details
+            }
+        ));
+    }
+    Ok(())
 }
 
 fn validate_android_release_signing() -> Result<PathBuf, String> {
