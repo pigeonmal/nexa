@@ -66,6 +66,7 @@ pub(super) fn resolve(
                 root.display()
             )
         })?;
+        let content_hash = package_content_hash(&root)?;
         let manifest_path = root.join("plugin.config.nx");
         let manifest = nexa_plugin_idl::manifest::parse_file(&manifest_path)
             .map_err(|error| format!("plugin dependency `{}`: {error}", dependency.alias))?;
@@ -91,6 +92,7 @@ pub(super) fn resolve(
                 source,
                 revision,
                 package,
+                content_hash,
             },
         );
     }
@@ -107,6 +109,110 @@ pub(super) fn write_lock(project_root: &Path, contents: &str) -> Result<(), Stri
         return Ok(());
     }
     fs::write(&path, contents).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+pub(super) fn sync_lock(
+    project_root: &Path,
+    has_dependencies: bool,
+    contents: &str,
+    locked: bool,
+) -> Result<(), String> {
+    let path = project_root.join("nexa.lock");
+    if locked {
+        if !has_dependencies && !path.exists() {
+            return Ok(());
+        }
+        let existing = fs::read_to_string(&path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                "`nexa.lock` is missing; run `nexa check` to create it before a locked build"
+                    .to_owned()
+            } else {
+                format!("{}: {error}", path.display())
+            }
+        })?;
+        if existing != contents {
+            return Err(
+                "`nexa.lock` is out of date; run `nexa check` to update it before a locked build"
+                    .to_owned(),
+            );
+        }
+        return Ok(());
+    }
+    if has_dependencies || path.is_file() {
+        write_lock(project_root, contents)?;
+    }
+    Ok(())
+}
+
+fn package_content_hash(root: &Path) -> Result<String, String> {
+    fn update(hash: &mut u64, bytes: &[u8]) {
+        for byte in bytes {
+            *hash = (*hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
+        }
+    }
+
+    fn visit(root: &Path, directory: &Path, hash: &mut u64) -> Result<(), String> {
+        let mut entries = fs::read_dir(directory)
+            .map_err(|error| format!("{}: {error}", directory.display()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("{}: {error}", directory.display()))?;
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            if entry.file_name() == ".git" {
+                continue;
+            }
+            let path = entry.path();
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            let relative = relative.to_string_lossy();
+            update(hash, relative.as_bytes());
+            update(hash, &[0]);
+
+            let metadata = fs::symlink_metadata(&path)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            if metadata.file_type().is_symlink() {
+                update(hash, b"link\0");
+                let target =
+                    fs::read_link(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+                let resolved_target = fs::canonicalize(&path)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
+                if !resolved_target.starts_with(root) {
+                    return Err(format!(
+                        "plugin package symlink {} resolves outside the package root",
+                        path.display()
+                    ));
+                }
+                update(hash, target.to_string_lossy().as_bytes());
+            } else if metadata.is_dir() {
+                update(hash, b"dir\0");
+                visit(root, &path, hash)?;
+            } else if metadata.is_file() {
+                update(hash, b"file\0");
+                let mut file = fs::File::open(&path)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
+                let mut buffer = [0_u8; 8192];
+                loop {
+                    use std::io::Read;
+                    let count = file
+                        .read(&mut buffer)
+                        .map_err(|error| format!("{}: {error}", path.display()))?;
+                    if count == 0 {
+                        break;
+                    }
+                    update(hash, &buffer[..count]);
+                }
+            } else {
+                update(hash, b"other\0");
+            }
+            update(hash, &[0xff]);
+        }
+        Ok(())
+    }
+
+    let mut hash = 0xcbf29ce484222325;
+    visit(root, root, &mut hash)?;
+    Ok(format!("{hash:016x}"))
 }
 
 fn checkout(project_root: &Path, url: &str, revision: &str) -> Result<PathBuf, String> {
@@ -222,6 +328,7 @@ struct LockEntry {
     source: String,
     revision: Option<String>,
     package: Option<String>,
+    content_hash: String,
 }
 
 fn render_lock(entries: &BTreeMap<String, LockEntry>) -> String {
@@ -229,7 +336,7 @@ fn render_lock(entries: &BTreeMap<String, LockEntry>) -> String {
         .iter()
         .map(|(alias, entry)| {
             format!(
-                "    {{\"alias\":{},\"id\":{},\"source\":{},\"revision\":{},\"package\":{}}}",
+                "    {{\"alias\":{},\"id\":{},\"source\":{},\"revision\":{},\"package\":{},\"contentHash\":{}}}",
                 json_string(alias),
                 json_string(&entry.id),
                 json_string(&entry.source),
@@ -243,6 +350,7 @@ fn render_lock(entries: &BTreeMap<String, LockEntry>) -> String {
                     .as_deref()
                     .map(json_string)
                     .unwrap_or_else(|| "null".to_owned()),
+                json_string(&entry.content_hash),
             )
         })
         .collect::<Vec<_>>()

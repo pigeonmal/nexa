@@ -59,4 +59,11 @@ fn check_resolves_local_plugin_dependencies_without_native_toolchains() {
     assert!(lock.contains("dev.nexa.fast-math"));
     assert!(lock.contains("path:"));
     assert!(!project.0.join("build").exists());
+
+    let locked = Command::new(env!("CARGO_BIN_EXE_nexa"))
+        .args(["check", "--deny-warnings", "--locked"])
+        .current_dir(&project.0)
+        .output()
+        .expect("run Nexa checker with the lockfile enforced");
+    assert!(locked.status.success(), "{locked:?}");
 }

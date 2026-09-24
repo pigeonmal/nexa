@@ -60,6 +60,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let mut name = None;
     let mut target = ProjectTarget::All;
     let mut deny_warnings = false;
+    let mut locked = false;
     let mut flavor = None;
     let mut dev_server_url = None;
     let mut dev_session_token = None;
@@ -67,6 +68,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     while cursor < args.len() {
         match args[cursor].as_str() {
             "--deny-warnings" => deny_warnings = true,
+            "--locked" => locked = true,
             "--dev-server-url" => {
                 cursor += 1;
                 dev_server_url = Some(
@@ -185,9 +187,12 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let existing_config = config_path.is_file();
     let dependencies = config::load_plugin_dependencies(&config_path)?;
     let resolved_dependencies = crate::dependencies::resolve(project_root, &dependencies)?;
-    if !dependencies.is_empty() || project_root.join("nexa.lock").is_file() {
-        crate::dependencies::write_lock(project_root, &resolved_dependencies.lock_file)?;
-    }
+    crate::dependencies::sync_lock(
+        project_root,
+        !dependencies.is_empty(),
+        &resolved_dependencies.lock_file,
+        locked,
+    )?;
     let plugin_roots = &resolved_dependencies.plugin_roots;
     let plugin_definitions = config::load_plugin_definitions(&input, plugin_roots)?;
     let project_config = if existing_config {

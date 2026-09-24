@@ -87,13 +87,15 @@ fn check_project(args: &[String]) -> Result<(), String> {
     let mut platform = "all".to_owned();
     let mut platform_set = false;
     let mut deny_warnings = false;
+    let mut locked = false;
     for argument in args {
         match argument.as_str() {
             "--ios" => set_platform(&mut platform, &mut platform_set, "ios")?,
             "--android" => set_platform(&mut platform, &mut platform_set, "android")?,
             "--deny-warnings" => deny_warnings = true,
+            "--locked" => locked = true,
             "--help" | "-h" => {
-                println!("Usage: nexa check [--ios | --android] [--deny-warnings]");
+                println!("Usage: nexa check [--ios | --android] [--deny-warnings] [--locked]");
                 return Ok(());
             }
             option if option.starts_with('-') => return Err(format!("unknown option `{option}`")),
@@ -122,9 +124,7 @@ fn check_project(args: &[String]) -> Result<(), String> {
     let config_path = root.join("nexa.config.nx");
     let dependencies = crate::config::load_plugin_dependencies(&config_path)?;
     let resolved = crate::dependencies::resolve(&root, &dependencies)?;
-    if !dependencies.is_empty() || root.join("nexa.lock").is_file() {
-        crate::dependencies::write_lock(&root, &resolved.lock_file)?;
-    }
+    crate::dependencies::sync_lock(&root, !dependencies.is_empty(), &resolved.lock_file, locked)?;
     let definitions = crate::config::load_plugin_definitions(&entry, &resolved.plugin_roots)?;
     if config_path.is_file() {
         crate::config::ProjectConfig::parse_file(&config_path, &definitions, &app_name)?;
@@ -165,6 +165,7 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     let mut platform_set = false;
     let mut once = false;
     let mut compile_only = false;
+    let mut locked = false;
     let mut cursor = 0;
     while cursor < args.len() {
         match args[cursor].as_str() {
@@ -198,6 +199,7 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
             "--compile-only" => {
                 return Err("`--compile-only` is only supported by `nexa dev`".to_owned());
             }
+            "--locked" => locked = true,
             "--flavor" => {
                 cursor += 1;
                 set_flavor(
@@ -282,6 +284,12 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     if let Some(flavor) = flavor {
         project_args.push("--flavor".to_owned());
         project_args.push(flavor);
+    }
+    if locked {
+        project_args.push("--locked".to_owned());
+        let dependencies = crate::config::load_plugin_dependencies(&root.join("nexa.config.nx"))?;
+        let resolved = crate::dependencies::resolve(&root, &dependencies)?;
+        crate::dependencies::sync_lock(&root, !dependencies.is_empty(), &resolved.lock_file, true)?;
     }
     if command == "test" {
         super::project::run(&project_args)?;
@@ -1256,24 +1264,26 @@ fn ensure_success(status: ExitStatus, label: &str) -> Result<(), String> {
 
 fn print_help() {
     println!(
-        "Nexa — native iOS and Android apps from one .nx project\n\nUsage:\n  nexa create <ProjectName>\n  nexa check [--ios | --android]\n  nexa dev [--ios | --android]\n  nexa test [--ios | --android]\n  nexa release [--ios | --android]\n  nexa doctor\n\nRun `nexa <command> --help` for command options."
+        "Nexa — native iOS and Android apps from one .nx project\n\nUsage:\n  nexa create <ProjectName>\n  nexa check [--ios | --android] [--locked]\n  nexa dev [--ios | --android] [--locked]\n  nexa test [--ios | --android] [--locked]\n  nexa release [--ios | --android] [--locked]\n  nexa doctor\n\nRun `nexa <command> --help` for command options."
     );
 }
 
 fn print_command_help(command: &str) {
     match command {
         "create" => println!("Usage: nexa create <ProjectName> [--directory <path>]"),
-        "check" => println!("Usage: nexa check [--ios | --android] [--deny-warnings]"),
+        "check" => println!("Usage: nexa check [--ios | --android] [--deny-warnings] [--locked]"),
         "dev" => {
             println!(
-                "Usage: nexa dev [--ios | --android] [--once | --compile-only] [--flavor <name>] [--out <directory>]\nWhile running: `r` hot reloads, `Shift+R` hot restarts, `b` rebuilds and relaunches, and `p` toggles the performance overlay."
+                "Usage: nexa dev [--ios | --android] [--once | --compile-only] [--flavor <name>] [--out <directory>] [--locked]\nWhile running: `r` hot reloads, `Shift+R` hot restarts, `b` rebuilds and relaunches, and `p` toggles the performance overlay."
             )
         }
         "test" => {
-            println!("Usage: nexa test [--ios | --android] [--flavor <name>] [--out <directory>]")
+            println!(
+                "Usage: nexa test [--ios | --android] [--flavor <name>] [--out <directory>] [--locked]"
+            )
         }
         "release" => println!(
-            "Usage: nexa release [--ios | --android] [--flavor <name>] [--out <directory>]\nBuilds an iOS archive or Android AAB. Configure signing through Xcode or the native Gradle project."
+            "Usage: nexa release [--ios | --android] [--flavor <name>] [--out <directory>] [--locked]\nBuilds an iOS archive or Android AAB. Configure signing through Xcode or the native Gradle project."
         ),
         _ => print_help(),
     }

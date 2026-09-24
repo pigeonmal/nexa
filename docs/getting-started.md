@@ -26,7 +26,8 @@ nexa dev
 
 `nexa check` type-checks the project for both targets before invoking Xcode or
 Gradle. It also resolves configured plugin dependencies and updates
-`nexa.lock`.
+`nexa.lock`. Use `nexa check --locked` to verify that the lockfile already
+matches the configured plugin packages without updating it.
 
 `nexa dev` checks the `.nx` source, generates both native hosts under `build/`, compiles them, and launches on available simulators/emulators. It stays active and watches `.nx` files; compatible UI and state changes reload in the running app. Plugin, dependency, asset, and host-configuration changes wait for the user to press `b`; they never force a rebuild or relaunch. The debug renderer supports the same `FastList` sources, axes, headers, callbacks, refresh actions, state assignments, and synchronous app-local functions accepted by the compiler. Compatible app and screen state, focus, navigation path, and list position are retained across compatible reloads. In the dev terminal, `r` hot reloads, `Shift+R` hot restarts and resets app state, `b` rebuilds and relaunches the native app, and `p` toggles an on-device overlay with live FPS and average frame time. VS Code provides matching **Nexa: Hot Reload**, **Nexa: Hot Restart**, **Nexa: Rebuild and Relaunch App**, and **Nexa: Toggle Performance Overlay** commands with keyboard shortcuts. Use `nexa dev --once` as an explicit one-shot build and launch without starting the watcher.
 
@@ -37,7 +38,8 @@ Use `nexa dev --compile-only` to compile the debug development host, including N
 Declare local or Git-pinned native plugin packages under `dependencies` in
 `nexa.config.nx`, then use each package ID in a `plugin "package.id" as Alias`
 declaration. Git dependencies require a full commit hash; Nexa records the
-resolved package sources in `nexa.lock`.
+resolved package sources and content hashes in `nexa.lock`. Use `--locked` with
+`nexa dev`, `nexa test`, or `nexa release` to reject missing or stale lockfiles.
 
 ## Project layout
 

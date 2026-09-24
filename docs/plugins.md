@@ -46,9 +46,11 @@ config {
 
 `nexa dev`, `nexa test`, and `nexa release` resolve these packages, verify
 that each package manifest ID matches the configured ID, and write the
-dependency list to `nexa.lock`. Git checkouts are cached under `.nexa/plugins/`;
-that directory is generated and should not be committed. Local path dependencies
-intentionally follow the working directory contents.
+resolved package sources and content hashes to `nexa.lock`. Use `--locked` on
+`check`, `dev`, `test`, or `release` to require an existing matching lockfile.
+If a local plugin changes, run `nexa check` to update the lock before a locked
+build. Git checkouts are cached under `.nexa/plugins/`; that directory is
+generated and should not be committed.
 
 ## 1. Plugin Architecture Overview
 

@@ -168,3 +168,32 @@ fn resolves_local_plugin_dependencies_and_rejects_a_mismatched_manifest_id() {
     .expect_err("mismatched manifest id must fail");
     assert!(error.contains("package manifest is `dev.example.math`"));
 }
+
+#[test]
+fn locked_dependencies_detect_missing_lockfiles_and_local_plugin_changes() {
+    let project = TempProject::new();
+    let package = project.0.join("plugins/math");
+    write_package(&package, "dev.example.math");
+    fs::write(
+        package.join("native.nxid"),
+        "service Math { fn add(a: Int32, b: Int32) -> Int32 }\n",
+    )
+    .expect("write plugin interface");
+    let dependencies = [dependency("Math", "dev.example.math", "plugins/math")];
+    let resolved = dependencies::resolve(&project.0, &dependencies).expect("resolve plugin");
+
+    let missing = dependencies::sync_lock(&project.0, true, &resolved.lock_file, true)
+        .expect_err("locked resolution requires a lockfile");
+    assert!(missing.contains("`nexa.lock` is missing"));
+
+    dependencies::sync_lock(&project.0, true, &resolved.lock_file, false).expect("write lockfile");
+    dependencies::sync_lock(&project.0, true, &resolved.lock_file, true)
+        .expect("accept matching lockfile");
+
+    fs::write(package.join("native.nxid"), "service Math { fn add(a: Int32, b: Int32) -> Int32; fn sub(a: Int32, b: Int32) -> Int32 }\n")
+        .expect("change plugin interface");
+    let changed = dependencies::resolve(&project.0, &dependencies).expect("resolve changed plugin");
+    let stale = dependencies::sync_lock(&project.0, true, &changed.lock_file, true)
+        .expect_err("locked resolution rejects changed local packages");
+    assert!(stale.contains("`nexa.lock` is out of date"));
+}
