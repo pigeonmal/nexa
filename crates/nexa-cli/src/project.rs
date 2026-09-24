@@ -825,12 +825,13 @@ fn generate_android(
     )?;
     write_if_changed(
         &root.join("android/app/build.gradle.kts"),
-        &templates::android_app_gradle_with_config(
+        &templates::android_app_gradle_with_dev_runtime(
             &package,
             project_features,
             &module.plugins,
             &local_aars,
             config,
+            dev_session.is_some(),
         )?,
     )?;
     write_if_changed(

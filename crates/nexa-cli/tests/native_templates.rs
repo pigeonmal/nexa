@@ -42,17 +42,80 @@ fn android_wrapper_is_pinned_and_checksum_verified() {
 #[test]
 fn android_release_signing_is_configured_at_build_time() {
     let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
-    let gradle = templates::android_app_gradle_with_config(
+    let gradle = templates::android_app_gradle_with_dev_runtime(
         "demo",
         nexa_backend_kotlin::KotlinProjectFeatures::default(),
         &[],
         &[],
         &config,
+        false,
     )
     .unwrap();
     assert!(gradle.contains("create(\"nexaRelease\")"));
     assert!(gradle.contains("System.getenv(\"NEXA_ANDROID_KEYSTORE\")"));
     assert!(gradle.contains("signingConfigs.getByName(\"nexaRelease\")"));
+}
+
+#[test]
+fn android_dev_runtime_preloads_compose_and_platform_dependencies() {
+    let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    let dependencies = templates::android_app_gradle_with_dev_runtime(
+        "demo",
+        nexa_backend_kotlin::KotlinProjectFeatures::default(),
+        &[],
+        &[],
+        &config,
+        true,
+    )
+    .unwrap();
+
+    for dependency in [
+        "androidx.compose.foundation:foundation",
+        "androidx.compose.runtime:runtime",
+        "androidx.navigation:navigation-compose",
+        "androidx.lifecycle:lifecycle-runtime-compose",
+        "org.jetbrains.kotlinx:kotlinx-coroutines-android",
+        "androidx.core:core",
+        "io.coil-kt.coil3:coil-compose",
+        "io.coil-kt.coil3:coil-network-core",
+        "com.google.android.gms:play-services-cronet",
+    ] {
+        assert!(
+            dependencies.contains(&format!("implementation(\"{dependency}")),
+            "dev dependency {dependency} should be preloaded"
+        );
+    }
+}
+
+#[test]
+fn android_aot_dependencies_remain_feature_gated() {
+    let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    let dependencies = templates::android_app_gradle_with_dev_runtime(
+        "demo",
+        nexa_backend_kotlin::KotlinProjectFeatures::default(),
+        &[],
+        &[],
+        &config,
+        false,
+    )
+    .unwrap();
+
+    for dependency in [
+        "androidx.compose.foundation:foundation",
+        "androidx.compose.runtime:runtime",
+        "androidx.navigation:navigation-compose",
+        "androidx.lifecycle:lifecycle-runtime-compose",
+        "org.jetbrains.kotlinx:kotlinx-coroutines-android",
+        "androidx.core:core",
+        "io.coil-kt.coil3:coil-compose",
+        "io.coil-kt.coil3:coil-network-core",
+        "com.google.android.gms:play-services-cronet",
+    ] {
+        assert!(
+            !dependencies.contains(dependency),
+            "AOT dependency {dependency} should remain feature-gated"
+        );
+    }
 }
 
 mod template_generation {
@@ -90,7 +153,7 @@ mod template_generation {
         local_aars: &[String],
     ) -> Result<String, String> {
         let config = ProjectConfig::from_defaults(&[], package)?;
-        android_app_gradle_with_config(package, features, plugins, local_aars, &config)
+        android_app_gradle_with_dev_runtime(package, features, plugins, local_aars, &config, false)
     }
 
     fn ios_info_plist(
@@ -175,12 +238,13 @@ mod template_generation {
     #[test]
     fn android_host_uses_configurable_minimum_and_fixed_target_sdk_36() {
         let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
-        let gradle = android_app_gradle_with_config(
+        let gradle = android_app_gradle_with_dev_runtime(
             "dev.nexa.demo",
             nexa_backend_kotlin::KotlinProjectFeatures::default(),
             &[],
             &[],
             &config,
+            false,
         )
         .expect("Android app Gradle file should render");
 

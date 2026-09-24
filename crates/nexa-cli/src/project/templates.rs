@@ -949,12 +949,13 @@ pub(super) fn android_manifest(
     )
 }
 
-pub(super) fn android_app_gradle_with_config(
+pub(super) fn android_app_gradle_with_dev_runtime(
     package: &str,
     features: nexa_backend_kotlin::KotlinProjectFeatures,
     plugins: &[nexa_ir::Plugin],
     local_aars: &[String],
     config: &ProjectConfig,
+    dev_runtime: bool,
 ) -> Result<String, String> {
     let maven_dependencies = merge_maven_dependencies(plugins)?;
     let minimum_sdk = plugins
@@ -971,24 +972,29 @@ pub(super) fn android_app_gradle_with_config(
     let mut dependencies = String::from(
         "    implementation(platform(\"androidx.compose:compose-bom:2026.09.00\"))\n    implementation(\"androidx.activity:activity-compose:1.13.0\")\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.material3:material3\")\n",
     );
-    if features.uses_compose_graphics {
+    if dev_runtime {
+        dependencies.push_str(
+            "    implementation(\"androidx.compose.foundation:foundation\")\n    implementation(\"androidx.compose.runtime:runtime\")\n    implementation(\"androidx.core:core\")\n",
+        );
+    }
+    if dev_runtime || features.uses_compose_graphics {
         dependencies.push_str("    implementation(\"androidx.compose.ui:ui-graphics\")\n");
     }
-    if features.uses_navigation {
+    if dev_runtime || features.uses_navigation {
         dependencies
             .push_str("    implementation(\"androidx.navigation:navigation-compose:2.10.1\")\n");
     }
-    if features.uses_lifecycle_events {
+    if dev_runtime || features.uses_lifecycle_events {
         dependencies.push_str(
             "    implementation(\"androidx.lifecycle:lifecycle-runtime-compose:2.11.0\")\n",
         );
     }
-    if features.uses_remote_image {
+    if dev_runtime || features.uses_remote_image {
         dependencies.push_str(
             "    implementation(\"io.coil-kt.coil3:coil-compose:3.6.3\")\n    implementation(\"io.coil-kt.coil3:coil-network-core:3.6.3\")\n",
         );
     }
-    if features.uses_coroutines {
+    if dev_runtime || features.uses_coroutines {
         dependencies.push_str(
             "    implementation(\"org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0\")\n",
         );
@@ -996,7 +1002,7 @@ pub(super) fn android_app_gradle_with_config(
     if config.splash_source.is_some() {
         dependencies.push_str("    implementation(\"androidx.core:core-splashscreen:1.0.1\")\n");
     }
-    if features.uses_network {
+    if dev_runtime || features.uses_network {
         dependencies.push_str(
             "    implementation(\"com.google.android.gms:play-services-cronet:18.0.1\")\n",
         );
