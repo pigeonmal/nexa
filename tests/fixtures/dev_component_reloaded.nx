@@ -46,6 +46,8 @@ app ComponentSmoke {
     state scores: Map<String, Int32> = ["nexa": 42]
     state coordinates: Triple<Int32, Int32, Int32> = Triple(2, 3, 4)
     state mode: Mode = Mode.ready
+    state buttonCount: Int32 = 0
+    state switchEnabled: Bool = false
     state result: Result<Int32, AppError> = Ok(42)
     state failure: Result<Int32, AppError> = Err(AppError.unavailable)
     state profile: Profile = Profile(7, "Ada")
@@ -99,6 +101,19 @@ app ComponentSmoke {
         }
         Column {
             Card(title: "Reloaded") { Text("Projected child", fontSize: 8) }
+            Button("Increment button: $buttonCount") {
+                buttonCount = buttonCount + 1
+            }
+            Button("Enable branch") {
+                switchEnabled = true
+            }
+            Switch(value: switchEnabled, label: "Reload switch")
+            if switchEnabled { Text("If branch: enabled") }
+            when mode {
+                Mode.ready: { Text("When branch: ready") }
+                else: { Text("When branch: busy") }
+            }
+            Stack(alignment: Center) { Text("Stack layout") }
             Row {
                 Text("Binary and: \(3 < 4 && 5 >= 5)", fontSize: 8)
                 Text("Contains: \(5 in numbers)", fontSize: 8)

@@ -17,6 +17,16 @@ final class NexaDevComponentTests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Card: Reloaded"].waitForExistence(timeout: 45))
         assertText("Projected child", in: app)
+        XCTAssertTrue(app.staticTexts["When branch: reloaded"].exists)
+        assertText("Stack layout", in: app)
+        let increment = app.buttons["Increment button: 0"]
+        XCTAssertTrue(increment.waitForExistence(timeout: 10))
+        increment.tap()
+        XCTAssertTrue(app.buttons["Increment button: 1"].waitForExistence(timeout: 5))
+        let toggle = app.switches["Reload switch"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        app.buttons["Enable branch"].tap()
+        XCTAssertTrue(app.staticTexts["If branch: enabled"].waitForExistence(timeout: 5))
         assertText("Binary and: true", in: app)
         assertText("Contains: true", in: app)
         assertText("Index: 5", in: app)

@@ -103,6 +103,31 @@ PY
         exit 1
     fi
 done
+previous_patches=$(grep -Fc "Nexa $label dev runtime applied patch" "$log_file" || true)
+previous_modules=$(grep -Fc "Nexa $label dev runtime applied module" "$log_file" || true)
+python3 - "$project/App.nx" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+source = path.read_text()
+old = 'Text("When branch: ready")'
+if old not in source:
+    raise SystemExit("When ready branch was not found")
+path.write_text(source.replace(old, 'Text("When branch: reloaded")', 1))
+PY
+for _ in $(seq 1 180); do
+    count=$(grep -Fc "Nexa $label dev runtime applied patch" "$log_file" || true)
+    modules=$(grep -Fc "Nexa $label dev runtime applied module" "$log_file" || true)
+    if (( count > previous_patches || modules > previous_modules )); then break; fi
+    if ! kill -0 "$dev_pid" 2>/dev/null; then cat "$log_file" >&2; exit 1; fi
+    sleep 0.25
+done
+if (( count <= previous_patches && modules <= previous_modules )); then
+    cat "$log_file" >&2
+    echo "timed out waiting for the When branch hot reload" >&2
+    exit 1
+fi
 printf 'R\n' >&3
 wait_for_log "Nexa app state restarted in the running app."
 
@@ -115,6 +140,10 @@ if [[ "$platform" == android ]]; then
         adb exec-out cat /sdcard/nexa-components.xml >"$dump"
         cat "$dump" >>"$xml"
         if grep -Fq 'text="Card: Reloaded"' "$xml" \
+            && grep -Fq 'text="Increment button: 0"' "$xml" \
+            && grep -Fq 'text="Reload switch"' "$xml" \
+            && grep -Fq 'text="When branch: reloaded"' "$xml" \
+            && grep -Fq 'text="Stack layout"' "$xml" \
             && grep -Fq 'text="Projected child"' "$xml" \
             && grep -Fq 'Binary and: true' "$xml" \
             && grep -Fq 'Contains: true' "$xml" \
@@ -166,6 +195,55 @@ for label in ("Haptic light", "Haptic medium", "Haptic heavy"):
     x, y = (left + right) // 2, (top + bottom) // 2
     subprocess.run(["adb", "shell", "input", "tap", str(x), str(y)], check=True)
 PY
+            adb shell input swipe 360 400 360 1400 250 >/dev/null 2>&1 || true
+            adb shell uiautomator dump /sdcard/nexa-components.xml >/dev/null 2>&1
+            adb exec-out cat /sdcard/nexa-components.xml >"$dump"
+            python3 - "$dump" <<'PY'
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+node = next((item for item in root.iter("node") if item.attrib.get("text") == "Increment button: 0"), None)
+if node is None:
+    raise SystemExit("missing Android increment button")
+left, top, right, bottom = map(int, node.attrib["bounds"].strip("[]").replace("][", ",").split(","))
+subprocess.run(["adb", "shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2)], check=True)
+PY
+            for _ in $(seq 1 15); do
+                adb shell uiautomator dump /sdcard/nexa-components.xml >/dev/null 2>&1
+                adb exec-out cat /sdcard/nexa-components.xml >"$dump"
+                if grep -Fq 'text="Increment button: 1"' "$dump"; then break; fi
+                sleep 0.25
+            done
+            if ! grep -Fq 'text="Increment button: 1"' "$dump"; then
+                cat "$dump" >&2
+                echo "Android Button action did not update state" >&2
+                exit 1
+            fi
+            python3 - "$dump" <<'PY'
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+node = next((item for item in root.iter("node") if item.attrib.get("text") == "Enable branch"), None)
+if node is None:
+    raise SystemExit("missing Android conditional-branch button")
+left, top, right, bottom = map(int, node.attrib["bounds"].strip("[]").replace("][", ",").split(","))
+subprocess.run(["adb", "shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2)], check=True)
+PY
+            for _ in $(seq 1 15); do
+                adb shell uiautomator dump /sdcard/nexa-components.xml >/dev/null 2>&1
+                adb exec-out cat /sdcard/nexa-components.xml >"$dump"
+                if grep -Fq 'text="If branch: enabled"' "$dump"; then break; fi
+                sleep 0.25
+            done
+            if ! grep -Fq 'text="If branch: enabled"' "$dump"; then
+                cat "$dump" >&2
+                echo "Android If branch did not update after Button interaction" >&2
+                exit 1
+            fi
             echo "Nexa Android custom component and Content hot reload passed."
             exit 0
         fi
