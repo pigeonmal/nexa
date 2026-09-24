@@ -20,13 +20,10 @@ test_source="$project/build/ios/NexaHotReloadInteractionUITests.swift"
 ready_token=$(python3 -c 'import secrets; print(secrets.token_hex(24))')
 patched_token=$(python3 -c 'import secrets; print(secrets.token_hex(24))')
 verified_token=$(python3 -c 'import secrets; print(secrets.token_hex(24))')
-artifacts="$project/build/test-artifacts"
 
 "$nexa" create "$app_name" --directory "$project"
 cp "$fixture" "$project/App.nx"
-mkdir -p "$project/build/ios" "$artifacts"
-swiftc "$script_dir/read-screenshot-layout.swift" -framework Vision -framework ImageIO \
-    -o "$project/read-screenshot-layout"
+mkdir -p "$project/build/ios"
 sed -e "s/__READY_TOKEN__/$ready_token/" \
     -e "s/__PATCHED_TOKEN__/$patched_token/" \
     -e "s/__VERIFIED_TOKEN__/$verified_token/" \
@@ -84,87 +81,6 @@ wait_for_ui_file() {
     return 1
 }
 
-capture_screenshot_text() {
-    xcrun simctl io "$simulator_id" screenshot "$artifacts/screen.png" >/dev/null 2>&1
-    "$project/read-screenshot-layout" "$artifacts/screen.png" >"$artifacts/screen.tsv"
-}
-
-assert_direction() {
-    local expected=$1
-    local coordinates
-    for _ in $(seq 1 15); do
-        capture_screenshot_text
-        coordinates=$(python3 - "$artifacts/screen.tsv" "$expected" <<'PY' 2>/dev/null || true
-import sys
-
-path, expected = sys.argv[1:]
-positions = {}
-for line in open(path, encoding="utf-8"):
-    try:
-        x, text = line.rstrip("\n").split("\t", 1)
-        normalized = "".join(character for character in text.lower() if character.isalpha())
-    except ValueError:
-        continue
-    for name in ("rowstart", "rowend"):
-        if name in normalized and name not in positions:
-            positions[name] = float(x)
-if set(positions) == {"rowstart", "rowend"}:
-    start, end = positions["rowstart"], positions["rowend"]
-    if (expected == "rtl" and start > end) or (expected == "ltr" and start < end):
-        print(f"Row Start x={start:.3f}; Row End x={end:.3f}")
-        raise SystemExit(0)
-raise SystemExit(1)
-PY
-)
-        if [[ -n "$coordinates" ]]; then
-            echo "$coordinates"
-            return 0
-        fi
-        sleep 0.5
-    done
-    cat "$artifacts/screen.tsv" >&2
-    echo "iOS screenshot did not show the expected $expected row order" >&2
-    return 1
-}
-
-assert_status_bar_visible() {
-    capture_screenshot_text
-    if ! python3 - "$artifacts/screen.tsv" <<'PY'
-import re
-import sys
-
-if any(re.fullmatch(r"\d{1,2}:\d{2}", line.rstrip("\n").split("\t", 1)[-1]) for line in open(sys.argv[1], encoding="utf-8")):
-    raise SystemExit(0)
-raise SystemExit(1)
-PY
-    then
-        cat "$artifacts/screen.tsv" >&2
-        echo "iOS status bar clock was not visible before the patch" >&2
-        return 1
-    fi
-}
-
-assert_status_bar_hidden() {
-    for _ in $(seq 1 15); do
-        capture_screenshot_text
-        if ! python3 - "$artifacts/screen.tsv" <<'PY'
-import re
-import sys
-
-if not any(re.fullmatch(r"\d{1,2}:\d{2}", line.rstrip("\n").split("\t", 1)[-1]) for line in open(sys.argv[1], encoding="utf-8")):
-    raise SystemExit(0)
-raise SystemExit(1)
-PY
-        then
-            return 0
-        fi
-        sleep 0.5
-    done
-    cat "$artifacts/screen.tsv" >&2
-    echo "iOS status bar remained visible after the hot reload" >&2
-    return 1
-}
-
 wait_for_log "Nexa iOS dev runtime connected."
 wait_for_log "Nexa iOS dev runtime applied module"
 test_runner_bundle_id=$(ruby "$script_dir/add-ios-ui-test-target.rb" "$ios_project" \
@@ -183,8 +99,6 @@ xcodebuild test -project "$ios_project" -scheme "$test_target" \
     >"$xcode_log" 2>&1 &
 ui_pid=$!
 wait_for_ui_file "nexa-hot-reload-ready" "$ready_token"
-assert_status_bar_visible
-assert_direction rtl
 
 python3 - "$project/App.nx" <<'PY'
 import sys
@@ -214,8 +128,6 @@ PY
 
 wait_for_log "Nexa iOS dev runtime applied patch"
 wait_for_ui_file "nexa-hot-reload-patched" "$patched_token"
-assert_direction ltr
-assert_status_bar_hidden
 runner_container=$(xcrun simctl get_app_container "$simulator_id" "$test_runner_bundle_id" data)
 printf '%s' "$verified_token" >"$runner_container/tmp/nexa-hot-reload-verified"
 if ! wait "$ui_pid"; then

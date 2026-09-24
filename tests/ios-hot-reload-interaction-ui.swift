@@ -1,11 +1,29 @@
 import XCTest
 
 final class NexaHotReloadInteractionTests: XCTestCase {
+    private func assertDirection(
+        _ direction: UIUserInterfaceLayoutDirection,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let start = app.staticTexts["Row Start"]
+        let end = app.staticTexts["Row End"]
+        XCTAssertTrue(start.waitForExistence(timeout: 10), file: file, line: line)
+        XCTAssertTrue(end.waitForExistence(timeout: 10), file: file, line: line)
+        if direction == .rightToLeft {
+            XCTAssertGreaterThan(start.frame.minX, end.frame.minX, "RTL should place Start after End", file: file, line: line)
+        } else {
+            XCTAssertLessThan(start.frame.minX, end.frame.minX, "LTR should place Start before End", file: file, line: line)
+        }
+    }
+
     func testUpdatedActionsRunAndNavigationSurvivesReload() {
         let app = XCUIApplication()
         app.launch()
 
         XCTAssertTrue(app.staticTexts["Home Screen"].waitForExistence(timeout: 45))
+        assertDirection(.rightToLeft, in: app)
         let stackUnderlay = app.staticTexts["Stack Underlay"]
         let stackOverlay = app.staticTexts["Stack Overlay V1"]
         XCTAssertTrue(stackUnderlay.waitForExistence(timeout: 10))
@@ -54,6 +72,7 @@ final class NexaHotReloadInteractionTests: XCTestCase {
         XCTAssertTrue(goHome.waitForExistence(timeout: 10))
         goHome.tap()
         XCTAssertTrue(app.staticTexts["Home Screen"].waitForExistence(timeout: 10))
+        assertDirection(.leftToRight, in: app)
         let reloadedStackOverlay = app.staticTexts["Stack Overlay V2"]
         XCTAssertTrue(reloadedStackOverlay.waitForExistence(timeout: 10))
         XCTAssertEqual(stackUnderlay.frame.midX, reloadedStackOverlay.frame.midX, accuracy: 2, "updated Stack children should remain horizontally aligned")
