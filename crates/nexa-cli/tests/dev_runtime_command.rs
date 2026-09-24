@@ -144,6 +144,51 @@ fn development_runtime_is_debug_only_and_removed_by_aot_regeneration() {
 }
 
 #[test]
+fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    let output = root.join("build");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "android",
+        &output,
+        "RuntimeSmoke",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Android dev host");
+
+    let kotlin_path =
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevRuntime.kt");
+    let kotlin = fs::read_to_string(kotlin_path).expect("read Kotlin DevRuntime");
+    assert!(kotlin.contains("AsyncImage("));
+    assert!(kotlin.contains("imageLoader = nexaImageLoader()"));
+    assert!(!kotlin.contains("URL(url).openConnection()"));
+
+    let activity = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/MainActivity.kt"),
+    )
+    .expect("read Android dev activity");
+    assert!(activity.contains("CronetProviderInstaller.installProvider(this)"));
+
+    let gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
+        .expect("read Android dev dependencies");
+    assert!(gradle.contains("io.coil-kt.coil3:coil-compose"));
+    assert!(gradle.contains("io.coil-kt.coil3:coil-network-core"));
+    assert!(gradle.contains("com.google.android.gms:play-services-cronet"));
+
+    nexa_cli::generate_project(&entry, "android", &output, "RuntimeSmoke")
+        .expect("regenerate the AOT host");
+    let release_gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
+        .expect("read regenerated AOT dependencies");
+    assert!(!release_gradle.contains("io.coil-kt.coil3:coil-compose"));
+    assert!(!release_gradle.contains("com.google.android.gms:play-services-cronet"));
+
+    fs::remove_dir_all(root).expect("remove temporary project");
+}
+
+#[test]
 fn development_navigation_host_keeps_platform_navigation_state_outside_the_tree() {
     let root = temporary_project();
     let entry = root.join("App.nx");

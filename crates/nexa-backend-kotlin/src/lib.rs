@@ -34,4 +34,11 @@ impl KotlinBackend {
     ) -> (String, KotlinProjectFeatures) {
         generator::generate_with_project_features(module)
     }
+
+    pub fn generate_for_dev_with_project_features(
+        &self,
+        module: &nexa_ir::Module,
+    ) -> (String, KotlinProjectFeatures) {
+        generator::generate_for_dev_with_project_features(module)
+    }
 }

@@ -49,6 +49,20 @@ pub(super) fn generate_with_project_features(
     (generated, project_features)
 }
 
+pub(super) fn generate_for_dev_with_project_features(
+    module: &Module,
+) -> (String, crate::KotlinProjectFeatures) {
+    let mut features = features::Features::analyze(module);
+    // DevRuntime accepts hot-reloaded trees with remote images even when the
+    // initial source has none, so the development host always carries the same
+    // Coil/Cronet support that release output uses for remote images.
+    features.uses_remote_image = true;
+    features.uses_native_library = true;
+    let project_features = project_features_from_analysis(module, &features);
+    let generated = generate_with_analysis(module, &features);
+    (generated, project_features)
+}
+
 fn generate_with_analysis(module: &Module, features: &features::Features) -> String {
     let focus_bindings = features::collect_focus_bindings(&module.body);
     let mut out = String::new();

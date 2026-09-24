@@ -496,7 +496,7 @@ private object NexaImageLoaderStore {
 
 @OptIn(coil3.annotation.ExperimentalCoilApi::class)
 @Composable
-private fun nexaImageLoader(): ImageLoader {
+internal fun nexaImageLoader(): ImageLoader {
     return NexaImageLoaderStore.get(LocalContext.current.applicationContext)
 }
 "#,

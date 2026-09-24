@@ -4,7 +4,6 @@ import android.net.Uri
 import android.app.Activity
 import android.content.Intent
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -47,6 +46,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import coil3.compose.AsyncImage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -54,7 +54,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
@@ -70,7 +69,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.sp
@@ -101,10 +99,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.Locale
-import java.net.URL
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val LocalNexaDevNavController = staticCompositionLocalOf<NavHostController?> { null }
@@ -1118,26 +1113,19 @@ private fun NexaDevNode(
                 }
             } else if (remoteExpression != null && remoteExpression != JSONObject.NULL) {
                 val url = store.stringify(store.evaluate(remoteExpression, locals, scope))
-                val bitmap = produceState<android.graphics.Bitmap?>(null, url) {
-                    value = withContext(Dispatchers.IO) {
-                        runCatching {
-                            val connection = URL(url).openConnection()
-                            connection.connectTimeout = 5_000
-                            connection.readTimeout = 5_000
-                            connection.getInputStream().use(BitmapFactory::decodeStream)
-                        }.getOrNull()
-                    }
-                }.value
-                when {
-                    bitmap != null -> Image(bitmap.asImageBitmap(), contentDescription = description, contentScale = scale)
-                    placeholder != null -> {
-                        val context = LocalContext.current
-                        val resourceId = remember(placeholder) { context.resources.getIdentifier(placeholder, "drawable", context.packageName) }
-                        if (resourceId != 0) Image(painterResource(resourceId), contentDescription = description, contentScale = scale)
-                        else Text("Loading image…")
-                    }
-                    else -> Text("Loading image…")
+                val context = LocalContext.current
+                val placeholderId = remember(placeholder) {
+                    placeholder?.let { context.resources.getIdentifier(it, "drawable", context.packageName) } ?: 0
                 }
+                val placeholderPainter = if (placeholderId != 0) painterResource(placeholderId) else null
+                AsyncImage(
+                    model = url.takeIf { it.startsWith("https://") },
+                    imageLoader = nexaImageLoader(),
+                    contentDescription = description,
+                    contentScale = scale,
+                    placeholder = placeholderPainter,
+                    error = placeholderPainter,
+                )
             } else {
                 Text(placeholder ?: "Image unavailable")
             }

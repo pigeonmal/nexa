@@ -701,7 +701,11 @@ fn generate_android(
     let source_dir = root.join("android/app/src/main/java").join(&package_path);
     fs::create_dir_all(&source_dir)
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
-    let (generated, mut project_features) = KotlinBackend.generate_with_project_features(module);
+    let (generated, mut project_features) = if dev_session.is_some() {
+        KotlinBackend.generate_for_dev_with_project_features(module)
+    } else {
+        KotlinBackend.generate_with_project_features(module)
+    };
     // The debug runtime contains a generic Navigation Compose host even when
     // the app's own tree does not currently declare navigation.
     project_features.uses_navigation |= dev_session.is_some();
@@ -720,13 +724,6 @@ fn generate_android(
         ""
     };
     let permission_callback = "";
-    let content_setup = if project_features.uses_network {
-        format!(
-            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (result.isSuccessful) {{\n                setContent {{ MaterialTheme {{ {screen}() }} }}\n            }} else {{\n                setContent {{ MaterialTheme {{ androidx.compose.material3.Text(\"Network provider unavailable\") }} }}\n            }}\n        }}\n"
-        )
-    } else {
-        format!("        setContent {{ MaterialTheme {{ {screen}() }} }}\n")
-    };
     let splash_install = if config.splash_source.is_some() {
         "        installSplashScreen()\n"
     } else {
@@ -778,10 +775,12 @@ fn generate_android(
     } else {
         format!("{screen}()")
     };
-    let activity_content = if dev_session.is_some() {
-        format!("        setContent {{ MaterialTheme {{ {compose_root} }} }}\n")
+    let activity_content = if project_features.uses_network {
+        format!(
+            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (result.isSuccessful) {{\n                setContent {{ MaterialTheme {{ {compose_root} }} }}\n            }} else {{\n                setContent {{ MaterialTheme {{ androidx.compose.material3.Text(\"Network provider unavailable\") }} }}\n            }}\n        }}\n"
+        )
     } else {
-        content_setup
+        format!("        setContent {{ MaterialTheme {{ {compose_root} }} }}\n")
     };
     write_if_changed(
         &source_dir.join("MainActivity.kt"),
