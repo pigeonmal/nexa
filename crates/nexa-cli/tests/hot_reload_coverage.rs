@@ -35,6 +35,16 @@ fn public_enums(source: &str) -> BTreeSet<String> {
         .collect()
 }
 
+/// Plugin values and bindings call AOT host code, so their tested path is `b`.
+fn requires_native_rebuild(enum_name: &str, variant_name: &str) -> bool {
+    matches!(
+        (enum_name, variant_name),
+        ("Type", "Plugin")
+            | ("Node", "NativeComponentCall")
+            | ("Action", "NativePropertyAssign" | "NativeEventSubscribe")
+    )
+}
+
 fn fixture() -> (PathBuf, Value) {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let fixture_path = root.join("tests/fixtures/hot_reload_coverage.json");
@@ -69,14 +79,20 @@ fn inventory_tracks_every_public_ir_node_and_interpreter_variant() {
                 for platform in ["ios", "android"] {
                     let status = entry[platform].as_str();
                     assert!(
-                        matches!(status, Some("pending" | "covered")),
-                        "{enum_name}::{} needs an explicit {platform} test status",
+                        matches!(status, Some("pending" | "covered" | "native_rebuild")),
+                        "{enum_name}::{} needs an explicit {platform} coverage status",
                         entry["name"]
                     );
+                    let name = entry["name"].as_str().expect("variant name");
+                    assert_eq!(
+                        status == Some("native_rebuild"),
+                        requires_native_rebuild(enum_name, name),
+                        "{enum_name}::{name} has the wrong hot-reload boundary for {platform}"
+                    );
                     if require_coverage {
-                        assert_eq!(
+                        assert_ne!(
                             status,
-                            Some("covered"),
+                            Some("pending"),
                             "{enum_name}::{} has no {platform} coverage evidence",
                             entry["name"]
                         );

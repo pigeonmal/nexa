@@ -23,7 +23,7 @@ jobs:
       - name: Check workspace
         run: cargo check --workspace --locked
       - name: Test workspace
-        run: cargo test --workspace --locked
+        run: NEXA_REQUIRE_HOT_RELOAD_COVERAGE=1 cargo test --workspace --locked
 
   ios-compile:
     name: iOS device SDK compile

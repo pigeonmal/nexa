@@ -17,14 +17,26 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.imeNestedScroll
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -80,6 +92,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.compose.runtime.SideEffect
@@ -135,6 +148,19 @@ private fun openNexaUrl(context: Context, value: String) {
     val uri = Uri.parse(value)
     if (uri.scheme !in setOf("https", "http", "mailto", "tel")) return
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+}
+
+private fun nexaDevColor(value: JSONObject?, isDark: Boolean): Color? {
+    value ?: return null
+    val payload = value.optJSONObject("Static")
+        ?: value.optJSONObject("Adaptive")?.optJSONObject(if (isDark) "dark" else "light")
+        ?: return null
+    return Color(
+        red = payload.optInt("red", 0) / 255f,
+        green = payload.optInt("green", 0) / 255f,
+        blue = payload.optInt("blue", 0) / 255f,
+        alpha = payload.optInt("alpha", 255) / 255f,
+    )
 }
 
 @Composable
@@ -1491,7 +1517,29 @@ private fun NexaDevNode(
             val children = fields.optJSONArray("children") ?: JSONArray()
             val spacing = fields.optDouble("spacing", 0.0).dp
             val style = fields.optJSONObject("style") ?: JSONObject()
-            val modifier = style.optDouble("padding").takeIf { style.has("padding") }?.let { Modifier.padding(it.dp) } ?: Modifier
+            var modifier = style.optDouble("padding").takeIf { style.has("padding") }?.let { Modifier.padding(it.dp) } ?: Modifier
+            if (style.has("width")) modifier = modifier.width(style.optDouble("width").dp)
+            if (style.has("height")) modifier = modifier.height(style.optDouble("height").dp)
+            if (style.has("min_width") || style.has("max_width")) {
+                modifier = modifier.widthIn(
+                    min = style.optDouble("min_width").takeIf { style.has("min_width") }?.dp ?: Dp.Unspecified,
+                    max = style.optDouble("max_width").takeIf { style.has("max_width") }?.dp ?: Dp.Unspecified,
+                )
+            }
+            if (style.has("min_height") || style.has("max_height")) {
+                modifier = modifier.heightIn(
+                    min = style.optDouble("min_height").takeIf { style.has("min_height") }?.dp ?: Dp.Unspecified,
+                    max = style.optDouble("max_height").takeIf { style.has("max_height") }?.dp ?: Dp.Unspecified,
+                )
+            }
+            nexaDevColor(style.optJSONObject("background"), isSystemInDarkTheme())?.let { modifier = modifier.background(it) }
+            val cornerRadius = style.optDouble("corner_radius", 0.0).dp
+            if (style.has("corner_radius")) modifier = modifier.clip(RoundedCornerShape(cornerRadius))
+            nexaDevColor(style.optJSONObject("border_color"), isSystemInDarkTheme())?.let {
+                modifier = modifier.border(style.optDouble("border_width", 1.0).dp, it, RoundedCornerShape(cornerRadius))
+            }
+            if (style.has("opacity")) modifier = modifier.alpha(style.optDouble("opacity").toFloat())
+            if (style.has("animation")) modifier = modifier.animateContentSize()
             when (fields.optString("kind")) {
                 "Row" -> Row(
                     modifier,
@@ -1522,7 +1570,44 @@ private fun NexaDevNode(
                 ) { RenderColumnChildren(children, module, store, locals, scope) }
             }
         }
-        "Text" -> Text(store.stringify(store.evaluate(fields.opt("value"), locals, scope)))
+        "Text" -> {
+            val style = fields.optJSONObject("style") ?: JSONObject()
+            val color = nexaDevColor(style.optJSONObject("color"), isSystemInDarkTheme())
+            val weight = when (style.optString("font_weight")) {
+                "Normal" -> FontWeight.Normal
+                "Medium" -> FontWeight.Medium
+                "Semibold" -> FontWeight.SemiBold
+                "Bold" -> FontWeight.Bold
+                else -> null
+            }
+            val content: @Composable () -> Unit = {
+                val text = store.stringify(store.evaluate(fields.opt("value"), locals, scope))
+                val fontSize = if (style.has("font_size") && !style.isNull("font_size")) style.getDouble("font_size").sp else androidx.compose.ui.unit.TextUnit.Unspecified
+                val maxLines = if (style.has("line_limit") && !style.isNull("line_limit")) style.getInt("line_limit") else Int.MAX_VALUE
+                val letterSpacing = if (style.has("letter_spacing") && !style.isNull("letter_spacing")) style.getDouble("letter_spacing").sp else androidx.compose.ui.unit.TextUnit.Unspecified
+                if (style.has("line_height") && !style.isNull("line_height")) {
+                    Text(
+                        text = text,
+                        color = color ?: Color.Unspecified,
+                        fontSize = fontSize,
+                        fontWeight = weight,
+                        maxLines = maxLines,
+                        lineHeight = style.getDouble("line_height").sp,
+                        letterSpacing = letterSpacing,
+                    )
+                } else {
+                    Text(
+                        text = text,
+                        color = color ?: Color.Unspecified,
+                        fontSize = fontSize,
+                        fontWeight = weight,
+                        maxLines = maxLines,
+                        letterSpacing = letterSpacing,
+                    )
+                }
+            }
+            if (style.optBoolean("selectable")) SelectionContainer { content() } else content()
+        }
         "Button" -> Button(onClick = { store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals) }) {
             Text(store.stringify(store.evaluate(fields.opt("label"), locals, scope)))
         }
@@ -1533,7 +1618,13 @@ private fun NexaDevNode(
             Box(Modifier.combinedClickable(
                 enabled = !disabled,
                 onClick = {
-                    if (hapticStyle != null) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    val hapticType = when (hapticStyle) {
+                        "Light" -> HapticFeedbackType.TextHandleMove
+                        "Medium" -> HapticFeedbackType.LongPress
+                        "Heavy" -> HapticFeedbackType.ContextClick
+                        else -> null
+                    }
+                    if (hapticType != null) haptic.performHapticFeedback(hapticType)
                     store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals)
                 },
                 onLongClick = {
@@ -1546,20 +1637,50 @@ private fun NexaDevNode(
         "TextInput" -> {
             val state = fields.optString("state")
             var value by remember(state, scope) { mutableStateOf(store.stringify(store.state(state, scope))) }
+            val placeholder = fields.optString("placeholder").takeIf(String::isNotEmpty)
             val focusKey = "$scope/input/$state"
             val focusRequester = remember(focusKey) { FocusRequester() }
+            val keyboardType = when (fields.optString("keyboard")) {
+                "Number" -> KeyboardType.Number
+                "Email" -> KeyboardType.Email
+                "Phone" -> KeyboardType.Phone
+                "Url" -> KeyboardType.Uri
+                else -> KeyboardType.Text
+            }
+            val capitalization = when (fields.optString("capitalization")) {
+                "None" -> KeyboardCapitalization.None
+                "Words" -> KeyboardCapitalization.Words
+                "Characters" -> KeyboardCapitalization.Characters
+                else -> KeyboardCapitalization.Sentences
+            }
+            val maxLength = fields.optInt("max_length", Int.MAX_VALUE).coerceAtLeast(0)
             LaunchedEffect(store.moduleRevision, store.focusedFieldKey, focusKey) {
                 if (store.focusedFieldKey == focusKey) focusRequester.requestFocus()
             }
             BasicTextField(
                 value,
-                onValueChange = { value = it; store.setState(state, it, scope) },
+                onValueChange = { next -> next.take(maxLength).let { value = it; store.setState(state, it, scope) } },
+                singleLine = fields.optBoolean("multiline").not(),
+                visualTransformation = if (fields.optBoolean("secure")) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = keyboardType,
+                    capitalization = capitalization,
+                    autoCorrect = fields.optBoolean("autocorrect", true),
+                ),
                 modifier = Modifier
                     .focusRequester(focusRequester)
                     .onFocusChanged { focusState ->
                         if (focusState.isFocused) store.focusChanged(focusKey)
                         else if (store.focusedFieldKey == focusKey) store.focusChanged(null)
                     },
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (value.isEmpty() && placeholder != null) {
+                            Text(placeholder, color = Color.Gray)
+                        }
+                        innerTextField()
+                    }
+                },
             )
         }
         "FastList" -> {

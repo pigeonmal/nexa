@@ -13,6 +13,10 @@ component Card(title: String) {
 }
 
 app ComponentSmoke {
+    theme {
+        color accent(light: "#112233", dark: "#445566")
+    }
+
     enum Mode {
         ready,
         busy
@@ -24,6 +28,11 @@ app ComponentSmoke {
 
     state numbers: Array<Int32> = [3, 5, 8]
     state optional: String? = null
+    state keyboardText: String = ""
+    state keyboardNumber: String = ""
+    state keyboardEmail: String = ""
+    state keyboardPhone: String = ""
+    state keyboardUrl: String = ""
     state numericInt8: Int8 = 8
     state numericInt16: Int16 = 16
     state numericInt64: Int64 = 64
@@ -51,6 +60,7 @@ app ComponentSmoke {
     state catchCount: Int32 = 0
 
     body {
+        StatusBar(style: Default, hidden: false, background: "#ffffff")
         OnAppear {
             Path.documents()
             actionArray.append(3)
@@ -88,36 +98,51 @@ app ComponentSmoke {
             }
         }
         Column {
-            Card(title: "Reloaded") {
-                Text("Projected child")
+            Card(title: "Reloaded") { Text("Projected child", fontSize: 8) }
+            Row {
+                Text("Binary and: \(3 < 4 && 5 >= 5)", fontSize: 8)
+                Text("Contains: \(5 in numbers)", fontSize: 8)
+                Text("Index: \(numbers[1])", fontSize: 8)
+                Text("Coalesce: \(optional ?? \"fallback\")", fontSize: 8)
             }
-            Text("Binary and: \(3 < 4 && 5 >= 5)")
-            Text("Contains: \(5 in numbers)")
-            Text("Index: \(numbers[1])")
-            Text("Coalesce: \(optional ?? \"fallback\")")
-            Text("Pair: \(Pair(7, 9).first)")
-            Text("Mapped: \(numbers.map { item -> item + 1 }[1])")
-            Text("Filtered: \(numbers.filter { item -> item > 5 }[0])")
-            Text("Reduced: \(numbers.reduce(0) { total, item -> total + item })")
-            Text("Int8: \(numericInt8), Int16: \(numericInt16), Int64: \(numericInt64)")
-            Text("UInt8: \(numericUInt8), UInt16: \(numericUInt16), UInt32: \(numericUInt32), UInt64: \(numericUInt64)")
-            Text("Float32: \(numericFloat32), Float64: \(numericFloat64)")
-            Text("Set: \(4 in tags)")
-            Text("Map: \(scores[\"nexa\"])")
-            Text("Triple: \(coordinates.third)")
-            Text("Enum: \(mode)")
-            Text("Result: \(result?)")
-            Text("Result error: \(failure?)")
-            Text("Struct: \(profile.name)")
-            Text("Array mutation: \(actionArray[0])")
-            Text("Set mutation: \(\"b\" in actionSet)")
-            Text("Map mutation: \(actionMap[\"b\"])")
-            Text("For: \(loopSum), While: \(whileCount)")
-            Text("Break: \(breakCount), Continue: \(continueSum)")
-            Text("ForMap: \(mapSum), TryCatch: \(catchCount)")
-            Text("Other comparisons: \(false || true), \(3 == 3), \(3 != 4), \(3 <= 3), \(4 > 3), \(!false)")
-            Text("Size classes: \(Layout.isRegularWidth), \(Layout.isCompactWidth), \(Layout.isRegularHeight), \(Layout.isCompactHeight)")
-            Text("Native path: \(Path.documents())")
+            Text("Pair: \(Pair(7, 9).first), Mapped: \(numbers.map { item -> item + 1 }[1]), Filtered: \(numbers.filter { item -> item > 5 }[0]), Reduced: \(numbers.reduce(0) { total, item -> total + item })", fontSize: 8)
+            Text("Int8: \(numericInt8), Int16: \(numericInt16), Int64: \(numericInt64); UInt8: \(numericUInt8), UInt16: \(numericUInt16), UInt32: \(numericUInt32), UInt64: \(numericUInt64); Float32: \(numericFloat32), Float64: \(numericFloat64)", fontSize: 8)
+            Text("Set: \(4 in tags), Map: \(scores[\"nexa\"]), Triple: \(coordinates.third), Enum: \(mode), Result: \(result?), Result error: \(failure?), Struct: \(profile.name)", fontSize: 8)
+            Text("Array mutation: \(actionArray[0]), Set mutation: \(\"b\" in actionSet), Map mutation: \(actionMap[\"b\"])", fontSize: 8)
+            Text("For: \(loopSum), While: \(whileCount), Break: \(breakCount), Continue: \(continueSum), ForMap: \(mapSum), TryCatch: \(catchCount)", fontSize: 8)
+            Text("Other comparisons: \(false || true), \(3 == 3), \(3 != 4), \(3 <= 3), \(4 > 3), \(!false)", fontSize: 8)
+            Text("Size classes: \(Layout.isRegularWidth), \(Layout.isCompactWidth), \(Layout.isRegularHeight), \(Layout.isCompactHeight)", fontSize: 8)
+            Text("Native path: \(Path.documents())", fontSize: 8)
+            Row {
+                Text("Static style", color: "#123456", fontSize: 18, fontWeight: Normal, lineLimit: 2, lineHeight: 20, letterSpacing: 1, selectable: true)
+                Text("Adaptive style", color: Theme.accent, fontSize: 18, fontWeight: Medium)
+                Text("Semibold style", fontWeight: Semibold, fontSize: 8)
+                Text("Bold style", fontWeight: Bold, fontSize: 8)
+            }
+            Row {
+                Column(alignment: Start, width: 200, minHeight: 20, maxHeight: 80, background: Theme.accent, cornerRadius: 8, borderColor: "#000000", borderWidth: 1, opacity: 1, animation: Spring) { Text("Styled start", fontSize: 8) }
+                Row(alignment: Center, animation: EaseIn) { Text("Styled center", fontSize: 8) }
+                Column(alignment: End, animation: EaseOut) { Text("Styled end", fontSize: 8) }
+                Row(animation: EaseInOut) { Text("Ease in out", fontSize: 8) }
+                Column(animation: Linear) { Text("Linear", fontSize: 8) }
+            }
+            Row {
+                Accessibility(label: "Link role", role: Link) { Text("Accessible link", fontSize: 8) }
+                Accessibility(label: "Header role", role: Header) { Text("Accessible header", fontSize: 8) }
+                Accessibility(label: "Image role", role: Image) { Text("Accessible image", fontSize: 8) }
+                Accessibility(label: "No role", role: None) { Text("Accessible none", fontSize: 8) }
+            }
+            TextInput(value: keyboardText, placeholder: "Keyboard text", keyboard: Text, capitalization: Sentences)
+            TextInput(value: keyboardNumber, placeholder: "Keyboard number", keyboard: Number, capitalization: None)
+            TextInput(value: keyboardEmail, placeholder: "Keyboard email", keyboard: Email, capitalization: Words)
+            TextInput(value: keyboardPhone, placeholder: "Keyboard phone", keyboard: Phone, capitalization: Characters)
+            TextInput(value: keyboardUrl, placeholder: "Keyboard url", keyboard: Url, capitalization: None)
+            KeyboardAware(dismiss: Never) { Text("Never dismiss", fontSize: 8) }
+            Row {
+                Pressable(disabled: false, haptic: Light) { Text("Haptic light") }.onPress {}
+                Pressable(disabled: false, haptic: Medium) { Text("Haptic medium") }.onPress {}
+                Pressable(disabled: false, haptic: Heavy) { Text("Haptic heavy") }.onPress {}
+            }
         }
     }
 }

@@ -213,6 +213,10 @@ private func devStatusBarColor(_ value: Any?, isDark: Bool) -> Color? {
     return Color(.sRGB, red: red / 255, green: green / 255, blue: blue / 255, opacity: alpha / 255)
 }
 
+private func devColor(_ value: Any?, isDark: Bool) -> Color? {
+    devStatusBarColor(value, isDark: isDark)
+}
+
 @MainActor
 private final class NexaDevRuntime: ObservableObject {
     @Published var module: [String: Any]?
@@ -1524,6 +1528,7 @@ private struct NexaDevNodeList: View {
     var focusedField: FocusState<String?>.Binding
     var parameters: [String: Any] = [:]
     var stateScope: String = "app"
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.nexaDevContentSlot) private var contentSlot
 
     var body: some View {
@@ -1578,15 +1583,68 @@ private struct NexaDevNodeList: View {
             default:
                 container = AnyView(VStack(alignment: columnAlignment, spacing: spacing) { ForEach(children.indices, id: \.self) { renderNode(children[$0], locals: locals, scope: scope) } })
             }
-            if let padding = style["padding"] as? Double { return AnyView(container.padding(padding)) }
-            return container
+            var styled = container
+            if let padding = style["padding"] as? Double { styled = AnyView(styled.padding(padding)) }
+            let width = style["width"] as? Double
+            let height = style["height"] as? Double
+            let minWidth = style["min_width"] as? Double
+            let maxWidth = style["max_width"] as? Double
+            let minHeight = style["min_height"] as? Double
+            let maxHeight = style["max_height"] as? Double
+            if width != nil || height != nil || minWidth != nil || maxWidth != nil || minHeight != nil || maxHeight != nil {
+                styled = AnyView(styled.frame(
+                    minWidth: minWidth.map { CGFloat($0) },
+                    idealWidth: width.map { CGFloat($0) },
+                    maxWidth: maxWidth.map { CGFloat($0) },
+                    minHeight: minHeight.map { CGFloat($0) },
+                    idealHeight: height.map { CGFloat($0) },
+                    maxHeight: maxHeight.map { CGFloat($0) }
+                ))
+            }
+            if let background = devColor(style["background"], isDark: colorScheme == .dark) {
+                styled = AnyView(styled.background(background))
+            }
+            if let radius = style["corner_radius"] as? Double {
+                styled = AnyView(styled.clipShape(RoundedRectangle(cornerRadius: radius)))
+            }
+            if let border = devColor(style["border_color"], isDark: colorScheme == .dark) {
+                let width = style["border_width"] as? Double ?? 1
+                styled = AnyView(styled.overlay(RoundedRectangle(cornerRadius: style["corner_radius"] as? Double ?? 0).stroke(border, lineWidth: width)))
+            }
+            if let opacity = style["opacity"] as? Double { styled = AnyView(styled.opacity(opacity)) }
+            if let animation = style["animation"] as? String {
+                let value: Animation
+                switch animation {
+                case "Spring": value = .spring()
+                case "EaseIn": value = .easeIn
+                case "EaseOut": value = .easeOut
+                case "EaseInOut": value = .easeInOut
+                default: value = .linear
+                }
+                styled = AnyView(styled.animation(value, value: store.revision))
+            }
+            return styled
         case "Text":
             let text = store.stringify(store.evaluate(fields["value"] ?? "", locals: locals, scope: scope))
             let style = fields["style"] as? [String: Any] ?? [:]
+            var styled = AnyView(Text(text))
             if let size = style["font_size"] as? Double {
-                return AnyView(Text(text).font(.system(size: size)))
+                styled = AnyView(styled.font(.system(size: size)))
             }
-            return AnyView(Text(text))
+            let weight: Font.Weight? = switch style["font_weight"] as? String {
+            case "Normal": .regular
+            case "Medium": .medium
+            case "Semibold": .semibold
+            case "Bold": .bold
+            default: nil
+            }
+            if let weight { styled = AnyView(styled.fontWeight(weight)) }
+            if let color = devColor(style["color"], isDark: colorScheme == .dark) { styled = AnyView(styled.foregroundStyle(color)) }
+            if let lineLimit = style["line_limit"] as? Int { styled = AnyView(styled.lineLimit(lineLimit)) }
+            if let lineHeight = style["line_height"] as? Double { styled = AnyView(styled.lineSpacing(max(0, lineHeight - (style["font_size"] as? Double ?? lineHeight)))) }
+            if let letterSpacing = style["letter_spacing"] as? Double { styled = AnyView(styled.tracking(letterSpacing)) }
+            if style["selectable"] as? Bool == true { styled = AnyView(styled.textSelection(.enabled)) }
+            return styled
         case "Content":
             guard let contentSlot else { return AnyView(EmptyView()) }
             return AnyView(NexaDevNodeList(
@@ -1650,10 +1708,39 @@ private struct NexaDevNodeList: View {
             let name = fields["state"] as? String ?? ""
             let placeholder = fields["placeholder"] as? String ?? ""
             let identity = "\(scope)/input/\(name)"
-            return AnyView(TextField(placeholder, text: Binding(
+            let maxLength = fields["max_length"] as? Int
+            let binding = Binding(
                 get: { store.stringify(store.value(name, scope: scope)) },
-                set: { store.setValue(name, value: $0, scope: scope) }
-            )).focused(focusedField, equals: identity))
+                set: { nextValue in
+                    let value = maxLength.map { String(nextValue.prefix(max(0, $0))) } ?? nextValue
+                    store.setValue(name, value: value, scope: scope)
+                }
+            )
+            var input = AnyView(TextField(placeholder, text: binding, axis: fields["multiline"] as? Bool == true ? .vertical : .horizontal))
+            switch fields["keyboard"] as? String {
+            case "Number": input = AnyView(input.keyboardType(.numberPad))
+            case "Email": input = AnyView(input.keyboardType(.emailAddress))
+            case "Phone": input = AnyView(input.keyboardType(.phonePad))
+            case "Url": input = AnyView(input.keyboardType(.URL))
+            default: input = AnyView(input.keyboardType(.default))
+            }
+            let capitalization: TextInputAutocapitalization = switch fields["capitalization"] as? String {
+            case "None": .never
+            case "Words": .words
+            case "Characters": .characters
+            default: .sentences
+            }
+            input = AnyView(input.textInputAutocapitalization(capitalization))
+            if fields["autocorrect"] as? Bool == false || fields["capitalization"] as? String == "None" {
+                input = AnyView(input.autocorrectionDisabled())
+            } else if fields["autocorrect"] as? Bool == true {
+                input = AnyView(input.autocorrectionDisabled(false))
+            }
+            input = AnyView(input.focused(focusedField, equals: identity))
+            if fields["secure"] as? Bool == true {
+                return AnyView(SecureField(placeholder, text: binding).focused(focusedField, equals: identity))
+            }
+            return input
         case "FastList":
             guard let source = fields["source"] as? [String: Any] else {
                 return AnyView(Text("FastList source could not be evaluated."))

@@ -60,59 +60,116 @@ wait_for_log() {
 wait_for_log "Nexa $label dev runtime connected."
 wait_for_log "Nexa $label dev runtime applied module"
 patch_count=$(grep -Fc "Nexa $label dev runtime applied patch" "$log_file" || true)
+module_count=$(grep -Fc "Nexa $label dev runtime applied module" "$log_file" || true)
 cp "$script_dir/fixtures/dev_component_reloaded.nx" "$project/App.nx"
 for _ in $(seq 1 180); do
     count=$(grep -Fc "Nexa $label dev runtime applied patch" "$log_file" || true)
-    if (( count > patch_count )); then break; fi
+    modules=$(grep -Fc "Nexa $label dev runtime applied module" "$log_file" || true)
+    if (( count > patch_count || modules > module_count )); then break; fi
     if ! kill -0 "$dev_pid" 2>/dev/null; then cat "$log_file" >&2; exit 1; fi
     sleep 1
 done
-if (( count <= patch_count )); then
+if (( count <= patch_count && modules <= module_count )); then
     cat "$log_file" >&2
     echo "timed out waiting for the component hot reload" >&2
     exit 1
 fi
+for style in Light Dark Default; do
+    previous_patches=$(grep -Fc "Nexa $label dev runtime applied patch" "$log_file" || true)
+    previous_modules=$(grep -Fc "Nexa $label dev runtime applied module" "$log_file" || true)
+    python3 - "$project/App.nx" "$style" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+style = sys.argv[2]
+source = path.read_text()
+old = next((line for line in source.splitlines() if "StatusBar(style:" in line), None)
+if old is None:
+    raise SystemExit("StatusBar declaration is missing from the reload fixture")
+new = old.replace(old.split("StatusBar(style:", 1)[1].split(",", 1)[0], f" {style}", 1)
+path.write_text(source.replace(old, new, 1))
+PY
+    for _ in $(seq 1 180); do
+        count=$(grep -Fc "Nexa $label dev runtime applied patch" "$log_file" || true)
+        modules=$(grep -Fc "Nexa $label dev runtime applied module" "$log_file" || true)
+        if (( count > previous_patches || modules > previous_modules )); then break; fi
+        if ! kill -0 "$dev_pid" 2>/dev/null; then cat "$log_file" >&2; exit 1; fi
+        sleep 0.25
+    done
+    if (( count <= previous_patches && modules <= previous_modules )); then
+        cat "$log_file" >&2
+        echo "timed out waiting for StatusBar($style) hot reload" >&2
+        exit 1
+    fi
+done
 printf 'R\n' >&3
 wait_for_log "Nexa app state restarted in the running app."
 
 if [[ "$platform" == android ]]; then
     xml="$project/build/components.xml"
-    for _ in $(seq 1 90); do
+    dump="$project/build/components-current.xml"
+    : >"$xml"
+    for _ in $(seq 1 30); do
         adb shell uiautomator dump /sdcard/nexa-components.xml >/dev/null 2>&1
-        adb exec-out cat /sdcard/nexa-components.xml >"$xml"
+        adb exec-out cat /sdcard/nexa-components.xml >"$dump"
+        cat "$dump" >>"$xml"
         if grep -Fq 'text="Card: Reloaded"' "$xml" \
             && grep -Fq 'text="Projected child"' "$xml" \
-            && grep -Fq 'text="Binary and: true"' "$xml" \
-            && grep -Fq 'text="Contains: true"' "$xml" \
-            && grep -Fq 'text="Index: 5"' "$xml" \
-            && grep -Fq 'text="Coalesce: fallback"' "$xml" \
-            && grep -Fq 'text="Pair: 7"' "$xml" \
-            && grep -Fq 'text="Mapped: 6"' "$xml" \
-            && grep -Fq 'text="Filtered: 8"' "$xml" \
-            && grep -Fq 'text="Reduced: 16"' "$xml" \
-            && grep -Fq 'text="Int8: 8, Int16: 16, Int64: 64"' "$xml" \
-            && grep -Fq 'text="UInt8: 8, UInt16: 16, UInt32: 32, UInt64: 64"' "$xml" \
-            && grep -Fq 'text="Float32: 3.5, Float64: 6.5"' "$xml" \
-            && grep -Fq 'text="Set: true"' "$xml" \
-            && grep -Fq 'text="Map: 42"' "$xml" \
-            && grep -Fq 'text="Triple: 4"' "$xml" \
-            && grep -Fq 'text="Enum: ready"' "$xml" \
-            && grep -Fq 'text="Result: 42"' "$xml" \
-            && grep -Fq 'text="Result error: null"' "$xml" \
-            && grep -Fq 'text="Struct: Ada"' "$xml" \
-            && grep -Fq 'text="Array mutation: 2"' "$xml" \
-            && grep -Fq 'text="Set mutation: true"' "$xml" \
-            && grep -Fq 'text="Map mutation: 2"' "$xml" \
-            && grep -Fq 'text="For: 6, While: 3"' "$xml" \
-            && grep -Fq 'text="Break: 2, Continue: 5"' "$xml" \
-            && grep -Fq 'text="ForMap: 2, TryCatch: 1"' "$xml" \
+            && grep -Fq 'Binary and: true' "$xml" \
+            && grep -Fq 'Contains: true' "$xml" \
+            && grep -Fq 'Index: 5' "$xml" \
+            && grep -Fq 'Coalesce: fallback' "$xml" \
+            && grep -Fq 'Pair: 7, Mapped: 6, Filtered: 8, Reduced: 16' "$xml" \
+            && grep -Fq 'Int8: 8, Int16: 16, Int64: 64' "$xml" \
+            && grep -Fq 'Float32: 3.5, Float64: 6.5' "$xml" \
+            && grep -Fq 'Set: true, Map: 42, Triple: 4, Enum: ready, Result: 42, Result error: null, Struct: Ada' "$xml" \
+            && grep -Fq 'Array mutation: 2, Set mutation: true, Map mutation: 2' "$xml" \
+            && grep -Fq 'For: 6, While: 3, Break: 2, Continue: 5, ForMap: 2, TryCatch: 1' "$xml" \
             && grep -Fq 'text="Other comparisons: true, true, true, true, true, true"' "$xml" \
             && grep -Fq 'text="Size classes: false, true, true, false"' "$xml" \
-            && grep -Fq 'text="Native path: ' "$xml"; then
+            && grep -Fq 'text="Native path: ' "$xml" \
+            && grep -Fq 'text="Static style"' "$xml" \
+            && grep -Fq 'text="Adaptive style"' "$xml" \
+            && grep -Fq 'text="Semibold style"' "$xml" \
+            && grep -Fq 'text="Bold style"' "$xml" \
+            && grep -Fq 'text="Styled start"' "$xml" \
+            && grep -Fq 'text="Styled center"' "$xml" \
+            && grep -Fq 'text="Styled end"' "$xml" \
+            && grep -Fq 'text="Ease in out"' "$xml" \
+            && grep -Fq 'text="Linear"' "$xml" \
+            && grep -Fq 'text="Accessible link"' "$xml" \
+            && grep -Fq 'text="Accessible header"' "$xml" \
+            && grep -Fq 'text="Accessible image"' "$xml" \
+            && grep -Fq 'text="Accessible none"' "$xml" \
+            && grep -Fq 'text="Keyboard text"' "$xml" \
+            && grep -Fq 'text="Keyboard number"' "$xml" \
+            && grep -Fq 'text="Keyboard email"' "$xml" \
+            && grep -Fq 'text="Keyboard phone"' "$xml" \
+            && grep -Fq 'text="Keyboard url"' "$xml" \
+            && grep -Fq 'text="Never dismiss"' "$xml" \
+            && grep -Fq 'text="Haptic light"' "$xml" \
+            && grep -Fq 'text="Haptic medium"' "$xml" \
+            && grep -Fq 'text="Haptic heavy"' "$xml"; then
+            python3 - "$dump" <<'PY'
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+for label in ("Haptic light", "Haptic medium", "Haptic heavy"):
+    node = next((item for item in root.iter("node") if item.attrib.get("text") == label), None)
+    if node is None:
+        raise SystemExit(f"missing Android control for {label}")
+    left, top, right, bottom = map(int, node.attrib["bounds"].strip("[]").replace("][", ",").split(","))
+    x, y = (left + right) // 2, (top + bottom) // 2
+    subprocess.run(["adb", "shell", "input", "tap", str(x), str(y)], check=True)
+PY
             echo "Nexa Android custom component and Content hot reload passed."
             exit 0
         fi
-        sleep 1
+        adb shell input swipe 360 1200 360 450 250 >/dev/null 2>&1 || true
+        sleep 0.25
     done
     cat "$xml" >&2
     cat "$log_file" >&2

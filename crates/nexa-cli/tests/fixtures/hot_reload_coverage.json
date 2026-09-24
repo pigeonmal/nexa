@@ -116,18 +116,18 @@
     "HapticStyle": [
       {
         "name": "Light",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Medium",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Heavy",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "KeyboardDismissMode": [
@@ -138,8 +138,8 @@
       },
       {
         "name": "Never",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "DirectionStyle": [
@@ -157,25 +157,25 @@
     "StatusBarStyle": [
       {
         "name": "Default",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Light",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Dark",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "Type": [
       {
         "name": "Void",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "String",
@@ -234,13 +234,13 @@
       },
       {
         "name": "Plugin",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "native_rebuild",
+        "android": "native_rebuild"
       },
       {
         "name": "NetworkResponse",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Struct",
@@ -371,13 +371,13 @@
       },
       {
         "name": "Await",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "TryAwait",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "ResultOk",
@@ -634,15 +634,15 @@
       },
       {
         "name": "NativeComponentCall",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "native_rebuild",
+        "android": "native_rebuild"
       }
     ],
     "AccessibilityRole": [
       {
         "name": "None",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Button",
@@ -651,18 +651,18 @@
       },
       {
         "name": "Link",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Header",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Image",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "ListSource": [
@@ -719,50 +719,50 @@
     "KeyboardType": [
       {
         "name": "Text",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Number",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Email",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Phone",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Url",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "Capitalization": [
       {
         "name": "None",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Sentences",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Words",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Characters",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "ImageScale": [
@@ -785,86 +785,86 @@
       },
       {
         "name": "RemoteUrl",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "AnimationSpec": [
       {
         "name": "Spring",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "EaseIn",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "EaseOut",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "EaseInOut",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Linear",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "Alignment": [
       {
         "name": "Start",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Center",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "End",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "ColorValue": [
       {
         "name": "Static",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Adaptive",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "FontWeight": [
       {
         "name": "Normal",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Medium",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Semibold",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Bold",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "Action": [
@@ -880,13 +880,13 @@
       },
       {
         "name": "NativePropertyAssign",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "native_rebuild",
+        "android": "native_rebuild"
       },
       {
         "name": "NativeEventSubscribe",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "native_rebuild",
+        "android": "native_rebuild"
       },
       {
         "name": "CollectionMutation",
