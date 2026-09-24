@@ -114,6 +114,19 @@ mod template_generation {
     }
 
     #[test]
+    fn ios_hosts_always_declare_a_launch_screen() {
+        let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
+        let plist = ios_info_plist_with_dev_runtime("Demo", &config, &[], false).unwrap();
+        assert!(plist.contains("<key>UILaunchScreen</key><dict/>"));
+
+        let mut custom_splash = config;
+        custom_splash.splash_source = Some(std::path::PathBuf::from("assets/splash.png"));
+        let plist = ios_info_plist_with_dev_runtime("Demo", &custom_splash, &[], false).unwrap();
+        assert!(plist.contains("<key>UILaunchStoryboardName</key><string>LaunchScreen</string>"));
+        assert!(!plist.contains("<key>UILaunchScreen</key>"));
+    }
+
+    #[test]
     fn android_host_uses_configurable_minimum_and_fixed_target_sdk_36() {
         let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
         let gradle = android_app_gradle_with_config(

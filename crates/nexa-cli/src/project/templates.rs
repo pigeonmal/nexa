@@ -77,7 +77,10 @@ pub(super) fn ios_info_plist_with_dev_runtime(
     let splash = if config.splash_source.is_some() {
         "<key>UILaunchStoryboardName</key><string>LaunchScreen</string>"
     } else {
-        ""
+        // Apps without a custom splash still need a launch-screen declaration.
+        // Without one, iOS can use a legacy 320x480 compatibility scene, which
+        // letterboxes modern iPhone apps with black bands above and below.
+        "<key>UILaunchScreen</key><dict/>"
     };
     let dev_network = if dev_runtime {
         "<key>NSLocalNetworkUsageDescription</key><string>Connect to the local Nexa development server.</string><key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>"
