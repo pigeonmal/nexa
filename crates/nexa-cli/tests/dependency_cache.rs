@@ -100,3 +100,44 @@ fn dev_cache_key_resolves_package_ids_to_local_plugin_roots() {
         "plugin contract changes invalidate the dev revision"
     );
 }
+
+#[test]
+fn app_image_assets_invalidate_project_and_dev_cache_keys() {
+    let project = TempProject::new();
+    let entry = project.0.join("App.nx");
+    fs::write(&entry, "app Demo { body { Text(\"ok\") } }\n").expect("write app");
+    let images = project.0.join("assets/images");
+    let extras = [images.as_path()];
+    let roots = BTreeMap::new();
+
+    let missing = cache::key_with_extra_and_roots(&entry, "project-all", &extras, &roots)
+        .expect("cache key without optional images");
+    fs::create_dir_all(&images).expect("create image assets");
+    let image = images.join("logo.png");
+    fs::write(&image, b"first image contents").expect("add image asset");
+    let added = cache::key_with_extra_and_roots(&entry, "project-all", &extras, &roots)
+        .expect("cache key with image");
+    assert_ne!(
+        missing, added,
+        "adding an image invalidates project generation"
+    );
+
+    fs::write(&image, b"updated image contents").expect("modify image asset");
+    let modified = cache::key_with_extra_and_roots(&entry, "dev-android", &extras, &roots)
+        .expect("dev revision with updated image");
+    fs::write(&image, b"first image contents").expect("restore image asset");
+    let restored = cache::key_with_extra_and_roots(&entry, "dev-android", &extras, &roots)
+        .expect("dev revision with restored image");
+    assert_ne!(
+        modified, restored,
+        "image bytes participate in dev revision"
+    );
+
+    fs::remove_file(image).expect("remove image asset");
+    let removed = cache::key_with_extra_and_roots(&entry, "project-all", &extras, &roots)
+        .expect("cache key without removed image");
+    assert_ne!(
+        added, removed,
+        "removing an image invalidates project generation"
+    );
+}

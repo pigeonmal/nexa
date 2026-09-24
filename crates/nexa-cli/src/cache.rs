@@ -76,8 +76,13 @@ pub(super) fn key_with_extra_and_roots(
         plugin_roots,
     )?;
     for extra in extra_files {
+        hasher.write(extra.to_string_lossy().as_bytes());
         if extra.is_file() {
             fingerprint_file(extra, false, false, &mut visited, &mut hasher, plugin_roots)?;
+        } else if extra.is_dir() {
+            fingerprint_directory(extra, false, &mut visited, &mut hasher)?;
+        } else {
+            hasher.write(b"missing");
         }
     }
     for (package_id, root) in plugin_roots {

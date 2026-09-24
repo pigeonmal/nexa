@@ -1,4 +1,5 @@
 #[path = "../src/project/assets.rs"]
+#[allow(dead_code)]
 mod assets;
 
 use std::{

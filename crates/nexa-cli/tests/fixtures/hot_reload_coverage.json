@@ -554,8 +554,8 @@
       },
       {
         "name": "Image",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Pressable",
@@ -768,20 +768,20 @@
     "ImageScale": [
       {
         "name": "Fit",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Fill",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "ImageSource": [
       {
         "name": "Asset",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "RemoteUrl",
@@ -1106,10 +1106,18 @@
     "lifecycle_callbacks_and_hot_reloaded_action": {
       "ios": "covered",
       "android": "covered"
+    },
+    "bundled_image_assets_render_and_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
     }
   },
   "runtime_features": {
     "asynchronous_on_appear": {
+      "ios": "pending",
+      "android": "pending"
+    },
+    "remote_image_loading": {
       "ios": "pending",
       "android": "pending"
     }

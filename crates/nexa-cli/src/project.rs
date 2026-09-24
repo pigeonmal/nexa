@@ -176,13 +176,14 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     } else {
         project_target
     };
+    let project_root = input.parent().unwrap_or_else(|| Path::new("."));
     let config_path = input
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join("nexa.config.nx");
+    let app_images_path = project_root.join("assets/images");
     let existing_config = config_path.is_file();
     let dependencies = config::load_plugin_dependencies(&config_path)?;
-    let project_root = input.parent().unwrap_or_else(|| Path::new("."));
     let resolved_dependencies = crate::dependencies::resolve(project_root, &dependencies)?;
     if !dependencies.is_empty() || project_root.join("nexa.lock").is_file() {
         crate::dependencies::write_lock(project_root, &resolved_dependencies.lock_file)?;
@@ -205,7 +206,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let mut cache_key = cache::key_with_extra_and_roots(
         &input,
         &project_target,
-        &[config_path.as_path()],
+        &[config_path.as_path(), app_images_path.as_path()],
         &sorted_plugin_roots,
     )
     .map_err(|error| format!("project cache: {error}"))?;
@@ -277,7 +278,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         cache_key = cache::key_with_extra_and_roots(
             &input,
             &project_target,
-            &[config_path.as_path()],
+            &[config_path.as_path(), app_images_path.as_path()],
             &sorted_plugin_roots,
         )
         .map_err(|error| format!("project cache: {error}"))?;
@@ -294,6 +295,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
             Target::Swift => {
                 generate_ios(
                     &output,
+                    project_root,
                     &app_name,
                     &module,
                     &project_config,
@@ -304,6 +306,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
             Target::Kotlin => {
                 generate_android(
                     &output,
+                    project_root,
                     &app_name,
                     &module,
                     &project_config,
@@ -363,6 +366,7 @@ pub(crate) fn compile_dev_modules_with_compiler(
     };
     let project_root = entry.parent().unwrap_or_else(|| Path::new("."));
     let config_path = project_root.join("nexa.config.nx");
+    let app_images_path = project_root.join("assets/images");
     let dependencies = config::load_plugin_dependencies(&config_path)?;
     let resolved = crate::dependencies::resolve(project_root, &dependencies)?;
     let compilations = compiler
@@ -398,7 +402,7 @@ pub(crate) fn compile_dev_modules_with_compiler(
             let revision = cache::key_with_extra_and_roots(
                 entry,
                 cache_target,
-                &[config_path.as_path()],
+                &[config_path.as_path(), app_images_path.as_path()],
                 &sorted_roots,
             )
             .map_err(|error| format!("dev revision: {error}"))?;
@@ -572,6 +576,7 @@ fn remove_stale_generated_units(
 
 fn generate_ios(
     root: &Path,
+    source_root: &Path,
     app_name: &str,
     module: &Module,
     config: &ProjectConfig,
@@ -584,7 +589,9 @@ fn generate_ios(
     let source_units = split_generated_units(&source, "swift");
     copy_config_icons(root, app_name, config)?;
     let ios_icon = config.ios_icon.as_ref().or(config.icon_source.as_ref());
+    let has_project_images = assets::copy_ios_project_images(source_root, root, app_name)?;
     let has_assets = plugins::copy_plugin_assets(root, app_name, module)?
+        || has_project_images
         || ios_icon
             .is_some_and(|path| path.is_dir() || path.extension().is_some_and(|ext| ext != "icon"))
         || config.splash_source.is_some();
@@ -676,6 +683,7 @@ fn generate_ios(
 
 fn generate_android(
     root: &Path,
+    source_root: &Path,
     app_name: &str,
     module: &Module,
     config: &ProjectConfig,
@@ -702,6 +710,7 @@ fn generate_android(
     plugins::copy_android_plugin_resources(root, module)?;
     copy_config_icons(root, app_name, config)?;
     plugins::copy_plugin_assets(root, app_name, module)?;
+    assets::copy_android_project_images(source_root, root)?;
     let screen = nexa_codegen::names::screen_name(&module.app_name);
     let cronet_import = if project_features.uses_network {
         "import com.google.android.gms.net.CronetProviderInstaller\n"

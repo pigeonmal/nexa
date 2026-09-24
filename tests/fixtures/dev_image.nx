@@ -1,0 +1,8 @@
+app ImageSmoke {
+    body {
+        Column {
+            Image(asset: "sample_photo", description: "Fitted image", scale: Fit)
+            Image(asset: "sample_photo", description: "Filled image", scale: Fill)
+        }
+    }
+}
