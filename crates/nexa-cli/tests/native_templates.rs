@@ -120,6 +120,26 @@ fn android_aot_dependencies_remain_feature_gated() {
     }
 }
 
+#[test]
+fn android_network_release_bundles_the_cronet_fallback() {
+    let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    let dependencies = templates::android_app_gradle_with_dev_runtime(
+        "demo",
+        nexa_backend_kotlin::KotlinProjectFeatures {
+            uses_network: true,
+            ..Default::default()
+        },
+        &[],
+        &[],
+        &config,
+        false,
+    )
+    .unwrap();
+
+    assert!(dependencies.contains("com.google.android.gms:play-services-cronet"));
+    assert!(dependencies.contains("org.chromium.net:cronet-embedded:143.7445.0"));
+}
+
 mod template_generation {
     use std::fs;
 

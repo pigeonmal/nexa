@@ -266,6 +266,11 @@ fn development_async_network_calls_use_release_native_adapters() {
         ))
         .expect("read generated Kotlin networking adapter");
     assert!(generated_kotlin.contains("public object NexaNetwork"));
+    let android_screen = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated.kt"),
+    )
+    .expect("read generated Android screen");
+    assert!(android_screen.contains("import androidx.compose.ui.platform.LocalContext"));
 
     fs::remove_dir_all(root).expect("remove temporary project");
 }

@@ -1013,11 +1013,12 @@ pub(super) fn android_app_gradle_with_dev_runtime(
             "    implementation(\"com.google.android.gms:play-services-cronet:18.0.1\")\n",
         );
     }
-    // Keep the debug runtime's network API usable when Play Services Cronet
-    // cannot install its provider (common on emulator images and non-GMS
-    // devices). CronetEngine.Builder selects this bundled provider as a
-    // fallback while retaining the same NexaNetwork implementation.
-    if dev_runtime {
+    // Keep the network API usable when Play Services Cronet cannot install
+    // its provider (for example on non-GMS devices). Dev builds preload this
+    // path, while AOT builds include it only when the app uses networking.
+    // CronetEngine.Builder selects the bundled provider as a fallback while
+    // retaining the same NexaNetwork implementation.
+    if dev_runtime || features.uses_network {
         dependencies
             .push_str("    implementation(\"org.chromium.net:cronet-embedded:143.7445.0\")\n");
     }

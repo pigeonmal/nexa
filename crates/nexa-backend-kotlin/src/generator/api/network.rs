@@ -12,6 +12,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         uses_transport || features.uses_path_api || features.uses_permissions,
         "android.content.Context",
     );
+    imports.add(
+        features.uses_network_api || features.uses_path_api || features.uses_permissions,
+        "androidx.compose.ui.platform.LocalContext",
+    );
     imports.add(features.uses_network_api, "android.net.Uri");
     imports.add(uses_transport, "kotlinx.coroutines.CancellationException");
     imports.add(
