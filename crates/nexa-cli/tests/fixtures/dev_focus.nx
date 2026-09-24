@@ -1,0 +1,8 @@
+app FocusSmoke {
+    state email: String = ""
+    state isFocused: Bool = false
+
+    body {
+        TextInput(value: email, placeholder: "Email", focused: isFocused)
+    }
+}

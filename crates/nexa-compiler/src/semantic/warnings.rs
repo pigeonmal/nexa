@@ -823,9 +823,7 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
         }
         ast::Expr::Not(value, _)
         | ast::Expr::Await(value, _)
-        | ast::Expr::Try { expr: value, .. } => {
-            expression_references_name(value, name)
-        }
+        | ast::Expr::Try { expr: value, .. } => expression_references_name(value, name),
         ast::Expr::Array(values, _) => values
             .iter()
             .any(|value| expression_references_name(value, name)),

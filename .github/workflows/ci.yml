@@ -1,0 +1,324 @@
+name: Nexa CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets
+      - run: cargo clippy --workspace --all-targets
+      - run: cargo test --workspace
+
+  ios-smoke:
+    name: iOS Simulator smoke build and launch
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: Swatinem/rust-cache@v2
+      - name: Install iOS UI test project helper
+        run: gem install --user-install xcodeproj -v 1.28.1 --no-document
+      - name: Build Nexa CLI
+        run: cargo build --release -p nexa-cli
+      - name: Generate, build, and launch a Nexa app
+        shell: bash
+        run: |
+          project="$RUNNER_TEMP/nexa-ios-smoke"
+          target/release/nexa create CiSmoke --directory "$project"
+          cd "$project"
+          "$GITHUB_WORKSPACE/target/release/nexa" dev --ios --once
+          "$GITHUB_WORKSPACE/target/release/nexa" dev --ios --compile-only
+          navigation="$RUNNER_TEMP/nexa-ios-navigation"
+          "$GITHUB_WORKSPACE/target/release/nexa" create NavigationSmoke --directory "$navigation"
+          cp "$GITHUB_WORKSPACE/examples/navigation.nx" "$navigation/App.nx"
+          cd "$navigation"
+          "$GITHUB_WORKSPACE/target/release/nexa" dev --ios --compile-only
+          focus="$RUNNER_TEMP/nexa-ios-focus"
+          "$GITHUB_WORKSPACE/target/release/nexa" create FocusSmoke --directory "$focus"
+          cp "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_focus.nx" "$focus/App.nx"
+          cd "$focus"
+          "$GITHUB_WORKSPACE/target/release/nexa" dev --ios --compile-only
+          sheet="$RUNNER_TEMP/nexa-ios-bottom-sheet"
+          "$GITHUB_WORKSPACE/target/release/nexa" create BottomSheetSmoke --directory "$sheet"
+          cp "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_bottom_sheet.nx" "$sheet/App.nx"
+          cd "$sheet"
+          "$GITHUB_WORKSPACE/target/release/nexa" dev --ios --compile-only
+          bottom_bar="$RUNNER_TEMP/nexa-ios-bottom-bar"
+          "$GITHUB_WORKSPACE/target/release/nexa" create BottomBarSmoke --directory "$bottom_bar"
+          cp "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_bottom_bar.nx" "$bottom_bar/App.nx"
+          cd "$bottom_bar"
+          "$GITHUB_WORKSPACE/target/release/nexa" dev --ios --compile-only
+          state_reload="$RUNNER_TEMP/nexa-ios-state-reload"
+          "$GITHUB_WORKSPACE/target/release/nexa" create StateReloadSmoke --directory "$state_reload"
+          cp "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_state_reload.nx" "$state_reload/App.nx"
+          cd "$state_reload"
+          "$GITHUB_WORKSPACE/target/release/nexa" dev --ios --compile-only
+          keyboard="$RUNNER_TEMP/nexa-ios-keyboard-aware"
+          "$GITHUB_WORKSPACE/target/release/nexa" create KeyboardAwareSmoke --directory "$keyboard"
+          cp "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_keyboard_aware.nx" "$keyboard/App.nx"
+          cd "$keyboard"
+          "$GITHUB_WORKSPACE/target/release/nexa" dev --ios --compile-only
+          bash "$GITHUB_WORKSPACE/tests/hot-reload-smoke.sh" \
+            "$GITHUB_WORKSPACE/target/release/nexa" ios \
+            "$RUNNER_TEMP/nexa-ios-hot-reload" "$RUNNER_TEMP/nexa-ios-hot-reload.log"
+          bash "$GITHUB_WORKSPACE/tests/hot-reload-fast-list.sh" \
+            "$GITHUB_WORKSPACE/target/release/nexa" ios \
+            "$RUNNER_TEMP/nexa-ios-fast-list-hot-reload" "$RUNNER_TEMP/nexa-ios-fast-list-hot-reload.log"
+          bash "$GITHUB_WORKSPACE/tests/hot-reload-fast-list-axis.sh" \
+            "$GITHUB_WORKSPACE/target/release/nexa" ios \
+            "$RUNNER_TEMP/nexa-ios-fast-list-axis-hot-reload" "$RUNNER_TEMP/nexa-ios-fast-list-axis-hot-reload.log"
+          bash "$GITHUB_WORKSPACE/tests/hot-reload-focus.sh" \
+            "$GITHUB_WORKSPACE/target/release/nexa" ios \
+            "$RUNNER_TEMP/nexa-ios-focus-hot-reload" "$RUNNER_TEMP/nexa-ios-focus-hot-reload.log"
+          bash "$GITHUB_WORKSPACE/tests/hot-reload-function.sh" \
+            "$GITHUB_WORKSPACE/target/release/nexa" ios \
+            "$RUNNER_TEMP/nexa-ios-function-hot-reload" "$RUNNER_TEMP/nexa-ios-function-hot-reload.log"
+          bash "$GITHUB_WORKSPACE/tests/hot-reload-switch.sh" \
+            "$GITHUB_WORKSPACE/target/release/nexa" ios \
+            "$RUNNER_TEMP/nexa-ios-switch-hot-reload" "$RUNNER_TEMP/nexa-ios-switch-hot-reload.log"
+          bash "$GITHUB_WORKSPACE/tests/hot-reload-interaction-ios.sh" \
+            "$GITHUB_WORKSPACE/target/release/nexa" \
+            "$RUNNER_TEMP/nexa-ios-interaction-hot-reload" \
+            "$RUNNER_TEMP/nexa-ios-interaction-hot-reload.log"
+          bash "$GITHUB_WORKSPACE/tests/hot-reload-bottom-sheet-ios.sh" \
+            "$GITHUB_WORKSPACE/target/release/nexa" \
+            "$RUNNER_TEMP/nexa-ios-bottom-sheet-hot-reload" \
+            "$RUNNER_TEMP/nexa-ios-bottom-sheet-hot-reload.log" \
+            "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_bottom_sheet.nx"
+          bash "$GITHUB_WORKSPACE/tests/hot-reload-bottom-bar-ios.sh" \
+            "$GITHUB_WORKSPACE/target/release/nexa" \
+            "$RUNNER_TEMP/nexa-ios-bottom-bar-hot-reload" \
+            "$RUNNER_TEMP/nexa-ios-bottom-bar-hot-reload.log" \
+            "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_bottom_bar.nx"
+          bash "$GITHUB_WORKSPACE/tests/hot-reload-state-ios.sh" \
+            "$GITHUB_WORKSPACE/target/release/nexa" \
+            "$RUNNER_TEMP/nexa-ios-state-hot-reload" \
+            "$RUNNER_TEMP/nexa-ios-state-hot-reload.log" \
+            "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_state_reload.nx"
+          bash "$GITHUB_WORKSPACE/tests/hot-reload-host-rebuild.sh" \
+            "$GITHUB_WORKSPACE/target/release/nexa" ios \
+            "$RUNNER_TEMP/nexa-ios-host-rebuild" "$RUNNER_TEMP/nexa-ios-host-rebuild.log"
+
+  android-smoke:
+    name: Android Emulator smoke build and launch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Build Nexa CLI
+        run: cargo build --release -p nexa-cli
+      - name: Generate, build, install, and launch a Nexa app
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            project="$RUNNER_TEMP/nexa-android-smoke"
+            target/release/nexa create CiSmoke --directory "$project"
+            cd "$project"
+            "$GITHUB_WORKSPACE/target/release/nexa" dev --android --once
+            "$GITHUB_WORKSPACE/target/release/nexa" dev --android --compile-only
+            navigation="$RUNNER_TEMP/nexa-android-navigation"
+            "$GITHUB_WORKSPACE/target/release/nexa" create NavigationSmoke --directory "$navigation"
+            cp "$GITHUB_WORKSPACE/examples/navigation.nx" "$navigation/App.nx"
+            cd "$navigation"
+            "$GITHUB_WORKSPACE/target/release/nexa" dev --android --compile-only
+            focus="$RUNNER_TEMP/nexa-android-focus"
+            "$GITHUB_WORKSPACE/target/release/nexa" create FocusSmoke --directory "$focus"
+            cp "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_focus.nx" "$focus/App.nx"
+            cd "$focus"
+            "$GITHUB_WORKSPACE/target/release/nexa" dev --android --compile-only
+            sheet="$RUNNER_TEMP/nexa-android-bottom-sheet"
+            "$GITHUB_WORKSPACE/target/release/nexa" create BottomSheetSmoke --directory "$sheet"
+            cp "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_bottom_sheet.nx" "$sheet/App.nx"
+            cd "$sheet"
+            "$GITHUB_WORKSPACE/target/release/nexa" dev --android --compile-only
+            bottom_bar="$RUNNER_TEMP/nexa-android-bottom-bar"
+            "$GITHUB_WORKSPACE/target/release/nexa" create BottomBarSmoke --directory "$bottom_bar"
+            cp "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_bottom_bar.nx" "$bottom_bar/App.nx"
+            cd "$bottom_bar"
+            "$GITHUB_WORKSPACE/target/release/nexa" dev --android --compile-only
+            state_reload="$RUNNER_TEMP/nexa-android-state-reload"
+            "$GITHUB_WORKSPACE/target/release/nexa" create StateReloadSmoke --directory "$state_reload"
+            cp "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_state_reload.nx" "$state_reload/App.nx"
+            cd "$state_reload"
+            "$GITHUB_WORKSPACE/target/release/nexa" dev --android --compile-only
+            keyboard="$RUNNER_TEMP/nexa-android-keyboard-aware"
+            "$GITHUB_WORKSPACE/target/release/nexa" create KeyboardAwareSmoke --directory "$keyboard"
+            cp "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_keyboard_aware.nx" "$keyboard/App.nx"
+            cd "$keyboard"
+            "$GITHUB_WORKSPACE/target/release/nexa" dev --android --compile-only
+            bash "$GITHUB_WORKSPACE/tests/hot-reload-smoke.sh" \
+              "$GITHUB_WORKSPACE/target/release/nexa" android \
+              "$RUNNER_TEMP/nexa-android-hot-reload" "$RUNNER_TEMP/nexa-android-hot-reload.log"
+            bash "$GITHUB_WORKSPACE/tests/hot-reload-fast-list.sh" \
+              "$GITHUB_WORKSPACE/target/release/nexa" android \
+              "$RUNNER_TEMP/nexa-android-fast-list-hot-reload" "$RUNNER_TEMP/nexa-android-fast-list-hot-reload.log"
+            bash "$GITHUB_WORKSPACE/tests/hot-reload-fast-list-axis.sh" \
+              "$GITHUB_WORKSPACE/target/release/nexa" android \
+              "$RUNNER_TEMP/nexa-android-fast-list-axis-hot-reload" "$RUNNER_TEMP/nexa-android-fast-list-axis-hot-reload.log"
+            bash "$GITHUB_WORKSPACE/tests/hot-reload-focus.sh" \
+              "$GITHUB_WORKSPACE/target/release/nexa" android \
+              "$RUNNER_TEMP/nexa-android-focus-hot-reload" "$RUNNER_TEMP/nexa-android-focus-hot-reload.log"
+            bash "$GITHUB_WORKSPACE/tests/hot-reload-function.sh" \
+              "$GITHUB_WORKSPACE/target/release/nexa" android \
+              "$RUNNER_TEMP/nexa-android-function-hot-reload" "$RUNNER_TEMP/nexa-android-function-hot-reload.log"
+            bash "$GITHUB_WORKSPACE/tests/hot-reload-switch.sh" \
+              "$GITHUB_WORKSPACE/target/release/nexa" android \
+              "$RUNNER_TEMP/nexa-android-switch-hot-reload" "$RUNNER_TEMP/nexa-android-switch-hot-reload.log"
+            bash "$GITHUB_WORKSPACE/tests/hot-reload-action-android.sh" \
+              "$GITHUB_WORKSPACE/target/release/nexa" \
+              "$RUNNER_TEMP/nexa-android-action-hot-reload" \
+              "$RUNNER_TEMP/nexa-android-action-hot-reload.log"
+            bash "$GITHUB_WORKSPACE/tests/hot-reload-navigation-android.sh" \
+              "$GITHUB_WORKSPACE/target/release/nexa" \
+              "$RUNNER_TEMP/nexa-android-navigation-hot-reload" \
+              "$RUNNER_TEMP/nexa-android-navigation-hot-reload.log"
+            bash "$GITHUB_WORKSPACE/tests/hot-reload-bottom-sheet-android.sh" \
+              "$GITHUB_WORKSPACE/target/release/nexa" \
+              "$RUNNER_TEMP/nexa-android-bottom-sheet-hot-reload" \
+              "$RUNNER_TEMP/nexa-android-bottom-sheet-hot-reload.log" \
+              "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_bottom_sheet.nx"
+            bash "$GITHUB_WORKSPACE/tests/hot-reload-bottom-bar-android.sh" \
+              "$GITHUB_WORKSPACE/target/release/nexa" \
+              "$RUNNER_TEMP/nexa-android-bottom-bar-hot-reload" \
+              "$RUNNER_TEMP/nexa-android-bottom-bar-hot-reload.log" \
+              "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_bottom_bar.nx"
+            bash "$GITHUB_WORKSPACE/tests/hot-reload-state-android.sh" \
+              "$GITHUB_WORKSPACE/target/release/nexa" \
+              "$RUNNER_TEMP/nexa-android-state-hot-reload" \
+              "$RUNNER_TEMP/nexa-android-state-hot-reload.log" \
+              "$GITHUB_WORKSPACE/crates/nexa-cli/tests/fixtures/dev_state_reload.nx"
+            bash "$GITHUB_WORKSPACE/tests/hot-reload-host-rebuild.sh" \
+              "$GITHUB_WORKSPACE/target/release/nexa" android \
+              "$RUNNER_TEMP/nexa-android-host-rebuild" "$RUNNER_TEMP/nexa-android-host-rebuild.log"
+
+  signed-release:
+    name: Signed iOS and Android release artifacts
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Build Nexa CLI
+        run: cargo build --release -p nexa-cli
+      - name: Require release signing secrets
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+          NEXA_IOS_TEAM_ID: ${{ secrets.NEXA_IOS_TEAM_ID }}
+          NEXA_IOS_BUNDLE_ID: ${{ secrets.NEXA_IOS_BUNDLE_ID }}
+          NEXA_ANDROID_APPLICATION_ID: ${{ secrets.NEXA_ANDROID_APPLICATION_ID }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE_P12 APPLE_CERTIFICATE_PASSWORD APPLE_PROVISIONING_PROFILE NEXA_IOS_TEAM_ID NEXA_IOS_BUNDLE_ID NEXA_ANDROID_APPLICATION_ID ANDROID_KEYSTORE_BASE64 ANDROID_KEY_ALIAS ANDROID_STORE_PASSWORD ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required release secret: $name" >&2
+              exit 1
+            fi
+          done
+      - name: Import Apple signing credentials
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/nexa-release.keychain-db"
+          security create-keychain -p "$RUNNER_TEMP" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$RUNNER_TEMP" "$keychain"
+          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/apple-signing.p12"
+          security import "$RUNNER_TEMP/apple-signing.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$RUNNER_TEMP" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          profile="$HOME/Library/MobileDevice/Provisioning Profiles/nexa.mobileprovision"
+          printf '%s' "$APPLE_PROVISIONING_PROFILE" | base64 --decode > "$profile"
+          security cms -D -i "$profile" > "$RUNNER_TEMP/nexa-profile.plist"
+          profile_uuid=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$RUNNER_TEMP/nexa-profile.plist")
+          echo "NEXA_IOS_PROVISIONING_PROFILE=$profile_uuid" >> "$GITHUB_ENV"
+      - name: Generate and sign both release artifacts
+        env:
+          NEXA_IOS_TEAM_ID: ${{ secrets.NEXA_IOS_TEAM_ID }}
+          NEXA_IOS_BUNDLE_ID: ${{ secrets.NEXA_IOS_BUNDLE_ID }}
+          NEXA_ANDROID_APPLICATION_ID: ${{ secrets.NEXA_ANDROID_APPLICATION_ID }}
+          NEXA_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          NEXA_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          NEXA_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          project="$RUNNER_TEMP/nexa-release-smoke"
+          target/release/nexa create CiRelease --directory "$project"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nexa-release.jks"
+          python3 - "$project/nexa.config.nx" <<'PY'
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          source = path.read_text()
+          replacements = (
+              ("bundleIdentifier", os.environ["NEXA_IOS_BUNDLE_ID"], r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+"),
+              ("applicationId", os.environ["NEXA_ANDROID_APPLICATION_ID"], r"[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+"),
+          )
+          for key, value, pattern in replacements:
+              if not re.fullmatch(pattern, value):
+                  raise SystemExit(f"{key} is not a valid reverse-DNS identifier")
+              source = re.sub(rf'({key}:\s*)"[^"]+"', lambda match: f'{match.group(1)}"{value}"', source, count=1)
+          path.write_text(source)
+          PY
+          cd "$project"
+          export NEXA_ANDROID_KEYSTORE="$RUNNER_TEMP/nexa-release.jks"
+          "$GITHUB_WORKSPACE/target/release/nexa" release
+          python3 "$GITHUB_WORKSPACE/scripts/verify-release-artifacts.py" \
+            build/artifacts/ios/CiRelease.xcarchive \
+            build/artifacts/ios/ipa/CiRelease.ipa \
+            build/android/app/build/outputs/bundle/release/app-release.aab
+      - uses: actions/upload-artifact@v6
+        with:
+          name: nexa-signed-release
+          path: |
+            ${{ runner.temp }}/nexa-release-smoke/build/artifacts/ios/CiRelease.xcarchive
+            ${{ runner.temp }}/nexa-release-smoke/build/artifacts/ios/ipa/CiRelease.ipa
+            ${{ runner.temp }}/nexa-release-smoke/build/android/app/build/outputs/bundle/release/app-release.aab

@@ -1,7 +1,9 @@
+use serde::{Deserialize, Serialize};
+
 pub mod capabilities;
 pub mod walk;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Module {
     pub app_name: String,
     pub plugins: Vec<Plugin>,
@@ -23,7 +25,7 @@ pub struct Module {
     pub on_background: Option<Vec<Action>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Plugin {
     pub namespace: String,
     pub idl_path: String,
@@ -59,34 +61,34 @@ pub struct Plugin {
     pub android_permissions: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PluginEntitlementValue {
     String(String),
     Bool(bool),
     Strings(Vec<String>),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SwiftPackage {
     pub url: String,
     pub from: String,
     pub products: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PluginAsset {
     pub root: String,
     pub package_root: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NativeComponentEventHandler {
     pub property: String,
     pub parameters: Vec<String>,
     pub actions: Vec<Action>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Permission {
     Camera,
     Microphone,
@@ -98,25 +100,25 @@ pub enum Permission {
     Bluetooth,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EnumDecl {
     pub name: String,
     pub cases: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StructDecl {
     pub name: String,
     pub fields: Vec<StructField>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StructField {
     pub name: String,
     pub ty: Type,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Function {
     pub name: String,
     pub is_async: bool,
@@ -126,20 +128,20 @@ pub struct Function {
     pub body: Expr,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FunctionParameter {
     pub name: String,
     pub ty: Type,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FunctionLocal {
     pub name: String,
     pub ty: Type,
     pub initial: Expr,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Component {
     pub name: String,
     pub source_file: Option<String>,
@@ -148,13 +150,13 @@ pub struct Component {
     pub body: Vec<Node>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ComponentParameter {
     pub name: String,
     pub ty: Type,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Screen {
     pub id: ScreenId,
     pub name: String,
@@ -167,10 +169,10 @@ pub struct Screen {
     pub on_disappear: Option<Vec<Action>>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ScreenId(pub usize);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct State {
     pub name: String,
     pub ty: Type,
@@ -200,7 +202,7 @@ impl State {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NumericType {
     Int8,
     Int16,
@@ -214,45 +216,45 @@ pub enum NumericType {
     Float64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatusBarConfig {
     pub style: StatusBarStyle,
     pub hidden: bool,
     pub background: Option<ColorValue>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HapticStyle {
     Light,
     Medium,
     Heavy,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum KeyboardDismissMode {
     Interactive,
     Never,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DirectionConfig {
     pub style: DirectionStyle,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DirectionStyle {
     Ltr,
     Rtl,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StatusBarStyle {
     Default,
     Light,
     Dark,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Type {
     Void,
     String,
@@ -277,7 +279,7 @@ pub enum Type {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Expr {
     String(String),
     Interpolation(Vec<InterpolatedPart>),
@@ -380,20 +382,20 @@ pub enum Expr {
     IsCompactHeight,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CollectionTransform {
     Map,
     Filter,
     Reduce,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum InterpolatedPart {
     Literal(String),
     Value(Box<Expr>),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BinaryOp {
     And,
     Or,
@@ -406,7 +408,7 @@ pub enum BinaryOp {
     GreaterEqual,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Node {
     StatusBar {
         config: StatusBarConfig,
@@ -558,13 +560,13 @@ pub enum Node {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FastListRefresh {
     pub state: String,
     pub actions: Vec<Action>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BottomBarTab {
     pub index: i32,
     pub label: String,
@@ -573,13 +575,13 @@ pub struct BottomBarTab {
     pub children: Vec<Node>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WhenCase {
     pub value: Expr,
     pub body: Vec<Node>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AccessibilityRole {
     None,
     Button,
@@ -588,7 +590,7 @@ pub enum AccessibilityRole {
     Image,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ListSource {
     Count(Expr),
     Items {
@@ -601,21 +603,21 @@ pub enum ListSource {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ListAxis {
     Vertical,
     Horizontal,
     Grid { columns: u32 },
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum LayoutKind {
     Column,
     Row,
     Stack,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum KeyboardType {
     Text,
     Number,
@@ -624,7 +626,7 @@ pub enum KeyboardType {
     Url,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Capitalization {
     None,
     Sentences,
@@ -632,19 +634,19 @@ pub enum Capitalization {
     Characters,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ImageScale {
     Fit,
     Fill,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ImageSource {
     Asset(String),
     RemoteUrl(Expr),
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct ViewStyle {
     pub alignment: Option<Alignment>,
     pub padding: Option<f32>,
@@ -681,7 +683,7 @@ impl ViewStyle {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnimationSpec {
     Spring,
     EaseIn,
@@ -691,14 +693,14 @@ pub enum AnimationSpec {
 }
 
 /// Cross-axis alignment for a native row or column layout.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Alignment {
     Start,
     Center,
     End,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Color {
     pub red: u8,
     pub green: u8,
@@ -706,13 +708,13 @@ pub struct Color {
     pub alpha: u8,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ColorValue {
     Static(Color),
     Adaptive { light: Color, dark: Color },
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct TextStyle {
     pub color: Option<ColorValue>,
     pub font_size: Option<f32>,
@@ -723,7 +725,7 @@ pub struct TextStyle {
     pub selectable: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FontWeight {
     Normal,
     Medium,
@@ -731,7 +733,7 @@ pub enum FontWeight {
     Bold,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Action {
     Expression(Expr),
     Assign {
@@ -783,7 +785,7 @@ pub enum Action {
     Continue,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ErrorCatchArm {
     pub namespace: String,
     pub error_type: String,
@@ -793,7 +795,7 @@ pub struct ErrorCatchArm {
     pub body: Vec<Action>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CollectionMutation {
     ArrayAppend,
     ArrayRemoveAt,

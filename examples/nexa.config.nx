@@ -1,0 +1,8 @@
+config {
+    app { displayName: "NexaCounter", version: "1.0.0", buildNumber: 1, stagingSuffix: "staging" }
+    assets { icon: "", splash: "" }
+    ios { minVersion: "16.0", bundleIdentifier: "com.nexa.nexacounter", icon: "" }
+    android { minSdk: 24, targetSdk: 36, applicationId: "com.nexa.nexacounter", icon: "" }
+    permissions {
+    }
+}

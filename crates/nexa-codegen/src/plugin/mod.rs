@@ -33,5 +33,11 @@ pub fn render_android_adapters(
     package: &str,
     plugin_index: usize,
 ) -> Result<(String, String), String> {
-    bindings_cpp::render_android_adapters(contract, plugin_id, plugin_namespace, package, plugin_index)
+    bindings_cpp::render_android_adapters(
+        contract,
+        plugin_id,
+        plugin_namespace,
+        package,
+        plugin_index,
+    )
 }

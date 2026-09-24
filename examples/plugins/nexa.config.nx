@@ -1,0 +1,12 @@
+config {
+    app { displayName: "NexaPluginBuildTest", version: "1.0.0", buildNumber: 1, stagingSuffix: "staging" }
+    assets { icon: "", splash: "" }
+    ios { minVersion: "16.0", bundleIdentifier: "com.nexa.nexapluginbuildtest", icon: "" }
+    android { minSdk: 24, targetSdk: 36, applicationId: "com.nexa.nexapluginbuildtest", icon: "" }
+    permissions {
+    }
+    plugins {
+        VideoPlayer {
+        }
+    }
+}

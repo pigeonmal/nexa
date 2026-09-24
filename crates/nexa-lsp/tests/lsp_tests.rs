@@ -27,7 +27,8 @@ fn lsp_initialization_reports_capabilities() {
 #[test]
 fn lsp_publishes_syntax_error_diagnostics() {
     let mut server = LspServer::new();
-    let broken_source = "app BrokenApp {\n    body {\n        Text(\"missing closing brace\"\n    \n";
+    let broken_source =
+        "app BrokenApp {\n    body {\n        Text(\"missing closing brace\"\n    \n";
 
     let request = JsonRpcRequest {
         jsonrpc: "2.0".to_string(),
@@ -138,7 +139,9 @@ fn lsp_provides_hover_documentation() {
     let resp = response.expect("response should be returned");
     let result = resp.result.expect("result should exist");
     assert!(result.is_object());
-    let doc = result["contents"]["value"].as_str().expect("hover markdown");
+    let doc = result["contents"]["value"]
+        .as_str()
+        .expect("hover markdown");
     assert!(doc.contains("FastList"));
     assert!(doc.contains("virtualized"));
 }

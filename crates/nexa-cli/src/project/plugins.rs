@@ -665,8 +665,8 @@ pub(super) fn plugin_platform_sources(
             ));
         }
         for (file, _) in matches {
-            let canonical = fs::canonicalize(&file)
-                .map_err(|error| format!("{}: {error}", file.display()))?;
+            let canonical =
+                fs::canonicalize(&file).map_err(|error| format!("{}: {error}", file.display()))?;
             if !canonical.starts_with(&canonical_root) {
                 return Err(format!(
                     "declared {platform} plugin source `{source}` resolves outside the plugin package"
@@ -1532,8 +1532,8 @@ pub(super) fn native_plugin_sources(
     }
 
     for (file, _) in &files {
-        let canonical = fs::canonicalize(file)
-            .map_err(|error| format!("{}: {error}", file.display()))?;
+        let canonical =
+            fs::canonicalize(file).map_err(|error| format!("{}: {error}", file.display()))?;
         if !canonical.starts_with(&canonical_plugin_root) {
             return Err(format!(
                 "plugin source `{}` resolves outside the plugin package `{}`",
@@ -2163,7 +2163,11 @@ mod tests {
 
         let result = native_plugin_sources(&plugin, "ios/Sources", "swift");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("plugin traversal rejected symlink"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("plugin traversal rejected symlink")
+        );
     }
 
     #[test]
@@ -2203,7 +2207,11 @@ mod tests {
 
         let result = native_plugin_sources(&plugin, "ios/Sources", "swift");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("resolves outside the plugin package"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("resolves outside the plugin package")
+        );
     }
 
     #[test]
@@ -2244,7 +2252,11 @@ mod tests {
 
         let result = copy_plugin_assets(&temporary.0, "DemoApp", &module);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("resolves outside the plugin package"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("resolves outside the plugin package")
+        );
     }
 
     #[test]
@@ -2284,6 +2296,10 @@ mod tests {
 
         let result = copy_plugin_assets(&temporary.0, "DemoApp", &module);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("plugin traversal rejected symlink"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("plugin traversal rejected symlink")
+        );
     }
 }

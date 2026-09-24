@@ -128,21 +128,8 @@ native class Store {
     )
     .expect("Nexa app should be written");
     let output = temp.0.join("Generated");
-    let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("generate")
-        .arg(&entry)
-        .args(["--target", "ios", "--out"])
-        .arg(&output)
-        .arg("--name")
-        .arg("CppMapAdapter")
-        .output()
-        .expect("Nexa CLI should start");
-    assert!(
-        generated.status.success(),
-        "iOS map adapter project generation failed:\n{}\n{}",
-        String::from_utf8_lossy(&generated.stdout),
-        String::from_utf8_lossy(&generated.stderr)
-    );
+    nexa_cli::generate_project(&entry, "ios", &output, "CppMapAdapter")
+        .expect("iOS map adapter project generation should succeed");
 
     let ios = output.join("ios/CppMapAdapter");
     let bindings = ios.join("NexaPlugins/NexaPlugin0_Bindings.swift");
@@ -154,52 +141,52 @@ native class Store {
 
 @MainActor
 func mapAdapterProbe() async {
-    _ = await LookupPlugin.shared.echoAsync(value: 42)
-    _ = await LookupPlugin.shared.echoOptionalAsync(value: nil)
-    _ = await LookupPlugin.shared.echoTextAsync(value: "Nexa 🚀")
-    _ = await LookupPlugin.shared.echoPayloadAsync(value: Data([0, 1, 255]))
+    _ = await LookupPlugin.shared.echoAsync(42)
+    _ = await LookupPlugin.shared.echoOptionalAsync(nil)
+    _ = await LookupPlugin.shared.echoTextAsync("Nexa 🚀")
+    _ = await LookupPlugin.shared.echoPayloadAsync(Data([0, 1, 255]))
     await LookupPlugin.shared.flushAsync()
-    _ = await LookupPlugin.shared.echoAsyncValues(values: [Int32.min, 0, Int32.max])
-    _ = try? await LookupPlugin.shared.echoAsyncValuesResult(values: [])
-    _ = await LookupPlugin.shared.echoAsyncMap(values: [1: "one"])
-    _ = try? await LookupPlugin.shared.echoAsyncMapResult(values: [:])
-    _ = await LookupPlugin.shared.echoAsyncSet(values: Set([1, 2]))
-    _ = await LookupPlugin.shared.echoAsyncBooleans(values: [true, false])
+    _ = await LookupPlugin.shared.echoAsyncValues([Int32.min, 0, Int32.max])
+    _ = try? await LookupPlugin.shared.echoAsyncValuesResult([])
+    _ = await LookupPlugin.shared.echoAsyncMap([1: "one"])
+    _ = try? await LookupPlugin.shared.echoAsyncMapResult([:])
+    _ = await LookupPlugin.shared.echoAsyncSet(Set([1, 2]))
+    _ = await LookupPlugin.shared.echoAsyncBooleans([true, false])
     _ = try? await LookupPlugin.shared.readAsync()
     _ = try? await LookupPlugin.shared.lookupAsync()
-    _ = LookupPlugin.shared.mapBool(values: [false: true, true: false])
-    _ = LookupPlugin.shared.mapInt8(values: [-1: 1])
-    _ = LookupPlugin.shared.mapInt16(values: [-2: 2])
-    _ = LookupPlugin.shared.mapInt32(values: [-3: 3])
-    _ = LookupPlugin.shared.mapInt64(values: [-4: 4])
-    _ = LookupPlugin.shared.mapUInt8(values: [UInt8.max: 1])
-    _ = LookupPlugin.shared.mapUInt16(values: [UInt16.max: 2])
-    _ = LookupPlugin.shared.mapUInt32(values: [UInt32.max: 3])
-    _ = LookupPlugin.shared.mapUInt64(values: [UInt64.max: 4])
-    _ = LookupPlugin.shared.mapFloat32(values: [false: 1.25])
-    _ = LookupPlugin.shared.mapFloat64(values: [-1: 2.5])
-    _ = LookupPlugin.shared.mapString(values: [-2: "two"])
-    _ = LookupPlugin.shared.echoPayloadSet(values: Set([Data([0, 1]), Data()]))
+    _ = LookupPlugin.shared.mapBool([false: true, true: false])
+    _ = LookupPlugin.shared.mapInt8([-1: 1])
+    _ = LookupPlugin.shared.mapInt16([-2: 2])
+    _ = LookupPlugin.shared.mapInt32([-3: 3])
+    _ = LookupPlugin.shared.mapInt64([-4: 4])
+    _ = LookupPlugin.shared.mapUInt8([UInt8.max: 1])
+    _ = LookupPlugin.shared.mapUInt16([UInt16.max: 2])
+    _ = LookupPlugin.shared.mapUInt32([UInt32.max: 3])
+    _ = LookupPlugin.shared.mapUInt64([UInt64.max: 4])
+    _ = LookupPlugin.shared.mapFloat32([false: 1.25])
+    _ = LookupPlugin.shared.mapFloat64([-1: 2.5])
+    _ = LookupPlugin.shared.mapString([-2: "two"])
+    _ = LookupPlugin.shared.echoPayloadSet(Set([Data([0, 1]), Data()]))
     let numbers: [Int32: String] = [1: "one", 2: "two"]
     let payloads = [Data([0, 1]): Data([255]), Data(): Data()]
-    _ = LookupPlugin.shared.echoNumbers(values: numbers)
-    _ = LookupPlugin.shared.echoPayloads(values: payloads)
-    _ = LookupPlugin.shared.echoPayloadSets(values: [1: Set([Data([0, 1]), Data()])])
+    _ = LookupPlugin.shared.echoNumbers(numbers)
+    _ = LookupPlugin.shared.echoPayloads(payloads)
+    _ = LookupPlugin.shared.echoPayloadSets([1: Set([Data([0, 1]), Data()])])
     let nestedPayloadMap: [Int32: [Int32: Data]] = [1: [10: Data([0, 1]), 11: Data()], 2: [:]]
-    _ = LookupPlugin.shared.echoNestedMaps(values: nestedPayloadMap)
+    _ = LookupPlugin.shared.echoNestedMaps(nestedPayloadMap)
     let nestedNumbers: [Int32: [Int32]] = [1: [Int32.min, 0, Int32.max], 2: []]
     let nestedLabels: [Int32: [String]] = [1: ["Nexa 🚀", ""], 2: []]
-    _ = LookupPlugin.shared.echoNestedNumbers(values: nestedNumbers)
-    _ = LookupPlugin.shared.echoNestedLabels(values: nestedLabels)
+    _ = LookupPlugin.shared.echoNestedNumbers(nestedNumbers)
+    _ = LookupPlugin.shared.echoNestedLabels(nestedLabels)
     let nestedIntegers = [[Int32.min, 0, Int32.max], [], [-1, 7]]
     let nestedBooleans = [[false, true], [], [true]]
     let nestedStrings = [["Nexa 🚀", ""], [], ["last"]]
     let nestedPayloads = [[Data([0, 1]), Data()], [], [Data([255])]]
-    _ = LookupPlugin.shared.echoNestedIntegers(values: nestedIntegers)
-    _ = LookupPlugin.shared.echoNestedBooleans(values: nestedBooleans)
-    _ = LookupPlugin.shared.echoNestedStrings(values: nestedStrings)
-    _ = LookupPlugin.shared.echoNestedPayloads(values: nestedPayloads)
-    let store = StoreImpl(entries: numbers, payloads: payloads, history: nestedIntegers)
+    _ = LookupPlugin.shared.echoNestedIntegers(nestedIntegers)
+    _ = LookupPlugin.shared.echoNestedBooleans(nestedBooleans)
+    _ = LookupPlugin.shared.echoNestedStrings(nestedStrings)
+    _ = LookupPlugin.shared.echoNestedPayloads(nestedPayloads)
+    let store = StoreImpl(numbers, payloads, nestedIntegers)
     store.onUpdated = { value, label, payload, entries, flags in
         _ = (value, label, payload, entries, flags)
     }
@@ -211,10 +198,10 @@ func mapAdapterProbe() async {
     store.nestedPayloads = nestedPayloadMap
     _ = store.history
     store.history = nestedIntegers
-    _ = store.echo(entries: numbers)
-    _ = store.echoNestedMaps(values: nestedPayloadMap)
-    _ = await store.echoAsyncEntries(values: numbers)
-    _ = store.echoHistory(values: nestedIntegers)
+    _ = store.echo(numbers)
+    _ = store.echoNestedMaps(nestedPayloadMap)
+    _ = await store.echoAsyncEntries(numbers)
+    _ = store.echoHistory(nestedIntegers)
     _ = await store.currentCount()
     store.dispose()
 }

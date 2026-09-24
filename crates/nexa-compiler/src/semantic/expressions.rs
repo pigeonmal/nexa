@@ -1384,8 +1384,7 @@ fn lower_collection_transform(
             "collection transformations require an inline closure such as `{ item -> item }`",
         ));
     };
-    let initial_type = initial
-        .and_then(|value| infer_expr_type(value, symbols, functions));
+    let initial_type = initial.and_then(|value| infer_expr_type(value, symbols, functions));
     let lowered_initial = match initial {
         Some(value) => Some(Box::new(lower_expr(
             value,
@@ -1951,9 +1950,7 @@ fn lower_plugin_method_call(
         .parameters
         .iter()
         .zip(arguments.iter())
-        .map(|((_, ty), argument)| {
-            lower_expr(argument, Some(ty), symbols, functions, allow_await)
-        })
+        .map(|((_, ty), argument)| lower_expr(argument, Some(ty), symbols, functions, allow_await))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Expr::NativeCall {
         receiver: Some(Box::new(receiver)),

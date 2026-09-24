@@ -1,0 +1,9 @@
+app FastListAxisSmoke {
+    state items: Array<String> = ["0", "1", "2", "3", "4", "5", "6", "7"]
+
+    body {
+        FastList(items, axis: Horizontal, rowHeight: 180) { item, index in
+            Text("Cell $item $index")
+        }
+    }
+}

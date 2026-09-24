@@ -14,13 +14,32 @@ use std::{
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
-use nexa_compiler::{Target, compile_file_with_warnings_for_targets};
+use nexa_compiler::{CompileWarning, Target};
 use nexa_ir::Module;
 
 use crate::{cache, config, config::ProjectConfig};
 
+mod assets;
 mod plugins;
 mod templates;
+
+fn report_warnings(warnings: &[CompileWarning], deny_warnings: bool) -> Result<(), String> {
+    for warning in warnings {
+        eprintln!("{warning}");
+    }
+    if deny_warnings && !warnings.is_empty() {
+        return Err(format!("{} warning(s) treated as errors", warnings.len()));
+    }
+    Ok(())
+}
+
+fn deduplicate_warnings(warnings: Vec<CompileWarning>) -> Vec<CompileWarning> {
+    let mut seen = std::collections::HashSet::new();
+    warnings
+        .into_iter()
+        .filter(|warning| seen.insert(warning.to_string()))
+        .collect()
+}
 
 pub(super) fn validate_plugin_manifest_sources(
     package_root: &Path,
@@ -44,16 +63,50 @@ enum ProjectTarget {
     All,
 }
 
-pub(super) fn run(args: &[String]) -> Result<(), String> {
+#[derive(Clone, Debug)]
+pub(crate) struct DevSessionConfig {
+    pub(crate) server_url: String,
+    pub(crate) session_token: String,
+}
+
+pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let mut input = None;
     let mut output = None;
     let mut name = None;
     let mut target = ProjectTarget::All;
     let mut deny_warnings = false;
+    let mut flavor = None;
+    let mut dev_server_url = None;
+    let mut dev_session_token = None;
     let mut cursor = 0;
     while cursor < args.len() {
         match args[cursor].as_str() {
             "--deny-warnings" => deny_warnings = true,
+            "--dev-server-url" => {
+                cursor += 1;
+                dev_server_url = Some(
+                    args.get(cursor)
+                        .ok_or("`--dev-server-url` requires a URL")?
+                        .clone(),
+                );
+            }
+            "--dev-session-token" => {
+                cursor += 1;
+                dev_session_token = Some(
+                    args.get(cursor)
+                        .ok_or("`--dev-session-token` requires a token")?
+                        .clone(),
+                );
+            }
+            "--staging" => flavor = Some("staging".to_owned()),
+            "--flavor" => {
+                cursor += 1;
+                flavor = Some(
+                    args.get(cursor)
+                        .ok_or("`--flavor` requires a name")?
+                        .clone(),
+                );
+            }
             "--target" | "-t" => {
                 cursor += 1;
                 target = match args.get(cursor).map(String::as_str) {
@@ -90,6 +143,25 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     }
 
     let input = input.ok_or("usage: nexa generate <source.nx> [--target <ios|android|all>] [--out <directory>] [--name <AppName>] [--deny-warnings]")?;
+    let dev_session = match (dev_server_url, dev_session_token) {
+        (Some(server_url), Some(session_token))
+            if server_url.starts_with("ws://127.0.0.1:") && !session_token.is_empty() =>
+        {
+            Some(DevSessionConfig {
+                server_url,
+                session_token,
+            })
+        }
+        (None, None) => None,
+        (Some(_), Some(_)) => {
+            return Err("dev runtime requires a loopback `ws://127.0.0.1:<port>` URL and a non-empty session token".to_owned());
+        }
+        _ => {
+            return Err(
+                "`--dev-server-url` and `--dev-session-token` must be supplied together".to_owned(),
+            );
+        }
+    };
     let output = output.unwrap_or_else(|| {
         let stem = input
             .file_stem()
@@ -109,20 +181,61 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         ProjectTarget::Android => "project-android",
         ProjectTarget::All => "project-all",
     };
-    let config_path = output.join("nexa.config.nx");
-    let plugin_definitions = config::load_plugin_definitions(&input)?;
+    let project_target = if let Some(flavor) = &flavor {
+        format!("{project_target}-flavor-{flavor}")
+    } else {
+        project_target.to_owned()
+    };
+    let project_target = if dev_session.is_some() {
+        format!("{project_target}-dev-runtime")
+    } else {
+        project_target
+    };
+    let config_path = input
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("nexa.config.nx");
     let existing_config = config_path.is_file();
+    let dependencies = config::load_plugin_dependencies(&config_path)?;
+    let project_root = input.parent().unwrap_or_else(|| Path::new("."));
+    let resolved_dependencies = crate::dependencies::resolve(project_root, &dependencies)?;
+    if !dependencies.is_empty() || project_root.join("nexa.lock").is_file() {
+        crate::dependencies::write_lock(project_root, &resolved_dependencies.lock_file)?;
+    }
+    let plugin_roots = &resolved_dependencies.plugin_roots;
+    let plugin_definitions = config::load_plugin_definitions(&input, plugin_roots)?;
     let project_config = if existing_config {
         Some(ProjectConfig::parse_file(
             &config_path,
             &plugin_definitions,
+            &app_name,
         )?)
     } else {
         None
     };
-    let mut cache_key = cache::key_with_extra(&input, project_target, &[config_path.as_path()])
-        .map_err(|error| format!("project cache: {error}"))?;
-    if project_cache_is_current(&output, &app_name, target, &cache_key) {
+    let sorted_plugin_roots = plugin_roots
+        .iter()
+        .map(|(package_id, path)| (package_id.clone(), path.clone()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut cache_key = cache::key_with_extra_and_roots(
+        &input,
+        &project_target,
+        &[config_path.as_path()],
+        &sorted_plugin_roots,
+    )
+    .map_err(|error| format!("project cache: {error}"))?;
+    if dev_session.is_none()
+        && project_config.as_ref().is_some_and(|config| {
+            let config = match &flavor {
+                Some(flavor) => match config.with_flavor(flavor) {
+                    Ok(config) => config,
+                    Err(_) => return false,
+                },
+                None => config.clone(),
+            };
+            project_cache_is_current(&output, &app_name, target, &cache_key, &config)
+        })
+    {
         let cached_warnings = cache::restore_warnings(&input, &cache_key)
             .map_err(|error| format!("project cache: {error}"))?;
         if let Some(warnings) = cached_warnings {
@@ -142,8 +255,12 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         ProjectTarget::Android => &[Target::Kotlin],
         ProjectTarget::All => &[Target::Swift, Target::Kotlin],
     };
-    let compilations = compile_file_with_warnings_for_targets(&input, targets)
-        .map_err(|error| error.to_string())?;
+    let compilations = nexa_compiler::compile_file_with_warnings_for_targets_and_plugin_roots(
+        &input,
+        targets,
+        plugin_roots,
+    )
+    .map_err(|error| error.to_string())?;
     let mut warnings = Vec::new();
     let compiled = targets
         .iter()
@@ -154,17 +271,17 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
             (target, compilation.module)
         })
         .collect::<Vec<_>>();
-    let warnings = super::deduplicate_warnings(warnings);
-    super::report_warnings(&warnings, deny_warnings)?;
+    let warnings = deduplicate_warnings(warnings);
+    report_warnings(&warnings, deny_warnings)?;
 
-    let project_config = match project_config {
+    let mut project_config = match project_config {
         Some(config) => config,
-        None => match ProjectConfig::from_defaults(&plugin_definitions) {
+        None => match ProjectConfig::from_defaults(&plugin_definitions, &app_name) {
             Ok(config) => config,
             Err(error) => {
                 write_if_changed(&config_path, &config::render_template(&plugin_definitions))?;
                 return Err(format!(
-                    "{error}; edit {} and run `nexa generate` again",
+                    "{error}; edit {} and run `nexa dev` again",
                     config_path.display()
                 ));
             }
@@ -172,22 +289,41 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     };
     if !existing_config {
         write_if_changed(&config_path, &project_config.render())?;
-        cache_key = cache::key_with_extra(&input, project_target, &[config_path.as_path()])
-            .map_err(|error| format!("project cache: {error}"))?;
+        cache_key = cache::key_with_extra_and_roots(
+            &input,
+            &project_target,
+            &[config_path.as_path()],
+            &sorted_plugin_roots,
+        )
+        .map_err(|error| format!("project cache: {error}"))?;
+    }
+    if let Some(flavor) = &flavor {
+        project_config = project_config.with_flavor(flavor)?;
     }
 
     fs::create_dir_all(&output).map_err(|error| format!("{}: {error}", output.display()))?;
 
     let mut generated_targets = Vec::new();
-    for (compile_target, mut module) in compiled {
-        module.app_name = app_name.clone();
+    for (compile_target, module) in compiled {
         match compile_target {
             Target::Swift => {
-                generate_ios(&output, &app_name, &module, &project_config)?;
+                generate_ios(
+                    &output,
+                    &app_name,
+                    &module,
+                    &project_config,
+                    dev_session.as_ref(),
+                )?;
                 generated_targets.push("ios");
             }
             Target::Kotlin => {
-                generate_android(&output, &app_name, &module, &project_config)?;
+                generate_android(
+                    &output,
+                    &app_name,
+                    &module,
+                    &project_config,
+                    dev_session.as_ref(),
+                )?;
                 generated_targets.push("android");
             }
             Target::All => unreachable!("project generation compiles concrete platform targets"),
@@ -227,6 +363,65 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Compile the current project into the serializable representation consumed
+/// by Nexa's debug development server. Release generation never calls this.
+pub(crate) fn compile_dev_modules_with_compiler(
+    entry: &Path,
+    platform: &str,
+    compiler: &mut nexa_compiler::IncrementalProjectCompiler,
+) -> Result<Vec<(nexa_dev_protocol::TargetPlatform, nexa_dev_ir::DevModule)>, String> {
+    let targets: &[Target] = match platform {
+        "ios" => &[Target::Swift],
+        "android" => &[Target::Kotlin],
+        "all" => &[Target::Swift, Target::Kotlin],
+        value => return Err(format!("unknown platform `{value}`")),
+    };
+    let project_root = entry.parent().unwrap_or_else(|| Path::new("."));
+    let config_path = project_root.join("nexa.config.nx");
+    let dependencies = config::load_plugin_dependencies(&config_path)?;
+    let resolved = crate::dependencies::resolve(project_root, &dependencies)?;
+    let compilations = compiler
+        .compile_file_with_warnings_for_targets_and_plugin_roots(
+            entry,
+            targets,
+            &resolved.plugin_roots,
+        )
+        .map_err(|error| error.to_string())?;
+    let sorted_roots = resolved
+        .plugin_roots
+        .iter()
+        .map(|(id, path)| (id.clone(), path.clone()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    targets
+        .iter()
+        .copied()
+        .zip(compilations)
+        .map(|(target, compilation)| {
+            let platform = match target {
+                Target::Swift => nexa_dev_protocol::TargetPlatform::Ios,
+                Target::Kotlin => nexa_dev_protocol::TargetPlatform::Android,
+                Target::All => unreachable!("dev compiler targets are concrete"),
+            };
+            for warning in &compilation.warnings {
+                eprintln!("{warning}");
+            }
+            let cache_target = match target {
+                Target::Swift => "dev-ios",
+                Target::Kotlin => "dev-android",
+                Target::All => unreachable!("dev compiler targets are concrete"),
+            };
+            let revision = cache::key_with_extra_and_roots(
+                entry,
+                cache_target,
+                &[config_path.as_path()],
+                &sorted_roots,
+            )
+            .map_err(|error| format!("dev revision: {error}"))?;
+            Ok((platform, nexa_dev_ir::lower(&compilation.module, revision)))
+        })
+        .collect()
+}
+
 fn source_manifest(root: &Path, app_name: &str, targets: &[&str]) -> Result<String, String> {
     let mut units = Vec::new();
     for target in targets {
@@ -237,6 +432,9 @@ fn source_manifest(root: &Path, app_name: &str, targets: &[&str]) -> Result<Stri
         };
         let mut files = Vec::new();
         collect_source_units(&directory, root, &mut files)?;
+        if *target == "android" {
+            collect_source_units(&root.join("android/app/src/debug"), root, &mut files)?;
+        }
         files.sort();
         for file in files {
             units.push(format!(
@@ -392,34 +590,72 @@ fn generate_ios(
     app_name: &str,
     module: &Module,
     config: &ProjectConfig,
+    dev_session: Option<&DevSessionConfig>,
 ) -> Result<(), String> {
     let directory = root.join("ios").join(app_name);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
-    let screen = nexa_codegen::names::screen_name(app_name);
+    let screen = nexa_codegen::names::screen_name(&module.app_name);
     let source = ios_generated_source(module, config)?;
     let source_units = split_generated_units(&source, "swift");
-    let has_assets = plugins::copy_plugin_assets(root, app_name, module)?;
+    copy_config_icons(root, app_name, config)?;
+    let ios_icon = config.ios_icon.as_ref().or(config.icon_source.as_ref());
+    let has_assets = plugins::copy_plugin_assets(root, app_name, module)?
+        || ios_icon
+            .is_some_and(|path| path.is_dir() || path.extension().is_some_and(|ext| ext != "icon"))
+        || config.splash_source.is_some();
     let plugin_sources = plugins::copy_ios_plugin_sources(root, app_name, module)?;
     let cpp_sources = plugins::copy_ios_plugin_cpp_sources(root, app_name, module)?;
     let xcframeworks = plugins::copy_ios_plugin_artifacts(root, app_name, module)?;
     let has_plugin_resources = plugins::copy_ios_plugin_resources(root, app_name, module)?;
-    let generated_names = source_units
+    let mut generated_names = source_units
         .iter()
         .map(|(name, contents)| {
             write_if_changed(&directory.join(name), contents)?;
             Ok(name.clone())
         })
         .collect::<Result<Vec<_>, String>>()?;
+    if dev_session.is_some() {
+        write_if_changed(
+            &directory.join("NexaDevRuntime.swift"),
+            include_str!("../../../runtime/ios/NexaDevRuntime.swift"),
+        )?;
+        generated_names.push("NexaDevRuntime.swift".to_owned());
+    } else {
+        let runtime = directory.join("NexaDevRuntime.swift");
+        if runtime.is_file() {
+            fs::remove_file(&runtime).map_err(|error| format!("{}: {error}", runtime.display()))?;
+        }
+    }
     remove_stale_generated_units(&directory, &generated_names, "swift")?;
+    let app_root = if let Some(dev_session) = dev_session {
+        format!(
+            "NexaDevRuntimeRoot(serverURL: \"{}\", sessionToken: \"{}\")",
+            swift_escape(&dev_session.server_url),
+            swift_escape(&dev_session.session_token)
+        )
+    } else {
+        format!("{screen}()")
+    };
     write_if_changed(
         &directory.join(format!("{app_name}App.swift")),
         &format!(
-            "import SwiftUI\n\n@main\nstruct {app_name}App: App {{\n    var body: some Scene {{\n        WindowGroup {{\n            {screen}()\n        }}\n    }}\n}}\n"
+            "import SwiftUI\n\n@main\nstruct {app_name}App: App {{\n    var body: some Scene {{\n        WindowGroup {{\n            {app_root}\n        }}\n    }}\n}}\n"
         ),
     )?;
+    if config.splash_source.is_some() {
+        write_if_changed(
+            &directory.join("LaunchScreen.storyboard"),
+            &templates::ios_launch_storyboard(),
+        )?;
+    }
     write_if_changed(
         &directory.join("Info.plist"),
-        &templates::ios_info_plist(app_name, config, &module.plugins)?,
+        &templates::ios_info_plist_with_dev_runtime(
+            app_name,
+            config,
+            &module.plugins,
+            dev_session.is_some(),
+        )?,
     )?;
     let entitlements_path = directory.join("Nexa.entitlements");
     if let Some(entitlements) = templates::ios_entitlements(&module.plugins)? {
@@ -458,21 +694,26 @@ fn generate_android(
     app_name: &str,
     module: &Module,
     config: &ProjectConfig,
+    dev_session: Option<&DevSessionConfig>,
 ) -> Result<(), String> {
-    let package = package_name(app_name);
+    let package = config.android_application_id.clone();
     let package_path = package.replace('.', "/");
     let source_dir = root.join("android/app/src/main/java").join(&package_path);
     fs::create_dir_all(&source_dir)
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
     let (generated, mut project_features) = KotlinBackend.generate_with_project_features(module);
+    // The debug runtime contains a generic Navigation Compose host even when
+    // the app's own tree does not currently declare navigation.
+    project_features.uses_navigation |= dev_session.is_some();
     let (plugin_packages, plugin_uses_coroutines) =
         plugins::copy_android_plugin_sources(root, module, &package, config)?;
     project_features.uses_coroutines |= plugin_uses_coroutines;
     plugins::copy_android_plugin_cpp_sources(root, module, &package)?;
     let local_aars = plugins::copy_android_plugin_artifacts(root, module)?;
     plugins::copy_android_plugin_resources(root, module)?;
+    copy_config_icons(root, app_name, config)?;
     plugins::copy_plugin_assets(root, app_name, module)?;
-    let screen = nexa_codegen::names::screen_name(app_name);
+    let screen = nexa_codegen::names::screen_name(&module.app_name);
     let cronet_import = if project_features.uses_network {
         "import com.google.android.gms.net.CronetProviderInstaller\n"
     } else {
@@ -485,6 +726,16 @@ fn generate_android(
         )
     } else {
         format!("        setContent {{ MaterialTheme {{ {screen}() }} }}\n")
+    };
+    let splash_install = if config.splash_source.is_some() {
+        "        installSplashScreen()\n"
+    } else {
+        ""
+    };
+    let splash_import = if config.splash_source.is_some() {
+        "import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen\n"
+    } else {
+        ""
     };
     let plugin_imports = plugin_packages
         .iter()
@@ -508,10 +759,34 @@ fn generate_android(
         write_if_changed(&source_dir.join(name), &contents)?;
     }
     remove_stale_generated_units(&source_dir, &generated_names, "kt")?;
+    if dev_session.is_some() {
+        let runtime = include_str!("../../../runtime/android/NexaDevRuntime.kt")
+            .replace("__NEXA_PACKAGE__", &package);
+        write_if_changed(&source_dir.join("NexaDevRuntime.kt"), &runtime)?;
+    } else {
+        let runtime = source_dir.join("NexaDevRuntime.kt");
+        if runtime.is_file() {
+            fs::remove_file(&runtime).map_err(|error| format!("{}: {error}", runtime.display()))?;
+        }
+    }
+    let compose_root = if let Some(dev_session) = dev_session {
+        format!(
+            "NexaDevRuntimeRoot(serverURL = \"{}\", sessionToken = \"{}\")",
+            kotlin_escape(&dev_session.server_url),
+            kotlin_escape(&dev_session.session_token)
+        )
+    } else {
+        format!("{screen}()")
+    };
+    let activity_content = if dev_session.is_some() {
+        format!("        setContent {{ MaterialTheme {{ {compose_root} }} }}\n")
+    } else {
+        content_setup
+    };
     write_if_changed(
         &source_dir.join("MainActivity.kt"),
         &format!(
-            "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{cronet_import}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n        super.onCreate(savedInstanceState)\n{content_setup}    }}\n{permission_callback}}}\n"
+            "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{splash_import}{cronet_import}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n{activity_content}    }}\n{permission_callback}}}\n"
         ),
     )?;
     write_if_changed(
@@ -524,6 +799,16 @@ fn generate_android(
             &module.plugins,
         ),
     )?;
+    let debug_manifest = root.join("android/app/src/debug/AndroidManifest.xml");
+    if dev_session.is_some() {
+        write_if_changed(
+            &debug_manifest,
+            "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><uses-permission android:name=\"android.permission.INTERNET\"/><application android:usesCleartextTraffic=\"true\"/></manifest>\n",
+        )?;
+    } else if debug_manifest.is_file() {
+        fs::remove_file(&debug_manifest)
+            .map_err(|error| format!("{}: {error}", debug_manifest.display()))?;
+    }
     write_if_changed(
         &root.join("android/settings.gradle.kts"),
         &templates::android_settings(app_name, &module.plugins),
@@ -535,6 +820,24 @@ fn generate_android(
     write_if_changed(
         &root.join("android/gradle.properties"),
         &templates::android_properties(),
+    )?;
+    write_if_changed(
+        &root.join("android/gradle/wrapper/gradle-wrapper.properties"),
+        &templates::android_gradle_wrapper_properties(),
+    )?;
+    let wrapper_jar = root.join("android/gradle/wrapper/gradle-wrapper.jar");
+    write_bytes_if_changed(&wrapper_jar, templates::ANDROID_GRADLE_WRAPPER_JAR)?;
+    let gradlew = root.join("android/gradlew");
+    write_if_changed(&gradlew, templates::ANDROID_GRADLEW)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&gradlew, fs::Permissions::from_mode(0o755))
+            .map_err(|error| format!("{}: {error}", gradlew.display()))?;
+    }
+    write_if_changed(
+        &root.join("android/gradlew.bat"),
+        templates::ANDROID_GRADLEW_BAT,
     )?;
     write_if_changed(
         &root.join("android/app/build.gradle.kts"),
@@ -550,6 +853,99 @@ fn generate_android(
         &root.join("android/app/proguard-rules.pro"),
         &plugins::android_plugin_proguard_rules(module, &package)?,
     )?;
+    Ok(())
+}
+
+fn copy_config_icons(root: &Path, app_name: &str, config: &ProjectConfig) -> Result<(), String> {
+    let ios_source = config.ios_icon.as_ref().or(config.icon_source.as_ref());
+    if let Some(source) = ios_source {
+        if source.is_dir() {
+            copy_directory_contents(
+                source,
+                &root
+                    .join("ios")
+                    .join(app_name)
+                    .join("Assets.xcassets/AppIcon.appiconset"),
+            )?;
+        } else if source
+            .extension()
+            .is_some_and(|extension| extension == "icon")
+        {
+            let destination = root.join("ios").join(app_name).join("AppIcon.icon");
+            fs::copy(source, &destination)
+                .map_err(|error| format!("{}: {error}", destination.display()))?;
+        } else {
+            assets::generate_ios_icon(source, root, app_name)?;
+        }
+    }
+    let android_source = config.android_icon.as_ref().or(config.icon_source.as_ref());
+    if let Some(source) = android_source {
+        if source.is_dir() {
+            copy_directory_contents(source, &root.join("android/app/src/main/res"))?;
+        } else {
+            assets::generate_android_icon(source, root)?;
+        }
+    }
+    if let Some(splash) = &config.splash_source {
+        generate_splash(splash, root, app_name)?;
+    }
+    Ok(())
+}
+
+fn generate_splash(source: &Path, root: &Path, app_name: &str) -> Result<(), String> {
+    let image = image::open(source).map_err(|error| format!("{}: {error}", source.display()))?;
+    let ios = root
+        .join("ios")
+        .join(app_name)
+        .join("Assets.xcassets/NexaSplash.imageset");
+    fs::create_dir_all(&ios).map_err(|error| error.to_string())?;
+    image
+        .save(ios.join("NexaSplash.png"))
+        .map_err(|error| error.to_string())?;
+    write_if_changed(
+        &ios.join("Contents.json"),
+        "{\"images\":[{\"filename\":\"NexaSplash.png\",\"idiom\":\"universal\"}],\"info\":{\"author\":\"xcode\",\"version\":1}}\n",
+    )?;
+    let android = root.join("android/app/src/main/res/drawable-nodpi");
+    fs::create_dir_all(&android).map_err(|error| error.to_string())?;
+    image
+        .save(android.join("nexa_splash.png"))
+        .map_err(|error| error.to_string())?;
+    write_if_changed(
+        &root.join("android/app/src/main/res/values/nexa_splash_theme.xml"),
+        "<resources><style name=\"NexaSplashTheme\" parent=\"Theme.SplashScreen\"><item name=\"windowSplashScreenBackground\">#FFFFFFFF</item><item name=\"windowSplashScreenAnimatedIcon\">@drawable/nexa_splash</item><item name=\"postSplashScreenTheme\">@android:style/Theme.Material.Light.NoActionBar</item></style></resources>\n",
+    )?;
+    Ok(())
+}
+
+fn copy_directory_contents(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir_all(destination)
+        .map_err(|error| format!("{}: {error}", destination.display()))?;
+    for entry in fs::read_dir(source).map_err(|error| format!("{}: {error}", source.display()))? {
+        let entry = entry.map_err(|error| format!("{}: {error}", source.display()))?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        let metadata = fs::symlink_metadata(&source_path)
+            .map_err(|error| format!("{}: {error}", source_path.display()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!(
+                "icon resources cannot contain symlinks: {}",
+                source_path.display()
+            ));
+        }
+        if metadata.is_dir() {
+            copy_directory_contents(&source_path, &destination_path)?;
+        } else if metadata.is_file() {
+            if !destination_path.is_file()
+                || fs::read(&source_path)
+                    .map_err(|error| format!("{}: {error}", source_path.display()))?
+                    != fs::read(&destination_path).unwrap_or_default()
+            {
+                fs::copy(&source_path, &destination_path)
+                    .map_err(|error| format!("{}: {error}", destination_path.display()))?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -590,6 +986,16 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {
     fs::write(path, contents).map_err(|error| format!("{}: {error}", path.display()))
 }
 
+fn write_bytes_if_changed(path: &Path, contents: &[u8]) -> Result<(), String> {
+    if path.is_file() && fs::read(path).ok().as_deref() == Some(contents) {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+    }
+    fs::write(path, contents).map_err(|error| format!("{}: {error}", path.display()))
+}
+
 fn type_name(value: &str) -> String {
     let mut result = String::new();
     for character in value.chars() {
@@ -603,14 +1009,20 @@ fn type_name(value: &str) -> String {
     result
 }
 
-fn package_name(app_name: &str) -> String {
-    format!(
-        "com.nexa.{}",
-        app_name.to_ascii_lowercase().replace('_', "")
-    )
-}
 fn json_escape(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn swift_escape(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+fn kotlin_escape(value: &str) -> String {
+    swift_escape(value)
 }
 
 fn source_app_name(path: &Path) -> Option<String> {
@@ -626,6 +1038,7 @@ fn project_cache_is_current(
     app_name: &str,
     target: ProjectTarget,
     cache_key: &str,
+    config: &ProjectConfig,
 ) -> bool {
     let Ok(manifest) = fs::read_to_string(output.join("nexa.project.json")) else {
         return false;
@@ -634,9 +1047,6 @@ fn project_cache_is_current(
         return false;
     }
     if !output.join("README.md").is_file() {
-        return false;
-    }
-    if !output.join("nexa.config.nx").is_file() {
         return false;
     }
     if !output.join("nexa.sources.json").is_file() {
@@ -665,7 +1075,7 @@ fn project_cache_is_current(
         }
     }
     if needs_android {
-        let package = package_name(app_name);
+        let package = &config.android_application_id;
         let package_path = package.replace('.', "/");
         for path in [
             output
@@ -680,6 +1090,10 @@ fn project_cache_is_current(
             output.join("android/build.gradle.kts"),
             output.join("android/settings.gradle.kts"),
             output.join("android/gradle.properties"),
+            output.join("android/gradlew"),
+            output.join("android/gradlew.bat"),
+            output.join("android/gradle/wrapper/gradle-wrapper.jar"),
+            output.join("android/gradle/wrapper/gradle-wrapper.properties"),
             output.join("android/app/proguard-rules.pro"),
             output.join("android/app/src/main/AndroidManifest.xml"),
         ] {

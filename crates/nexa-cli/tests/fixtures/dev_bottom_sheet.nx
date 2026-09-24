@@ -1,0 +1,20 @@
+app BottomSheetSmoke {
+    state showSheet: Bool = false
+
+    body {
+        Column {
+            Text("Bottom sheet smoke")
+            Button("Open sheet") {
+                showSheet = true
+            }
+            BottomSheet(isPresented: showSheet, partial: true) {
+                Column {
+                    Text("Sheet content")
+                    Button("Close sheet") {
+                        showSheet = false
+                    }
+                }
+            }
+        }
+    }
+}

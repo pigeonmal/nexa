@@ -1,0 +1,21 @@
+app NavigationReloadSmoke {
+    screen Home {
+        Column {
+            Text("Home Screen")
+            NavigationLink(destination: Details) {
+                Text("Open Details")
+            }
+        }
+    }
+
+    screen Details {
+        Column {
+            Text("Details Screen")
+            NavigationBack(label: "Go Home")
+        }
+    }
+
+    body {
+        NavigationStack(root: Home)
+    }
+}

@@ -1,0 +1,9 @@
+app StateReloadSmoke {
+    state count = 7
+
+    body {
+        Column {
+            Text("Count: $count")
+        }
+    }
+}

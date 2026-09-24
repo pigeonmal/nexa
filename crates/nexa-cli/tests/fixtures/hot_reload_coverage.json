@@ -1,0 +1,1091 @@
+{
+  "schema_version": 1,
+  "source": "../nexa-ir/src/lib.rs",
+  "ir_variants": {
+    "PluginEntitlementValue": [
+      {
+        "name": "String",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Bool",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Strings",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "Permission": [
+      {
+        "name": "Camera",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Microphone",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Photos",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Location",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Notifications",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Contacts",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Calendar",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Bluetooth",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "NumericType": [
+      {
+        "name": "Int8",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Int16",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Int32",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Int64",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "UInt8",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "UInt16",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "UInt32",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "UInt64",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Float32",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Float64",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "HapticStyle": [
+      {
+        "name": "Light",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Medium",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Heavy",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "KeyboardDismissMode": [
+      {
+        "name": "Interactive",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Never",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "DirectionStyle": [
+      {
+        "name": "Ltr",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Rtl",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "StatusBarStyle": [
+      {
+        "name": "Default",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Light",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Dark",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "Type": [
+      {
+        "name": "Void",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "String",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Bool",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Numeric",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Optional",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Result",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Array",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Set",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Map",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Pair",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Triple",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Enum",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Plugin",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "NetworkResponse",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Struct",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "Expr": [
+      {
+        "name": "String",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Interpolation",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Bool",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Number",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "State",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "EnumValue",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Add",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Not",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Binary",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Contains",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Array",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Set",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Map",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Pair",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Triple",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Call",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "CollectionTransform",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Closure",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "NativeCall",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Index",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Member",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Range",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Null",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Coalesce",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Await",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "TryAwait",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "ResultOk",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "ResultErr",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Try",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "IsRegularWidth",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "IsCompactWidth",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "IsRegularHeight",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "IsCompactHeight",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "CollectionTransform": [
+      {
+        "name": "Map",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Filter",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Reduce",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "InterpolatedPart": [
+      {
+        "name": "Literal",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Value",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "BinaryOp": [
+      {
+        "name": "And",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Or",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Contains",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Equal",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "NotEqual",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Less",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "LessEqual",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Greater",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "GreaterEqual",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "Node": [
+      {
+        "name": "StatusBar",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Direction",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "OnAppear",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "OnDisappear",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "OnActive",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "OnInactive",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "OnBackground",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Layout",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Text",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Button",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "TextInput",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Switch",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Image",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Pressable",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NavigationStack",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NavigationLink",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NavigationBack",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Link",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Accessibility",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "KeyboardAware",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "BottomSheet",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "RefreshControl",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "AppBottomBar",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "FastList",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "If",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "When",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Content",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "ComponentCall",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "NativeComponentCall",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "AccessibilityRole": [
+      {
+        "name": "None",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Button",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Link",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Header",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Image",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "ListSource": [
+      {
+        "name": "Count",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Items",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Sections",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "ListAxis": [
+      {
+        "name": "Vertical",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Horizontal",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Grid",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "LayoutKind": [
+      {
+        "name": "Column",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Row",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Stack",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "KeyboardType": [
+      {
+        "name": "Text",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Number",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Email",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Phone",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Url",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "Capitalization": [
+      {
+        "name": "None",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Sentences",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Words",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Characters",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "ImageScale": [
+      {
+        "name": "Fit",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Fill",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "ImageSource": [
+      {
+        "name": "Asset",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "RemoteUrl",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "AnimationSpec": [
+      {
+        "name": "Spring",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "EaseIn",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "EaseOut",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "EaseInOut",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Linear",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "Alignment": [
+      {
+        "name": "Start",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Center",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "End",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "ColorValue": [
+      {
+        "name": "Static",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Adaptive",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "FontWeight": [
+      {
+        "name": "Normal",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Medium",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Semibold",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Bold",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "Action": [
+      {
+        "name": "Expression",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Assign",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NativePropertyAssign",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "NativeEventSubscribe",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "CollectionMutation",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "If",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "For",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "ForMap",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "While",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "TryCatch",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Break",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "Continue",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ],
+    "CollectionMutation": [
+      {
+        "name": "ArrayAppend",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "ArrayRemoveAt",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "SetInsert",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "SetRemove",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "MapSet",
+        "ios": "pending",
+        "android": "pending"
+      },
+      {
+        "name": "MapRemove",
+        "ios": "pending",
+        "android": "pending"
+      }
+    ]
+  },
+  "runtime_scenarios": {
+    "hot_reload_add_edit_remove": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "compatible_state_preserved": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "incompatible_state_reset": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "navigation_restored": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "list_position_restored": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "input_focus_restored": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "updated_actions_and_functions": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "diagnostics_keep_last_good_and_recover": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "hot_restart_resets_state": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "native_changes_rebuild_host": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "unauthorized_session_rejected": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "bottom_sheet_renders_and_hot_reloads": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "bottom_bar_selection_and_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "switch_renders_and_hot_reloads": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "pressable_actions_and_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "link_renders_and_hot_reloads": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "conditional_branch_updates": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "when_case_updates": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "host_app_metadata_rebuilds": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "permission_changes_rebuild_host": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "native_plugin_source_and_interface_rebuild": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "plugin_dependency_change_rebuilds_host": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "performance_overlay_shortcut": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "fast_list_count_renders_and_hot_reloads": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "updated_functions_after_reload": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "direction_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "status_bar_visibility_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "accessibility_label_and_role_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "stack_centered_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "fast_list_axes_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "fast_list_items_source_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
+    }
+  }
+}

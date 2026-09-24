@@ -1,0 +1,11 @@
+app FunctionReloadSmoke {
+    state base: Int32 = 10
+
+    fn bumped(value: Int32) -> Int32 {
+        return value + 1
+    }
+
+    body {
+        Text(bumped(base))
+    }
+}

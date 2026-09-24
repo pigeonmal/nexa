@@ -33,7 +33,7 @@ app DemoApp {
 
     body {
         Column {
-            Text("Result: ${result}")
+            Text("Result: $result")
             Button("Compute C++") {
                 result = FastMath.add(10, 20)
             }

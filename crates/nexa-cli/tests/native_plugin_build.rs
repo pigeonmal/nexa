@@ -23,23 +23,8 @@ impl TempProject {
         let output = self.0.join("Generated");
         let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../examples/plugins/video-player-demo.nx");
-        let result = Command::new(env!("CARGO_BIN_EXE_nexa"))
-            .arg("generate")
-            .arg(entry)
-            .arg("--target")
-            .arg(target)
-            .arg("--out")
-            .arg(&output)
-            .arg("--name")
-            .arg("NexaPluginBuildTest")
-            .output()
-            .expect("Nexa CLI should start");
-        assert!(
-            result.status.success(),
-            "Nexa project generation failed:\n{}\n{}",
-            String::from_utf8_lossy(&result.stdout),
-            String::from_utf8_lossy(&result.stderr)
-        );
+        nexa_cli::generate_project(&entry, target, &output, "NexaPluginBuildTest")
+            .expect("Nexa project generation should succeed");
         output
     }
 }
@@ -48,6 +33,32 @@ impl Drop for TempProject {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+fn generate_project(entry: &Path, target: &str, output: &Path, name: &str) {
+    nexa_cli::generate_project(entry, target, output, name)
+        .unwrap_or_else(|error| panic!("Nexa project generation failed:\n{error}"));
+}
+
+fn generate_plugin_contract(contract: &Path, target: &str, package: Option<&str>, output: &Path) {
+    let parsed = nexa_plugin_idl::parse_file(contract).expect("plugin IDL should parse");
+    let plugin_manifest = nexa_plugin_idl::manifest::parse_file(
+        &contract
+            .parent()
+            .expect("plugin contract should have a package directory")
+            .join("plugin.config.nx"),
+    )
+    .expect("plugin manifest should parse");
+    let source = match target {
+        "swift" => nexa_codegen::plugin::render_swift(&parsed),
+        "kotlin" => nexa_codegen::plugin::render_kotlin(
+            &parsed,
+            package.unwrap_or("com.nexa.plugin.generated"),
+        ),
+        "cpp" => nexa_codegen::plugin::render_cpp(&parsed, &plugin_manifest.id),
+        _ => panic!("unsupported plugin contract target `{target}`"),
+    };
+    fs::write(output, source).expect("generated plugin binding should be written");
 }
 
 fn command_available(program: &str, args: &[&str]) -> bool {
@@ -577,57 +588,50 @@ fn type_matrix_swift_probe() -> String {
             ty.swift_value
         };
         source.push_str(&format!(
-            "    _ = api.echo{0}(value: {1})\n    _ = api.maybe{0}(value: {1})\n    _ = api.maybe{0}(value: nil)\n    _ = api.echoArray{0}(values: [{1}])\n    _ = api.echoNestedArray{0}(values: [[{1}], [], [{1}]])\n",
+            "    _ = api.echo{0}({1})\n    _ = api.maybe{0}({1})\n    _ = api.maybe{0}(nil)\n    _ = api.echoArray{0}([{1}])\n    _ = api.echoNestedArray{0}([[{1}], [], [{1}]])\n",
             ty.suffix, value
         ));
         if !matches!(ty.idl, "Float32" | "Float64" | "String" | "Bytes") {
             source.push_str(&format!(
-                "    _ = api.echoMap{0}(values: [{1}: {1}])\n",
+                "    _ = api.echoMap{0}([{1}: {1}])\n",
                 ty.suffix, value
             ));
             source.push_str(&format!(
-                "    _ = api.echoSet{0}(values: Set([{1}]))\n",
+                "    _ = api.echoSet{0}(Set([{1}]))\n",
                 ty.suffix, value
             ));
         }
     }
     source.push_str(
-        "    _ = api.echoMapFloat32(values: [false: 1.25])\n    _ = api.echoMapFloat64(values: [-1: 2.5])\n    _ = api.echoMapString(values: [-2: \"Nexa\"])\n    _ = api.echoBytesMap(values: [1: bytes])\n    _ = api.echoArrayMap(values: [1: [Int32.min, 0, Int32.max], 2: []])\n    _ = api.echoStringArrayMap(values: [1: [\"\", \"Nexa 🚀\"], 2: []])\n    _ = api.echoBytesArrayMap(values: [1: [Data([0, 255]), Data()], 2: []])\n    _ = api.echoSetMap(values: [1: Set([UInt32.min, UInt32.max])])\n    _ = api.echoArraySet(values: [Set([UInt32.min, UInt32.max]), []])\n",
+        "    _ = api.echoMapFloat32([false: 1.25])\n    _ = api.echoMapFloat64([-1: 2.5])\n    _ = api.echoMapString([-2: \"Nexa\"])\n    _ = api.echoBytesMap([1: bytes])\n    _ = api.echoArrayMap([1: [Int32.min, 0, Int32.max], 2: []])\n    _ = api.echoStringArrayMap([1: [\"\", \"Nexa 🚀\"], 2: []])\n    _ = api.echoBytesArrayMap([1: [Data([0, 255]), Data()], 2: []])\n    _ = api.echoSetMap([1: Set([UInt32.min, UInt32.max])])\n    _ = api.echoArraySet([Set([UInt32.min, UInt32.max]), []])\n",
     );
     source.push_str(
-        "    _ = api.echoMediaMode(value: .playing)\n    let mediaStats = MediaStats(frameCount: Int32.max, active: true, title: text, payload: bytes, mode: .playing)\n    _ = api.echoMediaStats(value: mediaStats)\n",
+        "    _ = api.echoMediaMode(.playing)\n    let mediaStats = MediaStats(frameCount: Int32.max, active: true, title: text, payload: bytes, mode: .playing)\n    _ = api.echoMediaStats(mediaStats)\n",
     );
-    source.push_str("    _ = api.echoNestedArrayMap(values: [1: [[Int32.min, Int32.max], []]])\n");
+    source.push_str("    _ = api.echoNestedArrayMap([1: [[Int32.min, Int32.max], []]])\n");
     source.push_str("}\n");
     source
 }
 
 #[test]
-fn static_audit_reports_native_release_sizes_as_unmeasured_without_the_flag() {
-    let temp = TempProject::new("audit-static");
-    fs::create_dir_all(&temp.0).expect("temporary audit directory should be created");
+fn check_validates_a_project_without_native_build_tools() {
+    let temp = TempProject::new("check-static");
+    fs::create_dir_all(&temp.0).expect("temporary project directory should be created");
     let entry = temp.0.join("main.nx");
-    fs::write(&entry, "app AuditSample { body { Text(\"Audit\") } }\n")
-        .expect("audit entry should be written");
-    let report_path = temp.0.join("audit.json");
-    let audit = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("audit")
-        .arg(&entry)
-        .args(["--target", "android", "--out"])
-        .arg(&report_path)
+    fs::write(&entry, "app CheckSample { body { Text(\"Check\") } }\n")
+        .expect("project entry should be written");
+    let checked = Command::new(env!("CARGO_BIN_EXE_nexa"))
+        .args(["check", "--android"])
+        .current_dir(&temp.0)
         .output()
         .expect("Nexa CLI should start");
     assert!(
-        audit.status.success(),
-        "static audit should succeed without native build tools:\n{}\n{}",
-        String::from_utf8_lossy(&audit.stdout),
-        String::from_utf8_lossy(&audit.stderr)
+        checked.status.success(),
+        "project check should succeed without native build tools:\n{}\n{}",
+        String::from_utf8_lossy(&checked.stdout),
+        String::from_utf8_lossy(&checked.stderr)
     );
-    let report = fs::read_to_string(report_path).expect("audit report should be written");
-    assert!(report.contains("\"format\": 2"));
-    assert!(report.contains("\"generatedSourceBytes\":"));
-    assert!(report.contains("\"releaseMeasurements\": null"));
-    assert!(!report.contains("\"nativeBinaryBytes\""));
+    assert!(String::from_utf8_lossy(&checked.stdout).contains("check passed (android)"));
 }
 
 #[test]
@@ -666,20 +670,7 @@ fn generated_typed_error_contracts_typecheck_with_swift_when_available() {
     .expect("temporary IDL should be written");
 
     let bindings = temp.0.join("NexaPluginBindings.swift");
-    let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("plugin")
-        .arg("generate")
-        .arg(&contract)
-        .args(["--target", "swift", "--out"])
-        .arg(&bindings)
-        .output()
-        .expect("Nexa CLI should start");
-    assert!(
-        generated.status.success(),
-        "Swift contract generation failed:\n{}\n{}",
-        String::from_utf8_lossy(&generated.stdout),
-        String::from_utf8_lossy(&generated.stderr)
-    );
+    generate_plugin_contract(&contract, "swift", None, &bindings);
     let generated_source =
         fs::read_to_string(&bindings).expect("generated Swift contract should be readable");
     assert!(
@@ -764,26 +755,7 @@ native class VideoPlayer {
     .expect("native contract should be written");
 
     let bindings = temp.0.join("NexaPluginBindings.kt");
-    let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("plugin")
-        .arg("generate")
-        .arg(&contract)
-        .args([
-            "--target",
-            "kotlin",
-            "--package",
-            "dev.example.video",
-            "--out",
-        ])
-        .arg(&bindings)
-        .output()
-        .expect("Nexa CLI should start");
-    assert!(
-        generated.status.success(),
-        "Kotlin contract generation failed:\n{}\n{}",
-        String::from_utf8_lossy(&generated.stdout),
-        String::from_utf8_lossy(&generated.stderr)
-    );
+    generate_plugin_contract(&contract, "kotlin", Some("dev.example.video"), &bindings);
     let generated_source =
         fs::read_to_string(&bindings).expect("generated Kotlin contract should be readable");
     assert!(
@@ -871,20 +843,7 @@ native class VideoPlayer {
     .expect("native contract should be written");
 
     let header = temp.0.join("NexaPluginBindings.hpp");
-    let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("plugin")
-        .arg("generate")
-        .arg(&contract)
-        .args(["--target", "cpp", "--out"])
-        .arg(&header)
-        .output()
-        .expect("Nexa CLI should start");
-    assert!(
-        generated.status.success(),
-        "C++ contract generation failed:\n{}\n{}",
-        String::from_utf8_lossy(&generated.stdout),
-        String::from_utf8_lossy(&generated.stderr)
-    );
+    generate_plugin_contract(&contract, "cpp", None, &header);
     let generated_header =
         fs::read_to_string(&header).expect("generated C++ contract should be readable");
     assert!(generated_header.contains("virtual double getVolume() const noexcept = 0;"));
@@ -1003,21 +962,7 @@ fn generated_network_certificate_pinning_compiles_for_ios_when_xcode_is_availabl
 "#,
     )
     .expect("network pinning test app should be written");
-    let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("generate")
-        .arg(entry)
-        .args(["--target", "ios", "--out"])
-        .arg(&output)
-        .arg("--name")
-        .arg("NexaNetworkPinTest")
-        .output()
-        .expect("Nexa CLI should start");
-    assert!(
-        generated.status.success(),
-        "network-pinning test project generation failed:\n{}\n{}",
-        String::from_utf8_lossy(&generated.stdout),
-        String::from_utf8_lossy(&generated.stderr)
-    );
+    generate_project(&entry, "ios", &output, "NexaNetworkPinTest");
     let generated_swift = source_text_containing(
         &output.join("ios"),
         "swift",
@@ -1155,21 +1100,7 @@ fn generated_android_pin_decoder_validates_spki_hex_when_kotlinc_is_available() 
     )
     .expect("network pin test app should be written");
     let output = temp.0.join("Generated");
-    let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("generate")
-        .arg(&entry)
-        .args(["--target", "android", "--out"])
-        .arg(&output)
-        .arg("--name")
-        .arg("NexaAndroidPinTest")
-        .output()
-        .expect("Nexa CLI should start");
-    assert!(
-        generated.status.success(),
-        "Android pin test project generation failed:\n{}\n{}",
-        String::from_utf8_lossy(&generated.stdout),
-        String::from_utf8_lossy(&generated.stderr)
-    );
+    generate_project(&entry, "android", &output, "NexaAndroidPinTest");
     let generated_kotlin = source_text_containing(
         &output.join("android"),
         "kt",
@@ -1387,21 +1318,7 @@ fn generated_projects_integrate_plugin_services_and_ios_entitlements() {
     )
     .expect("Nexa app should be written");
     let output = temp.0.join("Generated");
-    let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("generate")
-        .arg(&entry)
-        .args(["--target", "all", "--out"])
-        .arg(&output)
-        .arg("--name")
-        .arg("EntitlementTest")
-        .output()
-        .expect("Nexa CLI should start");
-    assert!(
-        generated.status.success(),
-        "iOS project generation failed:\n{}\n{}",
-        String::from_utf8_lossy(&generated.stdout),
-        String::from_utf8_lossy(&generated.stderr)
-    );
+    generate_project(&entry, "all", &output, "EntitlementTest");
 
     let entitlements = fs::read_to_string(output.join("ios/EntitlementTest/Nexa.entitlements"))
         .expect("generated entitlements file should exist");
@@ -1461,21 +1378,7 @@ fn generated_projects_integrate_plugin_services_and_ios_entitlements() {
 "#,
     )
     .expect("updated plugin manifest should be written");
-    let regenerated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("generate")
-        .arg(&entry)
-        .args(["--target", "all", "--out"])
-        .arg(&output)
-        .arg("--name")
-        .arg("EntitlementTest")
-        .output()
-        .expect("Nexa CLI should regenerate the project");
-    assert!(
-        regenerated.status.success(),
-        "iOS project regeneration failed:\n{}\n{}",
-        String::from_utf8_lossy(&regenerated.stdout),
-        String::from_utf8_lossy(&regenerated.stderr)
-    );
+    generate_project(&entry, "all", &output, "EntitlementTest");
     assert!(
         !output
             .join("ios/EntitlementTest/Nexa.entitlements")
@@ -1630,21 +1533,7 @@ int nexa_plugin_probe() { return details::value(); }
     )
     .expect("Nexa app should be written");
     let output = temp.0.join("Generated");
-    let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("generate")
-        .arg(&entry)
-        .args(["--target", "ios", "--out"])
-        .arg(&output)
-        .arg("--name")
-        .arg("CppPluginBuildTest")
-        .output()
-        .expect("Nexa CLI should start");
-    assert!(
-        generated.status.success(),
-        "iOS project generation failed:\n{}\n{}",
-        String::from_utf8_lossy(&generated.stdout),
-        String::from_utf8_lossy(&generated.stderr)
-    );
+    generate_project(&entry, "ios", &output, "CppPluginBuildTest");
     let project =
         fs::read_to_string(output.join("ios/CppPluginBuildTest.xcodeproj/project.pbxproj"))
             .expect("generated Xcode project should be readable");
@@ -1653,6 +1542,7 @@ int nexa_plugin_probe() { return details::value(); }
     assert!(project.contains("HEADER_SEARCH_PATHS"));
     assert!(project.contains("CLANG_CXX_LANGUAGE_STANDARD = \"c++23\""));
     assert!(project.contains("SWIFT_OBJC_INTEROP_MODE = objcxx"));
+    assert!(project.contains("IPHONEOS_DEPLOYMENT_TARGET = 16.4"));
     assert!(
         output
             .join("ios/CppPluginBuildTest/NexaPluginCpp/Plugin0/NexaPluginBindings.hpp")
@@ -1942,26 +1832,12 @@ std::unique_ptr<MeterSpec> makeMeterImpl(double initial, std::string label, std:
     let entry = temp.0.join("main.nx");
     fs::write(
         &entry,
-        "plugin \"cpp-plugin\" as Counter\napp Demo { body { Button(\"Increment\") { Counter.increment(value: 1) } } }\n",
+        "plugin \"cpp-plugin\" as Counter\napp Demo { body { Button(\"Increment\") { Counter.increment(1) } } }\n",
     )
     .expect("Nexa app should be written");
 
     let output = temp.0.join("Generated");
-    let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("generate")
-        .arg(&entry)
-        .args(["--target", "android", "--out"])
-        .arg(&output)
-        .arg("--name")
-        .arg("AndroidCppJniTest")
-        .output()
-        .expect("Nexa CLI should start");
-    assert!(
-        generated.status.success(),
-        "Android project generation failed:\n{}\n{}",
-        String::from_utf8_lossy(&generated.stdout),
-        String::from_utf8_lossy(&generated.stderr)
-    );
+    generate_project(&entry, "android", &output, "AndroidCppJniTest");
 
     let package = output.join("android/app/src/main/java/com/nexa/androidcppjnitest");
     let bindings = fs::read_to_string(package.join("NexaPlugin0_Bindings.kt"))
@@ -2477,20 +2353,7 @@ fn generated_cpp_native_classes_import_as_owned_swift_references_when_available(
     .expect("native contract should be written");
 
     let header = temp.0.join("NexaPluginBindings.hpp");
-    let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("plugin")
-        .arg("generate")
-        .arg(&contract)
-        .args(["--target", "cpp", "--out"])
-        .arg(&header)
-        .output()
-        .expect("Nexa CLI should start");
-    assert!(
-        generated.status.success(),
-        "C++ contract generation failed:\n{}\n{}",
-        String::from_utf8_lossy(&generated.stdout),
-        String::from_utf8_lossy(&generated.stderr)
-    );
+    generate_plugin_contract(&contract, "cpp", None, &header);
 
     let bridge = temp.0.join("Bridge.h");
     fs::write(&bridge, "#include \"NexaPluginBindings.hpp\"\n")
@@ -2530,21 +2393,7 @@ fn generated_ios_cpp_adapters_typecheck_primitive_nullable_and_collection_matrix
     let temp = TempProject::new("ios-cpp-type-matrix");
     let (entry, _) = type_matrix_plugin(&temp, false);
     let output = temp.0.join("Generated");
-    let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("generate")
-        .arg(&entry)
-        .args(["--target", "ios", "--out"])
-        .arg(&output)
-        .arg("--name")
-        .arg("CppTypeMatrix")
-        .output()
-        .expect("Nexa CLI should start");
-    assert!(
-        generated.status.success(),
-        "iOS type-matrix project generation failed:\n{}\n{}",
-        String::from_utf8_lossy(&generated.stdout),
-        String::from_utf8_lossy(&generated.stderr)
-    );
+    generate_project(&entry, "ios", &output, "CppTypeMatrix");
 
     let ios = output.join("ios/CppTypeMatrix");
     let generated_cpp = ios.join("NexaPluginCpp/Plugin0/cpp/Sources/Plugin.cpp");
@@ -2601,21 +2450,7 @@ fn generated_android_cpp_adapters_roundtrip_primitive_nullable_and_collection_ma
     let temp = TempProject::new("android-cpp-type-matrix");
     let (entry, _) = type_matrix_plugin(&temp, true);
     let output = temp.0.join("Generated");
-    let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .arg("generate")
-        .arg(&entry)
-        .args(["--target", "android", "--out"])
-        .arg(&output)
-        .arg("--name")
-        .arg("CppTypeMatrixAndroid")
-        .output()
-        .expect("Nexa CLI should start");
-    assert!(
-        generated.status.success(),
-        "Android type-matrix project generation failed:\n{}\n{}",
-        String::from_utf8_lossy(&generated.stdout),
-        String::from_utf8_lossy(&generated.stderr)
-    );
+    generate_project(&entry, "android", &output, "CppTypeMatrixAndroid");
 
     let package = output.join("android/app/src/main/java/com/nexa/cpptypematrixandroid");
     let bindings = package.join("NexaPlugin0_Bindings.kt");

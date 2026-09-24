@@ -1,0 +1,63 @@
+app IosInteractionSmoke {
+    state count: Int32 = 0
+    state taps: Int32 = 0
+
+    screen Home {
+        Column {
+            Text("Home Screen")
+            Row(spacing: 24) {
+                Text("Row Start")
+                Text("Row End")
+            }
+            Stack(alignment: Center) {
+                Text("Stack Underlay")
+                Text("Stack Overlay V1")
+            }
+            Accessibility(label: "Accessible Action V1", hint: "Screen reader hint", role: Button) {
+                Text("Accessible content")
+            }
+            Accessibility(label: "Accessible Link V1", role: Link) {
+                Text("Link content")
+            }
+            Accessibility(label: "Accessible Header V1", role: Header) {
+                Text("Header content")
+            }
+            Accessibility(label: "Accessible Image V1", role: Image) {
+                Text("Image content")
+            }
+            Accessibility(label: "Accessible Plain V1", role: None) {
+                Text("Plain content")
+            }
+            Text("Count: $count")
+            Button("Increment") {
+                count = count + 1
+            }
+            Text("Presses: $taps")
+            Pressable(disabled: false, haptic: Light) {
+                Text("Press me")
+            }.onPress {
+                taps = taps + 1
+            }
+            NavigationLink(destination: Details) {
+                Text("Open Details")
+            }
+        }
+    }
+
+    screen Details {
+        Column {
+            Text("Details V1")
+            Row(spacing: 24) {
+                Text("Row Start")
+                Text("Row End")
+            }
+            NavigationBack(label: "Go Home")
+        }
+    }
+
+    body {
+        StatusBar(style: Light, hidden: false, background: "#223344")
+        Direction(value: RTL)
+        NavigationStack(root: Home)
+    }
+}

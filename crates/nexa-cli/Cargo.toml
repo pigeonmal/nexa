@@ -9,10 +9,18 @@ name = "nexa"
 path = "src/main.rs"
 
 [dependencies]
+crossterm = "0.28"
 nexa-backend-kotlin = { path = "../nexa-backend-kotlin" }
 nexa-backend-swift = { path = "../nexa-backend-swift" }
 nexa-codegen = { path = "../nexa-codegen" }
 nexa-compiler = { path = "../nexa-compiler" }
+nexa-dev-ir = { path = "../nexa-dev-ir" }
+nexa-dev-protocol = { path = "../nexa-dev-protocol" }
+nexa-dev-server = { path = "../nexa-dev-server" }
 nexa-ir = { path = "../nexa-ir" }
 nexa-plugin-idl = { path = "../nexa-plugin-idl" }
 nexa-syntax = { path = "../nexa-syntax" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+
+[dev-dependencies]
+serde_json = "1"

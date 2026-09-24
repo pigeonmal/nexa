@@ -265,6 +265,9 @@ fn parses_postfix_try_propagation_operator() {
     assert_eq!(function.body.len(), 2);
     assert!(matches!(
         &function.body[0],
-        Stmt::Let { initial: Expr::Try { .. }, .. }
+        Stmt::Let {
+            initial: Expr::Try { .. },
+            ..
+        }
     ));
 }

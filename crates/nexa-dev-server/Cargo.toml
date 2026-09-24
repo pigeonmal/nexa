@@ -1,0 +1,15 @@
+[package]
+name = "nexa-dev-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nexa-dev-ir = { path = "../nexa-dev-ir" }
+nexa-dev-protocol = { path = "../nexa-dev-protocol" }
+tungstenite = "0.30"
+uuid = { version = "1", features = ["v4"] }
+serde_json = "1"
+
+[dev-dependencies]
+nexa-ir = { path = "../nexa-ir" }

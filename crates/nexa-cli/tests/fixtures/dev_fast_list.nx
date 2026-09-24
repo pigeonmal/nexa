@@ -1,0 +1,9 @@
+app FastListSmoke {
+    state scrollPosition: Int32 = 15
+
+    body {
+        FastList(count: 40, scrollPosition: scrollPosition, rowHeight: 44) { index in
+            Text("Item $index")
+        }
+    }
+}

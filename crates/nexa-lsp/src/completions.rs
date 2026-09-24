@@ -6,22 +6,74 @@ pub fn get_completions(_source: &str, _position: Position) -> Vec<CompletionItem
 
     // 1. Layout and UI Components
     let components = [
-        ("Column", "Vertical layout container with optional spacing", "Column(spacing: ${1:8}) {\n    $0\n}"),
-        ("Row", "Horizontal layout container with optional spacing", "Row(spacing: ${1:8}) {\n    $0\n}"),
-        ("Stack", "Overlapping layout container", "Stack {\n    $0\n}"),
-        ("VStack", "Vertical layout container alias", "Column(spacing: ${1:8}) {\n    $0\n}"),
-        ("HStack", "Horizontal layout container alias", "Row(spacing: ${1:8}) {\n    $0\n}"),
-        ("ZStack", "Overlapping layout container alias", "Stack {\n    $0\n}"),
+        (
+            "Column",
+            "Vertical layout container with optional spacing",
+            "Column(spacing: ${1:8}) {\n    $0\n}",
+        ),
+        (
+            "Row",
+            "Horizontal layout container with optional spacing",
+            "Row(spacing: ${1:8}) {\n    $0\n}",
+        ),
+        (
+            "Stack",
+            "Overlapping layout container",
+            "Stack {\n    $0\n}",
+        ),
+        (
+            "VStack",
+            "Vertical layout container alias",
+            "Column(spacing: ${1:8}) {\n    $0\n}",
+        ),
+        (
+            "HStack",
+            "Horizontal layout container alias",
+            "Row(spacing: ${1:8}) {\n    $0\n}",
+        ),
+        (
+            "ZStack",
+            "Overlapping layout container alias",
+            "Stack {\n    $0\n}",
+        ),
         ("Text", "Displays formatted text", "Text(\"${1:Label}\")"),
-        ("Button", "Interactive button with click action handler", "Button(\"${1:Title}\") {\n    $0\n}"),
-        ("TextField", "Text input control bound to mutable state", "TextField(text: ${1:binding}, placeholder: \"${2:Enter text}\")"),
-        ("Image", "Displays an asset or network image", "Image(\"${1:icon}\")"),
-        ("FastList", "High-performance virtualized list view", "FastList(${1:items}) { ${2:item} ->\n    $0\n}"),
-        ("FastSectionedList", "Virtualized sectioned list with sticky headers", "FastSectionedList(${1:sections}) {\n    $0\n}"),
+        (
+            "Button",
+            "Interactive button with click action handler",
+            "Button(\"${1:Title}\") {\n    $0\n}",
+        ),
+        (
+            "TextField",
+            "Text input control bound to mutable state",
+            "TextField(text: ${1:binding}, placeholder: \"${2:Enter text}\")",
+        ),
+        (
+            "Image",
+            "Displays an asset or network image",
+            "Image(\"${1:icon}\")",
+        ),
+        (
+            "FastList",
+            "High-performance virtualized list view",
+            "FastList(${1:items}) { ${2:item} ->\n    $0\n}",
+        ),
+        (
+            "FastSectionedList",
+            "Virtualized sectioned list with sticky headers",
+            "FastSectionedList(${1:sections}) {\n    $0\n}",
+        ),
         ("Spacer", "Flexible expanding space in stacks", "Spacer()"),
         ("Divider", "Visual separator line", "Divider()"),
-        ("OnAppear", "Lifecycle trigger executed when the screen or component appears", "OnAppear {\n    $0\n}"),
-        ("OnDisappear", "Lifecycle trigger executed when the screen or component disappears", "OnDisappear {\n    $0\n}"),
+        (
+            "OnAppear",
+            "Lifecycle trigger executed when the screen or component appears",
+            "OnAppear {\n    $0\n}",
+        ),
+        (
+            "OnDisappear",
+            "Lifecycle trigger executed when the screen or component disappears",
+            "OnDisappear {\n    $0\n}",
+        ),
     ];
 
     for (name, doc, snippet) in components {
@@ -36,17 +88,49 @@ pub fn get_completions(_source: &str, _position: Position) -> Vec<CompletionItem
 
     // 2. Modifiers
     let modifiers = [
-        ("padding", "Applies uniform or directional padding", "padding(${1:16})"),
-        ("spacing", "Sets inter-element spacing in stacks", "spacing(${1:8})"),
+        (
+            "padding",
+            "Applies uniform or directional padding",
+            "padding(${1:16})",
+        ),
+        (
+            "spacing",
+            "Sets inter-element spacing in stacks",
+            "spacing(${1:8})",
+        ),
         ("fontSize", "Sets font size in points", "fontSize(${1:16})"),
-        ("fontWeight", "Sets font weight (bold, medium, light)", "fontWeight(${1:bold})"),
-        ("color", "Sets foreground or text color", "color(\"${1:#000000}\")"),
-        ("background", "Sets background color or shape", "background(\"${1:#ffffff}\")"),
-        ("cornerRadius", "Sets corner rounding radius", "cornerRadius(${1:8})"),
+        (
+            "fontWeight",
+            "Sets font weight (bold, medium, light)",
+            "fontWeight(${1:bold})",
+        ),
+        (
+            "color",
+            "Sets foreground or text color",
+            "color(\"${1:#000000}\")",
+        ),
+        (
+            "background",
+            "Sets background color or shape",
+            "background(\"${1:#ffffff}\")",
+        ),
+        (
+            "cornerRadius",
+            "Sets corner rounding radius",
+            "cornerRadius(${1:8})",
+        ),
         ("width", "Explicit width dimension", "width(${1:100})"),
         ("height", "Explicit height dimension", "height(${1:50})"),
-        ("opacity", "View opacity level (0.0 to 1.0)", "opacity(${1:0.8})"),
-        ("onClick", "Action executed when clicked or tapped", "onClick {\n    $0\n}"),
+        (
+            "opacity",
+            "View opacity level (0.0 to 1.0)",
+            "opacity(${1:0.8})",
+        ),
+        (
+            "onClick",
+            "Action executed when clicked or tapped",
+            "onClick {\n    $0\n}",
+        ),
     ];
 
     for (name, doc, snippet) in modifiers {

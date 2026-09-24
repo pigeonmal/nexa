@@ -4,6 +4,52 @@ Nexa's typed native plugin system allows developers to integrate platform SDKs, 
 
 ---
 
+## App plugin dependencies
+
+Declare a local plugin package in `nexa.config.nx`, then reference its package
+ID from the `.nx` entry file:
+
+```nexa
+config {
+    dependencies {
+        FastMath { id: "dev.example.fast-math", path: "../fast-math" }
+    }
+}
+```
+
+```nexa
+plugin "dev.example.fast-math" as FastMath
+```
+
+Git dependencies must use a full commit hash. `package` selects a plugin
+subdirectory within the pinned repository, so multiple packages can share one
+repository revision:
+
+```nexa
+config {
+    dependencies {
+        FastMath {
+            id: "dev.example.fast-math",
+            git: "https://example.com/mobile-plugins.git",
+            rev: "0123456789abcdef0123456789abcdef01234567",
+            package: "plugins/fast-math"
+        }
+        DateTime {
+            id: "dev.example.date-time",
+            git: "https://example.com/mobile-plugins.git",
+            rev: "0123456789abcdef0123456789abcdef01234567",
+            package: "plugins/date-time"
+        }
+    }
+}
+```
+
+`nexa dev`, `nexa test`, and `nexa release` resolve these packages, verify
+that each package manifest ID matches the configured ID, and write the
+dependency list to `nexa.lock`. Git checkouts are cached under `.nexa/plugins/`;
+that directory is generated and should not be committed. Local path dependencies
+intentionally follow the working directory contents.
+
 ## 1. Plugin Architecture Overview
 
 A Nexa plugin consists of three components:
@@ -125,7 +171,7 @@ app PluginApp {
 
     body {
         Column {
-            Text("Result: ${result}")
+            Text("Result: $result")
             Button("Execute C++ Native Function") {
                 result = FastEngine.add(15, 27)
             }

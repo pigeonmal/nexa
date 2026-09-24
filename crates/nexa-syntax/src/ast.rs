@@ -100,10 +100,60 @@ pub struct Program {
 
 #[derive(Clone, Debug)]
 pub struct Config {
+    pub app: Option<AppConfig>,
+    pub flavors: Vec<FlavorConfig>,
+    pub assets: Option<AssetsConfig>,
+    pub dependencies: Vec<PluginDependencyConfig>,
     pub permissions: Vec<PermissionConfig>,
     pub plugins: Vec<PluginConfigDecl>,
-    pub ios_min_version: Option<String>,
-    pub android_min_sdk: Option<u32>,
+    pub ios: Option<IosConfig>,
+    pub android: Option<AndroidConfig>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct AssetsConfig {
+    pub icon: Option<String>,
+    pub splash: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AppConfig {
+    pub display_name: String,
+    pub version: String,
+    pub build_number: u32,
+    pub staging_suffix: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FlavorConfig {
+    pub name: String,
+    pub suffix: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct IosConfig {
+    pub min_version: Option<String>,
+    pub bundle_identifier: Option<String>,
+    pub icon: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AndroidConfig {
+    pub min_sdk: Option<u32>,
+    pub target_sdk: Option<u32>,
+    pub application_id: Option<String>,
+    pub icon: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PluginDependencyConfig {
+    pub alias: String,
+    pub package_id: String,
+    pub path: Option<String>,
+    pub git: Option<String>,
+    pub revision: Option<String>,
+    pub package_path: Option<String>,
     pub span: Span,
 }
 

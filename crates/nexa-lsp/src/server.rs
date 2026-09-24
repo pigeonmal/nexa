@@ -6,8 +6,7 @@ use crate::completions::get_completions;
 use crate::diagnostics::check_source;
 use crate::hover::get_hover;
 use crate::protocol::{
-    Diagnostic, JsonRpcError, JsonRpcRequest, JsonRpcResponse, Position,
-    PublishDiagnosticsParams,
+    Diagnostic, JsonRpcError, JsonRpcRequest, JsonRpcResponse, Position, PublishDiagnosticsParams,
 };
 use crate::symbols::get_document_symbols;
 

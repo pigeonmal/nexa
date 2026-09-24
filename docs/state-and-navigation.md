@@ -15,7 +15,7 @@ app NavigationDemo {
     screen Home {
         Column(spacing: 12) {
             Text("Home Screen")
-            Text("Global Counter: ${globalCounter}")
+            Text("Global Counter: $globalCounter")
 
             NavigationLink(destination: Details) {
                 Text("Go to Details")
@@ -28,7 +28,7 @@ app NavigationDemo {
 
         Column(spacing: 12) {
             Text("Details Screen")
-            Text("Local Taps: ${localTaps}")
+            Text("Local Taps: $localTaps")
 
             Button("Tap Locally") {
                 localTaps = localTaps + 1

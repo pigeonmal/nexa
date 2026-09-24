@@ -9,6 +9,7 @@ Official Visual Studio Code extension providing full language tooling for **Nexa
 - **Completion Suggestions**: Static completion templates for common UI constructs, keywords, and built-in types.
 - **Hover Documentation**: Descriptions for selected layout containers, controls, state declarations, and built-in types.
 - **Document Symbols & Outline**: Full hierarchical symbol outline for VS Code's Outline panel and Breadcrumbs view (`app`, `component`, `struct`, `enum`, `state`, `fn`).
+- **Dev workflow**: Start and stop `nexa dev` from the Command Palette. While it runs, `r` hot reloads, `Shift+R` hot restarts, `b` rebuilds and relaunches, and `p` toggles the FPS/frame-time overlay. VS Code commands are available in the Command Palette and use `Ctrl+Alt+R`, `Ctrl+Alt+Shift+R`, `Ctrl+Alt+B`, and `Ctrl+Alt+P` (macOS: `Cmd+Option` with the same suffixes).
 
 ## Prerequisites
 
@@ -26,6 +27,8 @@ Alternatively, configure the explicit path in your VS Code settings:
   "nexa.lsp.serverPath": "/path/to/nexa/target/release/nexa-lsp"
 }
 ```
+
+The dev commands use `nexa` from `PATH` by default. Set `nexa.cli.path` if the CLI is installed elsewhere. Run **Nexa: Start Dev**, **Nexa: Hot Reload**, **Nexa: Hot Restart**, **Nexa: Rebuild and Relaunch App**, **Nexa: Toggle Performance Overlay**, or **Nexa: Stop Dev** from the Command Palette.
 
 ## Development & Building Extension
 

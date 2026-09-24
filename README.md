@@ -62,29 +62,18 @@ cargo build --release -p nexa-cli
 sudo cp target/release/nexa /usr/local/bin/
 ```
 
-### 2. Verify and Build an App
-
-Check syntax and semantic types:
-```bash
-nexa check examples/counter.nx
-```
-
-Transpile directly to native Swift or Kotlin:
-```bash
-# Generate SwiftUI
-nexa build examples/counter.nx --target swift --out CounterView.swift
-
-# Generate Jetpack Compose
-nexa build examples/counter.nx --target kotlin --out CounterScreen.kt
-```
-
-### 3. Generate Native Projects
+### 2. Create and run an App
 
 ```bash
-nexa generate examples/counter.nx --target all --out build
+nexa create Counter
+cd Counter
+nexa check
+nexa dev
 ```
 
-Open `build/ios/Counter.xcodeproj` in Xcode to build and run on an iOS Simulator or device. Open `build/android` in Android Studio to build and run on an Android emulator or device.
+`nexa check` type-checks both platforms without requiring native toolchains. `nexa dev` generates native projects under `build/`, builds them, and launches on available simulators or emulators. It stays active and watches `.nx` files. The debug renderer hot reloads layouts, text, state, actions, synchronous app-local functions, and stack navigation; plugin, dependency, asset, and native-host changes rebuild the app. While `nexa dev` is running, press `r` to hot reload, `Shift+R` to hot restart and reset app state, or `b` to rebuild and relaunch the native app. Use `nexa dev --once` in scripts to build and launch without starting the watcher. Use `nexa dev --ios` or `nexa dev --android` to select one platform. Add `--flavor staging` (or the `--staging` shorthand) to `dev`, `test`, or `release` for a separate identity such as `dev.nexa.myapp.staging`. Define each flavor directly inside `nexa.config.nx` with an optional suffix, for example `flavors { staging { suffix: "staging" }, production { suffix: "" } }`. A flavor without an explicit suffix uses its name. Run `nexa test` for headless native compilation, `nexa release` for an iOS archive/IPA and signed Android AAB, and `nexa doctor` to inspect platform tooling.
+
+Edit `App.nx` and `nexa.config.nx`. The latter configures app IDs, versions, SDK versions, permissions, and shared or platform-specific assets.
 
 ---
 

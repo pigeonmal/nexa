@@ -1,0 +1,32 @@
+app KeyboardAwareSmoke {
+    state username: String = ""
+    state showPrimary: Bool = true
+    state status: String = "ready"
+
+    body {
+        StatusBar(style: Light, hidden: false, background: "#223344")
+        Direction(value: RTL)
+        KeyboardAware(dismiss: Interactive) {
+            Column {
+                Text("Enter a username")
+                TextInput(value: username, placeholder: "Username")
+                Link(url: "https://example.com") {
+                    Text("Open guide")
+                }
+                if showPrimary {
+                    Text("Primary branch")
+                } else {
+                    Text("Fallback branch")
+                }
+                when status {
+                    "ready": {
+                        Text("Ready status")
+                    }
+                    else: {
+                        Text("Fallback status")
+                    }
+                }
+            }
+        }
+    }
+}

@@ -5,7 +5,7 @@
 //! entry/import/plugin-IDL graph has the same content fingerprint.
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     fs,
     io::Read,
     path::{Path, PathBuf},
@@ -16,7 +16,7 @@ use nexa_syntax::ast::Program;
 
 // Bump when compiler or backend semantics change without a source-graph change.
 // This prevents old generated native units from surviving a generator update.
-const CACHE_VERSION: &str = "build-v85";
+const CACHE_VERSION: &str = "build-v90";
 
 pub(super) struct CachedBuild {
     pub(super) warnings: Vec<String>,
@@ -107,6 +107,15 @@ pub(super) fn key_with_extra(
     target: &str,
     extra_files: &[&Path],
 ) -> Result<String, String> {
+    key_with_extra_and_roots(entry, target, extra_files, &BTreeMap::new())
+}
+
+pub(super) fn key_with_extra_and_roots(
+    entry: &Path,
+    target: &str,
+    extra_files: &[&Path],
+    plugin_roots: &BTreeMap<String, PathBuf>,
+) -> Result<String, String> {
     let mut hasher = Fnv64::default();
     hasher.write(CACHE_VERSION.as_bytes());
     hasher.write(target.as_bytes());
@@ -117,11 +126,16 @@ pub(super) fn key_with_extra(
         target.starts_with("project"),
         &mut visited,
         &mut hasher,
+        plugin_roots,
     )?;
     for extra in extra_files {
         if extra.is_file() {
-            fingerprint_file(extra, false, false, &mut visited, &mut hasher)?;
+            fingerprint_file(extra, false, false, &mut visited, &mut hasher, plugin_roots)?;
         }
+    }
+    for (package_id, root) in plugin_roots {
+        hasher.write(package_id.as_bytes());
+        fingerprint_directory(root, true, &mut visited, &mut hasher)?;
     }
     Ok(format!("{target}-{:016x}", hasher.finish()))
 }
@@ -132,6 +146,7 @@ fn fingerprint_file(
     include_plugin_sources: bool,
     visited: &mut HashSet<PathBuf>,
     hasher: &mut Fnv64,
+    plugin_roots: &BTreeMap<String, PathBuf>,
 ) -> Result<(), String> {
     let canonical = fs::canonicalize(path)
         .map_err(|error| format!("cannot fingerprint {}: {error}", path.display()))?;
@@ -174,7 +189,14 @@ fn fingerprint_file(
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join(&import.path);
-        fingerprint_file(&imported, false, include_plugin_sources, visited, hasher)?;
+        fingerprint_file(
+            &imported,
+            false,
+            include_plugin_sources,
+            visited,
+            hasher,
+            plugin_roots,
+        )?;
     }
     if is_entry {
         fingerprint_plugins(
@@ -183,6 +205,7 @@ fn fingerprint_file(
             include_plugin_sources,
             visited,
             hasher,
+            plugin_roots,
         )?;
     }
     Ok(())
@@ -194,12 +217,15 @@ fn fingerprint_plugins(
     include_plugin_sources: bool,
     visited: &mut HashSet<PathBuf>,
     hasher: &mut Fnv64,
+    plugin_roots: &BTreeMap<String, PathBuf>,
 ) -> Result<(), String> {
     for plugin in &program.plugins {
-        let declared = entry
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(&plugin.path);
+        let declared = plugin_roots.get(&plugin.path).cloned().unwrap_or_else(|| {
+            entry
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(&plugin.path)
+        });
         if declared.is_dir() {
             let manifest_path = declared.join("plugin.config.nx");
             fingerprint_file(
@@ -208,6 +234,7 @@ fn fingerprint_plugins(
                 include_plugin_sources,
                 visited,
                 hasher,
+                plugin_roots,
             )?;
             let manifest = nexa_plugin_idl::manifest::parse_file(&manifest_path)?;
             if let Some(source) = manifest.nexa {
@@ -217,6 +244,7 @@ fn fingerprint_plugins(
                     include_plugin_sources,
                     visited,
                     hasher,
+                    plugin_roots,
                 )?;
             }
             if include_plugin_sources {
@@ -244,6 +272,7 @@ fn fingerprint_plugins(
                         include_plugin_sources,
                         visited,
                         hasher,
+                        plugin_roots,
                     )?;
                 }
                 for resource in manifest
@@ -260,6 +289,7 @@ fn fingerprint_plugins(
                         include_plugin_sources,
                         visited,
                         hasher,
+                        &BTreeMap::new(),
                     )?;
                 }
                 for input in manifest.cpp.sources.iter().chain(&manifest.cpp.headers) {
@@ -273,7 +303,14 @@ fn fingerprint_plugins(
             }
             if let Some(native) = manifest.native {
                 let idl = declared.join(native);
-                fingerprint_file(&idl, false, include_plugin_sources, visited, hasher)?;
+                fingerprint_file(
+                    &idl,
+                    false,
+                    include_plugin_sources,
+                    visited,
+                    hasher,
+                    plugin_roots,
+                )?;
                 if include_plugin_sources {
                     fingerprint_directory(
                         &declared.join("ios/Sources"),
@@ -292,7 +329,14 @@ fn fingerprint_plugins(
             continue;
         }
         let idl = declared;
-        fingerprint_file(&idl, false, include_plugin_sources, visited, hasher)?;
+        fingerprint_file(
+            &idl,
+            false,
+            include_plugin_sources,
+            visited,
+            hasher,
+            plugin_roots,
+        )?;
         if include_plugin_sources {
             let plugin_root = idl
                 .parent()
@@ -330,7 +374,18 @@ fn fingerprint_directory(
     }
     let mut entries = fs::read_dir(&canonical)
         .map_err(|error| format!("cannot fingerprint {}: {error}", canonical.display()))?
-        .map(|entry| entry.map(|entry| entry.path()))
+        .filter_map(|entry| match entry {
+            Ok(entry)
+                if [".git", ".nexa", "build", "target", ".gradle"]
+                    .iter()
+                    .any(|excluded| entry.file_name() == *excluded)
+                    && entry.path().is_dir() =>
+            {
+                None
+            }
+            Ok(entry) => Some(Ok(entry.path())),
+            Err(error) => Some(Err(error)),
+        })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("cannot fingerprint {}: {error}", canonical.display()))?;
     entries.sort();
@@ -338,7 +393,14 @@ fn fingerprint_directory(
         if path.is_dir() {
             fingerprint_directory(&path, include_plugin_sources, visited, hasher)?;
         } else {
-            fingerprint_file(&path, false, include_plugin_sources, visited, hasher)?;
+            fingerprint_file(
+                &path,
+                false,
+                include_plugin_sources,
+                visited,
+                hasher,
+                &BTreeMap::new(),
+            )?;
         }
     }
     Ok(())
@@ -351,7 +413,14 @@ fn fingerprint_declared_pattern(
     hasher: &mut Fnv64,
 ) -> Result<(), String> {
     if pattern.is_file() {
-        return fingerprint_file(pattern, false, include_plugin_sources, visited, hasher);
+        return fingerprint_file(
+            pattern,
+            false,
+            include_plugin_sources,
+            visited,
+            hasher,
+            &BTreeMap::new(),
+        );
     }
     if pattern.is_dir() {
         return fingerprint_directory(pattern, include_plugin_sources, visited, hasher);

@@ -56,14 +56,42 @@ impl Parser {
         let span = self.peek().span;
         self.expect_word("config")?;
         self.expect(Kind::LBrace, "expected `{` after config")?;
+        let mut app = None;
+        let mut flavors = Vec::new();
+        let mut has_flavors = false;
+        let mut assets = None;
+        let mut dependencies = Vec::new();
         let mut permissions = Vec::new();
         let mut has_permissions = false;
         let mut plugins = Vec::new();
         let mut has_plugins = false;
-        let mut ios_min_version = None;
-        let mut android_min_sdk = None;
+        let mut has_dependencies = false;
+        let mut ios = None;
+        let mut android = None;
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
-            if self.word_is("permissions") {
+            if self.word_is("app") {
+                if app.is_some() {
+                    return self.error_here("a config can declare only one `app` block");
+                }
+                app = Some(self.config_app_decl()?);
+            } else if self.word_is("flavors") {
+                if has_flavors {
+                    return self.error_here("a config can declare only one `flavors` block");
+                }
+                has_flavors = true;
+                flavors = self.config_flavors_decl()?;
+            } else if self.word_is("dependencies") {
+                if has_dependencies {
+                    return self.error_here("a config can declare only one `dependencies` block");
+                }
+                has_dependencies = true;
+                dependencies = self.config_dependencies_decl()?;
+            } else if self.word_is("assets") {
+                if assets.is_some() {
+                    return self.error_here("a config can declare only one `assets` block");
+                }
+                assets = Some(self.config_assets_decl()?);
+            } else if self.word_is("permissions") {
                 if has_permissions {
                     return self.error_here("a config can declare only one `permissions` block");
                 }
@@ -76,38 +104,18 @@ impl Parser {
                 has_plugins = true;
                 plugins = self.config_plugins_decl()?;
             } else if self.word_is("ios") {
-                self.expect_word("ios")?;
-                self.expect(Kind::LBrace, "expected `{` after `ios`")?;
-                self.expect_word("minVersion")?;
-                self.expect(Kind::Colon, "expected `:` after `minVersion`")?;
-                let token = self.advance().clone();
-                let Kind::String(value) = token.kind else {
-                    return Err(CompileError::new(
-                        token.span,
-                        "ios minVersion must be a quoted string",
-                    ));
-                };
-                ios_min_version = Some(value);
-                self.expect(Kind::RBrace, "expected `}` to close config ios")?;
+                if ios.is_some() {
+                    return self.error_here("a config can declare only one `ios` block");
+                }
+                ios = Some(self.config_ios_decl()?);
             } else if self.word_is("android") {
-                self.expect_word("android")?;
-                self.expect(Kind::LBrace, "expected `{` after `android`")?;
-                self.expect_word("minSdk")?;
-                self.expect(Kind::Colon, "expected `:` after `minSdk`")?;
-                let token = self.advance().clone();
-                let Kind::Number(value) = token.kind else {
-                    return Err(CompileError::new(
-                        token.span,
-                        "android minSdk must be an integer",
-                    ));
-                };
-                android_min_sdk = Some(value.parse().map_err(|_| {
-                    CompileError::new(token.span, "android minSdk must be an integer")
-                })?);
-                self.expect(Kind::RBrace, "expected `}` to close config android")?;
+                if android.is_some() {
+                    return self.error_here("a config can declare only one `android` block");
+                }
+                android = Some(self.config_android_decl()?);
             } else {
                 return self.error_here(
-                    "expected a `permissions`, `plugins`, `ios`, or `android` block in config",
+                    "expected an `app`, `flavors`, `dependencies`, `permissions`, `plugins`, `ios`, or `android` block in config",
                 );
             }
         }
@@ -117,12 +125,291 @@ impl Parser {
             return self.error_here("unexpected content after config");
         }
         Ok(Config {
+            app,
+            flavors,
+            assets,
+            dependencies,
             permissions,
             plugins,
-            ios_min_version,
-            android_min_sdk,
+            ios,
+            android,
             span,
         })
+    }
+
+    fn config_assets_decl(&mut self) -> Result<AssetsConfig, CompileError> {
+        self.expect_word("assets")?;
+        self.expect(Kind::LBrace, "expected `{` after `assets`")?;
+        let mut assets = AssetsConfig {
+            icon: None,
+            splash: None,
+        };
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (field, span) = self.ident()?;
+            self.expect(Kind::Colon, "expected `:` after asset field")?;
+            match field.as_str() {
+                "icon" => assets.icon = Some(self.config_string("asset icon")?),
+                "splash" => assets.splash = Some(self.config_string("splash asset")?),
+                _ => {
+                    return Err(CompileError::new(
+                        span,
+                        format!("unknown asset field `{field}`"),
+                    ));
+                }
+            }
+            self.config_field_separator("assets")?;
+        }
+        self.expect(Kind::RBrace, "expected `}` to close config assets")?;
+        self.optional_semicolon();
+        Ok(assets)
+    }
+
+    fn config_app_decl(&mut self) -> Result<AppConfig, CompileError> {
+        self.expect_word("app")?;
+        self.expect(Kind::LBrace, "expected `{` after `app`")?;
+        let mut display_name = None;
+        let mut version = None;
+        let mut build_number = None;
+        let mut staging_suffix = None;
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (field, field_span) = self.ident()?;
+            self.expect(Kind::Colon, "expected `:` after app metadata field")?;
+            match field.as_str() {
+                "displayName" => display_name = Some(self.config_string("app displayName")?),
+                "version" => version = Some(self.config_string("app version")?),
+                "buildNumber" => build_number = Some(self.config_u32("app buildNumber")?),
+                "stagingSuffix" => staging_suffix = Some(self.config_string("app stagingSuffix")?),
+                _ => {
+                    return Err(CompileError::new(
+                        field_span,
+                        format!("unknown app metadata field `{field}`"),
+                    ));
+                }
+            }
+            self.config_field_separator("app metadata")?;
+        }
+        self.expect(Kind::RBrace, "expected `}` to close config app")?;
+        Ok(AppConfig {
+            display_name: display_name.unwrap_or_else(|| "NexaApp".to_owned()),
+            version: version.unwrap_or_else(|| "1.0.0".to_owned()),
+            build_number: build_number.unwrap_or(1),
+            staging_suffix,
+        })
+    }
+
+    fn config_flavors_decl(&mut self) -> Result<Vec<FlavorConfig>, CompileError> {
+        self.expect_word("flavors")?;
+        self.expect(Kind::LBrace, "expected `{` after `flavors`")?;
+        let mut flavors = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (name, span) = self.ident()?;
+            if flavors
+                .iter()
+                .any(|flavor: &FlavorConfig| flavor.name == name)
+            {
+                return Err(CompileError::new(
+                    span,
+                    format!("flavor `{name}` is declared more than once"),
+                ));
+            }
+            self.expect(Kind::LBrace, "expected `{` after flavor name")?;
+            let mut suffix = None;
+            while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+                let (field, field_span) = self.ident()?;
+                self.expect(Kind::Colon, "expected `:` after flavor field")?;
+                match field.as_str() {
+                    "suffix" => suffix = Some(self.config_string("flavor suffix")?),
+                    _ => {
+                        return Err(CompileError::new(
+                            field_span,
+                            format!("unknown flavor field `{field}`"),
+                        ));
+                    }
+                }
+                self.config_field_separator("flavor")?;
+            }
+            self.expect(Kind::RBrace, "expected `}` to close flavor")?;
+            flavors.push(FlavorConfig { name, suffix });
+            self.take(&Kind::Comma);
+            self.optional_semicolon();
+        }
+        self.expect(Kind::RBrace, "expected `}` to close config flavors")?;
+        self.optional_semicolon();
+        Ok(flavors)
+    }
+
+    fn config_ios_decl(&mut self) -> Result<IosConfig, CompileError> {
+        self.expect_word("ios")?;
+        self.expect(Kind::LBrace, "expected `{` after `ios`")?;
+        let mut config = IosConfig {
+            min_version: None,
+            bundle_identifier: None,
+            icon: None,
+        };
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (field, field_span) = self.ident()?;
+            self.expect(Kind::Colon, "expected `:` after iOS config field")?;
+            match field.as_str() {
+                "minVersion" => config.min_version = Some(self.config_string("ios minVersion")?),
+                "bundleIdentifier" => {
+                    config.bundle_identifier = Some(self.config_string("ios bundleIdentifier")?)
+                }
+                "icon" => config.icon = Some(self.config_string("ios icon")?),
+                _ => {
+                    return Err(CompileError::new(
+                        field_span,
+                        format!("unknown iOS config field `{field}`"),
+                    ));
+                }
+            }
+            self.config_field_separator("iOS config")?;
+        }
+        self.expect(Kind::RBrace, "expected `}` to close config ios")?;
+        Ok(config)
+    }
+
+    fn config_android_decl(&mut self) -> Result<AndroidConfig, CompileError> {
+        self.expect_word("android")?;
+        self.expect(Kind::LBrace, "expected `{` after `android`")?;
+        let mut config = AndroidConfig {
+            min_sdk: None,
+            target_sdk: None,
+            application_id: None,
+            icon: None,
+        };
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (field, field_span) = self.ident()?;
+            self.expect(Kind::Colon, "expected `:` after Android config field")?;
+            match field.as_str() {
+                "minSdk" => config.min_sdk = Some(self.config_u32("android minSdk")?),
+                "targetSdk" => config.target_sdk = Some(self.config_u32("android targetSdk")?),
+                "applicationId" => {
+                    config.application_id = Some(self.config_string("android applicationId")?)
+                }
+                "icon" => config.icon = Some(self.config_string("android icon")?),
+                _ => {
+                    return Err(CompileError::new(
+                        field_span,
+                        format!("unknown Android config field `{field}`"),
+                    ));
+                }
+            }
+            self.config_field_separator("Android config")?;
+        }
+        self.expect(Kind::RBrace, "expected `}` to close config android")?;
+        Ok(config)
+    }
+
+    fn config_dependencies_decl(&mut self) -> Result<Vec<PluginDependencyConfig>, CompileError> {
+        self.expect_word("dependencies")?;
+        self.expect(Kind::LBrace, "expected `{` after `dependencies`")?;
+        let mut dependencies = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (alias, span) = self.ident()?;
+            if dependencies
+                .iter()
+                .any(|dependency: &PluginDependencyConfig| dependency.alias == alias)
+            {
+                return Err(CompileError::new(
+                    span,
+                    format!("plugin dependency alias `{alias}` is declared more than once"),
+                ));
+            }
+            self.expect(Kind::LBrace, "expected `{` after plugin dependency alias")?;
+            let mut package_id = None;
+            let mut path = None;
+            let mut git = None;
+            let mut revision = None;
+            let mut package_path = None;
+            while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+                let (field, field_span) = self.ident()?;
+                self.expect(Kind::Colon, "expected `:` after plugin dependency field")?;
+                match field.as_str() {
+                    "id" => package_id = Some(self.config_string("plugin dependency id")?),
+                    "path" => path = Some(self.config_string("plugin dependency path")?),
+                    "git" => git = Some(self.config_string("plugin dependency git URL")?),
+                    "rev" => revision = Some(self.config_string("plugin dependency rev")?),
+                    "package" => {
+                        package_path = Some(self.config_string("plugin package subdirectory")?)
+                    }
+                    _ => {
+                        return Err(CompileError::new(
+                            field_span,
+                            format!("unknown plugin dependency field `{field}`"),
+                        ));
+                    }
+                }
+                self.config_field_separator("plugin dependency")?;
+            }
+            self.expect(Kind::RBrace, "expected `}` to close plugin dependency")?;
+            if path.is_some() == git.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "plugin dependency must declare exactly one of `path` or `git`",
+                ));
+            }
+            if git.is_some() && revision.is_none() {
+                return Err(CompileError::new(
+                    span,
+                    "Git plugin dependency must pin a `rev`",
+                ));
+            }
+            if path.is_some() && (revision.is_some() || package_path.is_some()) {
+                return Err(CompileError::new(
+                    span,
+                    "`rev` and `package` are only valid for Git plugin dependencies",
+                ));
+            }
+            dependencies.push(PluginDependencyConfig {
+                alias,
+                package_id: package_id
+                    .ok_or_else(|| CompileError::new(span, "plugin dependency requires `id`"))?,
+                path,
+                git,
+                revision,
+                package_path,
+                span,
+            });
+            self.optional_semicolon();
+        }
+        self.expect(Kind::RBrace, "expected `}` to close config dependencies")?;
+        self.optional_semicolon();
+        Ok(dependencies)
+    }
+
+    fn config_string(&mut self, context: &str) -> Result<String, CompileError> {
+        let token = self.advance().clone();
+        match token.kind {
+            Kind::String(value) => Ok(value),
+            _ => Err(CompileError::new(
+                token.span,
+                format!("{context} must be a quoted string"),
+            )),
+        }
+    }
+
+    fn config_u32(&mut self, context: &str) -> Result<u32, CompileError> {
+        let token = self.advance().clone();
+        match token.kind {
+            Kind::Number(value) if !value.contains('.') => value.parse().map_err(|_| {
+                CompileError::new(token.span, format!("{context} must be a positive integer"))
+            }),
+            _ => Err(CompileError::new(
+                token.span,
+                format!("{context} must be a positive integer"),
+            )),
+        }
+    }
+
+    fn config_field_separator(&mut self, context: &str) -> Result<(), CompileError> {
+        if self.take(&Kind::Comma) {
+            return Ok(());
+        }
+        self.optional_semicolon();
+        if self.check(&Kind::RBrace) {
+            return Ok(());
+        }
+        self.error_here(&format!("expected `,` or `}}` after {context} field"))
     }
 
     fn config_permissions_decl(&mut self) -> Result<Vec<PermissionConfig>, CompileError> {

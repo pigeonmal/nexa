@@ -1,8 +1,11 @@
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use nexa_ir::Permission;
 use nexa_plugin_idl::{ConfigOption, Literal, PluginIdl, TypeRef};
-use nexa_syntax::ast::ConfigValue;
+use nexa_syntax::ast::{ConfigValue, PluginDependencyConfig};
 
 #[derive(Clone, Debug)]
 pub(super) struct PluginDefinition {
@@ -25,16 +28,68 @@ pub(super) struct ResolvedPluginOption {
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct ProjectConfig {
+    pub(super) display_name: String,
+    pub(super) version: String,
+    pub(super) build_number: u32,
+    pub(super) staging_suffix: String,
+    pub(super) flavors: Vec<nexa_syntax::ast::FlavorConfig>,
     permissions: Vec<(Permission, String)>,
     plugins: Vec<PluginConfig>,
     pub(super) ios_min_version: String,
     pub(super) android_min_sdk: u32,
+    pub(super) android_target_sdk: u32,
+    pub(super) ios_bundle_identifier: String,
+    pub(super) android_application_id: String,
+    pub(super) ios_icon: Option<PathBuf>,
+    pub(super) android_icon: Option<PathBuf>,
+    pub(super) dependencies: Vec<PluginDependencyConfig>,
+    pub(super) icon_source: Option<PathBuf>,
+    pub(super) splash_source: Option<PathBuf>,
 }
 
 impl ProjectConfig {
+    pub(super) fn with_flavor(&self, name: &str) -> Result<Self, String> {
+        let mut config = self.clone();
+        let configured = config.flavors.iter().find(|flavor| flavor.name == name);
+        let suffix = match configured {
+            Some(flavor) => flavor.suffix.clone().unwrap_or_else(|| name.to_owned()),
+            None if name == "staging" => config.staging_suffix.clone(),
+            None => {
+                return Err(format!(
+                    "unknown flavor `{name}`; declare it in `nexa.config.nx`"
+                ));
+            }
+        };
+        if !suffix.is_empty() && !valid_application_id_segment(&suffix) {
+            return Err(format!(
+                "flavor `{name}` suffix must be a valid application ID segment (found `{suffix}`)"
+            ));
+        }
+        if !suffix.is_empty() {
+            let normalized = format!(".{suffix}");
+            if !config.ios_bundle_identifier.ends_with(&normalized) {
+                config.ios_bundle_identifier.push_str(&normalized);
+            }
+            if !config.android_application_id.ends_with(&normalized) {
+                config.android_application_id.push_str(&normalized);
+            }
+        }
+        if !config
+            .display_name
+            .to_ascii_lowercase()
+            .ends_with(&format!(" {name}"))
+        {
+            config
+                .display_name
+                .push_str(&format!(" {}", title_case(name)));
+        }
+        Ok(config)
+    }
+
     pub(super) fn parse_file(
         path: &Path,
         plugin_definitions: &[PluginDefinition],
+        fallback_name: &str,
     ) -> Result<Self, String> {
         let source = fs::read_to_string(path)
             .map_err(|error| format!("cannot read config {}: {error}", path.display()))?;
@@ -66,21 +121,125 @@ impl ProjectConfig {
             permissions.push((permission, declaration.message));
         }
         let plugins = resolve_plugins(path, &config.plugins, plugin_definitions)?;
+        let flavors = config.flavors;
+        let app = config.app;
+        let ios = config.ios;
+        let android = config.android;
+        let assets = config.assets;
+        let display_name = app
+            .as_ref()
+            .map(|app| app.display_name.clone())
+            .unwrap_or_else(|| fallback_name.to_owned());
+        let version = app
+            .as_ref()
+            .map(|app| app.version.clone())
+            .unwrap_or_else(|| "1.0.0".to_owned());
+        let build_number = app.as_ref().map(|app| app.build_number).unwrap_or(1);
+        let staging_suffix = app
+            .as_ref()
+            .and_then(|app| app.staging_suffix.clone())
+            .unwrap_or_else(|| "staging".to_owned());
+        let ios_bundle_identifier = ios
+            .as_ref()
+            .and_then(|ios| ios.bundle_identifier.clone())
+            .unwrap_or_else(|| format!("com.nexa.{}", fallback_name.to_ascii_lowercase()));
+        let android_application_id = android
+            .as_ref()
+            .and_then(|android| android.application_id.clone())
+            .unwrap_or_else(|| format!("com.nexa.{}", fallback_name.to_ascii_lowercase()));
+        let android_target_sdk = android
+            .as_ref()
+            .and_then(|android| android.target_sdk)
+            .unwrap_or(36);
+        if display_name.trim().is_empty() {
+            return Err(format!(
+                "{}: app displayName cannot be empty",
+                path.display()
+            ));
+        }
+        if build_number == 0 {
+            return Err(format!(
+                "{}: app buildNumber must be greater than zero",
+                path.display()
+            ));
+        }
+        if !valid_application_id_segment(&staging_suffix) {
+            return Err(format!(
+                "{}: app stagingSuffix must be a valid application ID segment (found `{staging_suffix}`)",
+                path.display()
+            ));
+        }
+        if android_target_sdk != 36 {
+            return Err(format!(
+                "{}: Android targetSdk must remain 36 (found {android_target_sdk})",
+                path.display()
+            ));
+        }
+        validate_bundle_identifier(
+            &path.display().to_string(),
+            "iOS bundleIdentifier",
+            &ios_bundle_identifier,
+            true,
+        )?;
+        validate_bundle_identifier(
+            &path.display().to_string(),
+            "Android applicationId",
+            &android_application_id,
+            false,
+        )?;
         Ok(Self {
+            display_name,
+            version,
+            build_number,
+            staging_suffix,
+            flavors,
             permissions,
             plugins,
-            ios_min_version: config.ios_min_version.unwrap_or_else(|| "16.0".to_owned()),
-            android_min_sdk: config.android_min_sdk.unwrap_or(24),
+            ios_min_version: ios
+                .as_ref()
+                .and_then(|ios| ios.min_version.clone())
+                .unwrap_or_else(|| "16.0".to_owned()),
+            android_min_sdk: android
+                .as_ref()
+                .and_then(|android| android.min_sdk)
+                .unwrap_or(24),
+            android_target_sdk,
+            ios_bundle_identifier,
+            android_application_id,
+            ios_icon: resolve_config_path(path, ios.and_then(|ios| ios.icon))?,
+            android_icon: resolve_config_path(path, android.and_then(|android| android.icon))?,
+            icon_source: resolve_config_path(
+                path,
+                assets.as_ref().and_then(|assets| assets.icon.clone()),
+            )?,
+            splash_source: resolve_config_path(path, assets.and_then(|assets| assets.splash))?,
+            dependencies: config.dependencies,
         })
     }
 
-    pub(super) fn from_defaults(plugin_definitions: &[PluginDefinition]) -> Result<Self, String> {
+    pub(super) fn from_defaults(
+        plugin_definitions: &[PluginDefinition],
+        fallback_name: &str,
+    ) -> Result<Self, String> {
         let plugins = resolve_plugins(Path::new("nexa.config.nx"), &[], plugin_definitions)?;
         Ok(Self {
+            display_name: fallback_name.to_owned(),
+            version: "1.0.0".to_owned(),
+            build_number: 1,
+            staging_suffix: "staging".to_owned(),
+            flavors: Vec::new(),
             permissions: Vec::new(),
             plugins,
             ios_min_version: "16.0".to_owned(),
             android_min_sdk: 24,
+            android_target_sdk: 36,
+            ios_bundle_identifier: format!("com.nexa.{}", fallback_name.to_ascii_lowercase()),
+            android_application_id: format!("com.nexa.{}", fallback_name.to_ascii_lowercase()),
+            ios_icon: None,
+            android_icon: None,
+            dependencies: Vec::new(),
+            icon_source: None,
+            splash_source: None,
         })
     }
 
@@ -94,9 +253,32 @@ impl ProjectConfig {
 
     pub(super) fn render(&self) -> String {
         let mut output = format!(
-            "config {{\n    ios {{ minVersion: {} }}\n    android {{ minSdk: {} }}\n    permissions {{\n",
+            "config {{\n    app {{ displayName: {}, version: {}, buildNumber: {}, stagingSuffix: {} }}\n    assets {{ icon: {}, splash: {} }}\n    ios {{ minVersion: {}, bundleIdentifier: {}, icon: {} }}\n    android {{ minSdk: {}, targetSdk: {}, applicationId: {}, icon: {} }}\n    permissions {{\n",
+            nexa_config_string(&self.display_name),
+            nexa_config_string(&self.version),
+            self.build_number,
+            nexa_config_string(&self.staging_suffix),
+            self.icon_source
+                .as_ref()
+                .map(|path| nexa_config_string(&path.display().to_string()))
+                .unwrap_or_else(|| "\"\"".to_owned()),
+            self.splash_source
+                .as_ref()
+                .map(|path| nexa_config_string(&path.display().to_string()))
+                .unwrap_or_else(|| "\"\"".to_owned()),
             nexa_config_string(&self.ios_min_version),
-            self.android_min_sdk
+            nexa_config_string(&self.ios_bundle_identifier),
+            self.ios_icon
+                .as_ref()
+                .map(|path| nexa_config_string(&path.display().to_string()))
+                .unwrap_or_else(|| "\"\"".to_owned()),
+            self.android_min_sdk,
+            self.android_target_sdk,
+            nexa_config_string(&self.android_application_id),
+            self.android_icon
+                .as_ref()
+                .map(|path| nexa_config_string(&path.display().to_string()))
+                .unwrap_or_else(|| "\"\"".to_owned())
         );
         for (index, (permission, message)) in self.permissions.iter().enumerate() {
             output.push_str("        ");
@@ -109,6 +291,48 @@ impl ProjectConfig {
             output.push('\n');
         }
         output.push_str("    }\n");
+        if !self.flavors.is_empty() {
+            output.push_str("    flavors {\n");
+            for flavor in &self.flavors {
+                output.push_str(&format!("        {} {{", flavor.name));
+                if let Some(suffix) = &flavor.suffix {
+                    output.push_str(&format!(" suffix: {}", nexa_config_string(suffix)));
+                }
+                output.push_str(" }\n");
+            }
+            output.push_str("    }\n");
+        }
+        if !self.dependencies.is_empty() {
+            output.push_str("    dependencies {\n");
+            for dependency in &self.dependencies {
+                output.push_str(&format!(
+                    "        {} {{ id: {}{}{}{}{} }}\n",
+                    dependency.alias,
+                    nexa_config_string(&dependency.package_id),
+                    dependency
+                        .path
+                        .as_ref()
+                        .map(|value| format!(", path: {}", nexa_config_string(value)))
+                        .unwrap_or_default(),
+                    dependency
+                        .git
+                        .as_ref()
+                        .map(|value| format!(", git: {}", nexa_config_string(value)))
+                        .unwrap_or_default(),
+                    dependency
+                        .revision
+                        .as_ref()
+                        .map(|value| format!(", rev: {}", nexa_config_string(value)))
+                        .unwrap_or_default(),
+                    dependency
+                        .package_path
+                        .as_ref()
+                        .map(|value| format!(", package: {}", nexa_config_string(value)))
+                        .unwrap_or_default(),
+                ));
+            }
+            output.push_str("    }\n");
+        }
         if !self.plugins.is_empty() {
             output.push_str("    plugins {\n");
             for plugin in &self.plugins {
@@ -134,7 +358,76 @@ impl ProjectConfig {
     }
 }
 
-pub(super) fn load_plugin_definitions(entry: &Path) -> Result<Vec<PluginDefinition>, String> {
+fn valid_application_id_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment.as_bytes()[0].is_ascii_alphabetic()
+        && segment
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn title_case(value: &str) -> String {
+    let mut characters = value.chars();
+    characters
+        .next()
+        .map(|first| first.to_ascii_uppercase().to_string() + characters.as_str())
+        .unwrap_or_default()
+}
+
+fn validate_bundle_identifier(
+    config_path: &str,
+    field: &str,
+    id: &str,
+    allow_hyphen: bool,
+) -> Result<(), String> {
+    let valid = id.split('.').count() >= 2
+        && id.split('.').all(|part| {
+            !part.is_empty()
+                && part.as_bytes()[0].is_ascii_alphabetic()
+                && part.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || byte == b'_' || (allow_hyphen && byte == b'-')
+                })
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(format!(
+            "{config_path}: `{field}` must be a reverse-DNS identifier with at least two valid segments (found `{id}`)"
+        ))
+    }
+}
+
+fn resolve_config_path(
+    config_path: &Path,
+    path: Option<String>,
+) -> Result<Option<PathBuf>, String> {
+    let Some(path) = path.filter(|path| !path.is_empty()) else {
+        return Ok(None);
+    };
+    let path = config_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(path);
+    let canonical =
+        fs::canonicalize(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(Some(canonical))
+}
+
+pub(super) fn load_plugin_dependencies(path: &Path) -> Result<Vec<PluginDependencyConfig>, String> {
+    if !path.is_file() {
+        return Ok(Vec::new());
+    }
+    let source = fs::read_to_string(path)
+        .map_err(|error| format!("cannot read config {}: {error}", path.display()))?;
+    nexa_syntax::parse_config(&source)
+        .map(|config| config.dependencies)
+        .map_err(|error| format!("{}: {error}", path.display()))
+}
+
+pub(super) fn load_plugin_definitions(
+    entry: &Path,
+    plugin_roots: &std::collections::HashMap<String, PathBuf>,
+) -> Result<Vec<PluginDefinition>, String> {
     let source = fs::read_to_string(entry)
         .map_err(|error| format!("cannot read entry {}: {error}", entry.display()))?;
     let program = nexa_syntax::parse_program(&source)
@@ -142,7 +435,10 @@ pub(super) fn load_plugin_definitions(entry: &Path) -> Result<Vec<PluginDefiniti
     let base = entry.parent().unwrap_or_else(|| Path::new("."));
     let mut definitions = Vec::with_capacity(program.plugins.len());
     for plugin in program.plugins {
-        let declared_path = base.join(&plugin.path);
+        let declared_path = plugin_roots
+            .get(&plugin.path)
+            .cloned()
+            .unwrap_or_else(|| base.join(&plugin.path));
         if declared_path.is_dir()
             && nexa_plugin_idl::manifest::parse_file(&declared_path.join("plugin.config.nx"))
                 .map(|manifest| manifest.nexa.is_some())
@@ -212,7 +508,7 @@ pub(super) fn load_plugin_definitions(entry: &Path) -> Result<Vec<PluginDefiniti
 
 pub(super) fn render_template(plugin_definitions: &[PluginDefinition]) -> String {
     let mut output = String::from(
-        "config {\n    ios { minVersion: \"16.0\" }\n    android { minSdk: 24 }\n    permissions {}\n",
+        "config {\n    app { stagingSuffix: \"staging\" }\n    ios { minVersion: \"16.0\" }\n    android { minSdk: 24, targetSdk: 36 }\n    permissions {}\n",
     );
     let configured_plugins = plugin_definitions
         .iter()

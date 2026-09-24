@@ -37,25 +37,13 @@ impl TempRoot {
                 })
                 .collect::<String>()
         );
-        let generated = Command::new(env!("CARGO_BIN_EXE_nexa"))
-            .args([
-                "generate",
-                root.join(format!("{example}.nx")).to_str().unwrap(),
-                "--target",
-                target,
-                "--out",
-                output.to_str().unwrap(),
-                "--name",
-                &app_name,
-            ])
-            .output()
-            .expect("Nexa CLI should start");
-        assert!(
-            generated.status.success(),
-            "failed to generate {example} for {target}:\n{}\n{}",
-            String::from_utf8_lossy(&generated.stdout),
-            String::from_utf8_lossy(&generated.stderr)
-        );
+        nexa_cli::generate_project(
+            &root.join(format!("{example}.nx")),
+            target,
+            &output,
+            &app_name,
+        )
+        .unwrap_or_else(|error| panic!("failed to generate {example} for {target}:\n{error}"));
         output
     }
 }
@@ -125,7 +113,7 @@ fn copy_generated_kotlin_from(root: &Path, source: &Path, destination: &Path) {
         } else if path.extension().is_some_and(|extension| extension == "kt")
             && path
                 .file_name()
-                .is_some_and(|name| name != "MainActivity.kt")
+                .is_some_and(|name| name != "MainActivity.kt" && name != "NexaGenerated.kt")
         {
             let relative = path.strip_prefix(root).unwrap_or(&path);
             let output = destination.join(relative);

@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -47,41 +47,124 @@ pub fn compile_file_with_warnings_for_targets(
     path: impl AsRef<Path>,
     targets: &[Target],
 ) -> Result<Vec<crate::Compilation>, CompileError> {
-    let entry_path = path.as_ref();
-    let mut loaded = LoadedProject::default();
-    load_file(
-        entry_path,
-        true,
-        None,
-        &mut HashSet::new(),
-        &mut HashSet::new(),
-        &mut loaded,
-    )?;
+    compile_file_with_warnings_for_targets_and_plugin_roots(path, targets, &HashMap::new())
+}
 
-    let app = loaded.app.ok_or_else(|| {
-        CompileError::new(
-            file_level_span(),
-            "entry file is missing an `app` declaration",
-        )
-        .with_file(entry_path.display().to_string())
-    })?;
-    targets
-        .iter()
-        .map(|&target| {
-            let mut app = app.clone();
-            app.components = loaded.components.clone();
-            app.structs = loaded.structs.clone();
-            app.functions.extend(loaded.functions.clone());
-            let (module, mut warnings) = semantic::lower_with_warnings(app, target)
-                .map_err(|error| error.with_file(entry_path.display().to_string()))?;
-            for warning in &mut warnings {
-                if warning.file.is_none() {
-                    warning.file = Some(entry_path.display().to_string());
+/// Loads and compiles a project while resolving plugin package IDs to local
+/// package roots supplied by the CLI dependency resolver.
+pub fn compile_file_with_warnings_for_targets_and_plugin_roots(
+    path: impl AsRef<Path>,
+    targets: &[Target],
+    plugin_roots: &HashMap<String, PathBuf>,
+) -> Result<Vec<crate::Compilation>, CompileError> {
+    IncrementalProjectCompiler::default().compile_file_with_warnings_for_targets_and_plugin_roots(
+        path,
+        targets,
+        plugin_roots,
+    )
+}
+
+/// Reuses parsed source files across builds in a long-lived development
+/// session. Semantic analysis still runs for the assembled project so changes
+/// to shared declarations are checked against every dependent declaration.
+#[derive(Default)]
+pub struct IncrementalProjectCompiler {
+    parsed_sources: HashMap<PathBuf, CachedProgram>,
+    last_stats: ProjectCompileStats,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProjectCompileStats {
+    pub parsed_source_files: usize,
+    pub reused_source_files: usize,
+}
+
+struct CachedProgram {
+    source: String,
+    program: nexa_syntax::ast::Program,
+}
+
+impl IncrementalProjectCompiler {
+    /// Counts source files freshly parsed and reused by the last compilation
+    /// attempt. Counts reset for every compile call.
+    pub fn last_compile_stats(&self) -> ProjectCompileStats {
+        self.last_stats
+    }
+
+    /// Incrementally loads and compiles a Nexa source graph for the requested
+    /// native targets, reusing parsed ASTs whose source text is unchanged.
+    pub fn compile_file_with_warnings_for_targets_and_plugin_roots(
+        &mut self,
+        path: impl AsRef<Path>,
+        targets: &[Target],
+        plugin_roots: &HashMap<String, PathBuf>,
+    ) -> Result<Vec<crate::Compilation>, CompileError> {
+        self.last_stats = ProjectCompileStats::default();
+        let entry_path = path.as_ref();
+        let mut loaded = LoadedProject::default();
+        let mut loaded_paths = HashSet::new();
+        load_file(
+            entry_path,
+            true,
+            None,
+            &mut HashSet::new(),
+            &mut loaded_paths,
+            &mut loaded,
+            plugin_roots,
+            self,
+        )?;
+        self.parsed_sources
+            .retain(|path, _| loaded_paths.contains(path));
+
+        let app = loaded.app.ok_or_else(|| {
+            CompileError::new(
+                file_level_span(),
+                "entry file is missing an `app` declaration",
+            )
+            .with_file(entry_path.display().to_string())
+        })?;
+        targets
+            .iter()
+            .map(|&target| {
+                let mut app = app.clone();
+                app.components = loaded.components.clone();
+                app.structs = loaded.structs.clone();
+                app.functions.extend(loaded.functions.clone());
+                let (module, mut warnings) = semantic::lower_with_warnings(app, target)
+                    .map_err(|error| error.with_file(entry_path.display().to_string()))?;
+                for warning in &mut warnings {
+                    if warning.file.is_none() {
+                        warning.file = Some(entry_path.display().to_string());
+                    }
                 }
-            }
-            Ok(crate::Compilation { module, warnings })
-        })
-        .collect()
+                Ok(crate::Compilation { module, warnings })
+            })
+            .collect()
+    }
+
+    fn parse_source(
+        &mut self,
+        path: &Path,
+        source: String,
+    ) -> Result<nexa_syntax::ast::Program, CompileError> {
+        if let Some(cached) = self.parsed_sources.get(path)
+            && cached.source == source
+        {
+            self.last_stats.reused_source_files += 1;
+            return Ok(cached.program.clone());
+        }
+        let program = nexa_syntax::parse_program(&source)
+            .map_err(|error| error.with_file(path.display().to_string()))?;
+        self.last_stats.parsed_source_files += 1;
+        self.parsed_sources.insert(
+            path.to_owned(),
+            CachedProgram {
+                source,
+                program: program.clone(),
+            },
+        );
+        Ok(program)
+    }
 }
 
 fn compile_file_with_target(
@@ -107,6 +190,8 @@ fn load_file(
     active: &mut HashSet<PathBuf>,
     loaded_paths: &mut HashSet<PathBuf>,
     loaded: &mut LoadedProject,
+    plugin_roots: &HashMap<String, PathBuf>,
+    compiler: &mut IncrementalProjectCompiler,
 ) -> Result<(), CompileError> {
     let canonical_path = fs::canonicalize(path).map_err(|error| {
         let (span, file) = import_site
@@ -132,8 +217,7 @@ fn load_file(
         )
         .with_file(canonical_path.display().to_string())
     })?;
-    let mut program = nexa_syntax::parse_program(&source)
-        .map_err(|error| error.with_file(canonical_path.display().to_string()))?;
+    let mut program = compiler.parse_source(&canonical_path, source)?;
 
     if !program.plugins.is_empty() {
         if !is_entry {
@@ -145,10 +229,12 @@ fn load_file(
             .with_file(canonical_path.display().to_string()));
         }
         for plugin in &mut program.plugins {
-            let declared_path = canonical_path
-                .parent()
-                .unwrap_or_else(|| Path::new("."))
-                .join(&plugin.path);
+            let declared_path = plugin_roots.get(&plugin.path).cloned().unwrap_or_else(|| {
+                canonical_path
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .join(&plugin.path)
+            });
             let manifest_path = if declared_path.is_dir() {
                 Some(declared_path.join("plugin.config.nx"))
             } else {
@@ -238,6 +324,8 @@ fn load_file(
                     active,
                     loaded_paths,
                     loaded,
+                    plugin_roots,
+                    compiler,
                 )?;
                 if plugin.assets_path.is_none() {
                     plugin.assets_path = source
@@ -295,7 +383,15 @@ fn load_file(
 
     active.insert(canonical_path.clone());
     for import in &program.imports {
-        load_import(import, &canonical_path, active, loaded_paths, loaded)?;
+        load_import(
+            import,
+            &canonical_path,
+            active,
+            loaded_paths,
+            loaded,
+            plugin_roots,
+            compiler,
+        )?;
     }
 
     let source_file = canonical_path.display().to_string();
@@ -362,6 +458,8 @@ fn load_import(
     active: &mut HashSet<PathBuf>,
     loaded_paths: &mut HashSet<PathBuf>,
     loaded: &mut LoadedProject,
+    plugin_roots: &HashMap<String, PathBuf>,
+    compiler: &mut IncrementalProjectCompiler,
 ) -> Result<(), CompileError> {
     let imported_path = importing_file
         .parent()
@@ -375,5 +473,7 @@ fn load_import(
         active,
         loaded_paths,
         loaded,
+        plugin_roots,
+        compiler,
     )
 }

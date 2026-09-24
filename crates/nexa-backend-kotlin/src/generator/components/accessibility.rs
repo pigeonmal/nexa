@@ -21,7 +21,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
     imports.add(
         features.uses_accessibility_hint,
-        "androidx.compose.ui.semantics.hintText",
+        "androidx.compose.ui.semantics.stateDescription",
     );
     imports.add(
         features.uses_switch || features.uses_accessibility,
@@ -56,7 +56,7 @@ pub(crate) fn render_accessibility(
     }
     if let Some(hint) = hint {
         indent(out, depth + 2);
-        out.push_str(&format!("hintText = {}\n", expression(hint)));
+        out.push_str(&format!("stateDescription = {}\n", expression(hint)));
     }
     if matches!(role, AccessibilityRole::Header) {
         indent(out, depth + 2);

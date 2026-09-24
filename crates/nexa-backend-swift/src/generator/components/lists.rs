@@ -234,7 +234,11 @@ fn list_constructor(
         .unwrap_or_else(|| "nil".to_owned());
     match axis {
         ListAxis::Vertical => {
-            let type_arguments = if has_sticky_header { "" } else { "<_, EmptyView>" };
+            let type_arguments = if has_sticky_header {
+                ""
+            } else {
+                "<_, EmptyView>"
+            };
             format!("NexaFastList{type_arguments}(rowCount: {row_count}, rowHeight: {extent}{key})")
         }
         ListAxis::Horizontal => {
@@ -268,13 +272,8 @@ fn open_list(
         || sticky_header.is_some()
         || refresh.is_some()
     {
-        let mut constructor = list_constructor(
-            axis,
-            row_count,
-            key,
-            item_extent,
-            sticky_header.is_some(),
-        );
+        let mut constructor =
+            list_constructor(axis, row_count, key, item_extent, sticky_header.is_some());
         constructor.pop();
         out.push_str(&constructor);
         if let Some(scroll_position) = scroll_position {

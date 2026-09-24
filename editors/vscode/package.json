@@ -21,6 +21,58 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "nexa.dev.start",
+        "title": "Nexa: Start Dev"
+      },
+      {
+        "command": "nexa.dev.reload",
+        "title": "Nexa: Hot Reload"
+      },
+      {
+        "command": "nexa.dev.hotRestart",
+        "title": "Nexa: Hot Restart"
+      },
+      {
+        "command": "nexa.dev.rebuild",
+        "title": "Nexa: Rebuild and Relaunch App"
+      },
+      {
+        "command": "nexa.dev.performanceOverlay",
+        "title": "Nexa: Toggle Performance Overlay"
+      },
+      {
+        "command": "nexa.dev.stop",
+        "title": "Nexa: Stop Dev"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "nexa.dev.reload",
+        "key": "ctrl+alt+r",
+        "mac": "cmd+alt+r",
+        "when": "nexa.dev.running"
+      },
+      {
+        "command": "nexa.dev.hotRestart",
+        "key": "ctrl+alt+shift+r",
+        "mac": "cmd+alt+shift+r",
+        "when": "nexa.dev.running"
+      },
+      {
+        "command": "nexa.dev.rebuild",
+        "key": "ctrl+alt+b",
+        "mac": "cmd+alt+b",
+        "when": "nexa.dev.running"
+      },
+      {
+        "command": "nexa.dev.performanceOverlay",
+        "key": "ctrl+alt+p",
+        "mac": "cmd+alt+p",
+        "when": "nexa.dev.running"
+      }
+    ],
     "languages": [
       {
         "id": "nexa",
@@ -45,6 +97,11 @@
       "type": "object",
       "title": "Nexa",
       "properties": {
+        "nexa.cli.path": {
+          "type": "string",
+          "default": "nexa",
+          "description": "Path to the Nexa CLI executable used by Nexa: Start Dev."
+        },
         "nexa.lsp.serverPath": {
           "type": "string",
           "default": "nexa-lsp",

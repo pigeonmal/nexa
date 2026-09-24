@@ -1,0 +1,10 @@
+app SwitchReloadSmoke {
+    state notifications: Bool = false
+
+    body {
+        Column {
+            Text("Switch fixture")
+            Switch(value: notifications, label: "Enable Notifications")
+        }
+    }
+}
