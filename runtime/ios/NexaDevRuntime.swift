@@ -12,6 +12,7 @@ public struct NexaDevRuntimeRoot: View {
     @FocusState private var activeInput: String?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    @Environment(\.scenePhase) private var scenePhase
 
     public init(serverURL: String, sessionToken: String) {
         _runtime = StateObject(
@@ -90,6 +91,30 @@ public struct NexaDevRuntimeRoot: View {
                     .presentationDetents(sheet.partial ? [.medium, .large] : [.large])
                 }
             }
+        }
+        .onChange(of: runtime.store.appLifecycleEpoch) { _ in
+            guard let module = runtime.module else { return }
+            runtime.store.perform(module["on_appear"] as? [Any] ?? [], scope: "app", locals: [:])
+            if scenePhase == .active {
+                runtime.store.perform(module["on_active"] as? [Any] ?? [], scope: "app", locals: [:])
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            guard let module = runtime.module else { return }
+            switch phase {
+            case .active:
+                runtime.store.perform(module["on_active"] as? [Any] ?? [], scope: "app", locals: [:])
+            case .inactive:
+                runtime.store.perform(module["on_inactive"] as? [Any] ?? [], scope: "app", locals: [:])
+            case .background:
+                runtime.store.perform(module["on_background"] as? [Any] ?? [], scope: "app", locals: [:])
+            @unknown default:
+                break
+            }
+        }
+        .onDisappear {
+            guard let module = runtime.module else { return }
+            runtime.store.perform(module["on_disappear"] as? [Any] ?? [], scope: "app", locals: [:])
         }
         .task { runtime.connect() }
         .onChange(of: activeInput) { runtime.store.focusChanged(to: $0) }
@@ -640,6 +665,7 @@ private struct NexaDevRoute: Hashable {
 @MainActor
 private final class NexaDevStateStore: ObservableObject {
     @Published private(set) var revision = 0
+    @Published private(set) var appLifecycleEpoch = 0
     @Published var navigationPath: [NexaDevRoute] = []
     @Published private(set) var focusedFieldKey: String?
     private var values: [String: Any] = [:]
@@ -649,6 +675,7 @@ private final class NexaDevStateStore: ObservableObject {
     private var navigationRoot: String?
     private var activeFunctions = Set<String>()
     private var focusBindings: [String: (scope: String, state: String?)] = [:]
+    private var hasInstalledModule = false
 
     func install(module: [String: Any]) {
         let screens = module["screens"] as? [[String: Any]] ?? []
@@ -718,6 +745,10 @@ private final class NexaDevStateStore: ObservableObject {
         routeArguments = routeArguments.filter {
             screenSignatures[$0.value.screen] == $0.value.signature
         }
+        if !hasInstalledModule {
+            hasInstalledModule = true
+            appLifecycleEpoch += 1
+        }
         revision += 1
     }
 
@@ -727,6 +758,7 @@ private final class NexaDevStateStore: ObservableObject {
         routeArguments.removeAll()
         navigationPath.removeAll()
         navigationRoot = nil
+        appLifecycleEpoch += 1
         focusedFieldKey = nil
         activeFunctions.removeAll()
         install(module: module)
@@ -1333,14 +1365,21 @@ private struct NexaDevNodeList: View {
 
     private func renderScreen(_ screen: [String: Any], parameters: [String: Any]) -> AnyView {
         let name = screen["name"] as? String ?? ""
+        let scope = "screen/\(name)"
         return AnyView(NexaDevNodeList(
             nodes: screen["body"] as? [Any] ?? [],
             module: module,
             store: store,
             focusedField: focusedField,
             parameters: parameters,
-            stateScope: "screen/\(name)"
-        ))
+            stateScope: scope
+        )
+        .onAppear {
+            store.perform(screen["on_appear"] as? [Any] ?? [], scope: scope, locals: parameters)
+        }
+        .onDisappear {
+            store.perform(screen["on_disappear"] as? [Any] ?? [], scope: scope, locals: parameters)
+        })
     }
 }
 

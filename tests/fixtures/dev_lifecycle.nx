@@ -1,0 +1,52 @@
+app LifecycleSmoke {
+    state appearances: Int32 = 0
+    state activeEvents: Int32 = 0
+    state inactiveEvents: Int32 = 0
+    state backgroundEvents: Int32 = 0
+    state detailVisits: Int32 = 0
+    state detailLeaves: Int32 = 0
+
+    screen Home {
+        Column {
+            Text("Appears: $appearances")
+            Text("Active: $activeEvents")
+            Text("Inactive: $inactiveEvents")
+            Text("Background: $backgroundEvents")
+            Text("Detail visits: $detailVisits")
+            Text("Detail leaves: $detailLeaves")
+            NavigationLink(destination: Detail) {
+                Text("Open detail")
+            }
+        }
+    }
+
+    screen Detail {
+        OnAppear {
+            detailVisits = detailVisits + 1
+        }
+        OnDisappear {
+            detailLeaves = detailLeaves + 1
+        }
+
+        Column {
+            Text("Detail visits: $detailVisits")
+            NavigationBack(label: "Back")
+        }
+    }
+
+    body {
+        OnAppear {
+            appearances = appearances + 1
+        }
+        OnActive {
+            activeEvents = activeEvents + 1
+        }
+        OnInactive {
+            inactiveEvents = inactiveEvents + 1
+        }
+        OnBackground {
+            backgroundEvents = backgroundEvents + 1
+        }
+        NavigationStack(root: Home)
+    }
+}

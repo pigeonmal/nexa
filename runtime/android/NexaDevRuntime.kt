@@ -50,12 +50,14 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import coil3.compose.AsyncImage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
@@ -91,6 +93,9 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.net.Socket
@@ -102,6 +107,8 @@ import java.util.concurrent.TimeUnit
 import java.util.Locale
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 
 private val LocalNexaDevNavController = staticCompositionLocalOf<NavHostController?> { null }
 
@@ -118,6 +125,33 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
         NexaDevSocketClient(serverURL, sessionToken, store).connect()
     }
     val module = store.module
+    val latestModule = rememberUpdatedState(module)
+    LaunchedEffect(store.appLifecycleEpoch) {
+        if (store.appLifecycleEpoch == 0) return@LaunchedEffect
+        val readyModule = snapshotFlow { store.module }.filterNotNull().first()
+        val actions = readyModule.optJSONArray("on_appear") ?: JSONArray()
+        store.perform(actions, "app", emptyMap())
+    }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, store.appLifecycleEpoch) {
+        val observer = LifecycleEventObserver { _, event ->
+            val readyModule = latestModule.value ?: return@LifecycleEventObserver
+            val actions = when (event) {
+                Lifecycle.Event.ON_RESUME -> readyModule.optJSONArray("on_active")
+                Lifecycle.Event.ON_PAUSE -> readyModule.optJSONArray("on_inactive")
+                Lifecycle.Event.ON_STOP -> readyModule.optJSONArray("on_background")
+                else -> null
+            }
+            actions?.let { store.perform(it, "app", emptyMap()) }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    DisposableEffect(lifecycleOwner) {
+        onDispose {
+            latestModule.value?.optJSONArray("on_disappear")?.let { store.perform(it, "app", emptyMap()) }
+        }
+    }
     var fps by remember { mutableIntStateOf(0) }
     var frameTimeMs by remember { mutableStateOf(0.0) }
     LaunchedEffect(store.performanceOverlayEnabled) {
@@ -216,6 +250,8 @@ private class NexaDevStateStore {
     private val activeFunctions = mutableSetOf<String>()
     var module by mutableStateOf<JSONObject?>(null)
         private set
+    var appLifecycleEpoch by mutableIntStateOf(0)
+        private set
     var diagnostics by mutableStateOf<List<String>>(emptyList())
         private set
     var performanceOverlayEnabled by mutableStateOf(false)
@@ -228,6 +264,7 @@ private class NexaDevStateStore {
     private var navigationRoot: String? = null
     private var navigationScreensSignature: String? = null
     private var focusBindings = mutableMapOf<String, Pair<String, String?>>()
+    private var hasInstalledModule = false
 
     fun install(next: JSONObject) {
         val screens = next.optJSONArray("screens") ?: JSONArray()
@@ -305,6 +342,10 @@ private class NexaDevStateStore {
         }
         diagnostics = emptyList()
         module = next
+        if (!hasInstalledModule) {
+            hasInstalledModule = true
+            appLifecycleEpoch += 1
+        }
         moduleRevision += 1
     }
 
@@ -317,6 +358,7 @@ private class NexaDevStateStore {
         focusedFieldKey = null
         navigationRoot = null
         navigationScreensSignature = null
+        appLifecycleEpoch += 1
         navigationEpoch += 1
         install(latestModule)
     }
@@ -1304,6 +1346,7 @@ private fun RenderNavigationStack(
                         destination.optJSONObject("parameters") ?: JSONObject(),
                     )
                     CompositionLocalProvider(LocalNexaDevNavController provides navController) {
+                        NexaDevScreenLifecycle(screen, store, parameters)
                         NexaDevNodeList(
                             screen.optJSONArray("body") ?: JSONArray(),
                             module,
@@ -1315,6 +1358,31 @@ private fun RenderNavigationStack(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NexaDevScreenLifecycle(
+    screen: JSONObject,
+    store: NexaDevStateStore,
+    parameters: Map<String, Any>,
+) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val latestScreen = rememberUpdatedState(screen)
+    val latestParameters = rememberUpdatedState(parameters)
+    val scope = "screen/${screen.optString("name")}"
+    DisposableEffect(lifecycleOwner, scope) {
+        val observer = LifecycleEventObserver { _, event ->
+            val currentScreen = latestScreen.value
+            val actions = when (event) {
+                Lifecycle.Event.ON_RESUME -> currentScreen.optJSONArray("on_appear")
+                Lifecycle.Event.ON_PAUSE -> currentScreen.optJSONArray("on_disappear")
+                else -> null
+            }
+            actions?.let { store.perform(it, scope, latestParameters.value) }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 }
 

@@ -192,6 +192,43 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
 }
 
 #[test]
+fn development_module_preserves_app_lifecycle_callbacks_for_the_native_runtime() {
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dev_lifecycle.nx");
+    let module = nexa_compiler::compile_file_for_target(&fixture, nexa_compiler::Target::Kotlin)
+        .expect("compile lifecycle fixture");
+    assert!(module.on_appear.is_some());
+    assert!(module.on_disappear.is_none());
+    assert!(module.on_active.is_some());
+    assert!(module.on_inactive.is_some());
+    assert!(module.on_background.is_some());
+
+    let payload = serde_json::to_value(nexa_dev_ir::lower(&module, "lifecycle-test"))
+        .expect("serialize lifecycle dev module");
+    let module = &payload["module"];
+    for callback in ["on_appear", "on_active", "on_inactive", "on_background"] {
+        assert_eq!(
+            module[callback].as_array().map(Vec::len),
+            Some(1),
+            "serialized dev module should carry {callback} actions"
+        );
+    }
+    let detail = module["screens"]
+        .as_array()
+        .expect("serialized screens")
+        .iter()
+        .find(|screen| screen["name"] == "Detail")
+        .expect("Detail screen");
+    for callback in ["on_appear", "on_disappear"] {
+        assert_eq!(
+            detail[callback].as_array().map(Vec::len),
+            Some(1),
+            "serialized Detail screen should carry {callback} actions"
+        );
+    }
+}
+
+#[test]
 fn development_navigation_host_keeps_platform_navigation_state_outside_the_tree() {
     let root = temporary_project();
     let entry = root.join("App.nx");

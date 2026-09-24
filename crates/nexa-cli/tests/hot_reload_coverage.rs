@@ -113,3 +113,28 @@ fn runtime_acceptance_scenarios_have_explicit_dual_platform_status() {
         }
     }
 }
+
+#[test]
+fn runtime_feature_gaps_have_explicit_dual_platform_status() {
+    let (_, fixture) = fixture();
+    let features = fixture["runtime_features"]
+        .as_object()
+        .expect("runtime feature inventory");
+    let require_coverage = std::env::var_os("NEXA_REQUIRE_HOT_RELOAD_COVERAGE").is_some();
+    for (name, status) in features {
+        for platform in ["ios", "android"] {
+            let value = status[platform].as_str();
+            assert!(
+                matches!(value, Some("pending" | "covered")),
+                "runtime feature {name} needs an explicit {platform} test status"
+            );
+            if require_coverage {
+                assert_eq!(
+                    value,
+                    Some("covered"),
+                    "runtime feature {name} is not covered on {platform}"
+                );
+            }
+        }
+    }
+}

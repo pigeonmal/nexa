@@ -504,28 +504,28 @@
       },
       {
         "name": "OnAppear",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "OnDisappear",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "OnActive",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "OnInactive",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "OnBackground",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Layout",
@@ -1102,6 +1102,16 @@
     "generic_refresh_control_renders_and_hot_reloads": {
       "ios": "covered",
       "android": "covered"
+    },
+    "lifecycle_callbacks_and_hot_reloaded_action": {
+      "ios": "covered",
+      "android": "covered"
+    }
+  },
+  "runtime_features": {
+    "asynchronous_on_appear": {
+      "ios": "pending",
+      "android": "pending"
     }
   }
 }
