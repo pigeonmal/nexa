@@ -506,14 +506,25 @@ private struct NexaDevFastList: View {
     let axis: NexaDevFastListAxis
     let rowHeight: Double?
     let scrollPosition: Int?
-    let row: (Int) -> AnyView
+    let sectionCounts: [Int]?
+    let stickyHeader: AnyView?
+    let sectionHeader: ((Int) -> AnyView)?
+    let row: (Int, Int, Int) -> AnyView
     let onScrollPositionChanged: (Int) -> Void
+    let onScroll: ((Int) -> Void)?
+    let onEndReached: ((Int) -> Void)?
+    let isRefreshing: Bool
+    let onRefresh: (() -> Void)?
     @State private var canUpdateScrollPosition = false
+    @State private var didReachEnd = false
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(axis.scrollAxis) {
                 listContent
+            }
+            .refreshable {
+                onRefresh?()
             }
             .coordinateSpace(name: "nexa-dev-fast-list")
             .onAppear {
@@ -539,13 +550,20 @@ private struct NexaDevFastList: View {
                 }
             }
             .onPreferenceChange(NexaDevListPositionPreference.self) { offsets in
-                guard canUpdateScrollPosition else { return }
-                guard let visibleIndex = offsets
-                    .filter({ $0.value >= 0 })
+                let visibleRows = offsets.filter { $0.value >= 0 }
+                guard let visibleIndex = visibleRows
                     .min(by: { abs($0.value) < abs($1.value) })?.key
                 else { return }
-                onScrollPositionChanged(visibleIndex)
+                onScroll?(visibleIndex)
+                if canUpdateScrollPosition { onScrollPositionChanged(visibleIndex) }
+                if visibleRows.keys.max().map({ $0 >= count - 1 }) == true, !didReachEnd {
+                    didReachEnd = true
+                    onEndReached?(visibleIndex)
+                } else if visibleIndex < count - 1 {
+                    didReachEnd = false
+                }
             }
+            .onChange(of: count) { _ in didReachEnd = false }
         }
     }
 
@@ -553,15 +571,31 @@ private struct NexaDevFastList: View {
     private var listContent: some View {
         switch axis {
         case .vertical:
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(0..<count, id: \.self) { index in
-                    listItem(index, horizontal: false)
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: stickyHeader != nil || sectionCounts != nil ? [.sectionHeaders] : []) {
+                if let sectionCounts {
+                    ForEach(sectionCounts.indices, id: \.self) { sectionIndex in
+                        let start = sectionCounts.prefix(sectionIndex).reduce(0, +)
+                        Section {
+                            ForEach(0..<sectionCounts[sectionIndex], id: \.self) { itemIndex in
+                                listItem(start + itemIndex, section: sectionIndex, item: itemIndex, horizontal: false)
+                            }
+                        } header: {
+                            sectionHeader?(sectionIndex) ?? AnyView(EmptyView())
+                        }
+                    }
+                } else {
+                    if let stickyHeader {
+                        Section { ForEach(0..<count, id: \.self) { index in listItem(index, section: 0, item: index, horizontal: false) } }
+                        header: { stickyHeader }
+                    } else {
+                        ForEach(0..<count, id: \.self) { index in listItem(index, section: 0, item: index, horizontal: false) }
+                    }
                 }
             }
         case .horizontal:
             LazyHStack(alignment: .top, spacing: 0) {
                 ForEach(0..<count, id: \.self) { index in
-                    listItem(index, horizontal: true)
+                    listItem(index, section: 0, item: index, horizontal: true)
                 }
             }
         case let .grid(columns):
@@ -571,14 +605,14 @@ private struct NexaDevFastList: View {
                 spacing: 0
             ) {
                 ForEach(0..<count, id: \.self) { index in
-                    listItem(index, horizontal: false)
+                    listItem(index, section: 0, item: index, horizontal: false)
                 }
             }
         }
     }
 
-    private func listItem(_ index: Int, horizontal: Bool) -> some View {
-        row(index)
+    private func listItem(_ index: Int, section: Int, item: Int, horizontal: Bool) -> some View {
+        row(index, section, item)
             .frame(minWidth: horizontal ? rowHeight.map { CGFloat($0) } : nil)
             .frame(minHeight: horizontal ? nil : rowHeight.map { CGFloat($0) })
             .frame(maxWidth: horizontal ? nil : .infinity, alignment: .leading)
@@ -987,15 +1021,7 @@ private struct NexaDevNodeList: View {
             )).focused(focusedField, equals: identity))
         case "FastList":
             guard let source = fields["source"] as? [String: Any] else {
-                return AnyView(Text("Nexa dev does not support this FastList source yet."))
-            }
-            guard fields["on_end_reached"] is NSNull || fields["on_end_reached"] == nil,
-                  fields["on_scroll"] is NSNull || fields["on_scroll"] == nil,
-                  fields["sticky_header"] is NSNull || fields["sticky_header"] == nil,
-                  fields["section_header"] is NSNull || fields["section_header"] == nil,
-                  fields["refresh"] is NSNull || fields["refresh"] == nil
-            else {
-                return AnyView(Text("Nexa dev does not support FastList callbacks or headers yet."))
+                return AnyView(Text("FastList source could not be evaluated."))
             }
             let countExpression = source["Count"]
             let sourceItems: [Any]?
@@ -1005,12 +1031,16 @@ private struct NexaDevNodeList: View {
             } else {
                 sourceItems = nil
             }
-            guard countExpression != nil || sourceItems != nil else {
-                return AnyView(Text("Nexa dev currently supports count-based and array-based FastList sources only."))
+            let sourceSections: [[Any]]? = (source["Sections"] as? [String: Any])
+                .flatMap { $0["collection"] }
+                .flatMap { store.evaluate($0, locals: locals, scope: scope) as? [[Any]] }
+            guard countExpression != nil || sourceItems != nil || sourceSections != nil else {
+                return AnyView(Text("FastList source could not be evaluated."))
             }
-            let count = countExpression.map {
+            let itemCount = countExpression.map {
                 max(0, (store.evaluate($0, locals: locals, scope: scope) as? NSNumber)?.intValue ?? 0)
             } ?? (sourceItems?.count ?? 0)
+            let count = sourceSections?.reduce(0) { $0 + $1.count } ?? itemCount
             let axis: NexaDevFastListAxis
             if fields["axis"] as? String == "Horizontal" {
                 axis = .horizontal
@@ -1022,20 +1052,51 @@ private struct NexaDevNodeList: View {
             }
             let indexName = fields["index"] as? String ?? "index"
             let itemName = fields["item"] as? String
+            let sectionName = fields["section"] as? String ?? "section"
             let children = fields["children"] as? [Any] ?? []
             let itemExtent = fields["item_extent"] as? Double
             let scrollPositionName = fields["scroll_position"] as? String
             let requestedIndex = scrollPositionName.flatMap { name in
                 (store.value(name, scope: scope) as? NSNumber)?.intValue
             }
+            let stickyHeaderNodes = fields["sticky_header"] as? [Any]
+            let stickyHeader = stickyHeaderNodes.map { nodes in
+                AnyView(NexaDevNodeList(nodes: nodes, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope))
+            }
+            let sectionHeaderNodes = fields["section_header"] as? [Any]
+            let sectionHeader: ((Int) -> AnyView)? = sectionHeaderNodes.map { nodes in
+                { sectionIndex in
+                    AnyView(NexaDevNodeList(
+                        nodes: nodes,
+                        module: module,
+                        store: store,
+                        focusedField: focusedField,
+                        parameters: locals.merging([sectionName: sectionIndex]) { _, newest in newest },
+                        stateScope: scope
+                    ))
+                }
+            }
+            let onScrollActions = fields["on_scroll"] as? [Any]
+            let onEndReachedActions = fields["on_end_reached"] as? [Any]
+            let refresh = fields["refresh"] as? [String: Any]
+            let refreshState = refresh?["state"] as? String
+            let refreshActions = refresh?["actions"] as? [Any] ?? []
             return AnyView(NexaDevFastList(
                 count: count,
                 axis: axis,
                 rowHeight: itemExtent,
                 scrollPosition: requestedIndex,
-                row: { index in
-                    var rowLocals = locals.merging([indexName: index]) { _, newest in newest }
-                    if let itemName, let sourceItems, sourceItems.indices.contains(index) {
+                sectionCounts: sourceSections?.map(\.count),
+                stickyHeader: stickyHeader,
+                sectionHeader: sectionHeader,
+                row: { index, sectionIndex, itemIndex in
+                    var rowLocals = locals.merging([indexName: itemIndex]) { _, newest in newest }
+                    if let sourceSections, let itemName,
+                       sourceSections.indices.contains(sectionIndex),
+                       sourceSections[sectionIndex].indices.contains(itemIndex) {
+                        rowLocals[itemName] = sourceSections[sectionIndex][itemIndex]
+                        rowLocals[sectionName] = sectionIndex
+                    } else if let itemName, let sourceItems, sourceItems.indices.contains(index) {
                         rowLocals[itemName] = sourceItems[index]
                     }
                     return AnyView(NexaDevNodeList(
@@ -1052,6 +1113,16 @@ private struct NexaDevNodeList: View {
                           (store.value(scrollPositionName, scope: scope) as? NSNumber)?.intValue != index
                     else { return }
                     store.setValue(scrollPositionName, value: index, scope: scope)
+                },
+                onScroll: onScrollActions.map { actions in
+                    { index in store.perform(actions, scope: scope, locals: locals.merging([indexName: index]) { _, newest in newest }) }
+                },
+                onEndReached: onEndReachedActions.map { actions in
+                    { index in store.perform(actions, scope: scope, locals: locals.merging([indexName: index]) { _, newest in newest }) }
+                },
+                isRefreshing: refreshState.map { store.truthy(store.value($0, scope: scope)) } ?? false,
+                onRefresh: refresh.map { _ in
+                    { store.perform(refreshActions, scope: scope, locals: locals) }
                 }
             ))
         case "Switch":

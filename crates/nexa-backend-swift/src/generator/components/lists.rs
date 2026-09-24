@@ -168,6 +168,17 @@ fn render_sectioned_list(
         ));
         out.push_str(") },\n");
     }
+    if let Some(refresh) = refresh {
+        indent(out, depth + 1);
+        out.push_str("isRefreshing: ");
+        out.push_str(&state_name(&refresh.state));
+        out.push_str(",\n");
+        indent(out, depth + 1);
+        out.push_str("onRefresh: {\n");
+        render_actions(&refresh.actions, depth + 2, out);
+        indent(out, depth + 1);
+        out.push_str("},\n");
+    }
     if let Some(header) = section_header {
         indent(out, depth + 1);
         out.push_str("headerContent: { sectionPosition in\n");
@@ -182,17 +193,6 @@ fn render_sectioned_list(
         out.push('\n');
         indent(out, depth + 2);
         out.push_str("}\n");
-        indent(out, depth + 1);
-        out.push_str("},\n");
-    }
-    if let Some(refresh) = refresh {
-        indent(out, depth + 1);
-        out.push_str("isRefreshing: ");
-        out.push_str(&state_name(&refresh.state));
-        out.push_str(",\n");
-        indent(out, depth + 1);
-        out.push_str("onRefresh: {\n");
-        render_actions(&refresh.actions, depth + 2, out);
         indent(out, depth + 1);
         out.push_str("},\n");
     }

@@ -42,10 +42,6 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.lazy.items",
     );
     imports.add(
-        features.uses_sticky_header,
-        "androidx.compose.foundation.lazy.stickyHeader",
-    );
-    imports.add(
         features.uses_grid_list,
         "androidx.compose.foundation.lazy.grid.items",
     );

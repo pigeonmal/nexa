@@ -46,6 +46,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -942,6 +943,9 @@ private fun NexaDevNode(
             val itemSource = source?.optJSONObject("Items")
             val itemExpression = itemSource?.opt("collection")
             val sourceItems = itemExpression?.let { store.evaluate(it, locals, scope) as? List<*> }
+            val sectionSource = source?.optJSONObject("Sections")
+            val sectionExpression = sectionSource?.opt("collection")
+            val sourceSections = sectionExpression?.let { store.evaluate(it, locals, scope) as? List<*> }
             val axisValue = fields.opt("axis")
             val gridColumns = (axisValue as? JSONObject)
                 ?.optJSONObject("Grid")
@@ -952,24 +956,25 @@ private fun NexaDevNode(
                 gridColumns != null -> "Grid"
                 else -> "Vertical"
             }
-            val hasUnsupportedFeature = listOf(
-                "on_end_reached",
-                "on_scroll",
-                "sticky_header",
-                "section_header",
-                "refresh",
-            ).any { name -> fields.opt(name) != null && fields.opt(name) != JSONObject.NULL }
-            if (countExpression == null && sourceItems == null) {
-                Text("Nexa dev currently supports count-based and array-based FastList sources only.")
-            } else if (hasUnsupportedFeature) {
-                Text("Nexa dev does not support FastList callbacks or headers yet.")
+            if (countExpression == null && sourceItems == null && sourceSections == null) {
+                Text("FastList source could not be evaluated.")
             } else {
-                val count = countExpression?.let {
+                val itemCount = countExpression?.let {
                     (store.evaluate(it, locals, scope) as? Number)?.toInt()?.coerceAtLeast(0) ?: 0
                 } ?: sourceItems?.size ?: 0
+                val count = sourceSections?.sumOf { (it as? List<*>)?.size ?: 0 } ?: itemCount
                 val indexName = fields.optString("index", "index")
                 val itemName = fields.optString("item").takeIf(String::isNotEmpty)
+                val sectionName = fields.optString("section").takeIf(String::isNotEmpty)
                 val children = fields.optJSONArray("children") ?: JSONArray()
+                val stickyHeaderNodes = fields.optJSONArray("sticky_header")
+                val sectionHeader = fields.optJSONArray("section_header")
+                val onScroll = fields.optJSONArray("on_scroll")
+                val onEndReached = fields.optJSONArray("on_end_reached")
+                val refresh = fields.optJSONObject("refresh")
+                val refreshState = refresh?.optString("state")?.takeIf(String::isNotEmpty)
+                val refreshActions = refresh?.optJSONArray("actions") ?: JSONArray()
+                var endReached by remember(countExpression, sourceItems?.size, sourceSections?.size) { mutableStateOf(false) }
                 val scrollPositionName = fields.optString("scroll_position").takeIf(String::isNotEmpty)
                 val requestedIndex = scrollPositionName?.let { name ->
                     (store.state(name, scope) as? Number)?.toInt()?.coerceIn(0, maxOf(0, count - 1)) ?: 0
@@ -989,18 +994,32 @@ private fun NexaDevNode(
                         RenderChildren(children, module, store, rowLocals, scope)
                     }
                 }
+                val renderHeader: @Composable (JSONArray, Map<String, Any>) -> Unit = { nodes, headerLocals ->
+                    Column(Modifier.fillMaxWidth()) {
+                        RenderChildren(nodes, module, store, headerLocals, scope)
+                    }
+                }
+                val observeScroll: suspend (Int, Int, Int) -> Unit = { firstVisible, visibleCount, total ->
+                    val callbackLocals = locals + (indexName to firstVisible)
+                    if (scrollPositionName != null) {
+                        val storedIndex = (store.state(scrollPositionName, scope) as? Number)?.toInt()
+                        if (storedIndex != firstVisible) store.setState(scrollPositionName, firstVisible, scope)
+                    }
+                    if (onScroll != null && onScroll != JSONObject.NULL) store.perform(onScroll, scope, callbackLocals)
+                    if (onEndReached != null && onEndReached != JSONObject.NULL) {
+                        val reached = total > 0 && firstVisible + visibleCount >= total
+                        if (reached && !endReached) store.perform(onEndReached, scope, callbackLocals)
+                        endReached = reached
+                    }
+                }
+                val listContent: @Composable () -> Unit = {
                 if (axis == "Grid") {
                     val listState = rememberLazyGridState(initialFirstVisibleItemIndex = requestedIndex)
                     val itemIndices = remember(count) { List(count) { it } }
-                    LaunchedEffect(listState, scrollPositionName, count) {
-                        if (scrollPositionName != null) {
-                            snapshotFlow { listState.firstVisibleItemIndex }
-                                .distinctUntilChanged()
-                                .collect { visibleIndex ->
-                                    val storedIndex = (store.state(scrollPositionName, scope) as? Number)?.toInt()
-                                    if (storedIndex != visibleIndex) store.setState(scrollPositionName, visibleIndex, scope)
-                                }
-                        }
+                    LaunchedEffect(listState, scrollPositionName, onScroll, onEndReached, count) {
+                        snapshotFlow { Pair(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) }
+                            .distinctUntilChanged()
+                            .collect { (firstVisible, visibleCount) -> observeScroll(firstVisible, visibleCount, count) }
                     }
                     LaunchedEffect(listState, requestedIndex, count) {
                         if (count > 0 && listState.firstVisibleItemIndex != requestedIndex) {
@@ -1018,15 +1037,10 @@ private fun NexaDevNode(
                     }
                 } else {
                     val listState = rememberLazyListState(initialFirstVisibleItemIndex = requestedIndex)
-                    LaunchedEffect(listState, scrollPositionName, count) {
-                        if (scrollPositionName != null) {
-                            snapshotFlow { listState.firstVisibleItemIndex }
-                                .distinctUntilChanged()
-                                .collect { visibleIndex ->
-                                    val storedIndex = (store.state(scrollPositionName, scope) as? Number)?.toInt()
-                                    if (storedIndex != visibleIndex) store.setState(scrollPositionName, visibleIndex, scope)
-                                }
-                        }
+                    LaunchedEffect(listState, scrollPositionName, onScroll, onEndReached, count) {
+                        snapshotFlow { Pair(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) }
+                            .distinctUntilChanged()
+                            .collect { (firstVisible, visibleCount) -> observeScroll(firstVisible, visibleCount, count) }
                     }
                     LaunchedEffect(listState, requestedIndex, count) {
                         if (count > 0 && listState.firstVisibleItemIndex != requestedIndex) {
@@ -1041,11 +1055,42 @@ private fun NexaDevNode(
                         }
                     } else {
                         LazyColumn(state = listState, modifier = modifier.fillMaxWidth()) {
+                            if (stickyHeaderNodes != null && stickyHeaderNodes != JSONObject.NULL) {
+                                stickyHeader { renderHeader(stickyHeaderNodes, locals) }
+                            }
+                            if (sourceSections != null) {
+                                sourceSections.forEachIndexed { sectionIndex, rawSection ->
+                                    val sectionItems = rawSection as? List<*> ?: emptyList<Any?>()
+                                    if (sectionHeader != null && sectionHeader != JSONObject.NULL) {
+                                        stickyHeader {
+                                            renderHeader(sectionHeader, locals + ((sectionName ?: "section") to sectionIndex))
+                                        }
+                                    }
+                                    items(count = sectionItems.size, key = { itemIndex -> "${sectionIndex}:$itemIndex" }) { itemIndex ->
+                                        var rowLocals = locals + (indexName to itemIndex) + ((sectionName ?: "section") to sectionIndex)
+                                        if (itemName != null) rowLocals = rowLocals + (itemName to (sectionItems.getOrNull(itemIndex) ?: JSONObject.NULL))
+                                        Column(Modifier.fillMaxWidth().then(extent?.let { Modifier.heightIn(min = it) } ?: Modifier)) {
+                                            RenderChildren(children, module, store, rowLocals, scope)
+                                        }
+                                    }
+                                }
+                            } else {
                             items(count = count, key = { itemIndex -> itemIndex }) { itemIndex ->
                                 renderItem(itemIndex, axis)
                             }
+                            }
                         }
                     }
+                }
+                }
+                if (refreshState != null) {
+                    PullToRefreshBox(
+                        isRefreshing = store.state(refreshState, scope) as? Boolean ?: false,
+                        onRefresh = { store.perform(refreshActions, scope, locals) },
+                        modifier = modifier.fillMaxWidth(),
+                    ) { listContent() }
+                } else {
+                    listContent()
                 }
             }
         }

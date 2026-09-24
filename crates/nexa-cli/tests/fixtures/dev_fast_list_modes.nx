@@ -1,0 +1,29 @@
+app FastListModesSmoke {
+    state sections: Array<Array<String>> = [["A1", "A2"], ["B1", "B2"]]
+    state itemCount: Int32 = 40
+    state scrollPosition: Int32 = 0
+    state isRefreshing: Bool = false
+    state scrollEvents: Int32 = 0
+    state pagesLoaded: Int32 = 0
+    state refreshCount: Int32 = 0
+
+    body {
+        Text("Events $scrollEvents pages $pagesLoaded refreshes $refreshCount")
+        RefreshControl(isRefreshing: isRefreshing) {
+            FastList(sections: sections, rowHeight: 44) { item, index, section in
+                Text("Section $section row $index: $item")
+            }.sectionHeader {
+                Text("Section $section")
+            }
+        }.onRefresh {
+            refreshCount = refreshCount + 1
+        }
+        FastList(count: itemCount, axis: Grid(2), scrollPosition: scrollPosition, rowHeight: 48) { index in
+            Text("Grid $index")
+        }.onScroll {
+            scrollEvents = scrollEvents + 1
+        }.onEndReached {
+            pagesLoaded = pagesLoaded + 1
+        }
+    }
+}
