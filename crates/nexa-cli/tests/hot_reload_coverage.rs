@@ -55,6 +55,14 @@ fn fixture() -> (PathBuf, Value) {
     (root, fixture)
 }
 
+fn assert_runtime_dispatch(runtime: &str, enum_name: &str, variant: &str, platform: &str) {
+    let marker = format!("\"{variant}\"");
+    assert!(
+        runtime.contains(&marker),
+        "{platform} dev runtime has no dispatch for {enum_name}::{variant}"
+    );
+}
+
 #[test]
 fn inventory_tracks_every_public_ir_node_and_interpreter_variant() {
     let (root, fixture) = fixture();
@@ -102,6 +110,55 @@ fn inventory_tracks_every_public_ir_node_and_interpreter_variant() {
             })
             .collect::<BTreeSet<_>>();
         assert_eq!(actual, expected, "{enum_name} coverage inventory is stale");
+    }
+}
+
+#[test]
+fn hot_reload_interpreter_variants_have_both_native_dispatches() {
+    let (root, fixture) = fixture();
+    let inventory = fixture["ir_variants"]
+        .as_object()
+        .expect("IR inventory object");
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRuntime.swift"))
+        .expect("read iOS dev runtime");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRuntime.kt"))
+        .expect("read Android dev runtime");
+
+    // These IR enums are consumed by the hot-reload interpreters. Metadata-only
+    // node variants are handled by the module/store lifecycle; a native plugin
+    // component is intentionally on the rebuild path.
+    let dispatched_enums = ["Expr", "Action", "CollectionMutation"];
+    for enum_name in dispatched_enums {
+        for entry in inventory[enum_name]
+            .as_array()
+            .unwrap_or_else(|| panic!("missing {enum_name} inventory"))
+        {
+            let variant = entry["name"].as_str().expect("variant name");
+            if requires_native_rebuild(enum_name, variant) {
+                continue;
+            }
+            assert_runtime_dispatch(&swift, enum_name, variant, "iOS");
+            assert_runtime_dispatch(&kotlin, enum_name, variant, "Android");
+        }
+    }
+
+    let node_metadata = [
+        "StatusBar",
+        "Direction",
+        "OnAppear",
+        "OnDisappear",
+        "OnActive",
+        "OnInactive",
+        "OnBackground",
+        "NativeComponentCall",
+    ];
+    for entry in inventory["Node"].as_array().expect("Node inventory") {
+        let variant = entry["name"].as_str().expect("variant name");
+        if node_metadata.contains(&variant) {
+            continue;
+        }
+        assert_runtime_dispatch(&swift, "Node", variant, "iOS");
+        assert_runtime_dispatch(&kotlin, "Node", variant, "Android");
     }
 }
 
