@@ -18,10 +18,6 @@ use nexa_syntax::ast::Program;
 // This prevents old generated native units from surviving a generator update.
 const CACHE_VERSION: &str = "build-v90";
 
-pub(super) struct CachedBuild {
-    pub(super) warnings: Vec<String>,
-}
-
 pub(super) fn restore_warnings(entry: &Path, key: &str) -> Result<Option<Vec<String>>, String> {
     let path = cache_directory(entry).join(format!("{key}.warnings"));
     if !path.is_file() {
@@ -30,48 +26,6 @@ pub(super) fn restore_warnings(entry: &Path, key: &str) -> Result<Option<Vec<Str
     let contents =
         fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
     Ok(Some(contents.lines().map(str::to_owned).collect()))
-}
-
-pub(super) fn restore(
-    entry: &Path,
-    key: &str,
-    output: &Path,
-) -> Result<Option<CachedBuild>, String> {
-    let directory = cache_directory(entry);
-    let artifact = directory.join(format!("{key}.source"));
-    if !artifact.is_file() {
-        return Ok(None);
-    }
-    let warnings_path = directory.join(format!("{key}.warnings"));
-    let warnings = fs::read_to_string(&warnings_path)
-        .ok()
-        .map(|contents| contents.lines().map(str::to_owned).collect())
-        .unwrap_or_default();
-    if let Some(parent) = output.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
-    }
-    let temporary = output.with_extension(format!("nexa-cache-{}", process::id()));
-    fs::copy(&artifact, &temporary).map_err(|error| format!("{}: {error}", temporary.display()))?;
-    fs::rename(&temporary, output).map_err(|error| format!("{}: {error}", output.display()))?;
-    Ok(Some(CachedBuild { warnings }))
-}
-
-pub(super) fn store(
-    entry: &Path,
-    key: &str,
-    source: &str,
-    warnings: &[String],
-) -> Result<(), String> {
-    let directory = cache_directory(entry);
-    fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
-    write_atomic(&directory.join(format!("{key}.source")), source.as_bytes())
-        .map_err(|error| format!("cache source: {error}"))?;
-    write_atomic(
-        &directory.join(format!("{key}.warnings")),
-        warnings.join("\n").as_bytes(),
-    )
-    .map_err(|error| format!("cache warnings: {error}"))?;
-    Ok(())
 }
 
 pub(super) fn store_warnings(entry: &Path, key: &str, warnings: &[String]) -> Result<(), String> {
@@ -98,16 +52,9 @@ fn cache_directory(entry: &Path) -> PathBuf {
         .join(".nexa/cache")
 }
 
-pub(super) fn key(entry: &Path, target: &str) -> Result<String, String> {
-    key_with_extra(entry, target, &[])
-}
-
-pub(super) fn key_with_extra(
-    entry: &Path,
-    target: &str,
-    extra_files: &[&Path],
-) -> Result<String, String> {
-    key_with_extra_and_roots(entry, target, extra_files, &BTreeMap::new())
+#[cfg(test)]
+fn key(entry: &Path, target: &str) -> Result<String, String> {
+    key_with_extra_and_roots(entry, target, &[], &BTreeMap::new())
 }
 
 pub(super) fn key_with_extra_and_roots(

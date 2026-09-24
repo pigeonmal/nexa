@@ -409,7 +409,7 @@ impl Parser {
         if self.check(&Kind::RBrace) {
             return Ok(());
         }
-        self.error_here(&format!("expected `,` or `}}` after {context} field"))
+        self.error_here(format!("expected `,` or `}}` after {context} field"))
     }
 
     fn config_permissions_decl(&mut self) -> Result<Vec<PermissionConfig>, CompileError> {

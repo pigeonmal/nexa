@@ -20,14 +20,6 @@ pub(super) fn root_readme(app_name: &str, targets: &[&str]) -> String {
     readme
 }
 
-pub(super) fn ios_info_plist(
-    app_name: &str,
-    config: &ProjectConfig,
-    plugins: &[nexa_ir::Plugin],
-) -> Result<String, String> {
-    ios_info_plist_with_dev_runtime(app_name, config, plugins, false)
-}
-
 pub(super) fn ios_info_plist_with_dev_runtime(
     app_name: &str,
     config: &ProjectConfig,
@@ -301,30 +293,6 @@ fn merge_maven_dependencies(plugins: &[nexa_ir::Plugin]) -> Result<Vec<String>, 
         dependencies.push(dependency.clone());
     }
     Ok(dependencies)
-}
-
-#[cfg(test)]
-pub(super) fn ios_project_file(
-    app_name: &str,
-    has_assets: bool,
-    has_plugin_resources: bool,
-    generated_sources: &[String],
-    plugin_sources: &[String],
-    cpp_sources: &[String],
-    xcframeworks: &[String],
-    plugins: &[nexa_ir::Plugin],
-) -> Result<String, String> {
-    ios_project_file_with_config(
-        app_name,
-        has_assets,
-        has_plugin_resources,
-        generated_sources,
-        plugin_sources,
-        cpp_sources,
-        xcframeworks,
-        plugins,
-        &ProjectConfig::from_defaults(&[], app_name)?,
-    )
 }
 
 pub(super) fn ios_project_file_with_config(
@@ -978,22 +946,6 @@ pub(super) fn android_manifest(
     format!(
         "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\">\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n        </activity>\n    </application>\n</manifest>\n",
         xml_escape(&config.display_name),
-    )
-}
-
-#[cfg(test)]
-pub(super) fn android_app_gradle(
-    package: &str,
-    features: nexa_backend_kotlin::KotlinProjectFeatures,
-    plugins: &[nexa_ir::Plugin],
-    local_aars: &[String],
-) -> Result<String, String> {
-    android_app_gradle_with_config(
-        package,
-        features,
-        plugins,
-        local_aars,
-        &ProjectConfig::from_defaults(&[], package)?,
     )
 }
 

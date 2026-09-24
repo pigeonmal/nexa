@@ -41,21 +41,6 @@ fn deduplicate_warnings(warnings: Vec<CompileWarning>) -> Vec<CompileWarning> {
         .collect()
 }
 
-pub(super) fn validate_plugin_manifest_sources(
-    package_root: &Path,
-    manifest: &nexa_plugin_idl::manifest::PluginManifest,
-) -> Result<(), String> {
-    plugins::validate_manifest_sources(package_root, manifest)
-}
-
-pub(super) fn plugin_platform_sources(
-    package_root: &Path,
-    manifest: &nexa_plugin_idl::manifest::PluginManifest,
-    ios: bool,
-) -> Result<Vec<PathBuf>, String> {
-    plugins::plugin_platform_sources(package_root, manifest, ios)
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProjectTarget {
     Ios,

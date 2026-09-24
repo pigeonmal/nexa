@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[path = "../src/config.rs"]
 mod config;
 use config::ProjectConfig;
@@ -19,6 +20,7 @@ mod plugins {
     }
 }
 
+#[allow(dead_code)]
 #[path = "../src/project/templates.rs"]
 mod templates;
 
@@ -39,11 +41,13 @@ fn android_wrapper_is_pinned_and_checksum_verified() {
 
 #[test]
 fn android_release_signing_is_configured_at_build_time() {
-    let gradle = templates::android_app_gradle(
+    let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    let gradle = templates::android_app_gradle_with_config(
         "demo",
         nexa_backend_kotlin::KotlinProjectFeatures::default(),
         &[],
         &[],
+        &config,
     )
     .unwrap();
     assert!(gradle.contains("create(\"nexaRelease\")"));
@@ -54,6 +58,48 @@ fn android_release_signing_is_configured_at_build_time() {
 mod template_generation {
     use crate::ProjectConfig;
     use crate::templates::*;
+
+    fn ios_project_file(
+        app_name: &str,
+        has_assets: bool,
+        has_plugin_resources: bool,
+        generated_sources: &[String],
+        plugin_sources: &[String],
+        cpp_sources: &[String],
+        xcframeworks: &[String],
+        plugins: &[nexa_ir::Plugin],
+    ) -> Result<String, String> {
+        let config = ProjectConfig::from_defaults(&[], app_name)?;
+        ios_project_file_with_config(
+            app_name,
+            has_assets,
+            has_plugin_resources,
+            generated_sources,
+            plugin_sources,
+            cpp_sources,
+            xcframeworks,
+            plugins,
+            &config,
+        )
+    }
+
+    fn android_app_gradle(
+        package: &str,
+        features: nexa_backend_kotlin::KotlinProjectFeatures,
+        plugins: &[nexa_ir::Plugin],
+        local_aars: &[String],
+    ) -> Result<String, String> {
+        let config = ProjectConfig::from_defaults(&[], package)?;
+        android_app_gradle_with_config(package, features, plugins, local_aars, &config)
+    }
+
+    fn ios_info_plist(
+        app_name: &str,
+        config: &ProjectConfig,
+        plugins: &[nexa_ir::Plugin],
+    ) -> Result<String, String> {
+        ios_info_plist_with_dev_runtime(app_name, config, plugins, false)
+    }
 
     fn plugin(namespace: &str) -> nexa_ir::Plugin {
         nexa_ir::Plugin {

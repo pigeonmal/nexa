@@ -6,11 +6,13 @@ use std::{
 };
 
 use nexa_ir::Module;
+#[cfg(test)]
 use nexa_plugin_idl::manifest::PluginManifest;
 use nexa_syntax::ast::ConfigValue;
 
 use super::{ProjectConfig, write_if_changed};
 
+#[cfg(test)]
 pub(super) fn validate_manifest_sources(
     package_root: &Path,
     manifest: &PluginManifest,
@@ -95,7 +97,6 @@ pub(super) fn validate_manifest_sources(
             ));
         }
     }
-
     Ok(())
 }
 
@@ -163,6 +164,7 @@ fn plugin_cpp_files(plugin: &nexa_ir::Plugin, headers: bool) -> Result<Vec<PathB
     )
 }
 
+#[cfg(test)]
 fn validate_native_artifacts(
     package_root: &Path,
     artifacts: &[String],
@@ -630,7 +632,8 @@ fn write_manifest(path: &Path, values: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn plugin_platform_sources(
+#[cfg(test)]
+fn plugin_platform_sources(
     package_root: &Path,
     manifest: &PluginManifest,
     ios: bool,
