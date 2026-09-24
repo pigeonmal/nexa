@@ -1,0 +1,16 @@
+app RefreshControlSmoke {
+    state isRefreshing: Bool = false
+    state refreshes: Int32 = 0
+
+    body {
+        Text("Refreshes: $refreshes")
+        RefreshControl(isRefreshing: isRefreshing) {
+            Column {
+                Text("Before refresh")
+            }
+        }.onRefresh {
+            refreshes = refreshes + 1
+            isRefreshing = false
+        }
+    }
+}

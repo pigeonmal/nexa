@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -139,8 +140,8 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
             previousFrame = frame
         }
     }
-    Box {
-        Column {
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
             if (store.diagnostics.isNotEmpty()) {
                 Text(store.diagnostics.joinToString("\n"), color = Color.Red, modifier = Modifier.padding(10.dp))
             }
@@ -156,7 +157,12 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
                     else -> LocalLayoutDirection.current
                 }
                 CompositionLocalProvider(LocalLayoutDirection provides direction) {
-                    NexaDevNodeList(module.optJSONArray("body") ?: JSONArray(), module, store)
+                    NexaDevNodeList(
+                        module.optJSONArray("body") ?: JSONArray(),
+                        module,
+                        store,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
             }
         }
@@ -820,9 +826,10 @@ private fun NexaDevNodeList(
     store: NexaDevStateStore,
     parameters: Map<String, Any> = emptyMap(),
     scope: String = "app",
+    modifier: Modifier = Modifier,
 ) {
     val locals = store.locals(scope, parameters)
-    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(0.dp)) {
         RenderColumnChildren(nodes, module, store, locals, scope)
     }
 }
@@ -838,7 +845,7 @@ private fun ColumnScope.RenderColumnChildren(
     for (index in 0 until nodes.length()) {
         androidx.compose.runtime.key(index) {
             val child = nodes.optJSONObject(index) ?: JSONObject()
-            val modifier = if (child.has("FastList")) Modifier.weight(1f) else Modifier
+            val modifier = if (child.has("FastList") || child.has("RefreshControl")) Modifier.weight(1f) else Modifier
             NexaDevNode(child, module, store, locals, scope, modifier)
         }
     }
@@ -1128,6 +1135,20 @@ private fun NexaDevNode(
                 )
             } else {
                 Text(placeholder ?: "Image unavailable")
+            }
+        }
+        "RefreshControl" -> {
+            val state = fields.optString("state")
+            val actions = fields.optJSONArray("actions") ?: JSONArray()
+            val children = fields.optJSONArray("children") ?: JSONArray()
+            PullToRefreshBox(
+                isRefreshing = store.state(state, scope) as? Boolean ?: false,
+                onRefresh = { store.perform(actions, scope, locals) },
+                modifier = modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    RenderChildren(children, module, store, locals, scope)
+                }
             }
         }
         "If" -> {

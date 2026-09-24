@@ -599,8 +599,8 @@
       },
       {
         "name": "RefreshControl",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "AppBottomBar",
@@ -1096,6 +1096,10 @@
       "android": "covered"
     },
     "fast_list_refresh_action": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "generic_refresh_control_renders_and_hot_reloads": {
       "ios": "covered",
       "android": "covered"
     }

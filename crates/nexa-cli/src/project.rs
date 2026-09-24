@@ -762,7 +762,7 @@ fn generate_android(
     };
     let activity_content = if project_features.uses_network {
         format!(
-            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (result.isSuccessful) {{\n                setContent {{ MaterialTheme {{ {compose_root} }} }}\n            }} else {{\n                setContent {{ MaterialTheme {{ androidx.compose.material3.Text(\"Network provider unavailable\") }} }}\n            }}\n        }}\n"
+            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Cronet provider unavailable; continuing without network-backed features\", result.exception)\n            setContent {{ MaterialTheme {{ {compose_root} }} }}\n        }}\n"
         )
     } else {
         format!("        setContent {{ MaterialTheme {{ {compose_root} }} }}\n")

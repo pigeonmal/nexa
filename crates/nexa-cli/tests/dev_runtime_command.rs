@@ -171,6 +171,9 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     )
     .expect("read Android dev activity");
     assert!(activity.contains("CronetProviderInstaller.installProvider(this)"));
+    assert!(activity.contains("continuing without network-backed features"));
+    assert!(activity.contains("setContent { MaterialTheme { NexaDevRuntimeRoot"));
+    assert!(!activity.contains("Network provider unavailable"));
 
     let gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
         .expect("read Android dev dependencies");

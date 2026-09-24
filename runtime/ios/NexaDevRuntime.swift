@@ -55,6 +55,7 @@ public struct NexaDevRuntimeRoot: View {
                         ProgressView("Connecting to Nexa…")
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 if runtime.performanceOverlayEnabled {
                     NexaDevPerformanceOverlay(fps: performance.fps, frameTimeMs: performance.frameTimeMs)
                         .padding(8)
@@ -1166,6 +1167,27 @@ private struct NexaDevNodeList: View {
                 }
             }
             return AnyView(rendered.accessibilityLabel(description).accessibilityHidden(description.isEmpty))
+        case "RefreshControl":
+            let state = fields["state"] as? String ?? ""
+            let actions = fields["actions"] as? [Any] ?? []
+            let children = fields["children"] as? [Any] ?? []
+            return AnyView(ScrollView(.vertical) {
+                NexaDevNodeList(
+                    nodes: children,
+                    module: module,
+                    store: store,
+                    focusedField: focusedField,
+                    parameters: locals,
+                    stateScope: scope
+                )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .refreshable {
+                store.perform(actions, scope: scope, locals: locals)
+                while store.truthy(store.value(state, scope: scope)) {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                }
+            })
         case "If":
             let condition = fields["condition"].map { store.truthy(store.evaluate($0, locals: locals, scope: scope)) } ?? false
             let children = condition
