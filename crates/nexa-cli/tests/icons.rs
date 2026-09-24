@@ -3,15 +3,22 @@ mod assets;
 
 use std::{
     fs,
+    sync::atomic::{AtomicUsize, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+static TEMP_ROOT_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 
 fn temp_root(prefix: &str) -> std::path::PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    std::env::temp_dir().join(format!("{prefix}-{}-{nonce}", std::process::id()))
+    let sequence = TEMP_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "{prefix}-{}-{nonce}-{sequence}",
+        std::process::id()
+    ))
 }
 
 fn write_test_icon(root: &std::path::Path) -> std::path::PathBuf {

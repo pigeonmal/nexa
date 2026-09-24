@@ -2,8 +2,11 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     process::Command,
+    sync::atomic::{AtomicUsize, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+static TEMP_PROJECT_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 
 struct TempProject(PathBuf);
 
@@ -13,9 +16,10 @@ impl TempProject {
             .duration_since(UNIX_EPOCH)
             .expect("system clock should be after Unix epoch")
             .as_nanos();
+        let sequence = TEMP_PROJECT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         Self(env::temp_dir().join(format!(
-            "nexa-plugin-build-{platform}-{}-{nonce}",
-            std::process::id()
+            "nexa-plugin-build-{platform}-{}-{nonce}-{sequence}",
+            std::process::id(),
         )))
     }
 

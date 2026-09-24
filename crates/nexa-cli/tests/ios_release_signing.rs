@@ -25,7 +25,29 @@ fn ios_release_uses_an_imported_manual_provisioning_profile() {
     let fake_xcodebuild = fake_bin.join("xcodebuild");
     fs::write(
         &fake_xcodebuild,
-        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$NEXA_FAKE_XCODEBUILD_LOG\"\nexit 0\n",
+        r###"#!/bin/sh
+printf '%s\n' "$*" >> "$NEXA_FAKE_XCODEBUILD_LOG"
+archive=""
+export_path=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -archivePath) archive="$2"; shift 2 ;;
+        -exportPath) export_path="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+if [ -n "$archive" ] && [ "${NEXA_FAKE_XCODEBUILD_NO_ARCHIVE:-0}" != 1 ]; then
+    app_name=$(basename "$archive" .xcarchive)
+    mkdir -p "$archive/Products/Applications/$app_name.app"
+    printf 'archive' > "$archive/Info.plist"
+fi
+if [ -n "$export_path" ] && [ "${NEXA_FAKE_XCODEBUILD_NO_IPA:-0}" != 1 ]; then
+    mkdir -p "$export_path"
+    app_name=$(basename "$archive" .xcarchive)
+    printf 'ipa' > "$export_path/$app_name.ipa"
+fi
+exit 0
+"###,
     )
     .expect("write fake xcodebuild");
     let mut permissions = fs::metadata(&fake_xcodebuild)
@@ -46,16 +68,47 @@ fn ios_release_uses_an_imported_manual_provisioning_profile() {
         search_paths.extend(std::env::split_paths(&existing));
     }
     let path = std::env::join_paths(search_paths).expect("compose fake tool PATH");
-    let release = Command::new(env!("CARGO_BIN_EXE_nexa"))
-        .args(["release", "--ios"])
-        .current_dir(&project)
-        .env("PATH", path)
-        .env("NEXA_FAKE_XCODEBUILD_LOG", &log)
-        .env("NEXA_IOS_TEAM_ID", "TEAM123")
-        .env("NEXA_IOS_PROVISIONING_PROFILE", "PROFILE-UUID-123")
-        .env("NEXA_IOS_EXPORT_METHOD", "app-store-connect")
-        .output()
-        .expect("run Nexa iOS release");
+    let release = |without_archive: bool, without_ipa: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_nexa"));
+        command
+            .args(["release", "--ios"])
+            .current_dir(&project)
+            .env("PATH", &path)
+            .env("NEXA_FAKE_XCODEBUILD_LOG", &log)
+            .env("NEXA_IOS_TEAM_ID", "TEAM123")
+            .env("NEXA_IOS_PROVISIONING_PROFILE", "PROFILE-UUID-123")
+            .env("NEXA_IOS_EXPORT_METHOD", "app-store-connect")
+            .env(
+                "NEXA_FAKE_XCODEBUILD_NO_ARCHIVE",
+                if without_archive { "1" } else { "0" },
+            )
+            .env(
+                "NEXA_FAKE_XCODEBUILD_NO_IPA",
+                if without_ipa { "1" } else { "0" },
+            );
+        command.output().expect("run Nexa iOS release")
+    };
+    let missing_archive = release(true, false);
+    assert!(
+        !missing_archive.status.success(),
+        "missing archive app product must fail release"
+    );
+    assert!(
+        String::from_utf8_lossy(&missing_archive.stderr)
+            .contains("did not contain the app product"),
+        "stderr: {}",
+        String::from_utf8_lossy(&missing_archive.stderr)
+    );
+
+    let missing = release(false, true);
+    assert!(!missing.status.success(), "missing IPA must fail release");
+    assert!(
+        String::from_utf8_lossy(&missing.stderr).contains("did not create an IPA"),
+        "stderr: {}",
+        String::from_utf8_lossy(&missing.stderr)
+    );
+
+    let release = release(false, false);
     assert!(
         release.status.success(),
         "stdout: {}\nstderr: {}",
@@ -71,6 +124,16 @@ fn ios_release_uses_an_imported_manual_provisioning_profile() {
     assert!(invocations.contains("CODE_SIGN_STYLE=Manual"));
     assert!(invocations.contains("CODE_SIGN_IDENTITY=Apple Distribution"));
     assert!(invocations.contains("PROVISIONING_PROFILE_SPECIFIER=PROFILE-UUID-123"));
+    assert!(
+        project
+            .join("build/artifacts/ios/CiSigning.xcarchive/Products/Applications/CiSigning.app")
+            .is_dir()
+    );
+    assert!(
+        project
+            .join("build/artifacts/ios/ipa/CiSigning.ipa")
+            .is_file()
+    );
 
     fs::remove_dir_all(scratch).expect("clean test scratch files");
 }

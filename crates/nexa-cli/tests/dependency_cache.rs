@@ -5,8 +5,11 @@ mod cache;
 use std::{
     collections::BTreeMap,
     fs,
+    sync::atomic::{AtomicUsize, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+static TEMP_PROJECT_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 
 struct TempProject(std::path::PathBuf);
 
@@ -16,9 +19,10 @@ impl TempProject {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
+        let sequence = TEMP_PROJECT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "nexa-dependency-cache-{}-{nonce}",
-            std::process::id()
+            "nexa-dependency-cache-{}-{nonce}-{sequence}",
+            std::process::id(),
         ));
         fs::create_dir_all(&path).expect("create temporary project");
         Self(path)

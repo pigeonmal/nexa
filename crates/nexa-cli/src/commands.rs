@@ -844,6 +844,15 @@ fn build_ios(root: &Path, app_name: &str, mode: BuildMode) -> Result<(), String>
         let archive = root
             .join("artifacts/ios")
             .join(format!("{app_name}.xcarchive"));
+        let archived_app = archive
+            .join("Products/Applications")
+            .join(format!("{app_name}.app"));
+        if !archived_app.is_dir() {
+            return Err(format!(
+                "iOS archive command succeeded but did not contain the app product {}",
+                archived_app.display()
+            ));
+        }
         let export_dir = root.join("artifacts/ios/ipa");
         let options_path = root.join("ExportOptions.plist");
         let Some(options_parent) = options_path.parent() else {
@@ -889,9 +898,34 @@ fn build_ios(root: &Path, app_name: &str, mode: BuildMode) -> Result<(), String>
             .arg(&options_path)
             .arg("-allowProvisioningUpdates");
         run_command(export, "iOS IPA export")?;
+        let ipa = match fs::read_dir(&export_dir) {
+            Ok(entries) => entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .find(|path| path.extension().is_some_and(|extension| extension == "ipa")),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(format!("{}: {error}", export_dir.display())),
+        }
+        .ok_or_else(|| {
+            format!(
+                "iOS export command succeeded but did not create an IPA under {}",
+                export_dir.display()
+            )
+        })?;
+        if fs::metadata(&ipa)
+            .map_err(|error| format!("{}: {error}", ipa.display()))?
+            .len()
+            == 0
+        {
+            return Err(format!(
+                "iOS export created an empty IPA: {}",
+                ipa.display()
+            ));
+        }
         println!(
-            "Created iOS archive and IPA under {}/build/ios",
-            root.display()
+            "Created iOS archive at {} and IPA at {}",
+            archive.display(),
+            ipa.display(),
         );
     }
     Ok(())
@@ -936,7 +970,22 @@ fn build_android(root: &Path, mode: BuildMode, dev_port: Option<u16>) -> Result<
             if !signed {
                 return Err("Android release signing requires NEXA_ANDROID_KEYSTORE, NEXA_ANDROID_KEY_ALIAS, NEXA_ANDROID_STORE_PASSWORD, and NEXA_ANDROID_KEY_PASSWORD in the environment".to_owned());
             }
-            println!("Created signed Android AAB under android/app/build/outputs/bundle/release/");
+            let aab = root.join("android/app/build/outputs/bundle/release/app-release.aab");
+            let size = fs::metadata(&aab)
+                .map_err(|error| {
+                    format!(
+                        "Android bundle command succeeded but did not create {}: {error}",
+                        aab.display()
+                    )
+                })?
+                .len();
+            if size == 0 {
+                return Err(format!(
+                    "Android bundle created an empty AAB: {}",
+                    aab.display()
+                ));
+            }
+            println!("Created signed Android AAB at {}", aab.display());
         }
     }
     Ok(())
