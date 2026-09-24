@@ -151,6 +151,14 @@ impl ProjectConfig {
             .as_ref()
             .and_then(|android| android.target_sdk)
             .unwrap_or(36);
+        let ios_min_version = ios
+            .as_ref()
+            .and_then(|ios| ios.min_version.clone())
+            .unwrap_or_else(|| "16.0".to_owned());
+        let android_min_sdk = android
+            .as_ref()
+            .and_then(|android| android.min_sdk)
+            .unwrap_or(24);
         if display_name.trim().is_empty() {
             return Err(format!(
                 "{}: app displayName cannot be empty",
@@ -175,6 +183,13 @@ impl ProjectConfig {
                 path.display()
             ));
         }
+        validate_ios_deployment_version(path, &ios_min_version)?;
+        if android_min_sdk == 0 || android_min_sdk > android_target_sdk {
+            return Err(format!(
+                "{}: Android minSdk must be between 1 and targetSdk ({android_target_sdk}) (found {android_min_sdk})",
+                path.display()
+            ));
+        }
         validate_bundle_identifier(
             &path.display().to_string(),
             "iOS bundleIdentifier",
@@ -195,14 +210,8 @@ impl ProjectConfig {
             flavors,
             permissions,
             plugins,
-            ios_min_version: ios
-                .as_ref()
-                .and_then(|ios| ios.min_version.clone())
-                .unwrap_or_else(|| "16.0".to_owned()),
-            android_min_sdk: android
-                .as_ref()
-                .and_then(|android| android.min_sdk)
-                .unwrap_or(24),
+            ios_min_version,
+            android_min_sdk,
             android_target_sdk,
             ios_bundle_identifier,
             android_application_id,
@@ -364,6 +373,23 @@ fn valid_application_id_segment(segment: &str) -> bool {
         && segment
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn validate_ios_deployment_version(config_path: &Path, version: &str) -> Result<(), String> {
+    let parts = version.split('.').collect::<Vec<_>>();
+    let valid = (2..=3).contains(&parts.len())
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+        && parts.iter().all(|part| part.parse::<u32>().is_ok());
+    if valid {
+        Ok(())
+    } else {
+        Err(format!(
+            "{}: iOS minVersion must be a numeric version with two or three components (found `{version}`)",
+            config_path.display()
+        ))
+    }
 }
 
 fn title_case(value: &str) -> String {

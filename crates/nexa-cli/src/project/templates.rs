@@ -964,6 +964,12 @@ pub(super) fn android_app_gradle_with_dev_runtime(
         .max()
         .unwrap_or(config.android_min_sdk)
         .max(config.android_min_sdk);
+    if minimum_sdk == 0 || minimum_sdk > config.android_target_sdk {
+        return Err(format!(
+            "Android plugin requirements raise minSdk to {minimum_sdk}, which must be between 1 and targetSdk ({})",
+            config.android_target_sdk
+        ));
+    }
     let cpp_native_build = if plugins.iter().any(|plugin| !plugin.cpp_sources.is_empty()) {
         "\n    externalNativeBuild { cmake { path = file(\"src/main/cpp/CMakeLists.txt\"); version = \"3.22.1\" } }"
     } else {

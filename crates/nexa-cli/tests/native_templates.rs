@@ -253,6 +253,26 @@ mod template_generation {
     }
 
     #[test]
+    fn android_rejects_plugin_minimum_above_target_sdk() {
+        let mut plugin = plugin("NewPlatformApi");
+        plugin.android_min_sdk = Some(37);
+        let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
+
+        let error = android_app_gradle_with_dev_runtime(
+            "dev.nexa.demo",
+            nexa_backend_kotlin::KotlinProjectFeatures::default(),
+            &[plugin],
+            &[],
+            &config,
+            false,
+        )
+        .expect_err("a plugin cannot require an SDK above the app target SDK");
+
+        assert!(error.contains("minSdk to 37"), "{error}");
+        assert!(error.contains("targetSdk (36)"), "{error}");
+    }
+
+    #[test]
     fn emits_native_dependency_metadata_into_both_projects() {
         let mut media_plugin = plugin("Media");
         media_plugin.ios_min_version = Some("18.2".to_owned());
