@@ -39,6 +39,8 @@ jobs:
         run: gem install --user-install xcodeproj -v 1.28.1 --no-document
       - name: Build Nexa CLI
         run: cargo build --release -p nexa-cli
+      - name: Type-check generated iOS C++ plugin adapters
+        run: cargo test -p nexa-cli --test ios_cpp_map_adapters
       - name: Generate, build, and launch a Nexa app
         shell: bash
         run: |
