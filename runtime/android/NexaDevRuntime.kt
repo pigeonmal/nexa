@@ -57,6 +57,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
@@ -106,6 +107,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.Locale
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -130,7 +132,11 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
         if (store.appLifecycleEpoch == 0) return@LaunchedEffect
         val readyModule = snapshotFlow { store.module }.filterNotNull().first()
         val actions = readyModule.optJSONArray("on_appear") ?: JSONArray()
-        store.perform(actions, "app", emptyMap())
+        if (readyModule.optBoolean("on_appear_async")) {
+            store.performAsync(actions, "app", emptyMap())
+        } else {
+            store.perform(actions, "app", emptyMap())
+        }
     }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, store.appLifecycleEpoch) {
@@ -529,6 +535,86 @@ private class NexaDevStateStore {
             val condition = evaluate(branch.opt("condition"), locals, scope) as? Boolean ?: false
             val selected = if (condition) branch.optJSONArray("then_branch") else branch.optJSONArray("else_branch")
             if (selected != null) perform(selected, scope, locals)
+        }
+    }
+
+    suspend fun performAsync(actions: JSONArray, scope: String, locals: Map<String, Any>) {
+        for (index in 0 until actions.length()) {
+            val action = actions.optJSONObject(index) ?: continue
+            val assignment = action.optJSONObject("Assign")
+            if (assignment != null) {
+                val name = assignment.optString("name")
+                val expression = assignment.opt("value")
+                if (name.isNotEmpty() && expression != null) {
+                    setState(name, evaluateAsync(expression, locals, scope), scope)
+                }
+                continue
+            }
+            val branch = action.optJSONObject("If")
+            if (branch != null) {
+                val condition = evaluateAsync(branch.opt("condition"), locals, scope) as? Boolean ?: false
+                val selected = if (condition) branch.optJSONArray("then_branch") else branch.optJSONArray("else_branch")
+                if (selected != null) performAsync(selected, scope, locals)
+                continue
+            }
+            val expression = action.opt("Expression")
+            if (expression != null) evaluateAsync(expression, locals, scope)
+        }
+    }
+
+    private suspend fun evaluateAsync(raw: Any?, locals: Map<String, Any>, scope: String): Any {
+        val expression = raw as? JSONObject ?: return raw ?: JSONObject.NULL
+        val kind = expression.keys().asSequence().firstOrNull() ?: return JSONObject.NULL
+        val payload = expression.opt(kind)
+        return when (kind) {
+            "Await", "TryAwait" -> evaluateAsync(payload, locals, scope)
+            "Call" -> invokeFunctionAsync(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
+            "Add" -> {
+                val tuple = payload as? JSONArray ?: return 0L
+                val left = evaluateAsync(tuple.opt(0), locals, scope)
+                val right = evaluateAsync(tuple.opt(1), locals, scope)
+                if (left is String && right is String) left + right
+                else {
+                    val sum = number(left) + number(right)
+                    if (sum % 1.0 == 0.0) sum.toLong() else sum
+                }
+            }
+            "Not" -> !(evaluateAsync(payload, locals, scope) as? Boolean ?: false)
+            "Binary" -> {
+                val binary = payload as? JSONObject ?: return false
+                compare(
+                    binary.optString("op"),
+                    evaluateAsync(binary.opt("left"), locals, scope),
+                    evaluateAsync(binary.opt("right"), locals, scope),
+                )
+            }
+            else -> evaluate(raw, locals, scope)
+        }
+    }
+
+    private suspend fun invokeFunctionAsync(call: JSONObject, locals: Map<String, Any>, scope: String): Any {
+        val name = call.optString("name")
+        val function = functions[name] ?: return JSONObject.NULL
+        if (!activeFunctions.add(name)) return JSONObject.NULL
+        try {
+            val parameters = function.optJSONArray("parameters") ?: JSONArray()
+            val arguments = call.optJSONArray("arguments") ?: JSONArray()
+            if (parameters.length() != arguments.length()) return JSONObject.NULL
+            val localScope = locals.toMutableMap()
+            for (index in 0 until parameters.length()) {
+                val parameter = parameters.optJSONObject(index) ?: continue
+                val parameterName = parameter.optString("name")
+                localScope[parameterName] = evaluateAsync(arguments.opt(index), localScope, scope)
+            }
+            val functionLocals = function.optJSONArray("locals") ?: JSONArray()
+            for (index in 0 until functionLocals.length()) {
+                val local = functionLocals.optJSONObject(index) ?: continue
+                val localName = local.optString("name")
+                localScope[localName] = evaluateAsync(local.opt("initial"), localScope, scope)
+            }
+            return evaluateAsync(function.opt("body"), localScope, scope)
+        } finally {
+            activeFunctions.remove(name)
         }
     }
 
@@ -1370,6 +1456,7 @@ private fun NexaDevScreenLifecycle(
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestScreen = rememberUpdatedState(screen)
     val latestParameters = rememberUpdatedState(parameters)
+    val coroutineScope = rememberCoroutineScope()
     val scope = "screen/${screen.optString("name")}"
     DisposableEffect(lifecycleOwner, scope) {
         val observer = LifecycleEventObserver { _, event ->
@@ -1379,7 +1466,13 @@ private fun NexaDevScreenLifecycle(
                 Lifecycle.Event.ON_PAUSE -> currentScreen.optJSONArray("on_disappear")
                 else -> null
             }
-            actions?.let { store.perform(it, scope, latestParameters.value) }
+            actions?.let {
+                if (event == Lifecycle.Event.ON_RESUME && currentScreen.optBoolean("on_appear_async")) {
+                    coroutineScope.launch { store.performAsync(it, scope, latestParameters.value) }
+                } else {
+                    store.perform(it, scope, latestParameters.value)
+                }
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }

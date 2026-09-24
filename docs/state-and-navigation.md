@@ -165,3 +165,5 @@ app LifecycleDemo {
 ```
 
 `OnAppear` and `OnDisappear` belong at the top level of an app body or named screen. Use `OnAppear async` for awaited work. `OnActive`, `OnInactive`, and `OnBackground` are app-body callbacks; they are not screen callbacks.
+
+In `nexa dev`, async app-local functions called with `await` from app or screen `OnAppear` callbacks run in the native DevRuntime. Awaited native API and plugin calls are not yet interpreted by the DevRuntime; they work in the generated AOT app.

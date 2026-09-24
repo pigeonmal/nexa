@@ -1110,14 +1110,22 @@
     "bundled_image_assets_render_and_hot_reload": {
       "ios": "covered",
       "android": "covered"
+    },
+    "async_app_and_screen_on_appear": {
+      "ios": "covered",
+      "android": "covered"
     }
   },
   "runtime_features": {
     "asynchronous_on_appear": {
+      "ios": "covered",
+      "android": "covered"
+    },
+    "remote_image_loading": {
       "ios": "pending",
       "android": "pending"
     },
-    "remote_image_loading": {
+    "async_native_calls": {
       "ios": "pending",
       "android": "pending"
     }

@@ -1,0 +1,38 @@
+app AsyncAppearSmoke {
+    state appStatus: String = "Loading app"
+
+    async fn appGreeting() -> String {
+        return "App ready"
+    }
+
+    async fn screenGreeting(name: String) -> String {
+        return "Screen ready: $name"
+    }
+
+    screen Home {
+        state screenStatus: String = "Loading screen"
+
+        OnAppear async {
+            screenStatus = await screenGreeting("Nexa")
+        }
+
+        Column {
+            Text(appStatus)
+            Text(screenStatus)
+            NavigationLink(destination: Detail) {
+                Text("Open detail")
+            }
+        }
+    }
+
+    screen Detail {
+        Text("Detail")
+    }
+
+    body {
+        OnAppear async {
+            appStatus = await appGreeting()
+        }
+        NavigationStack(root: Home)
+    }
+}

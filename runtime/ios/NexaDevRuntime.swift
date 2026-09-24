@@ -94,7 +94,14 @@ public struct NexaDevRuntimeRoot: View {
         }
         .onChange(of: runtime.store.appLifecycleEpoch) { _ in
             guard let module = runtime.module else { return }
-            runtime.store.perform(module["on_appear"] as? [Any] ?? [], scope: "app", locals: [:])
+            let actions = module["on_appear"] as? [Any] ?? []
+            if module["on_appear_async"] as? Bool == true {
+                Task { @MainActor in
+                    await runtime.store.performAsync(actions, scope: "app", locals: [:])
+                }
+            } else {
+                runtime.store.perform(actions, scope: "app", locals: [:])
+            }
             if scenePhase == .active {
                 runtime.store.perform(module["on_active"] as? [Any] ?? [], scope: "app", locals: [:])
             }
@@ -830,6 +837,94 @@ private final class NexaDevStateStore: ObservableObject {
         }
     }
 
+    func performAsync(_ actions: [Any], scope: String, locals: [String: Any]) async {
+        for action in actions {
+            guard let tagged = action as? [String: Any] else { continue }
+            if let assignment = tagged["Assign"] as? [String: Any],
+               let name = assignment["name"] as? String,
+               let expression = assignment["value"] {
+                let value = await evaluateAsync(expression, locals: locals, scope: scope)
+                setValue(name, value: value, scope: scope)
+                revision += 1
+            } else if let branch = tagged["If"] as? [String: Any],
+                      let condition = branch["condition"] {
+                let value = await evaluateAsync(condition, locals: locals, scope: scope)
+                let selected = truthy(value)
+                    ? branch["then_branch"] as? [Any]
+                    : branch["else_branch"] as? [Any]
+                await performAsync(selected ?? [], scope: scope, locals: locals)
+            } else if let expression = tagged["Expression"] {
+                _ = await evaluateAsync(expression, locals: locals, scope: scope)
+            }
+        }
+    }
+
+    private func evaluateAsync(
+        _ expression: Any,
+        locals: [String: Any],
+        scope: String
+    ) async -> Any {
+        guard let tagged = expression as? [String: Any], let (kind, payload) = tagged.first else {
+            return NSNull()
+        }
+        switch kind {
+        case "Await", "TryAwait":
+            return await evaluateAsync(payload, locals: locals, scope: scope)
+        case "Call":
+            guard let call = payload as? [String: Any] else { return NSNull() }
+            return await invokeFunctionAsync(call, locals: locals, scope: scope)
+        case "Add":
+            let parts = payload as? [Any] ?? []
+            guard parts.count >= 2 else { return 0 }
+            let left = await evaluateAsync(parts[0], locals: locals, scope: scope)
+            let right = await evaluateAsync(parts[1], locals: locals, scope: scope)
+            if let left = left as? String, let right = right as? String { return left + right }
+            let sum = number(left) + number(right)
+            return sum.rounded() == sum ? Int64(sum) as Any : sum as Any
+        case "Not":
+            return !truthy(await evaluateAsync(payload, locals: locals, scope: scope))
+        case "Binary":
+            guard let binary = payload as? [String: Any],
+                  let op = binary["op"] as? String,
+                  let leftExpression = binary["left"],
+                  let rightExpression = binary["right"]
+            else { return false }
+            let left = await evaluateAsync(leftExpression, locals: locals, scope: scope)
+            let right = await evaluateAsync(rightExpression, locals: locals, scope: scope)
+            return compare(op, left, right)
+        default:
+            return evaluate(expression, locals: locals, scope: scope)
+        }
+    }
+
+    private func invokeFunctionAsync(
+        _ call: [String: Any],
+        locals: [String: Any],
+        scope: String
+    ) async -> Any {
+        guard let name = call["name"] as? String,
+              let function = functions[name],
+              activeFunctions.insert(name).inserted
+        else { return NSNull() }
+        defer { activeFunctions.remove(name) }
+        let parameters = function["parameters"] as? [[String: Any]] ?? []
+        let arguments = call["arguments"] as? [Any] ?? []
+        guard parameters.count == arguments.count else { return NSNull() }
+        var functionScope = locals
+        for (parameter, argument) in zip(parameters, arguments) {
+            guard let parameterName = parameter["name"] as? String else { continue }
+            functionScope[parameterName] = await evaluateAsync(argument, locals: functionScope, scope: scope)
+        }
+        for local in function["locals"] as? [[String: Any]] ?? [] {
+            guard let localName = local["name"] as? String,
+                  let initial = local["initial"]
+            else { continue }
+            functionScope[localName] = await evaluateAsync(initial, locals: functionScope, scope: scope)
+        }
+        guard let body = function["body"] else { return NSNull() }
+        return await evaluateAsync(body, locals: functionScope, scope: scope)
+    }
+
     func navigationRoute(screen: String, values: [String: Any], signature: String) -> NexaDevRoute {
         let token = "\(screen):\(Self.canonicalJSON(values))"
         routeArguments[token] = (screen, values, signature)
@@ -1375,7 +1470,14 @@ private struct NexaDevNodeList: View {
             stateScope: scope
         )
         .onAppear {
-            store.perform(screen["on_appear"] as? [Any] ?? [], scope: scope, locals: parameters)
+            let actions = screen["on_appear"] as? [Any] ?? []
+            if screen["on_appear_async"] as? Bool == true {
+                Task { @MainActor in
+                    await store.performAsync(actions, scope: scope, locals: parameters)
+                }
+            } else {
+                store.perform(actions, scope: scope, locals: parameters)
+            }
         }
         .onDisappear {
             store.perform(screen["on_disappear"] as? [Any] ?? [], scope: scope, locals: parameters)
