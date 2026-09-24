@@ -40,7 +40,10 @@ jobs:
       - name: Build Nexa CLI
         run: cargo build --release -p nexa-cli
       - name: Type-check generated iOS C++ plugin adapters
-        run: cargo test -p nexa-cli --test ios_cpp_map_adapters
+        run: |
+          cargo test -p nexa-cli --test ios_cpp_map_adapters
+          cargo test -p nexa-cli --test native_plugin_build generated_cpp_native_classes_import_as_owned_swift_references_when_available
+          cargo test -p nexa-cli --test native_plugin_build generated_ios_cpp_adapters_typecheck_primitive_nullable_and_collection_matrix_when_swift_is_available
       - name: Generate, build, and launch a Nexa app
         shell: bash
         run: |

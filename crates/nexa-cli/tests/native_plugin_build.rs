@@ -2322,7 +2322,9 @@ class Handler(@Suppress("UNUSED_PARAMETER") looper: Looper) {
 
 #[test]
 fn generated_cpp_native_classes_import_as_owned_swift_references_when_available() {
-    if !command_available("swiftc", &["--version"]) {
+    // These generated bindings rely on Apple's Swift C++ importer semantics;
+    // the Linux Swift importer treats the same factories as opaque pointers.
+    if !cfg!(target_os = "macos") || !command_available("xcrun", &["--find", "swiftc"]) {
         return;
     }
 
@@ -2386,7 +2388,9 @@ fn generated_cpp_native_classes_import_as_owned_swift_references_when_available(
 #[test]
 fn generated_ios_cpp_adapters_typecheck_primitive_nullable_and_collection_matrix_when_swift_is_available()
  {
-    if !command_available("swiftc", &["--version"]) {
+    // Swift's Linux importer maps CLong/CUnsignedLong differently from the
+    // iOS SDK importer, so validate this iOS ABI matrix with Apple's toolchain.
+    if !cfg!(target_os = "macos") || !command_available("xcrun", &["--find", "swiftc"]) {
         return;
     }
 
