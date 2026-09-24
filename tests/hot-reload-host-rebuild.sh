@@ -11,6 +11,7 @@ nexa="$(cd -- "$(dirname -- "$nexa")" && pwd)/$(basename -- "$nexa")"
 platform=$2
 project=$3
 log_file=$4
+input_fifo="$project/dev-input"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "$platform" != ios && "$platform" != android ]]; then
     echo "platform must be ios or android" >&2
@@ -53,7 +54,9 @@ else
     xcrun simctl terminate booted dev.nexa.nativerebuildsmoke >/dev/null 2>&1 || true
 fi
 cd "$project"
-"$nexa" dev "--$platform" >"$log_file" 2>&1 &
+mkfifo "$input_fifo"
+exec 3<>"$input_fifo"
+"$nexa" dev "--$platform" <&3 >"$log_file" 2>&1 &
 dev_pid=$!
 
 cleanup() {
@@ -64,6 +67,7 @@ cleanup() {
     done
     kill -TERM "$dev_pid" 2>/dev/null || true
     wait "$dev_pid" 2>/dev/null || true
+    exec 3>&-
 }
 trap cleanup EXIT
 
@@ -97,15 +101,25 @@ wait_for_count_increase() {
 platform_label=iOS
 if [[ "$platform" == android ]]; then platform_label=Android; fi
 connected="Nexa $platform_label dev runtime connected."
-host_rebuilt="Native plugin or dependency changed; rebuilt and relaunched the app."
+host_waiting="Native host changes are waiting. Press 'b' to rebuild and relaunch the app."
 wait_for_log "$connected"
 wait_for_log "Nexa $platform_label dev runtime applied module"
 wait_for_native_rebuild() {
-    local old_connections old_rebuilds old_patches new_patches
+    local old_connections old_rebuilds old_patches new_patches old_waiting current_rebuilds
     old_connections=$(grep -Fc "$connected" "$log_file" || true)
-    old_rebuilds=$(grep -Fc "$host_rebuilt" "$log_file" || true)
+    old_rebuilds=$(grep -Fc "Native app rebuilt and relaunched." "$log_file" || true)
     old_patches=$(grep -Fc "Nexa $platform_label dev runtime applied patch" "$log_file" || true)
-    wait_for_count_increase "$host_rebuilt" "$old_rebuilds"
+    old_waiting=$(grep -Fc "$host_waiting" "$log_file" || true)
+    wait_for_count_increase "$host_waiting" "$old_waiting"
+    sleep 2
+    current_rebuilds=$(grep -Fc "Native app rebuilt and relaunched." "$log_file" || true)
+    if (( current_rebuilds != old_rebuilds )); then
+        cat "$log_file" >&2
+        echo "a native-host configuration change rebuilt without the user shortcut" >&2
+        exit 1
+    fi
+    printf 'b\n' >&3
+    wait_for_count_increase "Native app rebuilt and relaunched." "$old_rebuilds"
     wait_for_count_increase "$connected" "$old_connections"
     new_patches=$(grep -Fc "Nexa $platform_label dev runtime applied patch" "$log_file" || true)
     if (( new_patches != old_patches )); then

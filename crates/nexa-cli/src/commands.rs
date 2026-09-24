@@ -353,9 +353,10 @@ fn watch_sources(
 ) -> Result<(), String> {
     let dependencies = crate::config::load_plugin_dependencies(&root.join("nexa.config.nx"))?;
     let resolved = crate::dependencies::resolve(root, &dependencies)?;
-    let plugin_roots = resolved.plugin_roots.into_values().collect::<Vec<_>>();
+    let mut plugin_roots = resolved.plugin_roots.into_values().collect::<Vec<_>>();
     let mut previous = source_fingerprint(root, &plugin_roots)?;
     let mut performance_overlay_enabled = false;
+    let mut native_rebuild_pending = false;
     let (console_commands, _raw_terminal) = start_dev_console_input();
     loop {
         match console_commands.try_recv() {
@@ -384,7 +385,7 @@ fn watch_sources(
             }
             Ok(DevConsoleCommand::Rebuild) => {
                 println!("Rebuilding native app...");
-                match rebuild_dev_app(
+                let rebuilt = match rebuild_dev_app(
                     entry,
                     platform,
                     project_name,
@@ -393,10 +394,25 @@ fn watch_sources(
                     server,
                     compiler,
                 ) {
-                    Ok(()) => println!("Native app rebuilt and relaunched."),
-                    Err(error) => eprintln!("native dev rebuild failed: {error}"),
+                    Ok(()) => {
+                        println!("Native app rebuilt and relaunched.");
+                        true
+                    }
+                    Err(error) => {
+                        eprintln!("native dev rebuild failed: {error}");
+                        false
+                    }
+                };
+                if rebuilt {
+                    let dependencies =
+                        crate::config::load_plugin_dependencies(&root.join("nexa.config.nx"))?;
+                    let resolved = crate::dependencies::resolve(root, &dependencies)?;
+                    plugin_roots = resolved.plugin_roots.into_values().collect();
                 }
                 previous = source_fingerprint(root, &plugin_roots)?;
+                if rebuilt {
+                    native_rebuild_pending = false;
+                }
                 continue;
             }
             Ok(DevConsoleCommand::TogglePerformanceOverlay) => {
@@ -436,36 +452,27 @@ fn watch_sources(
                     .any(|plugin_root| path.starts_with(plugin_root))
         });
         previous = current;
+        if host_changed {
+            if !native_rebuild_pending {
+                println!(
+                    "Native host changes are waiting. Press 'b' to rebuild and relaunch the app."
+                );
+            }
+            native_rebuild_pending = true;
+            continue;
+        }
+        if native_rebuild_pending {
+            continue;
+        }
         thread::sleep(Duration::from_millis(200));
         match super::project::compile_dev_modules_with_compiler(entry, platform, compiler) {
             Ok(modules) => {
-                if host_changed {
-                    if let Err(error) = super::project::run(project_args).and_then(|()| {
-                        build_platforms(
-                            output,
-                            project_name,
-                            platform,
-                            BuildMode::Dev,
-                            Some(server.address().port()),
-                        )
-                    }) {
-                        eprintln!("native dev rebuild failed: {error}");
-                        publish_dev_error(server, entry, platform, error);
-                        continue;
-                    }
-                }
                 for (target, module) in modules {
                     if let Err(error) = server.publish_module(target, module) {
                         eprintln!("dev server: {error}");
                     }
                 }
-                if host_changed {
-                    println!(
-                        "Native plugin or dependency changed; rebuilt and relaunched the app."
-                    );
-                } else {
-                    println!("Nexa source reloaded in the running app.");
-                }
+                println!("Nexa source reloaded in the running app.");
             }
             Err(error) => {
                 eprintln!("{error}");
