@@ -1,0 +1,7 @@
+app NetworkFetchSmoke {
+    state statusCode: Int32 = 0
+
+    body {
+        Text("HTTP: $statusCode")
+    }
+}

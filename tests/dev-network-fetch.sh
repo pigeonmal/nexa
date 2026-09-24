@@ -19,7 +19,7 @@ if [[ "$platform" != ios && "$platform" != android ]]; then
 fi
 
 "$nexa" create NetworkFetchSmoke --directory "$project"
-cp "$script_dir/fixtures/dev_network_fetch.nx" "$project/App.nx"
+cp "$script_dir/fixtures/dev_network_fetch_initial.nx" "$project/App.nx"
 mkfifo "$project/dev-stdin"
 exec 3<>"$project/dev-stdin"
 cd "$project"
@@ -55,6 +55,31 @@ for expected in \
     done
     grep -Fq "$expected" "$log_file" || { cat "$log_file" >&2; exit 1; }
 done
+
+patch_count=$(grep -Fc "Nexa $platform_label dev runtime applied patch" "$log_file" || true)
+cp "$script_dir/fixtures/dev_network_fetch.nx" "$project/App.nx"
+for _ in $(seq 1 180); do
+    count=$(grep -Fc "Nexa $platform_label dev runtime applied patch" "$log_file" || true)
+    if (( count > patch_count )); then break; fi
+    if ! kill -0 "$dev_pid" 2>/dev/null; then cat "$log_file" >&2; exit 1; fi
+    sleep 1
+done
+if (( count <= patch_count )); then
+    cat "$log_file" >&2
+    echo "timed out waiting for the async network-call hot reload" >&2
+    exit 1
+fi
+printf 'R\n' >&3
+for _ in $(seq 1 90); do
+    if grep -Fq "Nexa app state restarted in the running app." "$log_file"; then break; fi
+    if ! kill -0 "$dev_pid" 2>/dev/null; then cat "$log_file" >&2; exit 1; fi
+    sleep 1
+done
+grep -Fq "Nexa app state restarted in the running app." "$log_file" || {
+    cat "$log_file" >&2
+    echo "timed out waiting for the hot restart after async-call reload" >&2
+    exit 1
+}
 
 if [[ "$platform" == android ]]; then
     xml="$project/build/network-fetch.xml"

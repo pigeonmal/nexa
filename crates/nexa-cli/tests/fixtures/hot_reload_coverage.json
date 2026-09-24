@@ -1126,6 +1126,10 @@
     "permission_status_api_hot_reload": {
       "ios": "covered",
       "android": "covered"
+    },
+    "async_native_call_added_after_host_build": {
+      "ios": "covered",
+      "android": "covered"
     }
   },
   "runtime_features": {
@@ -1138,8 +1142,8 @@
       "android": "covered"
     },
     "async_native_calls": {
-      "ios": "pending",
-      "android": "pending"
+      "ios": "covered",
+      "android": "covered"
     }
   }
 }
