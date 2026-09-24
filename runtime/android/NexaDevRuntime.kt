@@ -797,6 +797,29 @@ private class NexaDevStateStore(private val context: Context) {
                     }
                 }
             }
+            "Set" -> {
+                val entries = payload as? JSONArray ?: return emptySet<Any>()
+                buildSet {
+                    for (index in 0 until entries.length()) add(evaluate(entries.opt(index), locals, scope))
+                }
+            }
+            "Map" -> {
+                val entries = payload as? JSONArray ?: return emptyMap<Any, Any>()
+                buildMap {
+                    for (index in 0 until entries.length()) {
+                        val pair = entries.optJSONArray(index) ?: continue
+                        put(evaluate(pair.opt(0), locals, scope), evaluate(pair.opt(1), locals, scope))
+                    }
+                }
+            }
+            "Pair" -> {
+                val pair = payload as? JSONArray ?: return null to null
+                evaluate(pair.opt(0), locals, scope) to evaluate(pair.opt(1), locals, scope)
+            }
+            "Triple" -> {
+                val triple = payload as? JSONArray ?: return Triple(null, null, null)
+                Triple(evaluate(triple.opt(0), locals, scope), evaluate(triple.opt(1), locals, scope), evaluate(triple.opt(2), locals, scope))
+            }
             "Number" -> {
                 val number = (payload as? JSONObject)?.optString("raw", "0") ?: "0"
                 if (number.contains('.')) number.toDoubleOrNull() ?: 0.0 else number.toLongOrNull() ?: 0L
@@ -837,6 +860,88 @@ private class NexaDevStateStore(private val context: Context) {
                     evaluate(binary.opt("right"), locals, scope),
                 )
             }
+            "Contains" -> {
+                val fields = payload as? JSONObject ?: return false
+                contains(evaluate(fields.opt("value"), locals, scope), evaluate(fields.opt("collection"), locals, scope))
+            }
+            "CollectionTransform" -> {
+                val fields = payload as? JSONObject ?: return emptyList<Any>()
+                val collection = evaluate(fields.opt("collection"), locals, scope) as? List<*> ?: return emptyList<Any>()
+                val closure = (fields.optJSONObject("closure")?.optJSONObject("Closure")) ?: return emptyList<Any>()
+                val parameters = closure.optJSONArray("parameters") ?: JSONArray()
+                val body = closure.opt("body")
+                fun apply(item: Any?, accumulator: Any? = null): Any {
+                    val closureLocals = locals.toMutableMap()
+                    if (parameters.length() > 0) closureLocals[parameters.optString(0)] = item ?: JSONObject.NULL
+                    if (accumulator != null && parameters.length() > 1) closureLocals[parameters.optString(1)] = accumulator
+                    return evaluate(body, closureLocals, scope)
+                }
+                when (fields.optString("operation")) {
+                    "Map" -> collection.map { apply(it) }
+                    "Filter" -> collection.filter { truthy(apply(it)) }
+                    "Reduce" -> {
+                        var accumulator = if (fields.has("initial") && fields.opt("initial") != JSONObject.NULL)
+                            evaluate(fields.opt("initial"), locals, scope) else 0L
+                        for (item in collection) accumulator = apply(item, accumulator)
+                        accumulator
+                    }
+                    else -> emptyList<Any>()
+                }
+            }
+            "Closure" -> mapOf("Closure" to payload)
+            "Index" -> {
+                val fields = payload as? JSONObject ?: return JSONObject.NULL
+                val collection = evaluate(fields.opt("collection"), locals, scope)
+                val index = evaluate(fields.opt("index"), locals, scope)
+                when (collection) {
+                    is List<*> -> (index as? Number)?.toInt()?.let(collection::getOrNull) ?: JSONObject.NULL
+                    is Map<*, *> -> collection[index] ?: JSONObject.NULL
+                    is String -> (index as? Number)?.toInt()?.takeIf { it in collection.indices }?.let { collection[it].toString() } ?: JSONObject.NULL
+                    else -> JSONObject.NULL
+                }
+            }
+            "Member" -> {
+                val fields = payload as? JSONObject ?: return JSONObject.NULL
+                val base = evaluate(fields.opt("base"), locals, scope)
+                val name = fields.optString("name")
+                when (base) {
+                    is Map<*, *> -> base[name] ?: JSONObject.NULL
+                    is Pair<*, *> -> when (name) { "first", "0" -> base.first ?: JSONObject.NULL; "second", "1" -> base.second ?: JSONObject.NULL; else -> JSONObject.NULL }
+                    is Triple<*, *, *> -> when (name) { "first", "0" -> base.first ?: JSONObject.NULL; "second", "1" -> base.second ?: JSONObject.NULL; "third", "2" -> base.third ?: JSONObject.NULL; else -> JSONObject.NULL }
+                    else -> JSONObject.NULL
+                }
+            }
+            "Range" -> {
+                val fields = payload as? JSONObject ?: return emptyList<Int>()
+                val start = (evaluate(fields.opt("start"), locals, scope) as? Number)?.toInt() ?: return emptyList<Int>()
+                val end = (evaluate(fields.opt("end"), locals, scope) as? Number)?.toInt() ?: return emptyList<Int>()
+                val rawStep = (fields.opt("step")?.takeIf { it != JSONObject.NULL }?.let { evaluate(it, locals, scope) } as? Number)?.toInt() ?: 1
+                if (rawStep == 0 || kotlin.math.abs(end.toLong() - start) > 100_000) return emptyList<Int>()
+                val step = kotlin.math.abs(rawStep)
+                val inclusive = fields.optBoolean("inclusive")
+                val final = if (inclusive && end >= start) end + 1 else end
+                if (start <= final) (start until final step step).toList() else (start downTo final step step).toList()
+            }
+            "Null" -> JSONObject.NULL
+            "Coalesce" -> {
+                val values = payload as? JSONArray ?: return JSONObject.NULL
+                val left = evaluate(values.opt(0), locals, scope)
+                if (left == JSONObject.NULL) evaluate(values.opt(1), locals, scope) else left
+            }
+            "ResultOk", "ResultErr" -> {
+                val fields = payload as? JSONObject ?: return JSONObject.NULL
+                val field = if (kind == "ResultOk") "value" else "error"
+                mapOf((if (kind == "ResultOk") "Ok" else "Err") to evaluate(fields.opt(field), locals, scope))
+            }
+            "Try" -> {
+                val fields = payload as? JSONObject ?: return JSONObject.NULL
+                val result = evaluate(fields.opt("expr"), locals, scope)
+                (result as? Map<*, *>)?.get("Ok") ?: JSONObject.NULL
+            }
+            "IsRegularWidth" -> context.resources.configuration.screenWidthDp >= 600
+            "IsCompactWidth" -> context.resources.configuration.screenWidthDp < 600
+            "IsRegularHeight" -> context.resources.configuration.screenHeightDp >= 600
+            "IsCompactHeight" -> context.resources.configuration.screenHeightDp < 600
             "Call" -> invokeFunction(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
             "NativeCall" -> invokeNativeSync(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
             else -> JSONObject.NULL
@@ -908,6 +1013,22 @@ private class NexaDevStateStore(private val context: Context) {
         "LessEqual" -> number(left) <= number(right)
         "Greater" -> number(left) > number(right)
         "GreaterEqual" -> number(left) >= number(right)
+        "Contains" -> contains(left, right)
+        else -> false
+    }
+
+    private fun truthy(value: Any?): Boolean = when (value) {
+        is Boolean -> value
+        is Number -> value.toDouble() != 0.0
+        is String -> value.isNotEmpty()
+        JSONObject.NULL, null -> false
+        else -> true
+    }
+
+    private fun contains(value: Any?, collection: Any?): Boolean = when (collection) {
+        is Iterable<*> -> collection.any { stringify(it ?: JSONObject.NULL) == stringify(value ?: JSONObject.NULL) }
+        is Map<*, *> -> collection.containsKey(value)
+        is String -> collection.contains(value?.toString().orEmpty())
         else -> false
     }
 

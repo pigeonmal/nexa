@@ -81,7 +81,12 @@ if [[ "$platform" == android ]]; then
         adb shell uiautomator dump /sdcard/nexa-components.xml >/dev/null 2>&1
         adb exec-out cat /sdcard/nexa-components.xml >"$xml"
         if grep -Fq 'text="Card: Reloaded"' "$xml" \
-            && grep -Fq 'text="Projected child"' "$xml"; then
+            && grep -Fq 'text="Projected child"' "$xml" \
+            && grep -Fq 'text="Binary and: true"' "$xml" \
+            && grep -Fq 'text="Contains: true"' "$xml" \
+            && grep -Fq 'text="Index: 5"' "$xml" \
+            && grep -Fq 'text="Coalesce: fallback"' "$xml" \
+            && grep -Fq 'text="Pair: 7"' "$xml"; then
             echo "Nexa Android custom component and Content hot reload passed."
             exit 0
         fi

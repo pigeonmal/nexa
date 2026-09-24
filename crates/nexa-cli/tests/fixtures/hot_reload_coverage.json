@@ -194,8 +194,8 @@
       },
       {
         "name": "Optional",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Result",
@@ -204,8 +204,8 @@
       },
       {
         "name": "Array",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Set",
@@ -219,8 +219,8 @@
       },
       {
         "name": "Pair",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Triple",
@@ -291,18 +291,18 @@
       },
       {
         "name": "Binary",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Contains",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Array",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Set",
@@ -316,8 +316,8 @@
       },
       {
         "name": "Pair",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Triple",
@@ -346,13 +346,13 @@
       },
       {
         "name": "Index",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Member",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Range",
@@ -361,13 +361,13 @@
       },
       {
         "name": "Null",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Coalesce",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Await",
@@ -447,8 +447,8 @@
     "BinaryOp": [
       {
         "name": "And",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Or",
@@ -457,8 +457,8 @@
       },
       {
         "name": "Contains",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "Equal",
@@ -472,8 +472,8 @@
       },
       {
         "name": "Less",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "LessEqual",
@@ -487,8 +487,8 @@
       },
       {
         "name": "GreaterEqual",
-        "ios": "pending",
-        "android": "pending"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "Node": [

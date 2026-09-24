@@ -1121,6 +1121,22 @@ private final class NexaDevStateStore: ObservableObject {
         case "Bool": return payload as? Bool ?? false
         case "Array":
             return (payload as? [Any] ?? []).map { evaluate($0, locals: locals, scope: scope) }
+        case "Set":
+            return Set((payload as? [Any] ?? []).map { stringify(evaluate($0, locals: locals, scope: scope)) })
+        case "Map":
+            var result: [String: Any] = [:]
+            for pair in payload as? [[Any]] ?? [] where pair.count >= 2 {
+                result[stringify(evaluate(pair[0], locals: locals, scope: scope))] = evaluate(pair[1], locals: locals, scope: scope)
+            }
+            return result
+        case "Pair":
+            let parts = payload as? [Any] ?? []
+            guard parts.count >= 2 else { return [NSNull(), NSNull()] }
+            return [evaluate(parts[0], locals: locals, scope: scope), evaluate(parts[1], locals: locals, scope: scope)]
+        case "Triple":
+            let parts = payload as? [Any] ?? []
+            guard parts.count >= 3 else { return [NSNull(), NSNull(), NSNull()] }
+            return [evaluate(parts[0], locals: locals, scope: scope), evaluate(parts[1], locals: locals, scope: scope), evaluate(parts[2], locals: locals, scope: scope)]
         case "Number":
             let number = (payload as? [String: Any])?["raw"] as? String ?? "0"
             return number.contains(".") ? (Double(number) ?? 0) as Any : (Int64(number) ?? 0) as Any
@@ -1157,6 +1173,87 @@ private final class NexaDevStateStore: ObservableObject {
                 evaluate(leftExpr, locals: locals, scope: scope),
                 evaluate(rightExpr, locals: locals, scope: scope)
             )
+        case "Contains":
+            let fields = payload as? [String: Any] ?? [:]
+            guard let value = fields["value"], let collection = fields["collection"] else { return false }
+            return contains(evaluate(value, locals: locals, scope: scope), in: evaluate(collection, locals: locals, scope: scope))
+        case "CollectionTransform":
+            let fields = payload as? [String: Any] ?? [:]
+            guard let collectionExpression = fields["collection"],
+                  let collection = evaluate(collectionExpression, locals: locals, scope: scope) as? [Any],
+                  let closure = fields["closure"] as? [String: Any],
+                  let closurePayload = closure["Closure"] as? [String: Any]
+            else { return [] }
+            let parameters = closurePayload["parameters"] as? [String] ?? []
+            let body = closurePayload["body"] ?? NSNull()
+            func apply(_ item: Any, _ accumulator: Any? = nil) -> Any {
+                var closureLocals = locals
+                if let parameter = parameters.first { closureLocals[parameter] = item }
+                if let accumulator, parameters.count > 1 { closureLocals[parameters[1]] = accumulator }
+                return evaluate(body, locals: closureLocals, scope: scope)
+            }
+            switch fields["operation"] as? String {
+            case "Map": return collection.map { apply($0) }
+            case "Filter": return collection.filter { truthy(apply($0)) }
+            case "Reduce":
+                var accumulator = fields["initial"].map { evaluate($0, locals: locals, scope: scope) } ?? 0
+                for item in collection { accumulator = apply(item, accumulator) }
+                return accumulator
+            default: return []
+            }
+        case "Closure": return ["Closure": payload]
+        case "Index":
+            let fields = payload as? [String: Any] ?? [:]
+            guard let collection = fields["collection"].map({ evaluate($0, locals: locals, scope: scope) }),
+                  let indexExpression = fields["index"] else { return NSNull() }
+            let index = (evaluate(indexExpression, locals: locals, scope: scope) as? NSNumber)?.intValue ?? -1
+            if let values = collection as? [Any], values.indices.contains(index) { return values[index] }
+            if let values = collection as? [String: Any] { return values[stringify(indexExpression)] ?? NSNull() }
+            return NSNull()
+        case "Member":
+            let fields = payload as? [String: Any] ?? [:]
+            guard let base = fields["base"], let name = fields["name"] as? String else { return NSNull() }
+            let value = evaluate(base, locals: locals, scope: scope)
+            if let object = value as? [String: Any] { return object[name] ?? NSNull() }
+            if let pair = value as? [Any] {
+                let position = switch name {
+                case "first": 0
+                case "second": 1
+                case "third": 2
+                default: Int(name) ?? -1
+                }
+                if pair.indices.contains(position) { return pair[position] }
+            }
+            return NSNull()
+        case "Range":
+            let fields = payload as? [String: Any] ?? [:]
+            guard let startExpr = fields["start"], let endExpr = fields["end"] else { return [Int]() }
+            let start = number(evaluate(startExpr, locals: locals, scope: scope))
+            let end = number(evaluate(endExpr, locals: locals, scope: scope))
+            let step = max(1, abs(Int(fields["step"].map { number(evaluate($0, locals: locals, scope: scope)) } ?? 1)))
+            let inclusive = fields["inclusive"] as? Bool ?? false
+            guard start.isFinite, end.isFinite, abs(end - start) < 100_000 else { return [Int]() }
+            let boundary = Int(end) + ((inclusive && end >= start) ? 1 : 0)
+            return Array(stride(from: Int(start), to: boundary, by: step))
+        case "Null": return NSNull()
+        case "Coalesce":
+            let parts = payload as? [Any] ?? []
+            guard parts.count >= 2 else { return NSNull() }
+            let value = evaluate(parts[0], locals: locals, scope: scope)
+            return value is NSNull ? evaluate(parts[1], locals: locals, scope: scope) : value
+        case "ResultOk", "ResultErr":
+            let key = kind == "ResultOk" ? "value" : "error"
+            let field = payload as? [String: Any] ?? [:]
+            return [kind == "ResultOk" ? "Ok" : "Err": field[key].map { evaluate($0, locals: locals, scope: scope) } ?? NSNull()]
+        case "Try":
+            let field = payload as? [String: Any] ?? [:]
+            guard let expr = field["expr"] else { return NSNull() }
+            let result = evaluate(expr, locals: locals, scope: scope)
+            return (result as? [String: Any])?["Ok"] ?? NSNull()
+        case "IsRegularWidth": return UIScreen.main.bounds.width >= 600
+        case "IsCompactWidth": return UIScreen.main.bounds.width < 600
+        case "IsRegularHeight": return UIScreen.main.bounds.height >= 600
+        case "IsCompactHeight": return UIScreen.main.bounds.height < 600
         case "Call":
             guard let call = payload as? [String: Any],
                   let name = call["name"] as? String,
@@ -1227,8 +1324,17 @@ private final class NexaDevStateStore: ObservableObject {
         case "LessEqual": return number(lhs) <= number(rhs)
         case "Greater": return number(lhs) > number(rhs)
         case "GreaterEqual": return number(lhs) >= number(rhs)
+        case "Contains": return contains(lhs, in: rhs)
         default: return false
         }
+    }
+
+    private func contains(_ value: Any, in collection: Any) -> Bool {
+        if let values = collection as? [Any] { return values.contains { stringify($0) == stringify(value) } }
+        if let values = collection as? Set<String> { return values.contains(stringify(value)) }
+        if let values = collection as? [String: Any] { return values[stringify(value)] != nil }
+        if let text = collection as? String, let needle = value as? String { return text.contains(needle) }
+        return false
     }
 
     private func number(_ value: Any) -> Double {

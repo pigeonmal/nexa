@@ -8,9 +8,19 @@ component Card(title: String) {
 }
 
 app ComponentSmoke {
+    state numbers: Array<Int32> = [3, 5, 8]
+    state optional: String? = null
+
     body {
-        Card(title: "Reloaded") {
-            Text("Projected child")
+        Column {
+            Card(title: "Reloaded") {
+                Text("Projected child")
+            }
+            Text("Binary and: \(3 < 4 && 5 >= 5)")
+            Text("Contains: \(5 in numbers)")
+            Text("Index: \(numbers[1])")
+            Text("Coalesce: \(optional ?? \"fallback\")")
+            Text("Pair: \(Pair(7, 9).first)")
         }
     }
 }
