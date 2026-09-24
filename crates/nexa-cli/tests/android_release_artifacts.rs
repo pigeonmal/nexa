@@ -3,9 +3,16 @@
 use std::{
     fs,
     os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+fn executable_in_path(name: &str) -> Option<PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|directory| directory.join(name))
+        .find(|path| path.is_file())
+}
 
 #[test]
 fn android_release_validates_signing_and_reports_only_verified_aabs() {
@@ -224,4 +231,108 @@ fn android_release_validates_signing_and_reports_only_verified_aabs() {
     );
 
     fs::remove_dir_all(scratch).expect("clean test scratch files");
+}
+
+#[test]
+fn android_release_verifies_real_jarsigner_outputs_when_a_jdk_is_available() {
+    let Some(jarsigner) = executable_in_path("jarsigner") else {
+        eprintln!("skipping real AAB signature integration: jarsigner is unavailable");
+        return;
+    };
+    let Ok(jarsigner) = jarsigner.canonicalize() else {
+        eprintln!("skipping real AAB signature integration: cannot resolve jarsigner");
+        return;
+    };
+    let Some(jdk_home) = jarsigner.parent().and_then(Path::parent) else {
+        eprintln!("skipping real AAB signature integration: cannot resolve JDK home");
+        return;
+    };
+    let keytool = jdk_home.join("bin/keytool");
+    if !keytool.is_file() {
+        eprintln!("skipping real AAB signature integration: matching keytool is unavailable");
+        return;
+    }
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock")
+        .as_nanos();
+    let scratch = std::env::temp_dir().join(format!(
+        "nexa-android-real-aab-signature-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&scratch).expect("create real-signature test directory");
+    let project = scratch.join("project");
+    let create = Command::new(env!("CARGO_BIN_EXE_nexa"))
+        .args(["create", "SignedAabSmoke", "--directory"])
+        .arg(&project)
+        .output()
+        .expect("run Nexa create");
+    assert!(create.status.success(), "{create:?}");
+
+    let keystore = scratch.join("release.jks");
+    let generated_key = Command::new(&keytool)
+        .args(["-genkeypair", "-noprompt", "-alias", "release", "-keystore"])
+        .arg(&keystore)
+        .args([
+            "-storepass",
+            "test-password",
+            "-keypass",
+            "test-password",
+            "-dname",
+            "CN=Nexa Test",
+            "-keyalg",
+            "RSA",
+            "-keysize",
+            "2048",
+            "-validity",
+            "2",
+        ])
+        .output()
+        .expect("generate temporary Android signing key");
+    assert!(
+        generated_key.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&generated_key.stdout),
+        String::from_utf8_lossy(&generated_key.stderr)
+    );
+
+    let signed = Command::new(env!("CARGO_BIN_EXE_nexa"))
+        .args(["release", "--android"])
+        .current_dir(&project)
+        .env("JAVA_HOME", jdk_home)
+        .env("NEXA_ANDROID_KEYSTORE", &keystore)
+        .env("NEXA_ANDROID_KEY_ALIAS", "release")
+        .env("NEXA_ANDROID_STORE_PASSWORD", "test-password")
+        .env("NEXA_ANDROID_KEY_PASSWORD", "test-password")
+        .output()
+        .expect("run Android release with a real temporary key");
+    assert!(
+        signed.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&signed.stdout),
+        String::from_utf8_lossy(&signed.stderr)
+    );
+    assert!(String::from_utf8_lossy(&signed.stdout).contains("Created signed Android AAB at"));
+    let aab = project.join("build/android/app/build/outputs/bundle/release/app-release.aab");
+    assert!(aab.is_file(), "release should create an Android App Bundle");
+    let verified = Command::new(&jarsigner)
+        .args(["-verify", "-verbose:summary"])
+        .arg(&aab)
+        .env("LC_ALL", "C")
+        .output()
+        .expect("verify the released AAB with the real jarsigner");
+    assert!(
+        verified.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&verified.stdout),
+        String::from_utf8_lossy(&verified.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&verified.stdout).contains("jar verified."),
+        "jarsigner did not confirm the bundle signature: {}",
+        String::from_utf8_lossy(&verified.stdout)
+    );
+
+    fs::remove_dir_all(scratch).expect("clean real-signature test files");
 }
