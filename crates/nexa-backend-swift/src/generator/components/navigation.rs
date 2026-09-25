@@ -13,11 +13,12 @@ pub(crate) fn render_link(
     guard: Option<&Expr>,
     children: &[Node],
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
     if matches!(guard, Some(Expr::Bool(false))) {
-        render_children(children, module, depth, out);
+        render_children(children, module, features, depth, out);
         return;
     }
     indent(out, depth);
@@ -25,7 +26,7 @@ pub(crate) fn render_link(
         "NavigationLink(value: {}) {{\n",
         route_value(destination, arguments)
     ));
-    render_children(children, module, depth + 1, out);
+    render_children(children, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');
@@ -47,6 +48,7 @@ pub(crate) fn render_navigation_stack(
     module: &Module,
     root: ScreenId,
     arguments: &[Expr],
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -57,6 +59,7 @@ pub(crate) fn render_navigation_stack(
         module,
         root,
         arguments,
+        features,
         "Self.__nexaRootScreenIdentity",
     ));
     out.push('\n');
@@ -92,6 +95,7 @@ pub(crate) fn render_navigation_stack(
                 .iter()
                 .map(|parameter| Expr::State(parameter.name.clone(), parameter.ty.clone()))
                 .collect::<Vec<_>>(),
+            features,
             "routeIdentity",
         ));
         out.push('\n');
@@ -187,7 +191,13 @@ pub(crate) fn render_screen_view(
     out: &mut String,
 ) {
     out.push('\n');
-    let focus_bindings = crate::generator::collect_focus_bindings(&screen.body);
+    let focus_bindings = features
+        .facts
+        .focus_bindings
+        .screens
+        .get(&screen.name)
+        .cloned()
+        .unwrap_or_default();
     out.push_str(&format!(
         "private struct {}: View {{\n",
         screen_view_name(screen.id)
@@ -313,7 +323,7 @@ pub(crate) fn render_screen_view(
     out.push_str("    var body: some View {\n");
     render_immutable_state(&module.states, 2, out);
     render_immutable_state(&screen.states, 2, out);
-    render_children(&screen.body, module, 2, out);
+    render_children(&screen.body, module, features, 2, out);
     crate::generator::render_on_appear_modifier(
         screen.on_appear.as_deref(),
         screen.on_appear_async,
@@ -340,10 +350,17 @@ fn screen_call(
     module: &Module,
     screen: ScreenId,
     arguments: &[Expr],
+    features: &Features,
     route_identity: &str,
 ) -> String {
     let destination = &module.screens[screen.0];
-    let focus_bindings = crate::generator::collect_focus_bindings(&destination.body);
+    let focus_bindings = features
+        .facts
+        .focus_bindings
+        .screens
+        .get(&destination.name)
+        .cloned()
+        .unwrap_or_default();
     let mut values = Vec::new();
     values.extend(arguments.iter().map(expression));
     for state in &module.states {

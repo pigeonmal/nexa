@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle, walk::walk_ir};
 
 use crate::generator::{
@@ -15,7 +13,13 @@ pub(crate) fn render(module: &Module, features: &Features, out: &mut String) {
 
 fn render_component(component: &Component, module: &Module, features: &Features, out: &mut String) {
     let name = nexa_codegen::names::component_name(&component.name);
-    let focus_bindings = collect_focus_bindings(&component.body);
+    let focus_bindings = features
+        .facts
+        .focus_bindings
+        .components
+        .get(&component.name)
+        .cloned()
+        .unwrap_or_default();
     let has_content_slot = component_has_content_slot(component);
     let needs_ios16 = component_uses_fast_list(component);
     if needs_ios16 {
@@ -113,7 +117,7 @@ fn render_component(component: &Component, module: &Module, features: &Features,
 
     out.push_str("    var body: some View {\n");
     render_immutable_state(&component.states, 2, out);
-    render_body(&component.body, module, 2, out);
+    render_body(&component.body, module, features, 2, out);
     out.push_str("\n    }\n}\n");
 }
 
@@ -137,33 +141,22 @@ fn component_uses_fast_list(component: &Component) -> bool {
     found
 }
 
-fn collect_focus_bindings(nodes: &[Node]) -> BTreeSet<String> {
-    let mut bindings = BTreeSet::new();
-    walk_ir(
-        nodes,
-        &mut |node| {
-            if let Node::TextInput {
-                focused: Some(name),
-                ..
-            } = node
-            {
-                bindings.insert(name.clone());
-            }
-        },
-        &mut |_| {},
-    );
-    bindings
-}
-
-fn render_body(body: &[Node], module: &Module, depth: usize, out: &mut String) {
+fn render_body(
+    body: &[Node],
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut String,
+) {
     match body {
-        [node] => render_node(node, module, depth, out),
+        [node] => render_node(node, module, features, depth, out),
         children => layout::render_layout(
             LayoutKind::Column,
             0.0,
             &ViewStyle::default(),
             children,
             module,
+            features,
             depth,
             out,
         ),

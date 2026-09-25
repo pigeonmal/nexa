@@ -2,12 +2,14 @@ use nexa_codegen::names::state_name;
 use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListPlan, Module, Node};
 
 use crate::generator::{
-    components::render_children, controls::render_actions, expressions::expression, utils::indent,
+    components::render_children, controls::render_actions, expressions::expression,
+    features::Features, utils::indent,
 };
 
 pub(crate) fn render_virtualized_list(
     plan: &ListPlan,
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -31,6 +33,7 @@ pub(crate) fn render_virtualized_list(
                 common.section_header.as_deref(),
                 common.refresh.as_ref(),
                 module,
+                features,
                 depth,
                 out,
             );
@@ -58,6 +61,7 @@ pub(crate) fn render_virtualized_list(
                 common.sticky_header.as_deref(),
                 common.refresh.as_ref(),
                 module,
+                features,
                 depth,
                 out,
             );
@@ -101,6 +105,7 @@ pub(crate) fn render_virtualized_list(
                 common.sticky_header.as_deref(),
                 common.refresh.as_ref(),
                 module,
+                features,
                 depth,
                 out,
             );
@@ -117,7 +122,7 @@ pub(crate) fn render_virtualized_list(
             ));
         }
     }
-    render_children(plan.children(), module, depth + 1, out);
+    render_children(plan.children(), module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');
@@ -135,6 +140,7 @@ fn render_sectioned_list(
     section_header: Option<&[Node]>,
     refresh: Option<&FastListRefresh>,
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -188,7 +194,7 @@ fn render_sectioned_list(
             "let {}: Int32 = Int32(clamping: sectionPosition)\n",
             state_name(section)
         ));
-        render_children(header, module, depth + 3, out);
+        render_children(header, module, features, depth + 3, out);
         out.push('\n');
         indent(out, depth + 2);
         out.push_str("}\n");
@@ -213,7 +219,7 @@ fn render_sectioned_list(
         state_name(item),
         element_type.swift()
     ));
-    render_children(children, module, depth + 2, out);
+    render_children(children, module, features, depth + 2, out);
     out.push('\n');
     indent(out, depth + 1);
     out.push_str("}\n");
@@ -262,6 +268,7 @@ fn open_list(
     sticky_header: Option<&[Node]>,
     refresh: Option<&FastListRefresh>,
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -292,7 +299,7 @@ fn open_list(
             out.push_str(", headerContent: {\n");
             indent(out, depth + 1);
             out.push_str("VStack(spacing: 0) {\n");
-            render_children(sticky_header, module, depth + 2, out);
+            render_children(sticky_header, module, features, depth + 2, out);
             out.push('\n');
             indent(out, depth + 1);
             out.push_str("}\n");

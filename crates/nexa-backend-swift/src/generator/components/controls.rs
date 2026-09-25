@@ -117,6 +117,7 @@ pub(crate) fn render_pressable(
     actions: &[Action],
     long_press_actions: &[Action],
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -141,7 +142,7 @@ pub(crate) fn render_pressable(
         out.push_str("}) {");
     }
     out.push('\n');
-    render_children(children, module, depth + 1, out);
+    render_children(children, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');

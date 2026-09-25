@@ -17,6 +17,7 @@ pub(crate) fn render_link(
     url: &Expr,
     children: &[Node],
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -26,7 +27,7 @@ pub(crate) fn render_link(
             "Link(destination: URL(string: {})!) {{\n",
             swift_string(value)
         ));
-        render_children(children, module, depth + 1, out);
+        render_children(children, module, features, depth + 1, out);
         out.push('\n');
         indent(out, depth);
         out.push('}');
@@ -40,7 +41,7 @@ pub(crate) fn render_link(
     ));
     indent(out, depth + 1);
     out.push_str("Link(destination: nexaLinkURL) {\n");
-    render_children(children, module, depth + 2, out);
+    render_children(children, module, features, depth + 2, out);
     out.push('\n');
     indent(out, depth + 1);
     out.push('}');

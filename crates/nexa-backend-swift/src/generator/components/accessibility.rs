@@ -3,6 +3,7 @@ use nexa_ir::{AccessibilityRole, Expr, Module, Node};
 use crate::generator::{
     components::render_children,
     expressions::expression,
+    features::Features,
     utils::{indent, swift_string},
 };
 
@@ -12,10 +13,11 @@ pub(crate) fn render_accessibility(
     role: AccessibilityRole,
     children: &[Node],
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
-    render_children(children, module, depth, out);
+    render_children(children, module, features, depth, out);
     let child_has_same_image_label = matches!((label, children),
         (Expr::String(label), [Node::Image { description, .. }]) if description == label
     );

@@ -136,7 +136,13 @@ pub(crate) fn render_navigation_stack(
         for state in &screen.states {
             render_screen_state(state, depth + 2, out);
         }
-        let focus_bindings = crate::generator::features::collect_focus_bindings(&screen.body);
+        let focus_bindings = features
+            .facts
+            .focus_bindings
+            .screens
+            .get(&screen.name)
+            .cloned()
+            .unwrap_or_default();
         for binding in &focus_bindings {
             indent(out, depth + 2);
             out.push_str(&format!(

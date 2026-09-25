@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod capabilities;
+pub mod facts;
 pub mod walk;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

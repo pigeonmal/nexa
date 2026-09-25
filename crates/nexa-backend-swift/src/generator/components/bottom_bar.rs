@@ -3,6 +3,7 @@ use nexa_ir::{BottomBarTab, Module};
 
 use crate::generator::{
     components::render_children,
+    features::Features,
     utils::{indent, swift_string},
 };
 
@@ -10,13 +11,14 @@ pub(crate) fn render_app_bottom_bar(
     state: &str,
     tabs: &[BottomBarTab],
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
     indent(out, depth);
     out.push_str(&format!("TabView(selection: ${}) {{\n", state_name(state)));
     for (position, tab) in tabs.iter().enumerate() {
-        render_children(&tab.children, module, depth + 1, out);
+        render_children(&tab.children, module, features, depth + 1, out);
         out.push('\n');
         indent(out, depth + 1);
         out.push_str(".tabItem {\n");

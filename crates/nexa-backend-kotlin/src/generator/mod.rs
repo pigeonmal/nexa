@@ -89,7 +89,7 @@ pub(super) fn generate_for_dev_with_project_features(
 }
 
 fn generate_with_analysis(module: &Module, features: &features::Features) -> String {
-    let focus_bindings = features::collect_focus_bindings(&module.body);
+    let focus_bindings = features.facts.focus_bindings.app.clone();
     let mut out = String::new();
     out.push_str(&engine::imports::render(engine::imports::ImportContext {
         features: &features,

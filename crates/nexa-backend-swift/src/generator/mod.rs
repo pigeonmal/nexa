@@ -1,6 +1,4 @@
-use std::collections::BTreeSet;
-
-use nexa_ir::{LayoutKind, Module, Node, State, ViewStyle, walk::walk_ir};
+use nexa_ir::{LayoutKind, Module, State, ViewStyle};
 
 mod api;
 mod components;
@@ -20,10 +18,10 @@ pub(super) fn generate(module: &Module) -> String {
 }
 
 fn generate_with_analysis(module: &Module, features: features::Features) -> String {
-    let app_focus_bindings = collect_focus_bindings(&module.body);
+    let app_focus_bindings = features.facts.focus_bindings.app.clone();
     let mut all_focus_bindings = app_focus_bindings.clone();
-    for screen in &module.screens {
-        all_focus_bindings.extend(collect_focus_bindings(&screen.body));
+    for bindings in features.facts.focus_bindings.screens.values() {
+        all_focus_bindings.extend(bindings.iter().cloned());
     }
     let uses_fast_list = features.uses_fast_list;
     let mut out = imports::render(&features);
@@ -127,7 +125,7 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Stri
         render_immutable_state(&module.states, 2, &mut out);
     }
     if module.body.len() == 1 {
-        component_renderer::render_node(&module.body[0], module, 2, &mut out);
+        component_renderer::render_node(&module.body[0], module, &features, 2, &mut out);
     } else {
         layout::render_layout(
             LayoutKind::Column,
@@ -135,6 +133,7 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Stri
             &ViewStyle::default(),
             &module.body,
             module,
+            &features,
             2,
             &mut out,
         );
@@ -224,24 +223,6 @@ pub(super) fn generate_for_dev(module: &Module) -> String {
     features.expose_permissions_to_dev_runtime = true;
     features.uses_native_library = true;
     generate_with_analysis(module, features)
-}
-
-fn collect_focus_bindings(nodes: &[Node]) -> BTreeSet<String> {
-    let mut bindings = BTreeSet::new();
-    walk_ir(
-        nodes,
-        &mut |node| {
-            if let Node::TextInput {
-                focused: Some(name),
-                ..
-            } = node
-            {
-                bindings.insert(name.clone());
-            }
-        },
-        &mut |_| {},
-    );
-    bindings
 }
 
 fn render_direction_modifier(

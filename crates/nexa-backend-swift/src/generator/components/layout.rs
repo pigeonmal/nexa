@@ -3,6 +3,7 @@ use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Module, Node, ViewStyle};
 use crate::generator::{
     colors,
     components::render_node,
+    engine::features::Features,
     utils::{indent, number},
 };
 
@@ -12,6 +13,7 @@ pub(crate) fn render_layout(
     style: &ViewStyle,
     children: &[Node],
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -47,7 +49,7 @@ pub(crate) fn render_layout(
         (None, false) => out.push_str(&format!("{layout} {{\n")),
     }
     for (index, child) in children.iter().enumerate() {
-        render_node(child, module, depth + 1, out);
+        render_node(child, module, features, depth + 1, out);
         if index + 1 < children.len() {
             out.push('\n');
         }

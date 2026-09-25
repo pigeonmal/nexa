@@ -1,10 +1,13 @@
 use std::collections::HashSet;
 
-use nexa_ir::walk::{walk_actions, walk_expression, walk_ir};
-use nexa_ir::{ColorValue, Expr, Module, Node, Permission};
+use nexa_ir::{Module, Permission, facts::ModuleFacts};
 
 #[derive(Default)]
 pub(crate) struct Features {
+    /// Target-neutral facts from the single analysis pass. Renderers read
+    /// per-scope data (such as focus bindings) from here instead of
+    /// re-walking subtrees.
+    pub(crate) facts: ModuleFacts,
     pub(crate) uses_fast_list: bool,
     pub(crate) uses_vertical_list: bool,
     pub(crate) uses_horizontal_list: bool,
@@ -33,153 +36,13 @@ pub(crate) struct Features {
 }
 
 impl Features {
+    /// Derives backend flags from the shared single-pass analysis. The facts
+    /// are computed once here and carried along for renderers that need
+    /// per-scope data, so no walks happen anywhere else in the backend.
     pub(crate) fn analyze(module: &Module) -> Self {
+        let facts = ModuleFacts::analyze(module);
         let mut features = Self::default();
-        let capabilities = nexa_ir::capabilities::analyze(module);
-        let mut app_uses_size_class = false;
-        let mut uses_permissions = false;
-        let mut uses_permission_request = false;
-
-        for state in &module.states {
-            walk_expression(&state.initial, &mut |expr| {
-                app_uses_size_class |= matches!(
-                    expr,
-                    Expr::IsRegularWidth
-                        | Expr::IsCompactWidth
-                        | Expr::IsRegularHeight
-                        | Expr::IsCompactHeight
-                );
-                uses_permissions |= uses_permissions_call(expr);
-                uses_permission_request |= uses_permission_request_call(expr);
-            });
-        }
-        for function in &module.functions {
-            for local in &function.locals {
-                walk_expression(&local.initial, &mut |expr| {
-                    uses_permissions |= uses_permissions_call(expr);
-                    uses_permission_request |= uses_permission_request_call(expr);
-                });
-            }
-            walk_expression(&function.body, &mut |expr| {
-                uses_permissions |= uses_permissions_call(expr);
-                uses_permission_request |= uses_permission_request_call(expr);
-            });
-        }
-        walk_ir(
-            &module.body,
-            &mut |node| features.record_app_node(node),
-            &mut |expr| {
-                app_uses_size_class |= matches!(
-                    expr,
-                    Expr::IsRegularWidth
-                        | Expr::IsCompactWidth
-                        | Expr::IsRegularHeight
-                        | Expr::IsCompactHeight
-                );
-                uses_permissions |= uses_permissions_call(expr);
-                uses_permission_request |= uses_permission_request_call(expr);
-            },
-        );
-        for screen in &module.screens {
-            for state in &screen.states {
-                walk_expression(&state.initial, &mut |expr| {
-                    app_uses_size_class |= matches!(
-                        expr,
-                        Expr::IsRegularWidth
-                            | Expr::IsCompactWidth
-                            | Expr::IsRegularHeight
-                            | Expr::IsCompactHeight
-                    );
-                    uses_permissions |= uses_permissions_call(expr);
-                    uses_permission_request |= uses_permission_request_call(expr);
-                });
-            }
-            walk_ir(
-                &screen.body,
-                &mut |node| features.record_app_node(node),
-                &mut |expr| {
-                    app_uses_size_class |= matches!(
-                        expr,
-                        Expr::IsRegularWidth
-                            | Expr::IsCompactWidth
-                            | Expr::IsRegularHeight
-                            | Expr::IsCompactHeight
-                    );
-                    uses_permissions |= uses_permissions_call(expr);
-                    uses_permission_request |= uses_permission_request_call(expr);
-                },
-            );
-        }
-        for actions in module
-            .on_appear
-            .iter()
-            .chain(module.on_disappear.iter())
-            .chain(module.on_active.iter())
-            .chain(module.on_inactive.iter())
-            .chain(module.on_background.iter())
-        {
-            walk_actions(actions, &mut |expr| {
-                uses_permissions |= uses_permissions_call(expr);
-                uses_permission_request |= uses_permission_request_call(expr);
-            });
-        }
-        for screen in &module.screens {
-            for actions in screen.on_appear.iter().chain(screen.on_disappear.iter()) {
-                walk_actions(actions, &mut |expr| {
-                    uses_permissions |= uses_permissions_call(expr);
-                    uses_permission_request |= uses_permission_request_call(expr);
-                });
-            }
-        }
-        features.app_uses_size_class = app_uses_size_class;
-
-        for component in &module.components {
-            let mut uses_adaptive_color = false;
-            let mut uses_size_class = false;
-            for state in &component.states {
-                walk_expression(&state.initial, &mut |expr| {
-                    uses_size_class |= matches!(
-                        expr,
-                        Expr::IsRegularWidth
-                            | Expr::IsCompactWidth
-                            | Expr::IsRegularHeight
-                            | Expr::IsCompactHeight
-                    );
-                    uses_permissions |= uses_permissions_call(expr);
-                    uses_permission_request |= uses_permission_request_call(expr);
-                });
-            }
-            walk_ir(
-                &component.body,
-                &mut |node| {
-                    features.record_list_usage(node);
-                    features.uses_haptic |= node_uses_haptic(node);
-                    features.uses_link |= matches!(node, Node::Link { .. });
-                    uses_adaptive_color |= node_uses_adaptive_color(node);
-                },
-                &mut |expr| {
-                    uses_size_class |= matches!(
-                        expr,
-                        Expr::IsRegularWidth
-                            | Expr::IsCompactWidth
-                            | Expr::IsRegularHeight
-                            | Expr::IsCompactHeight
-                    );
-                    uses_permissions |= uses_permissions_call(expr);
-                    uses_permission_request |= uses_permission_request_call(expr);
-                },
-            );
-            if uses_adaptive_color {
-                features
-                    .components_using_adaptive_color
-                    .insert(component.name.clone());
-            }
-            if uses_size_class {
-                features
-                    .components_using_size_class
-                    .insert(component.name.clone());
-            }
-        }
+        let capabilities = &facts.capabilities;
         features.uses_remote_image = capabilities.uses_remote_image;
         features.uses_network_api = capabilities.uses_network_api;
         features.uses_path_api = capabilities.uses_path_api;
@@ -187,9 +50,43 @@ impl Features {
         features.uses_file_async = capabilities.uses_file_async;
         features.uses_native_library =
             features.uses_network_transport() || features.uses_path_api || features.uses_file_api;
-        features.uses_permissions = uses_permissions;
-        features.uses_permission_request = uses_permission_request;
-        collect_permission_usage(module, &mut features);
+
+        let lists = &facts.ui.lists;
+        features.uses_fast_list = lists.any;
+        features.uses_sectioned_list = lists.sectioned;
+        features.uses_vertical_list = lists.vertical;
+        features.uses_horizontal_list = lists.horizontal;
+        features.uses_grid_list = lists.grid;
+        features.uses_sticky_header = lists.sticky_header;
+        features.uses_scroll_events = lists.scroll_events || lists.scroll_events_grid;
+
+        let ui = &facts.ui;
+        features.uses_link = ui.app.link || ui.components.values().any(|scope| scope.link);
+        features.uses_navigation_back = ui.app.navigation_back;
+        features.uses_haptic = ui.app.haptic || ui.components.values().any(|scope| scope.haptic);
+        features.app_uses_adaptive_color =
+            ui.app.adaptive_background || ui.app.adaptive_border || ui.app.adaptive_text;
+        features.app_uses_size_class = ui.app.size_class;
+        features.components_using_adaptive_color = ui
+            .components
+            .iter()
+            .filter(|(_, scope)| {
+                scope.adaptive_background || scope.adaptive_border || scope.adaptive_text
+            })
+            .map(|(name, _)| name.clone())
+            .collect();
+        features.components_using_size_class = ui
+            .components
+            .iter()
+            .filter(|(_, scope)| scope.size_class)
+            .map(|(name, _)| name.clone())
+            .collect();
+
+        features.uses_permissions = facts.permissions.present;
+        features.uses_permission_request = facts.permissions.request;
+        features.used_permissions = facts.permissions.used.clone();
+        features.dynamic_permission = facts.permissions.dynamic;
+        features.facts = facts;
         features
     }
 
@@ -207,172 +104,5 @@ impl Features {
 
     pub(crate) fn component_uses_size_class(&self, name: &str) -> bool {
         self.components_using_size_class.contains(name)
-    }
-
-    fn record_app_node(&mut self, node: &Node) {
-        self.record_list_usage(node);
-        self.uses_haptic |= node_uses_haptic(node);
-        self.uses_link |= matches!(node, Node::Link { .. });
-        self.uses_navigation_back |= matches!(node, Node::NavigationBack { .. });
-        self.app_uses_adaptive_color |= node_uses_adaptive_color(node);
-    }
-
-    fn record_list_usage(&mut self, node: &Node) {
-        let Node::FastList { plan } = node else {
-            return;
-        };
-        self.uses_fast_list = true;
-        if matches!(plan, nexa_ir::ListPlan::Sections { .. }) {
-            self.uses_sectioned_list = true;
-        } else {
-            match plan.axis() {
-                nexa_ir::ListAxis::Vertical => self.uses_vertical_list = true,
-                nexa_ir::ListAxis::Horizontal => self.uses_horizontal_list = true,
-                nexa_ir::ListAxis::Grid { .. } => self.uses_grid_list = true,
-            }
-        }
-        self.uses_sticky_header |= plan.sticky_header().is_some();
-        self.uses_scroll_events |= plan.on_scroll().is_some();
-    }
-}
-
-fn node_uses_haptic(node: &Node) -> bool {
-    matches!(
-        node,
-        Node::Pressable {
-            haptic: Some(_),
-            ..
-        }
-    )
-}
-
-fn node_uses_adaptive_color(node: &Node) -> bool {
-    match node {
-        Node::Layout { style, .. } => [style.background, style.border_color]
-            .into_iter()
-            .flatten()
-            .any(|color| matches!(color, ColorValue::Adaptive { .. })),
-        Node::Text { style, .. } => style
-            .color
-            .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. })),
-        _ => false,
-    }
-}
-
-fn uses_permission_request_call(expr: &Expr) -> bool {
-    matches!(
-        expr,
-        Expr::NativeCall { namespace, name, .. }
-            if namespace == "Permissions" && name == "request"
-    ) || matches!(
-        expr,
-        Expr::PermissionOp {
-            op: nexa_ir::PermissionOpKind::Request,
-            ..
-        }
-    )
-}
-
-fn uses_permissions_call(expr: &Expr) -> bool {
-    matches!(
-        expr,
-        Expr::NativeCall { namespace, name, .. }
-            if namespace == "Permissions" && matches!(name.as_str(), "status" | "request")
-    ) || matches!(expr, Expr::PermissionOp { .. })
-}
-
-fn collect_permission_usage(module: &Module, features: &mut Features) {
-    let mut visit = |expr: &Expr| record_permission_usage(expr, features);
-    for state in &module.states {
-        walk_expression(&state.initial, &mut visit);
-    }
-    for function in &module.functions {
-        for local in &function.locals {
-            walk_expression(&local.initial, &mut visit);
-        }
-        walk_expression(&function.body, &mut visit);
-    }
-    walk_ir(&module.body, &mut |_| {}, &mut visit);
-    for actions in module
-        .on_appear
-        .iter()
-        .chain(module.on_disappear.iter())
-        .chain(module.on_active.iter())
-        .chain(module.on_inactive.iter())
-        .chain(module.on_background.iter())
-    {
-        walk_actions(actions, &mut visit);
-    }
-    for screen in &module.screens {
-        for state in &screen.states {
-            walk_expression(&state.initial, &mut visit);
-        }
-        walk_ir(&screen.body, &mut |_| {}, &mut visit);
-        for actions in screen.on_appear.iter().chain(screen.on_disappear.iter()) {
-            walk_actions(actions, &mut visit);
-        }
-    }
-    for component in &module.components {
-        for state in &component.states {
-            walk_expression(&state.initial, &mut visit);
-        }
-        walk_ir(&component.body, &mut |_| {}, &mut visit);
-    }
-}
-
-fn record_permission_usage(expr: &Expr, features: &mut Features) {
-    // Validated permission queries carry the permission directly; legacy
-    // `NativeCall` spellings (e.g. hand-built test IR) resolve it by name.
-    let permission = match expr {
-        Expr::PermissionOp { permission, .. } => permission.as_ref(),
-        Expr::NativeCall {
-            namespace,
-            name,
-            arguments,
-            ..
-        } if namespace == "Permissions" && matches!(name.as_str(), "status" | "request") => {
-            let Some((_, permission)) =
-                arguments.iter().find(|(name, _)| name == "permission")
-            else {
-                features.dynamic_permission = true;
-                return;
-            };
-            permission
-        }
-        _ => return,
-    };
-    match permission {
-        Expr::EnumValue {
-            enum_name,
-            case_name,
-            ..
-        } if enum_name == "Permission" => match case_name.as_str() {
-            "Camera" => {
-                features.used_permissions.insert(Permission::Camera);
-            }
-            "Microphone" => {
-                features.used_permissions.insert(Permission::Microphone);
-            }
-            "Photos" => {
-                features.used_permissions.insert(Permission::Photos);
-            }
-            "Location" => {
-                features.used_permissions.insert(Permission::Location);
-            }
-            "Notifications" => {
-                features.used_permissions.insert(Permission::Notifications);
-            }
-            "Contacts" => {
-                features.used_permissions.insert(Permission::Contacts);
-            }
-            "Calendar" => {
-                features.used_permissions.insert(Permission::Calendar);
-            }
-            "Bluetooth" => {
-                features.used_permissions.insert(Permission::Bluetooth);
-            }
-            _ => features.dynamic_permission = true,
-        },
-        _ => features.dynamic_permission = true,
     }
 }

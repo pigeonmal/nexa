@@ -1,12 +1,7 @@
 use nexa_ir::walk::walk_ir;
 use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle};
 
-use crate::generator::{
-    components::render_node,
-    features::{self, Features},
-    layout, state,
-    utils::indent,
-};
+use crate::generator::{components::render_node, features::Features, layout, state, utils::indent};
 
 pub(crate) fn render(module: &Module, features: &Features, out: &mut String) {
     for component in &module.components {
@@ -71,7 +66,13 @@ fn render_component(component: &Component, module: &Module, features: &Features,
         out.push_str("    val nexaHapticView = LocalView.current\n");
     }
     render_component_states(&component.states, 1, out);
-    let focus_bindings = features::collect_focus_bindings(&component.body);
+    let focus_bindings = features
+        .facts
+        .focus_bindings
+        .components
+        .get(&component.name)
+        .cloned()
+        .unwrap_or_default();
     for binding in &focus_bindings {
         out.push_str(&format!(
             "    val {} = remember {{ FocusRequester() }}\n",

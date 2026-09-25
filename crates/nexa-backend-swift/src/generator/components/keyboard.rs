@@ -1,17 +1,19 @@
 use nexa_ir::{KeyboardDismissMode, Module, Node};
 
+use crate::generator::features::Features;
 use crate::generator::{components::render_children, utils::indent};
 
 pub(crate) fn render_keyboard_aware(
     dismiss: KeyboardDismissMode,
     children: &[Node],
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
     indent(out, depth);
     out.push_str("ScrollView(.vertical) {\n");
-    render_children(children, module, depth + 1, out);
+    render_children(children, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     let mode = match dismiss {

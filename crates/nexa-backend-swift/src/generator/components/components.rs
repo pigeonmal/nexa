@@ -2,12 +2,19 @@ use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 
 use crate::generator::{
     accessibility, bottom_bar, colors, controls,
+    engine::features::Features,
     expressions::text_expression,
     images, input, keyboard, layout, links, lists, navigation, refresh, sheets,
     utils::{indent, number},
 };
 
-pub(crate) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut String) {
+pub(crate) fn render_node(
+    node: &Node,
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut String,
+) {
     match node {
         Node::StatusBar { .. }
         | Node::Direction { .. }
@@ -21,7 +28,9 @@ pub(crate) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             spacing,
             style,
             children,
-        } => layout::render_layout(*kind, *spacing, style, children, module, depth, out),
+        } => layout::render_layout(
+            *kind, *spacing, style, children, module, features, depth, out,
+        ),
         Node::Text { value, style } => {
             indent(out, depth);
             out.push_str(&format!("Text({})", text_expression(value)));
@@ -142,11 +151,12 @@ pub(crate) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             actions,
             long_press_actions,
             module,
+            features,
             depth,
             out,
         ),
         Node::NavigationStack { root, arguments } => {
-            navigation::render_navigation_stack(module, *root, arguments, depth, out);
+            navigation::render_navigation_stack(module, *root, arguments, features, depth, out);
         }
         Node::NavigationLink {
             destination,
@@ -159,11 +169,14 @@ pub(crate) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             guard.as_ref(),
             children,
             module,
+            features,
             depth,
             out,
         ),
         Node::NavigationBack { label } => navigation::render_back(label, depth, out),
-        Node::Link { url, children } => links::render_link(url, children, module, depth, out),
+        Node::Link { url, children } => {
+            links::render_link(url, children, module, features, depth, out)
+        }
         Node::Accessibility {
             label,
             hint,
@@ -175,27 +188,30 @@ pub(crate) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             *role,
             children,
             module,
+            features,
             depth,
             out,
         ),
         Node::KeyboardAware { dismiss, children } => {
-            keyboard::render_keyboard_aware(*dismiss, children, module, depth, out)
+            keyboard::render_keyboard_aware(*dismiss, children, module, features, depth, out)
         }
         Node::BottomSheet {
             state,
             partial,
             children,
-        } => sheets::render_bottom_sheet(state, *partial, children, module, depth, out),
+        } => sheets::render_bottom_sheet(state, *partial, children, module, features, depth, out),
         Node::RefreshControl {
             state,
             children,
             actions,
-        } => refresh::render_refresh_control(state, children, actions, module, depth, out),
+        } => {
+            refresh::render_refresh_control(state, children, actions, module, features, depth, out)
+        }
         Node::AppBottomBar { state, tabs } => {
-            bottom_bar::render_app_bottom_bar(state, tabs, module, depth, out)
+            bottom_bar::render_app_bottom_bar(state, tabs, module, features, depth, out)
         }
         Node::FastList { plan } => {
-            lists::render_virtualized_list(plan, module, depth, out);
+            lists::render_virtualized_list(plan, module, features, depth, out);
         }
         Node::If {
             condition,
@@ -207,12 +223,12 @@ pub(crate) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                 "if {} {{\n",
                 crate::generator::engine::expressions::expression(condition)
             ));
-            render_children(then_body, module, depth + 1, out);
+            render_children(then_body, module, features, depth + 1, out);
             if let Some(else_body) = else_body {
                 out.push('\n');
                 indent(out, depth);
                 out.push_str("} else {\n");
-                render_children(else_body, module, depth + 1, out);
+                render_children(else_body, module, features, depth + 1, out);
             }
             out.push('\n');
             indent(out, depth);
@@ -234,12 +250,12 @@ pub(crate) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
                     "case {}:\n",
                     crate::generator::engine::expressions::expression(&case.value)
                 ));
-                render_children(&case.body, module, depth + 2, out);
+                render_children(&case.body, module, features, depth + 2, out);
                 out.push('\n');
             }
             indent(out, depth + 1);
             out.push_str("default:\n");
-            render_children(else_body, module, depth + 2, out);
+            render_children(else_body, module, features, depth + 2, out);
             out.push('\n');
             indent(out, depth);
             out.push('}');
@@ -267,7 +283,7 @@ pub(crate) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             ));
             if let Some(children) = children {
                 out.push_str(" {\n");
-                render_children(children, module, depth + 1, out);
+                render_children(children, module, features, depth + 1, out);
                 out.push('\n');
                 indent(out, depth);
                 out.push('}');
@@ -300,7 +316,7 @@ pub(crate) fn render_node(node: &Node, module: &Module, depth: usize, out: &mut 
             out.push_str(&format!("{}({})", name, rendered_arguments.join(", ")));
             if let Some(children) = children {
                 out.push_str(" {\n");
-                render_children(children, module, depth + 1, out);
+                render_children(children, module, features, depth + 1, out);
                 out.push('\n');
                 indent(out, depth);
                 out.push('}');
@@ -318,19 +334,26 @@ fn swift_font_weight(weight: nexa_ir::FontWeight) -> &'static str {
     }
 }
 
-pub(crate) fn render_children(children: &[Node], module: &Module, depth: usize, out: &mut String) {
+pub(crate) fn render_children(
+    children: &[Node],
+    module: &Module,
+    features: &Features,
+    depth: usize,
+    out: &mut String,
+) {
     match children {
         [] => {
             indent(out, depth);
             out.push_str("EmptyView()");
         }
-        [node] => render_node(node, module, depth, out),
+        [node] => render_node(node, module, features, depth, out),
         _ => layout::render_layout(
             LayoutKind::Column,
             0.0,
             &ViewStyle::default(),
             children,
             module,
+            features,
             depth,
             out,
         ),

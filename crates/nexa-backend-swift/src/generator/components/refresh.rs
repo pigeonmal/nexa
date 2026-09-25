@@ -1,6 +1,7 @@
 use nexa_ir::walk::contains_scrollable;
 use nexa_ir::{Action, Module, Node};
 
+use crate::generator::features::Features;
 use crate::generator::{components::render_children, controls::render_actions, utils::indent};
 
 pub(crate) fn render_refresh_control(
@@ -8,6 +9,7 @@ pub(crate) fn render_refresh_control(
     children: &[Node],
     actions: &[Action],
     module: &Module,
+    features: &Features,
     depth: usize,
     out: &mut String,
 ) {
@@ -17,7 +19,7 @@ pub(crate) fn render_refresh_control(
     } else {
         out.push_str("VStack {\n");
     }
-    render_children(children, module, depth + 1, out);
+    render_children(children, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');
