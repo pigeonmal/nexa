@@ -64,6 +64,9 @@ pub mod names {
 }
 
 pub mod plugin;
+pub mod source_writer;
+
+pub use source_writer::SourceWriter;
 
 /// Supported compilation target platforms for Nexa code generation and scaffolding.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
