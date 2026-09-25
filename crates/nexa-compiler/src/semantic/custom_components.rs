@@ -523,21 +523,16 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
                 collect_ir_component_calls(child, calls);
             }
         }
-        Node::FastList {
-            children,
-            sticky_header,
-            section_header,
-            ..
-        } => {
-            for child in children {
+        Node::FastList { plan } => {
+            for child in plan.children() {
                 collect_ir_component_calls(child, calls);
             }
-            if let Some(sticky_header) = sticky_header {
+            if let Some(sticky_header) = plan.sticky_header() {
                 for child in sticky_header {
                     collect_ir_component_calls(child, calls);
                 }
             }
-            if let Some(section_header) = section_header {
+            if let Some(section_header) = plan.section_header() {
                 for child in section_header {
                     collect_ir_component_calls(child, calls);
                 }

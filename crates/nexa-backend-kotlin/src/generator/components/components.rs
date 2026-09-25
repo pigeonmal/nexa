@@ -159,42 +159,8 @@ pub(crate) fn render_node(
         Node::AppBottomBar { state, tabs } => {
             bottom_bar::render_app_bottom_bar(state, tabs, module, features, depth, out)
         }
-        Node::FastList {
-            source,
-            axis,
-            item_extent,
-            section,
-            index,
-            item,
-            key,
-            children,
-            on_end_reached,
-            on_scroll,
-            scroll_position,
-            sticky_header,
-            section_header,
-            refresh,
-        } => {
-            lists::render_virtualized_list(
-                source,
-                *axis,
-                *item_extent,
-                section.as_deref(),
-                index,
-                item.as_deref(),
-                key.as_ref(),
-                children,
-                on_end_reached.as_deref(),
-                on_scroll.as_deref(),
-                scroll_position.as_deref(),
-                sticky_header.as_deref(),
-                section_header.as_deref(),
-                refresh.as_ref(),
-                module,
-                features,
-                depth,
-                out,
-            );
+        Node::FastList { plan } => {
+            lists::render_virtualized_list(plan, module, features, depth, out);
         }
         Node::If {
             condition,

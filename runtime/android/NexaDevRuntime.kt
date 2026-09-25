@@ -749,6 +749,74 @@ private class NexaDevStateStore(private val context: Context) {
             "Await", "TryAwait" -> evaluateAsync(payload, locals, scope)
             "Call" -> invokeFunctionAsync(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
             "NativeCall" -> invokeNativeAsync(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
+            "NetworkFetch", "NetworkDownload" -> {
+                val fields = payload as? JSONObject ?: return JSONObject.NULL
+                val request = if (kind == "NetworkDownload") {
+                    fields.optJSONObject("request") ?: return JSONObject.NULL
+                } else {
+                    fields
+                }
+                val name = if (kind == "NetworkDownload") "download" else "fetch"
+                val arguments = JSONArray()
+                    .put(argument("url", request.opt("url")))
+                    .put(argument("method", request.opt("method")))
+                    .put(argument("headers", request.opt("headers")))
+                    .put(argument("timeout", request.opt("timeout")))
+                    .put(argument("useCache", request.opt("use_cache")))
+                    .put(argument("followRedirects", request.opt("follow_redirects")))
+                    .put(argument("maxResponseBytes", request.opt("max_response_bytes")))
+                    .put(argument("certificatePins", request.opt("certificate_pins")))
+                    .put(argument("body", request.opt("body")))
+                if (kind == "NetworkDownload") {
+                    arguments.put(argument("destinationPath", fields.opt("destination")))
+                }
+                invokeNativeAsync(nativeCall("Network", name, arguments), locals, scope)
+            }
+            "PathJoin" -> {
+                val join = payload as? JSONObject ?: return JSONObject.NULL
+                invokeNativeAsync(
+                    nativeCall(
+                        "Path",
+                        "join",
+                        JSONArray()
+                            .put(argument("path", join.opt("path")))
+                            .put(argument("component", join.opt("component"))),
+                    ),
+                    locals,
+                    scope,
+                )
+            }
+            "FileExists", "FileReadText", "FileWriteText", "FileDelete" -> {
+                val file = payload as? JSONObject ?: return JSONObject.NULL
+                val name = when (kind) {
+                    "FileExists" -> "exists"
+                    "FileReadText" -> "readText"
+                    "FileWriteText" -> "writeText"
+                    else -> "delete"
+                }
+                val arguments = JSONArray().put(argument("path", file.opt("path")))
+                if (kind == "FileWriteText") {
+                    arguments.put(argument("contents", file.opt("contents")))
+                }
+                invokeNativeAsync(nativeCall("File", name, arguments), locals, scope)
+            }
+            "PermissionOp" -> {
+                val operation = payload as? JSONObject ?: return JSONObject.NULL
+                val name = when (operation.optString("op")) {
+                    "Request" -> "request"
+                    "Status" -> "status"
+                    else -> throw IllegalStateException("Unsupported permission operation")
+                }
+                invokeNativeAsync(
+                    nativeCall(
+                        "Permissions",
+                        name,
+                        JSONArray().put(argument("permission", operation.opt("permission"))),
+                    ),
+                    locals,
+                    scope,
+                )
+            }
             "Member" -> {
                 val member = payload as? JSONObject ?: return JSONObject.NULL
                 val base = evaluateAsync(member.opt("base"), locals, scope)
@@ -797,6 +865,15 @@ private class NexaDevStateStore(private val context: Context) {
             else -> evaluate(raw, locals, scope)
         }
     }
+
+    private fun nativeCall(namespace: String, name: String, arguments: JSONArray): JSONObject =
+        JSONObject()
+            .put("namespace", namespace)
+            .put("name", name)
+            .put("arguments", arguments)
+
+    private fun argument(name: String, expression: Any?): JSONArray =
+        JSONArray().put(name).put(expression ?: JSONObject.NULL)
 
     private suspend fun invokeNativeAsync(
         call: JSONObject,
@@ -1097,6 +1174,32 @@ private class NexaDevStateStore(private val context: Context) {
             }
             "Call" -> invokeFunction(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
             "NativeCall" -> invokeNativeSync(payload as? JSONObject ?: return JSONObject.NULL, locals, scope)
+            "PathJoin" -> {
+                val join = payload as? JSONObject ?: return JSONObject.NULL
+                invokeNativeSync(
+                    nativeCall(
+                        "Path",
+                        "join",
+                        JSONArray()
+                            .put(argument("path", join.opt("path")))
+                            .put(argument("component", join.opt("component"))),
+                    ),
+                    locals,
+                    scope,
+                )
+            }
+            "FileExists" -> {
+                val file = payload as? JSONObject ?: return JSONObject.NULL
+                invokeNativeSync(
+                    nativeCall(
+                        "File",
+                        "exists",
+                        JSONArray().put(argument("path", file.opt("path"))),
+                    ),
+                    locals,
+                    scope,
+                )
+            }
             else -> JSONObject.NULL
         }
     }

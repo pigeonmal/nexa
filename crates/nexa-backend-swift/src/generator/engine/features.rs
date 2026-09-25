@@ -218,28 +218,21 @@ impl Features {
     }
 
     fn record_list_usage(&mut self, node: &Node) {
-        let Node::FastList {
-            axis,
-            source,
-            sticky_header,
-            on_scroll,
-            ..
-        } = node
-        else {
+        let Node::FastList { plan } = node else {
             return;
         };
         self.uses_fast_list = true;
-        if matches!(source, nexa_ir::ListSource::Sections { .. }) {
+        if matches!(plan, nexa_ir::ListPlan::Sections { .. }) {
             self.uses_sectioned_list = true;
         } else {
-            match axis {
+            match plan.axis() {
                 nexa_ir::ListAxis::Vertical => self.uses_vertical_list = true,
                 nexa_ir::ListAxis::Horizontal => self.uses_horizontal_list = true,
                 nexa_ir::ListAxis::Grid { .. } => self.uses_grid_list = true,
             }
         }
-        self.uses_sticky_header |= sticky_header.is_some();
-        self.uses_scroll_events |= on_scroll.is_some();
+        self.uses_sticky_header |= plan.sticky_header().is_some();
+        self.uses_scroll_events |= plan.on_scroll().is_some();
     }
 }
 
@@ -271,6 +264,12 @@ fn uses_permission_request_call(expr: &Expr) -> bool {
         expr,
         Expr::NativeCall { namespace, name, .. }
             if namespace == "Permissions" && name == "request"
+    ) || matches!(
+        expr,
+        Expr::PermissionOp {
+            op: nexa_ir::PermissionOpKind::Request,
+            ..
+        }
     )
 }
 
@@ -279,7 +278,7 @@ fn uses_permissions_call(expr: &Expr) -> bool {
         expr,
         Expr::NativeCall { namespace, name, .. }
             if namespace == "Permissions" && matches!(name.as_str(), "status" | "request")
-    )
+    ) || matches!(expr, Expr::PermissionOp { .. })
 }
 
 fn collect_permission_usage(module: &Module, features: &mut Features) {
@@ -322,21 +321,25 @@ fn collect_permission_usage(module: &Module, features: &mut Features) {
 }
 
 fn record_permission_usage(expr: &Expr, features: &mut Features) {
-    let Expr::NativeCall {
-        namespace,
-        name,
-        arguments,
-        ..
-    } = expr
-    else {
-        return;
-    };
-    if namespace != "Permissions" || !matches!(name.as_str(), "status" | "request") {
-        return;
-    }
-    let Some((_, permission)) = arguments.iter().find(|(name, _)| name == "permission") else {
-        features.dynamic_permission = true;
-        return;
+    // Validated permission queries carry the permission directly; legacy
+    // `NativeCall` spellings (e.g. hand-built test IR) resolve it by name.
+    let permission = match expr {
+        Expr::PermissionOp { permission, .. } => permission.as_ref(),
+        Expr::NativeCall {
+            namespace,
+            name,
+            arguments,
+            ..
+        } if namespace == "Permissions" && matches!(name.as_str(), "status" | "request") => {
+            let Some((_, permission)) =
+                arguments.iter().find(|(name, _)| name == "permission")
+            else {
+                features.dynamic_permission = true;
+                return;
+            };
+            permission
+        }
+        _ => return,
     };
     match permission {
         Expr::EnumValue {

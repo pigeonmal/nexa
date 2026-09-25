@@ -596,51 +596,42 @@ impl Features {
                 }
                 self.record_child_layout(children);
             }
-            Node::FastList {
-                axis,
-                item_extent,
-                on_end_reached,
-                on_scroll,
-                refresh,
-                scroll_position,
-                sticky_header,
-                section_header,
-                children,
-                ..
-            } => {
-                self.uses_sticky_header |= sticky_header.is_some() || section_header.is_some();
-                self.uses_refresh_control |= refresh.is_some();
-                self.uses_list_scroll_position |= scroll_position.is_some();
+            Node::FastList { plan } => {
+                let axis = plan.axis();
+                self.uses_sticky_header |=
+                    plan.sticky_header().is_some() || plan.section_header().is_some();
+                self.uses_refresh_control |= plan.refresh().is_some();
+                self.uses_list_scroll_position |= plan.scroll_position().is_some();
                 self.uses_linear_list_scroll_position |=
-                    scroll_position.is_some() && !matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                    plan.scroll_position().is_some() && !matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_grid_scroll_position |=
-                    scroll_position.is_some() && matches!(axis, nexa_ir::ListAxis::Grid { .. });
-                self.uses_list_scroll_events |= on_scroll.is_some();
+                    plan.scroll_position().is_some() && matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                self.uses_list_scroll_events |= plan.on_scroll().is_some();
                 self.uses_linear_list_scroll_events |=
-                    on_scroll.is_some() && !matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                    plan.on_scroll().is_some() && !matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_grid_scroll_events |=
-                    on_scroll.is_some() && matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                    plan.on_scroll().is_some() && matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_list |= matches!(axis, nexa_ir::ListAxis::Vertical);
                 self.uses_linear_list |= !matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_horizontal_list |= matches!(axis, nexa_ir::ListAxis::Horizontal);
                 self.uses_grid_list |= matches!(axis, nexa_ir::ListAxis::Grid { .. });
-                self.uses_list_end_reached |= on_end_reached.is_some();
+                self.uses_list_end_reached |= plan.on_end_reached().is_some();
                 self.uses_linear_list_end_reached |=
-                    on_end_reached.is_some() && !matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                    plan.on_end_reached().is_some() && !matches!(axis, nexa_ir::ListAxis::Grid { .. });
                 self.uses_grid_end_reached |=
-                    on_end_reached.is_some() && matches!(axis, nexa_ir::ListAxis::Grid { .. });
-                self.uses_mutable_state |= on_end_reached.is_some();
-                self.uses_mutable_int_state |= on_end_reached.is_some();
-                self.uses_mutable_state |= on_scroll.is_some();
-                self.uses_mutable_int_state |= on_scroll.is_some();
-                if item_extent.is_some() {
+                    plan.on_end_reached().is_some() && matches!(axis, nexa_ir::ListAxis::Grid { .. });
+                self.uses_mutable_state |= plan.on_end_reached().is_some();
+                self.uses_mutable_int_state |= plan.on_end_reached().is_some();
+                self.uses_mutable_state |= plan.on_scroll().is_some();
+                self.uses_mutable_int_state |= plan.on_scroll().is_some();
+                if plan.item_extent().is_some() {
                     self.uses_box = true;
                     self.uses_modifier = true;
                     self.uses_dp = true;
                     self.uses_height = true;
                     self.uses_width |= matches!(axis, nexa_ir::ListAxis::Horizontal);
                 }
-                self.record_child_layout(children);
+                self.record_child_layout(plan.children());
             }
             Node::If {
                 then_body,
@@ -817,6 +808,12 @@ fn uses_permission_request_call(expr: &Expr) -> bool {
         expr,
         Expr::NativeCall { namespace, name, .. }
             if namespace == "Permissions" && name == "request"
+    ) || matches!(
+        expr,
+        Expr::PermissionOp {
+            op: nexa_ir::PermissionOpKind::Request,
+            ..
+        }
     )
 }
 
@@ -825,7 +822,7 @@ fn uses_permissions_call(expr: &Expr) -> bool {
         expr,
         Expr::NativeCall { namespace, name, .. }
             if namespace == "Permissions" && matches!(name.as_str(), "status" | "request")
-    )
+    ) || matches!(expr, Expr::PermissionOp { .. })
 }
 
 fn collect_permission_usage(module: &Module, features: &mut Features) {
@@ -868,21 +865,25 @@ fn collect_permission_usage(module: &Module, features: &mut Features) {
 }
 
 fn record_permission_usage(expr: &Expr, features: &mut Features) {
-    let Expr::NativeCall {
-        namespace,
-        name,
-        arguments,
-        ..
-    } = expr
-    else {
-        return;
-    };
-    if namespace != "Permissions" || !matches!(name.as_str(), "status" | "request") {
-        return;
-    }
-    let Some((_, permission)) = arguments.iter().find(|(name, _)| name == "permission") else {
-        features.dynamic_permission = true;
-        return;
+    // Validated permission queries carry the permission directly; legacy
+    // `NativeCall` spellings (e.g. hand-built test IR) resolve it by name.
+    let permission = match expr {
+        Expr::PermissionOp { permission, .. } => permission.as_ref(),
+        Expr::NativeCall {
+            namespace,
+            name,
+            arguments,
+            ..
+        } if namespace == "Permissions" && matches!(name.as_str(), "status" | "request") => {
+            let Some((_, permission)) =
+                arguments.iter().find(|(name, _)| name == "permission")
+            else {
+                features.dynamic_permission = true;
+                return;
+            };
+            permission
+        }
+        _ => return,
     };
     match permission {
         Expr::EnumValue {

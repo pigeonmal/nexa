@@ -1,4 +1,4 @@
-use crate::{Action, Expr, InterpolatedPart, ListSource, Node};
+use crate::{Action, Expr, InterpolatedPart, ListPlan, NetworkRequest, Node};
 
 /// Visits IR nodes and expressions in preorder without building an intermediate tree.
 pub fn walk_ir(
@@ -64,37 +64,27 @@ pub fn walk_ir(
                     walk_ir(&tab.children, visit_node, visit_expression);
                 }
             }
-            Node::FastList {
-                source,
-                key,
-                children,
-                on_end_reached,
-                on_scroll,
-                sticky_header,
-                section_header,
-                refresh,
-                ..
-            } => {
-                walk_list_source(source, visit_expression);
-                if let Some(key) = key {
+            Node::FastList { plan } => {
+                walk_list_plan(plan, visit_expression);
+                if let Some(key) = plan.key() {
                     walk_expression(key, visit_expression);
                 }
-                if let Some(actions) = on_end_reached {
+                if let Some(actions) = plan.on_end_reached() {
                     walk_actions(actions, visit_expression);
                 }
-                if let Some(actions) = on_scroll {
+                if let Some(actions) = plan.on_scroll() {
                     walk_actions(actions, visit_expression);
                 }
-                if let Some(refresh) = refresh {
+                if let Some(refresh) = plan.refresh() {
                     walk_actions(&refresh.actions, visit_expression);
                 }
-                if let Some(sticky_header) = sticky_header {
+                if let Some(sticky_header) = plan.sticky_header() {
                     walk_ir(sticky_header, visit_node, visit_expression);
                 }
-                if let Some(section_header) = section_header {
+                if let Some(section_header) = plan.section_header() {
                     walk_ir(section_header, visit_node, visit_expression);
                 }
-                walk_ir(children, visit_node, visit_expression);
+                walk_ir(plan.children(), visit_node, visit_expression);
             }
             Node::If {
                 condition,
@@ -228,21 +218,16 @@ pub fn walk_callback_actions(nodes: &[Node], visit: &mut impl FnMut(&[Action])) 
                     None
                 }
                 Node::RefreshControl { actions, .. } => Some(actions.as_slice()),
-                Node::FastList {
-                    on_end_reached,
-                    on_scroll,
-                    refresh,
-                    ..
-                } => {
-                    if let Some(actions) = on_end_reached {
+                Node::FastList { plan } => {
+                    if let Some(actions) = plan.on_end_reached() {
                         visit(actions);
                         walk_nested_callback_actions(actions, visit);
                     }
-                    if let Some(actions) = on_scroll {
+                    if let Some(actions) = plan.on_scroll() {
                         visit(actions);
                         walk_nested_callback_actions(actions, visit);
                     }
-                    if let Some(refresh) = refresh {
+                    if let Some(refresh) = plan.refresh() {
                         visit(&refresh.actions);
                         walk_nested_callback_actions(&refresh.actions, visit);
                     }
@@ -374,6 +359,28 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
                 walk_expression(argument, visit);
             }
         }
+        Expr::NetworkFetch(request) => walk_network_request(request, visit),
+        Expr::NetworkDownload {
+            destination,
+            request,
+        } => {
+            walk_expression(destination, visit);
+            walk_network_request(request, visit);
+        }
+        Expr::PathJoin { path, component } => {
+            walk_expression(path, visit);
+            walk_expression(component, visit);
+        }
+        Expr::FileExists { path } | Expr::FileReadText { path } | Expr::FileDelete { path } => {
+            walk_expression(path, visit);
+        }
+        Expr::FileWriteText { path, contents } => {
+            walk_expression(path, visit);
+            walk_expression(contents, visit);
+        }
+        Expr::PermissionOp { permission, .. } => {
+            walk_expression(permission, visit);
+        }
         Expr::Index {
             collection, index, ..
         } => {
@@ -465,11 +472,26 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
     })
 }
 
-fn walk_list_source(source: &ListSource, visit: &mut impl FnMut(&Expr)) {
-    match source {
-        ListSource::Count(count) => walk_expression(count, visit),
-        ListSource::Items { collection, .. } => walk_expression(collection, visit),
-        ListSource::Sections { collection, .. } => walk_expression(collection, visit),
+fn walk_network_request(request: &NetworkRequest, visit: &mut impl FnMut(&Expr)) {
+    walk_expression(&request.url, visit);
+    walk_expression(&request.method, visit);
+    walk_expression(&request.headers, visit);
+    walk_expression(&request.timeout, visit);
+    walk_expression(&request.use_cache, visit);
+    walk_expression(&request.follow_redirects, visit);
+    walk_expression(&request.max_response_bytes, visit);
+    walk_expression(&request.certificate_pins, visit);
+    if let Some(body) = &request.body {
+        walk_expression(body, visit);
+    }
+}
+
+fn walk_list_plan(plan: &ListPlan, visit: &mut impl FnMut(&Expr)) {
+    match plan {
+        ListPlan::Count { count, .. } => walk_expression(count, visit),
+        ListPlan::Items { collection, .. } | ListPlan::Sections { collection, .. } => {
+            walk_expression(collection, visit)
+        }
     }
 }
 

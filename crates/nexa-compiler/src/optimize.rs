@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use nexa_ir::{
-    Action, BinaryOp, Expr, InterpolatedPart, LayoutKind, ListSource, Module, Node, NumericType,
-    ViewStyle,
+    Action, BinaryOp, Expr, FastListRefresh, InterpolatedPart, LayoutKind, ListCommon, ListPlan,
+    Module, Node, NumericType, SectionedListCommon, ViewStyle,
 };
 
 /// Applies small, semantics-preserving optimizations to the typed IR before
@@ -177,6 +177,30 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
                 collect_expression_state_names(argument, names);
             }
         }
+        Expr::NetworkFetch(request) => {
+            collect_network_request_state_names(request, names);
+        }
+        Expr::NetworkDownload {
+            destination,
+            request,
+        } => {
+            collect_expression_state_names(destination, names);
+            collect_network_request_state_names(request, names);
+        }
+        Expr::PathJoin { path, component } => {
+            collect_expression_state_names(path, names);
+            collect_expression_state_names(component, names);
+        }
+        Expr::FileExists { path } | Expr::FileReadText { path } | Expr::FileDelete { path } => {
+            collect_expression_state_names(path, names);
+        }
+        Expr::FileWriteText { path, contents } => {
+            collect_expression_state_names(path, names);
+            collect_expression_state_names(contents, names);
+        }
+        Expr::PermissionOp { permission, .. } => {
+            collect_expression_state_names(permission, names);
+        }
         Expr::Interpolation(parts) => {
             for part in parts {
                 if let InterpolatedPart::Value(value) = part {
@@ -193,6 +217,23 @@ fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
         | Expr::IsCompactHeight => {}
+    }
+}
+
+fn collect_network_request_state_names(
+    request: &nexa_ir::NetworkRequest,
+    names: &mut HashSet<String>,
+) {
+    collect_expression_state_names(&request.url, names);
+    collect_expression_state_names(&request.method, names);
+    collect_expression_state_names(&request.headers, names);
+    collect_expression_state_names(&request.timeout, names);
+    collect_expression_state_names(&request.use_cache, names);
+    collect_expression_state_names(&request.follow_redirects, names);
+    collect_expression_state_names(&request.max_response_bytes, names);
+    collect_expression_state_names(&request.certificate_pins, names);
+    if let Some(body) = &request.body {
+        collect_expression_state_names(body, names);
     }
 }
 
@@ -214,7 +255,15 @@ fn is_pure_expression(expression: &Expr) -> bool {
                 && is_pure_expression(closure)
         }
         Expr::Closure { body, .. } => is_pure_expression(body),
-        Expr::NativeCall { .. } => false,
+        Expr::NativeCall { .. }
+        | Expr::NetworkFetch(_)
+        | Expr::NetworkDownload { .. }
+        | Expr::PathJoin { .. }
+        | Expr::FileExists { .. }
+        | Expr::FileReadText { .. }
+        | Expr::FileWriteText { .. }
+        | Expr::FileDelete { .. }
+        | Expr::PermissionOp { .. } => false,
         Expr::Await(_) | Expr::TryAwait(_) | Expr::Try { .. } => false,
         Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
             is_pure_expression(left) && is_pure_expression(right)
@@ -749,6 +798,16 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         Expr::State(_, ty) | Expr::Null(ty) => collect_type_struct_names(ty, used),
         Expr::Call { return_type, .. } => collect_type_struct_names(return_type, used),
         Expr::NativeCall { return_type, .. } => collect_type_struct_names(return_type, used),
+        // Validated core calls have fixed return types without struct
+        // payloads (`NetworkResponse`, scalars, `PermissionStatus`).
+        Expr::NetworkFetch(_)
+        | Expr::NetworkDownload { .. }
+        | Expr::PathJoin { .. }
+        | Expr::FileExists { .. }
+        | Expr::FileReadText { .. }
+        | Expr::FileWriteText { .. }
+        | Expr::FileDelete { .. }
+        | Expr::PermissionOp { .. } => {}
         Expr::Index {
             collection_type,
             element_type,
@@ -932,23 +991,17 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
             | Node::AppBottomBar { state, .. } => {
                 bindings.push(state.clone());
             }
-            Node::FastList {
-                on_end_reached,
-                on_scroll,
-                refresh,
-                scroll_position,
-                ..
-            } => {
-                if let Some(scroll_position) = scroll_position {
-                    bindings.push(scroll_position.clone());
+            Node::FastList { plan } => {
+                if let Some(scroll_position) = plan.scroll_position() {
+                    bindings.push(scroll_position.to_owned());
                 }
-                if let Some(actions) = on_end_reached {
+                if let Some(actions) = plan.on_end_reached() {
                     collect_action_bindings(actions, &mut bindings);
                 }
-                if let Some(actions) = on_scroll {
+                if let Some(actions) = plan.on_scroll() {
                     collect_action_bindings(actions, &mut bindings);
                 }
-                if let Some(refresh) = refresh {
+                if let Some(refresh) = plan.refresh() {
                     bindings.push(refresh.state.clone());
                     collect_action_bindings(&refresh.actions, &mut bindings);
                 }
@@ -1175,39 +1228,8 @@ fn optimize_node(node: Node) -> Option<Node> {
             actions: optimize_actions(actions),
             long_press_actions: optimize_actions(long_press_actions),
         }),
-        Node::FastList {
-            source,
-            axis,
-            item_extent,
-            index,
-            item,
-            key,
-            section,
-            children,
-            on_end_reached,
-            on_scroll,
-            sticky_header,
-            section_header,
-            refresh,
-            scroll_position,
-        } => Some(Node::FastList {
-            source: optimize_list_source(source),
-            axis,
-            item_extent,
-            index,
-            item,
-            key: key.map(fold_expression),
-            children: optimize_nodes(children),
-            on_end_reached: on_end_reached.map(optimize_actions),
-            on_scroll: on_scroll.map(optimize_actions),
-            sticky_header: sticky_header.map(optimize_nodes),
-            section_header: section_header.map(optimize_nodes),
-            scroll_position,
-            section,
-            refresh: refresh.map(|refresh| nexa_ir::FastListRefresh {
-                state: refresh.state,
-                actions: optimize_actions(refresh.actions),
-            }),
+        Node::FastList { plan } => Some(Node::FastList {
+            plan: optimize_list_plan(plan),
         }),
         Node::If {
             condition,
@@ -1409,22 +1431,63 @@ fn collapse_nodes(nodes: Vec<Node>) -> Option<Node> {
     }
 }
 
-fn optimize_list_source(source: ListSource) -> ListSource {
-    match source {
-        ListSource::Count(count) => ListSource::Count(fold_expression(count)),
-        ListSource::Items {
-            collection,
-            element_type,
-        } => ListSource::Items {
-            collection: fold_expression(collection),
-            element_type,
+fn optimize_list_plan(plan: ListPlan) -> ListPlan {
+    fn refresh(refresh: Option<FastListRefresh>) -> Option<FastListRefresh> {
+        refresh.map(|refresh| FastListRefresh {
+            state: refresh.state,
+            actions: optimize_actions(refresh.actions),
+        })
+    }
+    match plan {
+        ListPlan::Count { count, common } => ListPlan::Count {
+            count: fold_expression(count),
+            common: ListCommon {
+                key: common.key.map(fold_expression),
+                children: optimize_nodes(common.children),
+                on_end_reached: common.on_end_reached.map(optimize_actions),
+                on_scroll: common.on_scroll.map(optimize_actions),
+                sticky_header: common.sticky_header.map(optimize_nodes),
+                refresh: refresh(common.refresh),
+                ..common
+            },
         },
-        ListSource::Sections {
+        ListPlan::Items {
             collection,
             element_type,
-        } => ListSource::Sections {
+            item,
+            common,
+        } => ListPlan::Items {
             collection: fold_expression(collection),
             element_type,
+            item,
+            common: ListCommon {
+                key: common.key.map(fold_expression),
+                children: optimize_nodes(common.children),
+                on_end_reached: common.on_end_reached.map(optimize_actions),
+                on_scroll: common.on_scroll.map(optimize_actions),
+                sticky_header: common.sticky_header.map(optimize_nodes),
+                refresh: refresh(common.refresh),
+                ..common
+            },
+        },
+        ListPlan::Sections {
+            collection,
+            element_type,
+            section,
+            item,
+            common,
+        } => ListPlan::Sections {
+            collection: fold_expression(collection),
+            element_type,
+            section,
+            item,
+            common: SectionedListCommon {
+                key: common.key.map(fold_expression),
+                children: optimize_nodes(common.children),
+                section_header: common.section_header.map(optimize_nodes),
+                refresh: refresh(common.refresh),
+                ..common
+            },
         },
     }
 }
@@ -1531,6 +1594,31 @@ fn optimize_actions(actions: Vec<Action>) -> Vec<Action> {
         }
     }
     optimized
+}
+
+fn fold_network_request(request: nexa_ir::NetworkRequest) -> nexa_ir::NetworkRequest {
+    let nexa_ir::NetworkRequest {
+        url,
+        method,
+        headers,
+        timeout,
+        use_cache,
+        follow_redirects,
+        max_response_bytes,
+        certificate_pins,
+        body,
+    } = request;
+    nexa_ir::NetworkRequest {
+        url: Box::new(fold_expression(*url)),
+        method: Box::new(fold_expression(*method)),
+        headers: Box::new(fold_expression(*headers)),
+        timeout: Box::new(fold_expression(*timeout)),
+        use_cache: Box::new(fold_expression(*use_cache)),
+        follow_redirects: Box::new(fold_expression(*follow_redirects)),
+        max_response_bytes: Box::new(fold_expression(*max_response_bytes)),
+        certificate_pins: Box::new(fold_expression(*certificate_pins)),
+        body: body.map(|body| Box::new(fold_expression(*body))),
+    }
 }
 
 fn fold_expression(expression: Expr) -> Expr {
@@ -1650,12 +1738,14 @@ fn fold_expression(expression: Expr) -> Expr {
             optional,
             base_type,
             field_type,
+            kind,
         } => Expr::Member {
             base: Box::new(fold_expression(*base)),
             name,
             optional,
             base_type,
             field_type,
+            kind,
         },
         Expr::Null(ty) => Expr::Null(ty),
         Expr::Coalesce(left, right) => {
@@ -1694,6 +1784,35 @@ fn fold_expression(expression: Expr) -> Expr {
             expr: Box::new(fold_expression(*expr)),
             value_type,
             error_type,
+        },
+        Expr::NetworkFetch(request) => Expr::NetworkFetch(Box::new(fold_network_request(*request))),
+        Expr::NetworkDownload {
+            destination,
+            request,
+        } => Expr::NetworkDownload {
+            destination: Box::new(fold_expression(*destination)),
+            request: Box::new(fold_network_request(*request)),
+        },
+        Expr::PathJoin { path, component } => Expr::PathJoin {
+            path: Box::new(fold_expression(*path)),
+            component: Box::new(fold_expression(*component)),
+        },
+        Expr::FileExists { path } => Expr::FileExists {
+            path: Box::new(fold_expression(*path)),
+        },
+        Expr::FileReadText { path } => Expr::FileReadText {
+            path: Box::new(fold_expression(*path)),
+        },
+        Expr::FileWriteText { path, contents } => Expr::FileWriteText {
+            path: Box::new(fold_expression(*path)),
+            contents: Box::new(fold_expression(*contents)),
+        },
+        Expr::FileDelete { path } => Expr::FileDelete {
+            path: Box::new(fold_expression(*path)),
+        },
+        Expr::PermissionOp { op, permission } => Expr::PermissionOp {
+            op,
+            permission: Box::new(fold_expression(*permission)),
         },
         Expr::Interpolation(parts) => Expr::Interpolation(
             parts

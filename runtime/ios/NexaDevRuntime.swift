@@ -1007,6 +1007,91 @@ private final class NexaDevStateStore: ObservableObject {
         case "NativeCall":
             guard let call = payload as? [String: Any] else { return NSNull() }
             return try await invokeNativeAsync(call, locals: locals, scope: scope)
+        case "NetworkFetch", "NetworkDownload":
+            guard let fields = payload as? [String: Any] else { return NSNull() }
+            let request: [String: Any]
+            if kind == "NetworkDownload" {
+                guard let nested = fields["request"] as? [String: Any] else { return NSNull() }
+                request = nested
+            } else {
+                request = fields
+            }
+            let name = kind == "NetworkDownload" ? "download" : "fetch"
+            var networkArguments: [[Any]] = [
+                ["url", request["url"] ?? NSNull()],
+                ["method", request["method"] ?? NSNull()],
+                ["headers", request["headers"] ?? NSNull()],
+                ["timeout", request["timeout"] ?? NSNull()],
+                ["useCache", request["use_cache"] ?? NSNull()],
+                ["followRedirects", request["follow_redirects"] ?? NSNull()],
+                ["maxResponseBytes", request["max_response_bytes"] ?? NSNull()],
+                ["certificatePins", request["certificate_pins"] ?? NSNull()],
+            ]
+            if kind == "NetworkDownload" {
+                networkArguments.append(["destinationPath", fields["destination"] ?? NSNull()])
+            }
+            networkArguments.append(["body", request["body"] ?? NSNull()])
+            return try await invokeNativeAsync(
+                ["namespace": "Network", "name": name, "arguments": networkArguments],
+                locals: locals,
+                scope: scope
+            )
+        case "PathJoin":
+            guard let join = payload as? [String: Any] else { return NSNull() }
+            return try await invokeNativeAsync(
+                [
+                    "namespace": "Path",
+                    "name": "join",
+                    "arguments": [
+                        ["path", join["path"] ?? NSNull()],
+                        ["component", join["component"] ?? NSNull()],
+                    ],
+                ],
+                locals: locals,
+                scope: scope
+            )
+        case "FileExists", "FileReadText", "FileWriteText", "FileDelete":
+            guard let file = payload as? [String: Any] else { return NSNull() }
+            let name: String
+            switch kind {
+            case "FileExists": name = "exists"
+            case "FileReadText": name = "readText"
+            case "FileWriteText": name = "writeText"
+            default: name = "delete"
+            }
+            var fileArguments: [[Any]] = [["path", file["path"] ?? NSNull()]]
+            if kind == "FileWriteText" {
+                fileArguments.append(["contents", file["contents"] ?? NSNull()])
+            }
+            return try await invokeNativeAsync(
+                ["namespace": "File", "name": name, "arguments": fileArguments],
+                locals: locals,
+                scope: scope
+            )
+        case "PermissionOp":
+            guard let operation = payload as? [String: Any],
+                  let permission = operation["permission"]
+            else { return NSNull() }
+            let name: String
+            switch operation["op"] as? String {
+            case "Request": name = "request"
+            case "Status": name = "status"
+            default:
+                throw NSError(
+                    domain: "NexaDevRuntime",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Unsupported permission operation"]
+                )
+            }
+            return try await invokeNativeAsync(
+                [
+                    "namespace": "Permissions",
+                    "name": name,
+                    "arguments": [["permission", permission]],
+                ],
+                locals: locals,
+                scope: scope
+            )
         case "Member":
             guard let member = payload as? [String: Any],
                   let base = member["base"],
@@ -1412,6 +1497,31 @@ private final class NexaDevStateStore: ObservableObject {
         case "NativeCall":
             guard let call = payload as? [String: Any] else { return NSNull() }
             return invokeNativeSync(call, locals: locals, scope: scope)
+        case "PathJoin":
+            guard let join = payload as? [String: Any] else { return NSNull() }
+            return invokeNativeSync(
+                [
+                    "namespace": "Path",
+                    "name": "join",
+                    "arguments": [
+                        ["path", join["path"] ?? NSNull()],
+                        ["component", join["component"] ?? NSNull()],
+                    ],
+                ],
+                locals: locals,
+                scope: scope
+            )
+        case "FileExists":
+            guard let file = payload as? [String: Any] else { return NSNull() }
+            return invokeNativeSync(
+                [
+                    "namespace": "File",
+                    "name": "exists",
+                    "arguments": [["path", file["path"] ?? NSNull()]],
+                ],
+                locals: locals,
+                scope: scope
+            )
         default: return NSNull()
         }
     }

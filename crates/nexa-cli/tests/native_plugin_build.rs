@@ -61,7 +61,8 @@ fn generate_plugin_contract(contract: &Path, target: &str, package: Option<&str>
         ),
         "cpp" => nexa_codegen::plugin::render_cpp(&parsed, &plugin_manifest.id),
         _ => panic!("unsupported plugin contract target `{target}`"),
-    };
+    }
+    .expect("plugin contract should validate");
     fs::write(output, source).expect("generated plugin binding should be written");
 }
 

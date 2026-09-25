@@ -1,5 +1,5 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListSource, Module, Node};
+use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListPlan, Module, Node};
 
 use crate::generator::{
     components::render_children, controls::render_actions, expressions::expression,
@@ -83,84 +83,132 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
 }
 
-pub(crate) fn render_virtualized_list(
-    source: &ListSource,
+/// Flat (count- or collection-backed) list data borrowed from a [`ListPlan`].
+/// Sectioned plans return before this is built, so every field combination
+/// here is renderable without further dispatch.
+struct FlatPieces<'a> {
     axis: ListAxis,
+    count: FlatCount<'a>,
+    index: &'a str,
+    item: Option<&'a str>,
     item_extent: Option<f32>,
-    section: Option<&str>,
-    index: &str,
-    item: Option<&str>,
-    key: Option<&Expr>,
-    children: &[Node],
-    on_end_reached: Option<&[Action]>,
-    on_scroll: Option<&[Action]>,
-    scroll_position: Option<&str>,
-    sticky_header: Option<&[Node]>,
-    section_header: Option<&[Node]>,
-    refresh: Option<&FastListRefresh>,
+    key: Option<&'a Expr>,
+    children: &'a [Node],
+    on_end_reached: Option<&'a [Action]>,
+    on_scroll: Option<&'a [Action]>,
+    scroll_position: Option<&'a str>,
+    sticky_header: Option<&'a [Node]>,
+    refresh: Option<&'a FastListRefresh>,
+}
+
+/// The row-count source of a flat list with exactly the bindings present.
+enum FlatCount<'a> {
+    Count(&'a Expr),
+    Items {
+        collection: &'a Expr,
+        element_type: &'a nexa_ir::Type,
+        item: &'a str,
+    },
+}
+
+pub(crate) fn render_virtualized_list(
+    plan: &ListPlan,
     module: &Module,
     features: &Features,
     depth: usize,
     out: &mut String,
 ) {
     let list_id = out.len();
-    if let ListSource::Sections {
-        collection,
-        element_type,
-    } = source
-    {
-        return render_sectioned_list(
+    let pieces = match plan {
+        ListPlan::Sections {
             collection,
             element_type,
-            item_extent,
-            section.expect("semantic lowering always provides a section binding"),
-            index,
-            item.expect("semantic lowering always provides an item binding"),
-            key,
-            children,
-            section_header,
-            refresh,
-            module,
-            features,
-            depth,
-            out,
-        );
-    }
-    if let ListAxis::Grid { columns } = axis {
-        return render_grid_list(
-            columns,
-            source,
-            item_extent,
-            index,
+            section,
             item,
-            key,
-            children,
-            on_end_reached,
-            on_scroll,
-            scroll_position,
-            sticky_header,
-            refresh,
-            module,
-            features,
-            depth,
-            list_id,
-            out,
-        );
+            common,
+        } => {
+            render_sectioned_list(
+                collection,
+                element_type,
+                common.item_extent,
+                section,
+                &common.index,
+                item,
+                common.key.as_ref(),
+                &common.children,
+                common.section_header.as_deref(),
+                common.refresh.as_ref(),
+                module,
+                features,
+                depth,
+                out,
+            );
+            return;
+        }
+        ListPlan::Count { count, common } => FlatPieces {
+            axis: common.axis,
+            count: FlatCount::Count(count),
+            index: &common.index,
+            item: None,
+            item_extent: common.item_extent,
+            key: common.key.as_ref(),
+            children: &common.children,
+            on_end_reached: common.on_end_reached.as_deref(),
+            on_scroll: common.on_scroll.as_deref(),
+            scroll_position: common.scroll_position.as_deref(),
+            sticky_header: common.sticky_header.as_deref(),
+            refresh: common.refresh.as_ref(),
+        },
+        ListPlan::Items {
+            collection,
+            element_type,
+            item,
+            common,
+        } => FlatPieces {
+            axis: common.axis,
+            count: FlatCount::Items {
+                collection,
+                element_type,
+                item,
+            },
+            index: &common.index,
+            item: Some(item),
+            item_extent: common.item_extent,
+            key: common.key.as_ref(),
+            children: &common.children,
+            on_end_reached: common.on_end_reached.as_deref(),
+            on_scroll: common.on_scroll.as_deref(),
+            scroll_position: common.scroll_position.as_deref(),
+            sticky_header: common.sticky_header.as_deref(),
+            refresh: common.refresh.as_ref(),
+        },
+    };
+    match pieces.axis {
+        ListAxis::Grid { columns } => {
+            return render_grid_list(columns, &pieces, module, features, depth, list_id, out);
+        }
+        ListAxis::Vertical | ListAxis::Horizontal => {}
     }
-    let list_state = (on_end_reached.is_some() || on_scroll.is_some() || scroll_position.is_some())
-        .then(|| format!("nexaListState{list_id}"));
-    let list_count = on_end_reached.map(|_| format!("nexaListCount{list_id}"));
+    let list_state = (pieces.on_end_reached.is_some()
+        || pieces.on_scroll.is_some()
+        || pieces.scroll_position.is_some())
+    .then(|| format!("nexaListState{list_id}"));
+    let list_count = pieces
+        .on_end_reached
+        .map(|_| format!("nexaListCount{list_id}"));
     if let Some(list_state) = &list_state {
-        let marker = on_end_reached.map(|_| format!("nexaEndReached{list_id}"));
+        let marker = pieces
+            .on_end_reached
+            .map(|_| format!("nexaEndReached{list_id}"));
         render_list_observers(
-            axis,
-            source,
+            pieces.axis,
+            &pieces.count,
             list_state,
             list_count.as_deref(),
             marker.as_deref(),
-            on_end_reached,
-            scroll_position,
-            on_scroll,
+            pieces.on_end_reached,
+            pieces.scroll_position,
+            pieces.on_scroll,
             depth,
             out,
         );
@@ -168,19 +216,19 @@ pub(crate) fn render_virtualized_list(
     let state_parameter = list_state
         .as_deref()
         .map_or_else(String::new, |state| format!("(state = {state})"));
-    let list_depth = render_refresh_open(refresh, depth, out);
+    let list_depth = render_refresh_open(pieces.refresh, depth, out);
     indent(out, list_depth);
-    out.push_str(
-        match axis {
-            ListAxis::Vertical => format!("LazyColumn{state_parameter} {{\n"),
-            ListAxis::Horizontal => format!("LazyRow{state_parameter} {{\n"),
-            ListAxis::Grid { .. } => unreachable!("grid list handled above"),
-        }
-        .as_str(),
-    );
+    // Grid plans return through `render_grid_list` above; the remaining
+    // axes select the linear container with a total comparison.
+    let container = if pieces.axis == ListAxis::Horizontal {
+        "LazyRow"
+    } else {
+        "LazyColumn"
+    };
+    out.push_str(&format!("{container}{state_parameter} {{\n"));
     indent(out, list_depth + 1);
-    if let Some(sticky_header) = sticky_header {
-        debug_assert!(matches!(axis, ListAxis::Vertical));
+    if let Some(sticky_header) = pieces.sticky_header {
+        debug_assert!(matches!(pieces.axis, ListAxis::Vertical));
         out.push_str("stickyHeader {\n");
         render_children(sticky_header, module, features, list_depth + 2, out);
         out.push('\n');
@@ -188,8 +236,8 @@ pub(crate) fn render_virtualized_list(
         out.push_str("}\n");
         indent(out, list_depth + 1);
     }
-    match source {
-        ListSource::Count(count) => {
+    match &pieces.count {
+        FlatCount::Count(count) => {
             let count = list_count
                 .as_deref()
                 .map(str::to_owned)
@@ -198,18 +246,19 @@ pub(crate) fn render_virtualized_list(
             indent(out, list_depth + 2);
             out.push_str(&format!("count = {count},\n"));
             indent(out, list_depth + 2);
-            let key = key
-                .map(|key| render_key(key, index, item, None, "itemPosition"))
+            let key = pieces
+                .key
+                .map(|key| render_key(key, pieces.index, pieces.item, None, "itemPosition"))
                 .unwrap_or_else(|| "itemPosition".to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
             indent(out, list_depth + 1);
-            out.push_str(&format!(") {{ {} ->\n", state_name(index)));
+            out.push_str(&format!(") {{ {} ->\n", state_name(pieces.index)));
         }
-        ListSource::Items {
+        FlatCount::Items {
             collection,
             element_type,
+            item,
         } => {
-            let item = item.unwrap_or("item");
             let collection = expression(collection);
             let count = list_count
                 .as_deref()
@@ -219,26 +268,28 @@ pub(crate) fn render_virtualized_list(
             indent(out, list_depth + 2);
             out.push_str(&format!("count = {count},\n"));
             indent(out, list_depth + 2);
-            let key = key
-                .map(|key| render_key(key, index, Some(item), Some(&collection), "itemPosition"))
+            let key = pieces
+                .key
+                .map(|key| {
+                    render_key(key, pieces.index, Some(item), Some(&collection), "itemPosition")
+                })
                 .unwrap_or_else(|| "itemPosition".to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
             indent(out, list_depth + 1);
-            out.push_str(&format!(") {{ {} ->\n", state_name(index)));
+            out.push_str(&format!(") {{ {} ->\n", state_name(pieces.index)));
             indent(out, list_depth + 2);
             out.push_str(&format!(
                 "val {}: {} = {collection}[{}]\n",
                 state_name(item),
                 element_type.kotlin(),
-                state_name(index)
+                state_name(pieces.index)
             ));
         }
-        ListSource::Sections { .. } => unreachable!("sectioned list handled above"),
     }
     render_row_content(
-        item_extent,
-        axis,
-        children,
+        pieces.item_extent,
+        pieces.axis,
+        pieces.children,
         module,
         features,
         list_depth + 2,
@@ -249,7 +300,7 @@ pub(crate) fn render_virtualized_list(
     out.push_str("}\n");
     indent(out, list_depth);
     out.push('}');
-    render_refresh_close(refresh, depth, out);
+    render_refresh_close(pieces.refresh, depth, out);
 }
 
 fn render_sectioned_list(
@@ -344,37 +395,33 @@ fn render_sectioned_list(
 
 fn render_grid_list(
     columns: u32,
-    source: &ListSource,
-    item_extent: Option<f32>,
-    index: &str,
-    item: Option<&str>,
-    key: Option<&Expr>,
-    children: &[Node],
-    on_end_reached: Option<&[Action]>,
-    on_scroll: Option<&[Action]>,
-    scroll_position: Option<&str>,
-    _sticky_header: Option<&[Node]>,
-    refresh: Option<&FastListRefresh>,
+    pieces: &FlatPieces<'_>,
     module: &Module,
     features: &Features,
     depth: usize,
     list_id: usize,
     out: &mut String,
 ) {
-    let list_state = (on_end_reached.is_some() || on_scroll.is_some() || scroll_position.is_some())
-        .then(|| format!("nexaGridState{list_id}"));
-    let list_count = on_end_reached.map(|_| format!("nexaGridCount{list_id}"));
+    let list_state = (pieces.on_end_reached.is_some()
+        || pieces.on_scroll.is_some()
+        || pieces.scroll_position.is_some())
+    .then(|| format!("nexaGridState{list_id}"));
+    let list_count = pieces
+        .on_end_reached
+        .map(|_| format!("nexaGridCount{list_id}"));
     if let Some(list_state) = &list_state {
-        let marker = on_end_reached.map(|_| format!("nexaEndReached{list_id}"));
+        let marker = pieces
+            .on_end_reached
+            .map(|_| format!("nexaEndReached{list_id}"));
         render_list_observers(
             ListAxis::Grid { columns },
-            source,
+            &pieces.count,
             list_state,
             list_count.as_deref(),
             marker.as_deref(),
-            on_end_reached,
-            scroll_position,
-            on_scroll,
+            pieces.on_end_reached,
+            pieces.scroll_position,
+            pieces.on_scroll,
             depth,
             out,
         );
@@ -382,14 +429,14 @@ fn render_grid_list(
     let state_parameter = list_state
         .as_deref()
         .map_or_else(String::new, |state| format!("state = {state}, "));
-    let list_depth = render_refresh_open(refresh, depth, out);
+    let list_depth = render_refresh_open(pieces.refresh, depth, out);
     indent(out, list_depth);
     out.push_str(&format!(
         "LazyVerticalGrid({state_parameter}columns = GridCells.Fixed({columns})) {{\n"
     ));
     indent(out, list_depth + 1);
-    match source {
-        ListSource::Count(count) => {
+    match &pieces.count {
+        FlatCount::Count(count) => {
             let count = list_count
                 .as_deref()
                 .map(str::to_owned)
@@ -398,18 +445,19 @@ fn render_grid_list(
             indent(out, list_depth + 2);
             out.push_str(&format!("count = {count},\n"));
             indent(out, list_depth + 2);
-            let key = key
-                .map(|key| render_key(key, index, item, None, "itemPosition"))
+            let key = pieces
+                .key
+                .map(|key| render_key(key, pieces.index, pieces.item, None, "itemPosition"))
                 .unwrap_or_else(|| "itemPosition".to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
             indent(out, list_depth + 1);
-            out.push_str(&format!(") {{ {} ->\n", state_name(index)));
+            out.push_str(&format!(") {{ {} ->\n", state_name(pieces.index)));
         }
-        ListSource::Items {
+        FlatCount::Items {
             collection,
             element_type,
+            item,
         } => {
-            let item = item.unwrap_or("item");
             let collection = expression(collection);
             let count = list_count
                 .as_deref()
@@ -419,26 +467,28 @@ fn render_grid_list(
             indent(out, list_depth + 2);
             out.push_str(&format!("count = {count},\n"));
             indent(out, list_depth + 2);
-            let key = key
-                .map(|key| render_key(key, index, Some(item), Some(&collection), "itemPosition"))
+            let key = pieces
+                .key
+                .map(|key| {
+                    render_key(key, pieces.index, Some(item), Some(&collection), "itemPosition")
+                })
                 .unwrap_or_else(|| "itemPosition".to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
             indent(out, list_depth + 1);
-            out.push_str(&format!(") {{ {} ->\n", state_name(index)));
+            out.push_str(&format!(") {{ {} ->\n", state_name(pieces.index)));
             indent(out, list_depth + 2);
             out.push_str(&format!(
                 "val {}: {} = {collection}[{}]\n",
                 state_name(item),
                 element_type.kotlin(),
-                state_name(index)
+                state_name(pieces.index)
             ));
         }
-        ListSource::Sections { .. } => unreachable!("sectioned list handled above"),
     }
     render_row_content(
-        item_extent,
+        pieces.item_extent,
         ListAxis::Grid { columns },
-        children,
+        pieces.children,
         module,
         features,
         list_depth + 2,
@@ -449,7 +499,7 @@ fn render_grid_list(
     out.push_str("}\n");
     indent(out, list_depth);
     out.push('}');
-    render_refresh_close(refresh, depth, out);
+    render_refresh_close(pieces.refresh, depth, out);
 }
 
 fn render_refresh_open(refresh: Option<&FastListRefresh>, depth: usize, out: &mut String) -> usize {
@@ -480,7 +530,7 @@ fn render_refresh_close(refresh: Option<&FastListRefresh>, depth: usize, out: &m
 
 fn render_list_observers(
     axis: ListAxis,
-    source: &ListSource,
+    count: &FlatCount<'_>,
     list_state: &str,
     list_count: Option<&str>,
     marker: Option<&str>,
@@ -496,7 +546,7 @@ fn render_list_observers(
         ListAxis::Vertical | ListAxis::Horizontal => "rememberLazyListState",
     };
     if let Some(list_count) = list_count {
-        let count_expression = source_count_expression(source);
+        let count_expression = flat_count_expression(count);
         indent(out, depth);
         out.push_str(&format!("val {list_count} = {count_expression}\n"));
     }
@@ -585,11 +635,10 @@ fn render_list_observers(
     }
 }
 
-fn source_count_expression(source: &ListSource) -> String {
-    match source {
-        ListSource::Count(count) => format!("({}).coerceAtLeast(0)", expression(count)),
-        ListSource::Items { collection, .. } => format!("{}.size", expression(collection)),
-        ListSource::Sections { .. } => unreachable!("sectioned list has no flat count"),
+fn flat_count_expression(count: &FlatCount<'_>) -> String {
+    match count {
+        FlatCount::Count(count) => format!("({}).coerceAtLeast(0)", expression(count)),
+        FlatCount::Items { collection, .. } => format!("{}.size", expression(collection)),
     }
 }
 

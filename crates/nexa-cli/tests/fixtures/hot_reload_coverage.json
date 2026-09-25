@@ -413,6 +413,46 @@
         "name": "IsCompactHeight",
         "ios": "covered",
         "android": "covered"
+      },
+      {
+        "name": "NetworkFetch",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NetworkDownload",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "PathJoin",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "FileExists",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "FileReadText",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "FileWriteText",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "FileDelete",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "PermissionOp",
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "CollectionTransform": [
@@ -665,7 +705,7 @@
         "android": "covered"
       }
     ],
-    "ListSource": [
+    "ListPlan": [
       {
         "name": "Count",
         "ios": "covered",
@@ -957,6 +997,67 @@
       },
       {
         "name": "MapRemove",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "MemberKind": [
+      {
+        "name": "TupleIndex",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "StructField",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "PluginField",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NetworkStatusCode",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NetworkHeaders",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "NetworkBody",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "TuplePosition": [
+      {
+        "name": "First",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Second",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Third",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "PermissionOpKind": [
+      {
+        "name": "Status",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Request",
         "ios": "covered",
         "android": "covered"
       }

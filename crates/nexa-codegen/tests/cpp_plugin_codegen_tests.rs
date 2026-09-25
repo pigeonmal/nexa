@@ -1,4 +1,5 @@
 use nexa_codegen::plugin::bindings_cpp::{render, render_android_adapters, render_swift_adapters};
+use nexa_codegen::plugin::bridge_plan::BridgePlan;
 
 #[test]
 fn cpp_contract_maps_native_values_and_typed_async_errors() {
@@ -19,7 +20,7 @@ fn cpp_contract_maps_native_values_and_typed_async_errors() {
     )
     .expect("native IDL should parse");
 
-    let cpp = render(&idl, "dev.example.video-player");
+    let cpp = render(&BridgePlan::validate_contract(&idl).expect("contract should validate"), "dev.example.video-player");
     assert!(
         cpp.contains("namespace plugin_dev::plugin_example::plugin_video_dash_player"),
         "unexpected generated namespace:\n{cpp}"
@@ -42,8 +43,8 @@ fn swift_cpp_byte_alias_avoids_plugin_type_names() {
             "struct NexaCppByteBuffer { value: Int32 } struct NexaCppByteBuffer1 { value: Int32 } service Codec { fn echo(data: Bytes) -> Bytes }",
         )
         .expect("contract names should parse");
-    let cpp = render(&idl, "dev.example.cpp-plugin");
-    let swift = render_swift_adapters(&idl, "dev.example.cpp-plugin")
+    let cpp = render(&BridgePlan::validate_contract(&idl).expect("contract should validate"), "dev.example.cpp-plugin");
+    let swift = render_swift_adapters(&BridgePlan::validate_swift_cpp(&idl).expect("swift contract should validate"), "dev.example.cpp-plugin")
         .expect("byte adapter should generate");
     assert!(cpp.contains("using NexaCppByteBuffer2 = std::vector<std::uint8_t>;"));
     assert!(
@@ -57,7 +58,7 @@ fn swift_cpp_nested_boolean_array_converters_are_emitted_inner_first() {
             "service Types { fn flat(values: Array<Bool>) -> Array<Bool> fn nested(values: Array<Array<Bool>>) -> Array<Array<Bool>> }",
         )
         .expect("Boolean array IDL should parse");
-    let cpp = render(&idl, "dev.example.cpp-plugin");
+    let cpp = render(&BridgePlan::validate_contract(&idl).expect("contract should validate"), "dev.example.cpp-plugin");
     let inner_converter = cpp
         .find("inline std::vector<bool> nexaCppArrayToNativeBool(")
         .expect("flat Boolean converter should be generated");
@@ -103,7 +104,7 @@ fn swift_cpp_adapters_bridge_async_scalar_string_and_byte_methods() {
     )
     .expect("native IDL should parse");
 
-    let adapters = render_swift_adapters(&idl, "dev.example.cpp-plugin")
+    let adapters = render_swift_adapters(&BridgePlan::validate_swift_cpp(&idl).expect("swift contract should validate"), "dev.example.cpp-plugin")
         .expect("scalar synchronous C++ contracts should generate Swift adapters");
     assert!(adapters.contains("public final class CounterPlugin: Counter, @unchecked Sendable"));
     assert!(
@@ -142,13 +143,13 @@ fn swift_cpp_adapters_bridge_async_scalar_string_and_byte_methods() {
 
     let synchronous = nexa_plugin_idl::parse("service Clock { fn now() -> Int64 }")
         .expect("synchronous native IDL should parse");
-    let adapters = render_swift_adapters(&synchronous, "dev.example.cpp-plugin")
+    let adapters = render_swift_adapters(&BridgePlan::validate_swift_cpp(&synchronous).expect("swift contract should validate"), "dev.example.cpp-plugin")
         .expect("synchronous native contract should generate Swift adapters");
     assert!(!adapters.contains("NexaCppFutureWork"));
 
     let asynchronous = nexa_plugin_idl::parse("service Clock { async fn now() -> Int64 }")
         .expect("async native IDL should parse");
-    let adapters = render_swift_adapters(&asynchronous, "dev.example.cpp-plugin")
+    let adapters = render_swift_adapters(&BridgePlan::validate_swift_cpp(&asynchronous).expect("swift contract should validate"), "dev.example.cpp-plugin")
         .expect("async scalar C++ signatures should generate Swift adapters");
     assert!(adapters.contains("public func now() async -> Int64"));
 
@@ -156,7 +157,7 @@ fn swift_cpp_adapters_bridge_async_scalar_string_and_byte_methods() {
             "error Failure { rejected, malformed(message: String, payload: Bytes) } service Clock { async fn read() throws Failure async fn readValue() -> Result<Int32, Failure> }",
         )
         .expect("throwing native IDL should parse");
-    let adapters = render_swift_adapters(&throwing, "dev.example.cpp-plugin")
+    let adapters = render_swift_adapters(&BridgePlan::validate_swift_cpp(&throwing).expect("swift contract should validate"), "dev.example.cpp-plugin")
         .expect("typed async C++ errors should generate Swift adapters");
     assert!(adapters.contains("public func read() async throws(Failure) -> Void"));
     assert!(adapters.contains("public func readValue() async throws(Failure) -> Int32"));
@@ -168,14 +169,14 @@ fn swift_cpp_adapters_bridge_async_scalar_string_and_byte_methods() {
             "error Failure { rejected } service Clock { async fn values() -> Result<Array<Int32>, Failure> }",
         )
         .expect("async typed-collection IDL should parse");
-    let adapters = render_swift_adapters(&throwing_collection, "dev.example.cpp-plugin")
+    let adapters = render_swift_adapters(&BridgePlan::validate_swift_cpp(&throwing_collection).expect("swift contract should validate"), "dev.example.cpp-plugin")
         .expect("typed async array returns should use the existing vector converter");
     assert!(adapters.contains("async throws(Failure) -> [Int32]"));
 
     let async_collection =
             nexa_plugin_idl::parse("service Clock { async fn history() -> Array<Int32> async fn count(values: Array<Int32>) -> Int32 }")
                 .expect("async collection native IDL should parse");
-    let adapters = render_swift_adapters(&async_collection, "dev.example.cpp-plugin")
+    let adapters = render_swift_adapters(&BridgePlan::validate_swift_cpp(&async_collection).expect("swift contract should validate"), "dev.example.cpp-plugin")
         .expect("async collection signatures should use the existing vector converters");
     assert!(adapters.contains("public func history() async -> [Int32]"));
     assert!(adapters.contains("public func count(_ values: [Int32]) async -> Int32"));
@@ -184,7 +185,7 @@ fn swift_cpp_adapters_bridge_async_scalar_string_and_byte_methods() {
         "native class Watcher { init() event changed(value: Int32) fn dispose() }",
     )
     .expect("native class event IDL should parse");
-    let adapters = render_swift_adapters(&events, "dev.example.cpp-plugin")
+    let adapters = render_swift_adapters(&BridgePlan::validate_swift_cpp(&events).expect("swift contract should validate"), "dev.example.cpp-plugin")
         .expect("Swift event adapters should preserve instance-scoped callbacks");
     assert!(adapters.contains("public var onChanged: ((Int32) -> Void)?"));
     assert!(adapters.contains("nexaCppEventInvokedev_example_cpp_plugin_Watcher_changed"));
@@ -213,8 +214,8 @@ fn swift_cpp_adapters_bridge_optional_scalars_strings_and_bytes() {
     )
     .expect("optional native IDL should parse");
 
-    let cpp = render(&idl, "dev.example.cpp-plugin");
-    let adapters = render_swift_adapters(&idl, "dev.example.cpp-plugin")
+    let cpp = render(&BridgePlan::validate_contract(&idl).expect("contract should validate"), "dev.example.cpp-plugin");
+    let adapters = render_swift_adapters(&BridgePlan::validate_swift_cpp(&idl).expect("swift contract should validate"), "dev.example.cpp-plugin")
         .expect("optional scalar, string, and byte adapters should generate");
     assert!(cpp.contains("using NexaCppOptionalInt321 = std::optional<std::int32_t>;"));
     assert!(cpp.contains("static NexaCppOptionalInt321 someInt32(std::int32_t value) noexcept"));
@@ -278,8 +279,8 @@ fn swift_cpp_adapters_bridge_compatible_sets_through_vector_facades() {
     )
     .expect("compatible native Set IDL should parse");
 
-    let cpp = render(&idl, "dev.example.cpp-plugin");
-    let adapters = render_swift_adapters(&idl, "dev.example.cpp-plugin")
+    let cpp = render(&BridgePlan::validate_contract(&idl).expect("contract should validate"), "dev.example.cpp-plugin");
+    let adapters = render_swift_adapters(&BridgePlan::validate_swift_cpp(&idl).expect("swift contract should validate"), "dev.example.cpp-plugin")
         .expect("compatible native Set values should generate Swift adapters");
 
     assert!(cpp.contains("using NexaCppArrayInt32 = std::vector<std::int32_t>;"));
@@ -325,8 +326,7 @@ fn swift_cpp_adapters_bridge_compatible_sets_through_vector_facades() {
             "service Lookup {{ fn values(items: {unsupported}) -> Int32 }}"
         ))
         .expect("unsupported Set shape should still be valid IDL");
-        let error = render_swift_adapters(&unsupported_idl, "dev.example.cpp-plugin")
-            .expect_err("Set semantics that differ across Swift and C++ must be rejected");
+        let error = BridgePlan::validate_swift_cpp(&unsupported_idl).expect_err("Set semantics that differ across Swift and C++ must be rejected");
         assert!(error.contains("compatible `Set` values"), "{error}");
     }
 
@@ -339,8 +339,8 @@ fn swift_cpp_adapters_bridge_compatible_sets_through_vector_facades() {
             "#,
     )
     .expect("adapter name collision fixture should parse");
-    let collision_cpp = render(&collision_idl, "dev.example.cpp-plugin");
-    let collision_swift = render_swift_adapters(&collision_idl, "dev.example.cpp-plugin")
+    let collision_cpp = render(&BridgePlan::validate_contract(&collision_idl).expect("contract should validate"), "dev.example.cpp-plugin");
+    let collision_swift = render_swift_adapters(&BridgePlan::validate_swift_cpp(&collision_idl).expect("swift contract should validate"), "dev.example.cpp-plugin")
         .expect("valid colliding user method should still generate");
     assert!(
         collision_cpp.contains("nexaSwiftAdapter_transform1(NexaCppArrayInt32 values) noexcept")
@@ -362,8 +362,7 @@ fn swift_cpp_adapters_reject_map_shapes_without_safe_cross_platform_keys() {
             "service Lookup {{ fn values(items: {unsupported}) -> Int32 }}"
         ))
         .expect("unsupported map shape should remain valid IDL");
-        let error = render_swift_adapters(&idl, "dev.example.cpp-plugin")
-            .expect_err("unsupported C++ map shapes must fail generation");
+        let error = BridgePlan::validate_swift_cpp(&idl).expect_err("unsupported C++ map shapes must fail generation");
         assert!(error.contains("supported-key `Map`"), "{error}");
     }
 
@@ -373,8 +372,7 @@ fn swift_cpp_adapters_reject_map_shapes_without_safe_cross_platform_keys() {
             "service Lookup {{ fn values(items: {unsupported}) -> Int32 }}"
         ))
         .expect("unsupported array shape should remain valid IDL");
-        let error = render_swift_adapters(&idl, "dev.example.cpp-plugin")
-            .expect_err("unsupported nested array shapes must fail generation");
+        let error = BridgePlan::validate_swift_cpp(&idl).expect_err("unsupported nested array shapes must fail generation");
         assert!(error.contains("`Array` values"), "{error}");
     }
 }
@@ -417,8 +415,7 @@ fn android_cpp_adapters_generate_typed_kotlin_jni_and_owned_native_classes() {
     )
     .expect("native IDL should parse");
 
-    let (kotlin, jni) = render_android_adapters(
-        &idl,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&idl).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Counter",
         "dev.example.app",
@@ -521,7 +518,7 @@ fn android_cpp_adapters_bridge_named_values_and_reject_unimplemented_shapes() {
     )
     .expect("named-value Android contract should parse");
     let (kotlin, jni) =
-        render_android_adapters(&idl, "dev.example.media", "Media", "dev.example.app", 0)
+        render_android_adapters(&BridgePlan::validate_android(&idl).expect("android contract should validate"), "dev.example.media", "Media", "dev.example.app", 0)
             .expect("Android should bridge supported enum and struct values");
     assert!(kotlin.contains("external fun service_Media_echoMode(value: MediaMode): MediaMode"));
     assert!(kotlin.contains("external fun service_Media_echoStats(value: MediaStats): MediaStats"));
@@ -536,14 +533,7 @@ fn android_cpp_adapters_bridge_named_values_and_reject_unimplemented_shapes() {
                 "enum MediaMode {{ idle playing }} service Media {{ fn echo(value: {unsupported}) -> {unsupported} }}"
             ))
             .expect("unsupported named-value shape should parse as IDL");
-        let error = render_android_adapters(
-            &unsupported_idl,
-            "dev.example.media",
-            "Media",
-            "dev.example.app",
-            0,
-        )
-        .expect_err("unimplemented named-value shapes must be rejected");
+        let error = BridgePlan::validate_android(&unsupported_idl).expect_err("unimplemented named-value shapes must be rejected");
         assert!(error.contains("unsupported type"));
     }
 
@@ -551,14 +541,7 @@ fn android_cpp_adapters_bridge_named_values_and_reject_unimplemented_shapes() {
             "enum MediaMode { idle playing } struct MediaStats { mode: MediaMode? } service Media { fn echo(value: MediaStats) -> MediaStats }",
         )
         .expect("optional named struct field should parse as IDL");
-    let error = render_android_adapters(
-        &optional_field,
-        "dev.example.media",
-        "Media",
-        "dev.example.app",
-        0,
-    )
-    .expect_err("unsupported optional named fields must be rejected");
+    let error = BridgePlan::validate_android(&optional_field).expect_err("unsupported optional named fields must be rejected");
     assert!(error.contains("unsupported type"));
 }
 
@@ -566,20 +549,12 @@ fn android_cpp_adapters_bridge_named_values_and_reject_unimplemented_shapes() {
 fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() {
     let no_dispose =
         nexa_plugin_idl::parse("native class Meter { init() }").expect("native IDL should parse");
-    let error = render_android_adapters(
-        &no_dispose,
-        "dev.example.cpp-plugin",
-        "Meter",
-        "dev.example.app",
-        0,
-    )
-    .expect_err("Android C++ native classes must have explicit deterministic disposal");
+    let error = BridgePlan::validate_android(&no_dispose).expect_err("Android C++ native classes must have explicit deterministic disposal");
     assert!(error.contains("must declare `fn dispose()`"));
 
     let asynchronous = nexa_plugin_idl::parse("service Clock { async fn now() -> Int64 }")
         .expect("async native IDL should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &asynchronous,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&asynchronous).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Clock",
         "dev.example.app",
@@ -593,8 +568,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
     let async_collection =
         nexa_plugin_idl::parse("service Clock { async fn values() -> Array<Int32> }")
             .expect("async collection native IDL should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &async_collection,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&async_collection).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Clock",
         "dev.example.app",
@@ -609,8 +583,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
     let async_collection_parameter =
         nexa_plugin_idl::parse("service Clock { async fn count(values: Array<Int32>) -> Int32 }")
             .expect("async collection parameter IDL should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &async_collection_parameter,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&async_collection_parameter).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Clock",
         "dev.example.app",
@@ -630,8 +603,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
             }"#,
     )
     .expect("throwing native IDL should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &throwing,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&throwing).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Clock",
         "dev.example.app",
@@ -654,22 +626,14 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
             "error Failure { rejected(payload: Array<Int32>) } service Clock { async fn read() throws Failure }",
         )
         .expect("typed collection error payload should parse");
-    let error = render_android_adapters(
-        &bad_error_payload,
-        "dev.example.cpp-plugin",
-        "Clock",
-        "dev.example.app",
-        0,
-    )
-    .expect_err("unsupported typed-error payloads must fail generation");
+    let error = BridgePlan::validate_android(&bad_error_payload).expect_err("unsupported typed-error payloads must fail generation");
     assert!(error.contains("typed errors support"));
 
     let events = nexa_plugin_idl::parse(
         "native class Watcher { init() event changed(value: Int32) fn dispose() }",
     )
     .expect("native class event IDL should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &events,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&events).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Watcher",
         "dev.example.app",
@@ -682,8 +646,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
 
     let optional = nexa_plugin_idl::parse("service Lookup { fn maybe(value: UInt64?) -> UInt64? }")
         .expect("optional native IDL should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &optional,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&optional).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Lookup",
         "dev.example.app",
@@ -699,8 +662,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
     let collection =
         nexa_plugin_idl::parse("service Lookup { fn find(ids: Array<UInt32>) -> Array<UInt32> }")
             .expect("collection native IDL should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &collection,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&collection).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Lookup",
         "dev.example.app",
@@ -722,8 +684,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
         "service Lookup { fn find(ids: Array<Array<Int32>>) -> Array<Array<Int32>> }",
     )
     .expect("nested collection native IDL should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &nested,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&nested).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Lookup",
         "dev.example.app",
@@ -764,8 +725,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
             }"#,
     )
     .expect("primitive array IDL should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &primitive_arrays,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&primitive_arrays).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Arrays",
         "dev.example.app",
@@ -816,8 +776,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
             "service Lookup { fn strings(values: Array<String>) -> Array<String> fn payloads(values: Array<Bytes>) -> Array<Bytes> }",
         )
         .expect("string and byte-array IDL should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &reference_arrays,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&reference_arrays).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Lookup",
         "dev.example.app",
@@ -846,8 +805,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
             "service Lookup { fn integers(values: Set<UInt32>) -> Set<UInt32> fn labels(values: Set<String>) -> Set<String> }",
         )
         .expect("set IDL should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &sets,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&sets).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Lookup",
         "dev.example.app",
@@ -862,8 +820,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
     let signed_set =
         nexa_plugin_idl::parse("service Lookup { fn signed(values: Set<Int32>) -> Set<Int32> }")
             .expect("signed set IDL should parse");
-    let (kotlin, _) = render_android_adapters(
-        &signed_set,
+    let (kotlin, _) = render_android_adapters(&BridgePlan::validate_android(&signed_set).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Lookup",
         "dev.example.app",
@@ -880,14 +837,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
             "service Lookup {{ fn values(items: {unsupported}) -> {unsupported} }}"
         ))
         .expect("set IDL should parse");
-        let error = render_android_adapters(
-            &idl,
-            "dev.example.cpp-plugin",
-            "Lookup",
-            "dev.example.app",
-            0,
-        )
-        .expect_err("Android set adapters must preserve target-native Set equality");
+        let error = BridgePlan::validate_android(&idl).expect_err("Android set adapters must preserve target-native Set equality");
         assert!(error.contains("unsupported type `Set`"));
     }
 
@@ -895,8 +845,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
             "service Lookup { fn values(items: Map<String, Int32>) -> Map<String, Int32> fn unsigned(items: Map<UInt32, UInt64>) -> Map<UInt32, UInt64> }",
         )
         .expect("map IDL should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &maps,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&maps).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Lookup",
         "dev.example.app",
@@ -930,8 +879,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
             "service Lookup { fn arrays(items: Map<String, Array<Int32>>) -> Map<String, Array<Int32>> fn sets(items: Map<String, Set<UInt32>>) -> Map<String, Set<UInt32>> }",
         )
         .expect("maps with collection values should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &nested_maps,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&nested_maps).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Lookup",
         "dev.example.app",
@@ -961,8 +909,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
             "service Lookup { fn strings(items: Map<Int32, Array<String>>) -> Map<Int32, Array<String>> fn bytes(items: Map<Int32, Array<Bytes>>) -> Map<Int32, Array<Bytes>> fn byteValues(items: Map<Int32, Bytes>) -> Map<Int32, Bytes> fn optional(items: Map<UInt32, Bytes>?) -> Map<UInt32, Bytes>? fn nested(items: Map<Int32, Map<String, Bytes>>) -> Map<Int32, Map<String, Bytes>> fn labels(items: Map<Int32, Set<String>>) -> Map<Int32, Set<String>> }",
         )
         .expect("maps with reference collection values should parse");
-    let (kotlin, jni) = render_android_adapters(
-        &reference_maps,
+    let (kotlin, jni) = render_android_adapters(&BridgePlan::validate_android(&reference_maps).expect("android contract should validate"),
         "dev.example.cpp-plugin",
         "Lookup",
         "dev.example.app",
@@ -1009,14 +956,7 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
             "service Lookup {{ fn values(items: {unsupported}) -> Int32 }}"
         ))
         .expect("unsupported map shape should remain valid IDL");
-        let error = render_android_adapters(
-            &idl,
-            "dev.example.cpp-plugin",
-            "Lookup",
-            "dev.example.app",
-            0,
-        )
-        .expect_err("unsupported C++ map shapes must fail generation");
+        let error = BridgePlan::validate_android(&idl).expect_err("unsupported C++ map shapes must fail generation");
         assert!(error.contains("unsupported type `Map`"), "{error}");
     }
 }

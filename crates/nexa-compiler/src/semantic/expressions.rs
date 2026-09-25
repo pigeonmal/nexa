@@ -1,7 +1,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use nexa_diagnostics::{CompileError, Span};
-use nexa_ir::{BinaryOp, CollectionTransform, Expr, InterpolatedPart, NumericType, Type};
+use nexa_ir::{
+    BinaryOp, CollectionTransform, Expr, InterpolatedPart, MemberKind, NumericType,
+    TuplePosition, Type,
+};
 use nexa_plugin_idl::TypeRef;
 use nexa_syntax::ast;
 
@@ -1173,12 +1176,45 @@ pub(super) fn lower_expr(
                 allow_await,
             )?;
             require_expected(expected, &field_type, *span)?;
+            let tuple_type = match &member_base_type {
+                Type::Optional(inner) => inner.as_ref(),
+                base_type => base_type,
+            };
+            // The (base type, member name) pair was validated above; record
+            // the dispatch decision once so renderers match on it instead of
+            // re-deriving legality.
+            let kind = match (tuple_type, name.as_str()) {
+                (Type::Pair(_, _), "first") | (Type::Triple(_, _, _), "first") => {
+                    MemberKind::TupleIndex(TuplePosition::First)
+                }
+                (Type::Pair(_, _), "second") | (Type::Triple(_, _, _), "second") => {
+                    MemberKind::TupleIndex(TuplePosition::Second)
+                }
+                (Type::Triple(_, _, _), "third") => {
+                    MemberKind::TupleIndex(TuplePosition::Third)
+                }
+                (Type::Struct { .. }, field) => MemberKind::StructField(field.to_owned()),
+                (Type::Plugin { .. }, field) => MemberKind::PluginField(field.to_owned()),
+                (Type::NetworkResponse, "statusCode") => MemberKind::NetworkStatusCode,
+                (Type::NetworkResponse, "headers") => MemberKind::NetworkHeaders,
+                (Type::NetworkResponse, "body") => MemberKind::NetworkBody,
+                _ => {
+                    return Err(CompileError::new(
+                        *span,
+                        format!(
+                            "`{}` has no member `{name}`",
+                            type_name(&member_base_type)
+                        ),
+                    ));
+                }
+            };
             Ok(Expr::Member {
                 base: Box::new(base),
                 name: name.clone(),
                 optional: *optional,
                 base_type: member_base_type,
                 field_type,
+                kind,
             })
         }
         ast::Expr::Range { span, .. } => Err(CompileError::new(
@@ -1269,13 +1305,7 @@ pub(super) fn lower_expr(
                     ));
                 }
             };
-            if matches!(
-                &call,
-                Expr::NativeCall {
-                    is_throwing: true,
-                    ..
-                }
-            ) {
+            if call.is_throwing_call() {
                 if functions
                     .values()
                     .any(|signature| signature.error_handling_allowed)
@@ -1757,15 +1787,80 @@ fn lower_native_call(
             )?,
         ));
     }
-    Ok(Expr::NativeCall {
-        receiver: None,
-        namespace: namespace.to_owned(),
-        name: name.to_owned(),
-        arguments: lowered,
-        return_type,
-        is_async,
-        is_throwing: is_async && namespace != "Permissions",
-    })
+    native_plan(&qualified_name, lowered, span)
+}
+
+/// Builds the validated IR plan for a core native call. Every required
+/// argument was just lowered above; a missing entry is a typed error, never
+/// a panic, and the returned variants carry no optional bindings for
+/// renderers to unwrap.
+fn native_plan(
+    qualified_name: &str,
+    lowered: Vec<(String, Expr)>,
+    span: Span,
+) -> Result<Expr, CompileError> {
+    let take = |name: &str| {
+        lowered
+            .iter()
+            .find(|(candidate, _)| candidate == name)
+            .map(|(_, value)| value.clone())
+            .ok_or_else(|| {
+                CompileError::new(span, format!("`{qualified_name}` requires `{name}`"))
+            })
+    };
+    let network_request = || {
+        let body = match take("body")? {
+            Expr::Null(_) => None,
+            body => Some(Box::new(body)),
+        };
+        Ok::<_, CompileError>(nexa_ir::NetworkRequest {
+            url: Box::new(take("url")?),
+            method: Box::new(take("method")?),
+            headers: Box::new(take("headers")?),
+            timeout: Box::new(take("timeout")?),
+            use_cache: Box::new(take("useCache")?),
+            follow_redirects: Box::new(take("followRedirects")?),
+            max_response_bytes: Box::new(take("maxResponseBytes")?),
+            certificate_pins: Box::new(take("certificatePins")?),
+            body,
+        })
+    };
+    match qualified_name {
+        "Network.fetch" => Ok(Expr::NetworkFetch(Box::new(network_request()?))),
+        "Network.download" => Ok(Expr::NetworkDownload {
+            destination: Box::new(take("destinationPath")?),
+            request: Box::new(network_request()?),
+        }),
+        "Path.join" => Ok(Expr::PathJoin {
+            path: Box::new(take("path")?),
+            component: Box::new(take("component")?),
+        }),
+        "File.exists" => Ok(Expr::FileExists {
+            path: Box::new(take("path")?),
+        }),
+        "File.readText" => Ok(Expr::FileReadText {
+            path: Box::new(take("path")?),
+        }),
+        "File.writeText" => Ok(Expr::FileWriteText {
+            path: Box::new(take("path")?),
+            contents: Box::new(take("contents")?),
+        }),
+        "File.delete" => Ok(Expr::FileDelete {
+            path: Box::new(take("path")?),
+        }),
+        "Permissions.status" => Ok(Expr::PermissionOp {
+            op: nexa_ir::PermissionOpKind::Status,
+            permission: Box::new(take("permission")?),
+        }),
+        "Permissions.request" => Ok(Expr::PermissionOp {
+            op: nexa_ir::PermissionOpKind::Request,
+            permission: Box::new(take("permission")?),
+        }),
+        _ => Err(CompileError::new(
+            span,
+            format!("unknown native API `{qualified_name}`"),
+        )),
+    }
 }
 
 fn is_core_native_namespace(namespace: &str) -> bool {

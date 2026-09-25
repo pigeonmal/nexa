@@ -285,18 +285,13 @@ fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
         | Node::RefreshControl { children, .. } => vec![("body".to_owned(), children)],
-        Node::FastList {
-            children,
-            sticky_header,
-            section_header,
-            ..
-        } => {
-            let mut groups = vec![("body".to_owned(), children.as_slice())];
-            if let Some(nodes) = sticky_header {
-                groups.push(("stickyHeader".to_owned(), nodes.as_slice()));
+        Node::FastList { plan } => {
+            let mut groups = vec![("body".to_owned(), plan.children())];
+            if let Some(nodes) = plan.sticky_header() {
+                groups.push(("stickyHeader".to_owned(), nodes));
             }
-            if let Some(nodes) = section_header {
-                groups.push(("sectionHeader".to_owned(), nodes.as_slice()));
+            if let Some(nodes) = plan.section_header() {
+                groups.push(("sectionHeader".to_owned(), nodes));
             }
             groups
         }

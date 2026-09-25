@@ -336,6 +336,36 @@ pub enum Expr {
         is_async: bool,
         is_throwing: bool,
     },
+    /// Validated `Network.fetch` call. Semantic lowering guarantees every
+    /// field, so renderers never look arguments up by name.
+    NetworkFetch(Box<NetworkRequest>),
+    /// Validated `Network.download` call.
+    NetworkDownload {
+        destination: Box<Expr>,
+        request: Box<NetworkRequest>,
+    },
+    /// Validated `Path.join` call.
+    PathJoin {
+        path: Box<Expr>,
+        component: Box<Expr>,
+    },
+    /// Validated `File.exists` call.
+    FileExists { path: Box<Expr> },
+    /// Validated `File.readText` call.
+    FileReadText { path: Box<Expr> },
+    /// Validated `File.writeText` call.
+    FileWriteText {
+        path: Box<Expr>,
+        contents: Box<Expr>,
+    },
+    /// Validated `File.delete` call.
+    FileDelete { path: Box<Expr> },
+    /// Validated permission query: `Status` renders `status`, `Request`
+    /// renders `request`.
+    PermissionOp {
+        op: PermissionOpKind,
+        permission: Box<Expr>,
+    },
     Index {
         collection: Box<Expr>,
         index: Box<Expr>,
@@ -349,6 +379,7 @@ pub enum Expr {
         optional: bool,
         base_type: Type,
         field_type: Type,
+        kind: MemberKind,
     },
     Range {
         start: Box<Expr>,
@@ -520,20 +551,7 @@ pub enum Node {
         tabs: Vec<BottomBarTab>,
     },
     FastList {
-        source: ListSource,
-        axis: ListAxis,
-        item_extent: Option<f32>,
-        index: String,
-        item: Option<String>,
-        key: Option<Expr>,
-        scroll_position: Option<String>,
-        section: Option<String>,
-        children: Vec<Node>,
-        on_end_reached: Option<Vec<Action>>,
-        on_scroll: Option<Vec<Action>>,
-        sticky_header: Option<Vec<Node>>,
-        section_header: Option<Vec<Node>>,
-        refresh: Option<FastListRefresh>,
+        plan: ListPlan,
     },
     If {
         condition: Expr,
@@ -590,17 +608,223 @@ pub enum AccessibilityRole {
     Image,
 }
 
+/// Options shared by the flat (count- and collection-backed) list plans.
+/// Every field is independently optional; only the plan variant decides
+/// which bindings exist.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ListSource {
-    Count(Expr),
+pub struct ListCommon {
+    pub axis: ListAxis,
+    pub item_extent: Option<f32>,
+    /// Row index binding name (always `Int32`).
+    pub index: String,
+    pub key: Option<Expr>,
+    pub scroll_position: Option<String>,
+    pub children: Vec<Node>,
+    pub on_end_reached: Option<Vec<Action>>,
+    pub on_scroll: Option<Vec<Action>>,
+    pub sticky_header: Option<Vec<Node>>,
+    pub refresh: Option<FastListRefresh>,
+}
+
+/// Options for the sectioned list plan. Sectioned lists always render
+/// vertically and use `section_header` instead of `sticky_header`; they
+/// support neither scroll observers nor a scroll position, so those fields
+/// cannot be represented here at all.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SectionedListCommon {
+    pub item_extent: Option<f32>,
+    /// Row index binding name (always `Int32`).
+    pub index: String,
+    pub key: Option<Expr>,
+    pub children: Vec<Node>,
+    pub section_header: Option<Vec<Node>>,
+    pub refresh: Option<FastListRefresh>,
+}
+
+/// A validated virtualized-list plan. Semantic lowering is the only
+/// constructor: each variant carries exactly the bindings its source
+/// provides, so renderers never unwrap optional bindings or re-dispatch on
+/// the source shape.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ListPlan {
+    Count {
+        count: Expr,
+        common: ListCommon,
+    },
     Items {
         collection: Expr,
         element_type: Type,
+        /// Row item binding name.
+        item: String,
+        common: ListCommon,
     },
     Sections {
         collection: Expr,
         element_type: Type,
+        /// Section index binding name (always `Int32`).
+        section: String,
+        /// Row item binding name.
+        item: String,
+        common: SectionedListCommon,
     },
+}
+
+impl ListPlan {
+    /// Row children for analysis passes.
+    pub fn children(&self) -> &[Node] {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => &common.children,
+            ListPlan::Sections { common, .. } => &common.children,
+        }
+    }
+
+    /// Row key expression, if any.
+    pub fn key(&self) -> Option<&Expr> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.key.as_ref(),
+            ListPlan::Sections { common, .. } => common.key.as_ref(),
+        }
+    }
+
+    /// Scroll position binding, if any. Sectioned lists cannot have one.
+    pub fn scroll_position(&self) -> Option<&str> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.scroll_position.as_deref()
+            }
+            ListPlan::Sections { .. } => None,
+        }
+    }
+
+    /// End-reached actions, if any. Sectioned lists cannot have them.
+    pub fn on_end_reached(&self) -> Option<&[Action]> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.on_end_reached.as_deref()
+            }
+            ListPlan::Sections { .. } => None,
+        }
+    }
+
+    /// Scroll actions, if any. Sectioned lists cannot have them.
+    pub fn on_scroll(&self) -> Option<&[Action]> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.on_scroll.as_deref()
+            }
+            ListPlan::Sections { .. } => None,
+        }
+    }
+
+    /// Sticky header content, if any. Sectioned lists use `section_header`.
+    pub fn sticky_header(&self) -> Option<&[Node]> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.sticky_header.as_deref()
+            }
+            ListPlan::Sections { .. } => None,
+        }
+    }
+
+    /// Section header content, if any. Only sectioned lists can have one.
+    pub fn section_header(&self) -> Option<&[Node]> {
+        match self {
+            ListPlan::Count { .. } | ListPlan::Items { .. } => None,
+            ListPlan::Sections { common, .. } => common.section_header.as_deref(),
+        }
+    }
+
+    /// Pull-to-refresh state, if any.
+    pub fn refresh(&self) -> Option<&FastListRefresh> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.refresh.as_ref()
+            }
+            ListPlan::Sections { common, .. } => common.refresh.as_ref(),
+        }
+    }
+
+    /// Mutable slot for the pull-to-refresh state attached by refresh
+    /// lowering after the plan is built.
+    pub fn refresh_slot(&mut self) -> &mut Option<FastListRefresh> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => &mut common.refresh,
+            ListPlan::Sections { common, .. } => &mut common.refresh,
+        }
+    }
+
+    /// Row height override, if any.
+    pub fn item_extent(&self) -> Option<f32> {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.item_extent,
+            ListPlan::Sections { common, .. } => common.item_extent,
+        }
+    }
+
+    /// Layout axis. Sectioned lists always lay out vertically.
+    pub fn axis(&self) -> ListAxis {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.axis,
+            ListPlan::Sections { .. } => ListAxis::Vertical,
+        }
+    }
+
+    /// Row index binding name.
+    pub fn index(&self) -> &str {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => &common.index,
+            ListPlan::Sections { common, .. } => &common.index,
+        }
+    }
+}
+
+/// Validated member-access kind, computed once by semantic lowering from the
+/// base type and member name. Renderers match on this instead of
+/// re-deriving legality from `(base_type, name)` pairs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TuplePosition {
+    First,
+    Second,
+    Third,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MemberKind {
+    /// `Pair.first`/`second`, `Triple.first`/`second`/`third`.
+    TupleIndex(TuplePosition),
+    /// Struct field access; carries the source field name.
+    StructField(String),
+    /// Native class property access; carries the source property name.
+    PluginField(String),
+    /// `NetworkResponse.statusCode`.
+    NetworkStatusCode,
+    /// `NetworkResponse.headers`.
+    NetworkHeaders,
+    /// `NetworkResponse.body`.
+    NetworkBody,
+}
+
+/// Validated `Network.fetch` / `Network.download` arguments. Every field is
+/// required (defaults are applied by semantic lowering); `body` is `None`
+/// when the argument was absent or the `Null` literal.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NetworkRequest {
+    pub url: Box<Expr>,
+    pub method: Box<Expr>,
+    pub headers: Box<Expr>,
+    pub timeout: Box<Expr>,
+    pub use_cache: Box<Expr>,
+    pub follow_redirects: Box<Expr>,
+    pub max_response_bytes: Box<Expr>,
+    pub certificate_pins: Box<Expr>,
+    pub body: Option<Box<Expr>>,
+}
+
+/// Validated permission query kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PermissionOpKind {
+    Status,
+    Request,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -882,6 +1106,24 @@ impl Type {
             Self::Plugin { name, .. } => name.clone(),
             Self::NetworkResponse => "NexaNetworkResponse".to_owned(),
             Self::Struct { name, .. } => native_struct_name(name),
+        }
+    }
+}
+
+impl Expr {
+    /// Whether this expression is a call that can throw at runtime and must
+    /// be awaited with error propagation (`try await` in Swift). This is the
+    /// single source of truth shared by `await` rendering and throwing-call
+    /// analysis; the call shapes themselves carry no flags to misread.
+    pub fn is_throwing_call(&self) -> bool {
+        match self {
+            Expr::NativeCall { is_throwing: true, .. } => true,
+            Expr::NetworkFetch(_)
+            | Expr::NetworkDownload { .. }
+            | Expr::FileReadText { .. }
+            | Expr::FileWriteText { .. }
+            | Expr::FileDelete { .. } => true,
+            _ => false,
         }
     }
 }

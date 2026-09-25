@@ -752,7 +752,7 @@ pub(super) fn copy_android_plugin_sources(
         let binding_path = destination
             .join(package.replace('.', "/"))
             .join(&binding_name);
-        let mut bindings = crate::plugin::render_kotlin_bindings(&contract, &package);
+        let mut bindings = crate::plugin::render_kotlin_bindings(&contract, &package)?;
         if !plugin.cpp_sources.is_empty() {
             let package_root = Path::new(&plugin.idl_path)
                 .parent()
@@ -958,7 +958,7 @@ pub(super) fn copy_ios_plugin_sources(
         let binding_name = format!("NexaPlugin{plugin_index}_Bindings.swift");
         write_if_changed(
             &destination.join(&binding_name),
-            &crate::plugin::render_swift_bindings(&contract),
+            &crate::plugin::render_swift_bindings(&contract)?,
         )?;
         names.push(binding_name);
         if !plugin.cpp_sources.is_empty() {
@@ -1212,7 +1212,7 @@ fn copy_plugin_cpp_sources(
         let bindings_path = plugin_destination.join("NexaPluginBindings.hpp");
         write_if_changed(
             &bindings_path,
-            &crate::plugin::render_cpp_bindings(&contract, &manifest.id),
+            &crate::plugin::render_cpp_bindings(&contract, &manifest.id)?,
         )?;
         generated.push(format!("Plugin{plugin_index}/NexaPluginBindings.hpp"));
     }

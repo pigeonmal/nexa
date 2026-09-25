@@ -1,13 +1,15 @@
 //! Direct native binding skeletons generated from the plugin IDL.
 #![allow(clippy::all)]
 
-use nexa_plugin_idl::{
-    Event, Interface, InterfaceKind, Literal, Method, NamedType, NamedTypeKind, PluginIdl,
-    Property, TypeRef,
+use nexa_plugin_idl::{InterfaceKind, Literal};
+
+use super::bridge_plan::{
+    BridgeEvent, BridgeInterface, BridgeMethod, BridgeNamedType, BridgeParameter, BridgePlan,
+    BridgeProperty, BridgeScalar, BridgeType, BridgeTypeKind,
 };
 
-pub fn swift(idl: &PluginIdl) -> String {
-    let has_components = idl
+pub fn swift(plan: &BridgePlan) -> String {
+    let has_components = plan
         .interfaces
         .iter()
         .any(|interface| interface.kind == InterfaceKind::NativeComponent);
@@ -16,11 +18,11 @@ pub fn swift(idl: &PluginIdl) -> String {
         out.push_str("import SwiftUI\n");
     }
     out.push('\n');
-    for ty in &idl.types {
+    for ty in &plan.types {
         out.push_str(&swift_named_type(ty));
         out.push('\n');
     }
-    for interface in &idl.interfaces {
+    for interface in &plan.interfaces {
         if interface.kind == InterfaceKind::NativeComponent {
             out.push_str(&swift_native_component(interface));
             out.push_str("\n\n");
@@ -76,8 +78,8 @@ pub fn swift(idl: &PluginIdl) -> String {
     out
 }
 
-pub fn kotlin(idl: &PluginIdl, package: &str) -> String {
-    let has_components = idl
+pub fn kotlin(plan: &BridgePlan, package: &str) -> String {
+    let has_components = plan
         .interfaces
         .iter()
         .any(|interface| interface.kind == InterfaceKind::NativeComponent);
@@ -85,11 +87,11 @@ pub fn kotlin(idl: &PluginIdl, package: &str) -> String {
     if has_components {
         out.push_str("import androidx.compose.runtime.Composable\n\n");
     }
-    for ty in &idl.types {
+    for ty in &plan.types {
         out.push_str(&kotlin_named_type(ty));
         out.push('\n');
     }
-    for interface in &idl.interfaces {
+    for interface in &plan.interfaces {
         if interface.kind == InterfaceKind::NativeComponent {
             out.push_str(&kotlin_native_component(interface));
             out.push_str("\n\n");
@@ -154,7 +156,7 @@ pub fn kotlin(idl: &PluginIdl, package: &str) -> String {
     out
 }
 
-fn swift_native_component(interface: &Interface) -> String {
+fn swift_native_component(interface: &BridgeInterface) -> String {
     let generic = if interface.has_content_slot {
         "<Content: View>"
     } else {
@@ -236,7 +238,7 @@ fn swift_native_component(interface: &Interface) -> String {
     out
 }
 
-fn kotlin_native_component(interface: &Interface) -> String {
+fn kotlin_native_component(interface: &BridgeInterface) -> String {
     let mut parameters = interface
         .properties
         .iter()
@@ -316,7 +318,7 @@ fn escape_string(value: &str, escape_dollar: bool) -> String {
     escaped
 }
 
-fn event_callback_type(event: &Event, swift: bool) -> String {
+fn event_callback_type(event: &BridgeEvent, swift: bool) -> String {
     let parameters = if swift {
         event
             .parameters
@@ -346,9 +348,9 @@ fn event_callback_type(event: &Event, swift: bool) -> String {
     format!("({callback})")
 }
 
-fn swift_named_type(ty: &NamedType) -> String {
+fn swift_named_type(ty: &BridgeNamedType) -> String {
     match ty.kind {
-        NamedTypeKind::Enum => format!(
+        BridgeTypeKind::Enum => format!(
             "public enum {} {{\n{}\n}}",
             ty.name,
             ty.cases
@@ -357,7 +359,7 @@ fn swift_named_type(ty: &NamedType) -> String {
                 .collect::<Vec<_>>()
                 .join("\n")
         ),
-        NamedTypeKind::Error => {
+        BridgeTypeKind::Error => {
             let cases = if ty.cases.is_empty() {
                 String::new()
             } else {
@@ -388,7 +390,7 @@ fn swift_named_type(ty: &NamedType) -> String {
             };
             format!("public enum {}: Error {{\n{}\n}}", ty.name, cases)
         }
-        NamedTypeKind::Struct => {
+        BridgeTypeKind::Struct => {
             let fields = ty
                 .fields
                 .iter()
@@ -417,9 +419,9 @@ fn swift_named_type(ty: &NamedType) -> String {
     }
 }
 
-fn kotlin_named_type(ty: &NamedType) -> String {
+fn kotlin_named_type(ty: &BridgeNamedType) -> String {
     match ty.kind {
-        NamedTypeKind::Enum => format!(
+        BridgeTypeKind::Enum => format!(
             "public enum class {} {{ {} }}",
             ty.name,
             ty.cases
@@ -428,7 +430,7 @@ fn kotlin_named_type(ty: &NamedType) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        NamedTypeKind::Error => {
+        BridgeTypeKind::Error => {
             let cases = ty
                 .cases
                 .iter()
@@ -441,8 +443,13 @@ fn kotlin_named_type(ty: &NamedType) -> String {
                             .iter()
                             .map(|parameter| {
                                 let override_modifier = if parameter.name == "message"
-                                    && parameter.ty.name == "String"
-                                    && parameter.ty.arguments.is_empty()
+                                    && matches!(
+                                        match &parameter.ty {
+                                            BridgeType::Optional(inner) => inner.as_ref(),
+                                            other => other,
+                                        },
+                                        BridgeType::Scalar(BridgeScalar::String)
+                                    )
                                 {
                                     "override "
                                 } else {
@@ -469,7 +476,7 @@ fn kotlin_named_type(ty: &NamedType) -> String {
                 ty.name, cases
             )
         }
-        NamedTypeKind::Struct => {
+        BridgeTypeKind::Struct => {
             let fields = ty
                 .fields
                 .iter()
@@ -481,16 +488,12 @@ fn kotlin_named_type(ty: &NamedType) -> String {
     }
 }
 
-fn swift_method(method: &Method) -> String {
+fn swift_method(method: &BridgeMethod) -> String {
     let parameters = swift_parameters(&method.parameters);
-    let (return_type, _) = result_return(&method.return_type);
-    let error_type = method.throws.as_ref().or_else(|| {
-        (method.return_type.name == "Result")
-            .then(|| method.return_type.arguments.get(1))
-            .flatten()
-    });
-    let throws = error_type
-        .map(|error_type| format!(" throws({})", swift_type(error_type)))
+    let return_type = method.success_type();
+    let throws = method
+        .error_type()
+        .map(|error| format!(" throws({error})"))
         .unwrap_or_default();
     format!(
         "func {}({}){}{} -> {}",
@@ -502,16 +505,12 @@ fn swift_method(method: &Method) -> String {
     )
 }
 
-fn kotlin_method(method: &Method) -> String {
+fn kotlin_method(method: &BridgeMethod) -> String {
     let parameters = kotlin_parameters(&method.parameters);
-    let (return_type, _) = result_return(&method.return_type);
-    let error_type = method.throws.as_ref().or_else(|| {
-        (method.return_type.name == "Result")
-            .then(|| method.return_type.arguments.get(1))
-            .flatten()
-    });
-    let annotation = error_type
-        .map(|ty| format!("@Throws({}::class)\n", ty.name))
+    let return_type = method.success_type();
+    let annotation = method
+        .error_type()
+        .map(|error| format!("@Throws({error}::class)\n"))
         .unwrap_or_default();
     format!(
         "{}{}fun {}({}): {}",
@@ -523,7 +522,7 @@ fn kotlin_method(method: &Method) -> String {
     )
 }
 
-fn swift_contract_name(interface: &Interface) -> String {
+fn swift_contract_name(interface: &BridgeInterface) -> String {
     match interface.kind {
         InterfaceKind::NativeClass => format!("{}Spec", interface.name),
         InterfaceKind::NativeComponent => format!("{}ComponentSpec", interface.name),
@@ -531,7 +530,7 @@ fn swift_contract_name(interface: &Interface) -> String {
     }
 }
 
-fn kotlin_contract_name(interface: &Interface) -> String {
+fn kotlin_contract_name(interface: &BridgeInterface) -> String {
     match interface.kind {
         InterfaceKind::NativeClass => format!("{}Spec", interface.name),
         InterfaceKind::NativeComponent => format!("{}ComponentSpec", interface.name),
@@ -539,7 +538,7 @@ fn kotlin_contract_name(interface: &Interface) -> String {
     }
 }
 
-fn swift_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
+fn swift_parameters(parameters: &[BridgeParameter]) -> String {
     parameters
         .iter()
         .map(|parameter| format!("_ {}: {}", parameter.name, swift_type(&parameter.ty)))
@@ -547,7 +546,7 @@ fn swift_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
         .join(", ")
 }
 
-fn kotlin_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
+fn kotlin_parameters(parameters: &[BridgeParameter]) -> String {
     parameters
         .iter()
         .map(|parameter| format!("{}: {}", parameter.name, kotlin_type(&parameter.ty)))
@@ -555,7 +554,7 @@ fn kotlin_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
         .join(", ")
 }
 
-fn swift_property(property: &Property) -> String {
+fn swift_property(property: &BridgeProperty) -> String {
     format!(
         "var {}: {} {{ get{} }}",
         property.name,
@@ -564,7 +563,7 @@ fn swift_property(property: &Property) -> String {
     )
 }
 
-fn kotlin_property(property: &Property) -> String {
+fn kotlin_property(property: &BridgeProperty) -> String {
     format!(
         "{} {}: {}",
         if property.mutable { "var" } else { "val" },
@@ -573,7 +572,7 @@ fn kotlin_property(property: &Property) -> String {
     )
 }
 
-fn swift_event(event: &Event) -> String {
+fn swift_event(event: &BridgeEvent) -> String {
     let parameters = event
         .parameters
         .iter()
@@ -592,7 +591,7 @@ fn swift_event(event: &Event) -> String {
     )
 }
 
-fn kotlin_event(event: &Event) -> String {
+fn kotlin_event(event: &BridgeEvent) -> String {
     let parameters = event
         .parameters
         .iter()
@@ -611,37 +610,31 @@ fn kotlin_event(event: &Event) -> String {
     )
 }
 
-fn result_return(ty: &TypeRef) -> (&TypeRef, bool) {
-    if ty.name == "Result" && ty.arguments.len() == 2 {
-        (&ty.arguments[0], true)
-    } else {
-        (ty, false)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{kotlin, swift};
+    use crate::plugin::bridge_plan::BridgePlan;
+
+    fn validate(source: &str) -> BridgePlan {
+        let idl = nexa_plugin_idl::parse(source).expect("IDL should parse");
+        BridgePlan::validate_contract(&idl).expect("contract should validate")
+    }
 
     #[test]
     fn generated_native_classes_are_checked_against_their_contracts() {
-        let idl = nexa_plugin_idl::parse(
-            r#"
+        let plan = validate(r#"
             native class VideoPlayer {
                 init()
                 readonly property state: String
                 fn play()
             }
-            "#,
-        )
-        .expect("IDL should parse");
-
-        let swift = swift(&idl);
+            "#);
+        let swift = swift(&plan);
         assert!(swift.contains("@MainActor\npublic protocol VideoPlayerSpec: AnyObject"));
         assert!(swift.contains(
             "@MainActor private func _nexaCheckVideoPlayerImplementation(_ value: VideoPlayerImpl) -> any VideoPlayerSpec { value }"
         ));
-        let kotlin = kotlin(&idl, "dev.example.video");
+        let kotlin = kotlin(&plan, "dev.example.video");
         assert!(kotlin.contains(
             "private fun _nexaCheckVideoPlayerImplementation(value: VideoPlayerImpl): VideoPlayerSpec = value"
         ));
@@ -652,17 +645,13 @@ mod tests {
 
     #[test]
     fn kotlin_native_class_factory_probe_checks_typed_constructor_arguments() {
-        let idl = nexa_plugin_idl::parse(
-            r#"
+        let plan = validate(r#"
             struct PlayerOptions { autoplay: Bool }
             native class VideoPlayer {
                 init(options: PlayerOptions)
             }
-            "#,
-        )
-        .expect("constructor IDL should parse");
-
-        let kotlin = kotlin(&idl, "dev.example.video");
+            "#);
+        let kotlin = kotlin(&plan, "dev.example.video");
         assert!(kotlin.contains(
             "private fun _nexaConstructVideoPlayer(nexaArg0: PlayerOptions): VideoPlayerSpec = VideoPlayerImpl(nexaArg0)"
         ));
@@ -670,40 +659,32 @@ mod tests {
 
     #[test]
     fn native_class_event_contracts_use_the_compiler_callback_property_name() {
-        let idl = nexa_plugin_idl::parse(
-            r#"
+        let plan = validate(r#"
             native class VideoPlayer {
                 event progress_changed(position: Float64, duration: Float64)
             }
-            "#,
-        )
-        .expect("event IDL should parse");
-
-        let swift = swift(&idl);
+            "#);
+        let swift = swift(&plan);
         assert!(swift.contains("var onProgressChanged: ((Double, Double) -> Void)? { get set }"));
-        let kotlin = kotlin(&idl, "dev.example.video");
+        let kotlin = kotlin(&plan, "dev.example.video");
         assert!(kotlin.contains("var onProgressChanged: ((Double, Double) -> Unit)?"));
     }
 
     #[test]
     fn native_component_defaults_generate_platform_safe_literals() {
-        let idl = nexa_plugin_idl::parse(
-            r#"
+        let plan = validate(r#"
             native component VideoView {
                 prop title: String = "cost $5\n\"today\""
                 prop controls: Bool = true
                 prop subtitle: String? = null
             }
-            "#,
-        )
-        .expect("component defaults should parse");
-
-        let swift = swift(&idl);
+            "#);
+        let swift = swift(&plan);
         assert!(swift.contains(r#"title: String = "cost $5\n\"today\""#));
         assert!(swift.contains("controls: Bool = true"));
         assert!(swift.contains("subtitle: String? = nil"));
 
-        let kotlin = kotlin(&idl, "dev.example.video");
+        let kotlin = kotlin(&plan, "dev.example.video");
         assert!(kotlin.contains(r#"title: String = "cost \$5\n\"today\""#));
         assert!(kotlin.contains("controls: Boolean = true"));
         assert!(kotlin.contains("subtitle: String? = null"));
@@ -711,30 +692,25 @@ mod tests {
 
     #[test]
     fn native_component_content_slots_generate_native_builder_parameters() {
-        let idl = nexa_plugin_idl::parse(
-            r#"
+        let plan = validate(r#"
             native component Container {
                 content
                 prop title: String
             }
-            "#,
-        )
-        .expect("component content slot should parse");
-
-        let swift = swift(&idl);
+            "#);
+        let swift = swift(&plan);
         assert!(swift.contains("public struct Container<Content: View>: View"));
         assert!(swift.contains("@ViewBuilder content: () -> Content"));
         assert!(swift.contains("content: content"));
 
-        let kotlin = kotlin(&idl, "dev.example.components");
+        let kotlin = kotlin(&plan, "dev.example.components");
         assert!(kotlin.contains("content: @Composable () -> Unit"));
         assert!(kotlin.contains("content = content"));
     }
 
     #[test]
     fn typed_error_variants_and_throwing_contracts_survive_native_generation() {
-        let idl = nexa_plugin_idl::parse(
-            r#"
+        let plan = validate(r#"
             error PlayerError {
                 invalidUrl,
                 decodingFailed(message: String),
@@ -745,11 +721,8 @@ mod tests {
                 async fn prepare(url: String, playbackRate: Float64) throws PlayerError
                 async fn currentSource() -> Result<String, PlayerError>
             }
-            "#,
-        )
-        .expect("typed error IDL should parse");
-
-        let swift = swift(&idl);
+            "#);
+        let swift = swift(&plan);
         assert!(swift.contains("public enum PlayerError: Error"));
         assert!(swift.contains("case invalidUrl"));
         assert!(swift.contains("case decodingFailed(message: String)"));
@@ -758,7 +731,7 @@ mod tests {
         ));
         assert!(swift.contains("func currentSource() async throws(PlayerError) -> String"));
 
-        let kotlin = kotlin(&idl, "dev.example.video");
+        let kotlin = kotlin(&plan, "dev.example.video");
         assert!(kotlin.contains("public sealed class PlayerError : Exception()"));
         assert!(kotlin.contains("public object invalidUrl : PlayerError()"));
         assert!(kotlin.contains(
@@ -780,8 +753,7 @@ mod tests {
 
     #[test]
     fn value_contracts_preserve_collection_optionality_and_mutability() {
-        let idl = nexa_plugin_idl::parse(
-            r#"
+        let plan = validate(r#"
             struct Playlist {
                 titles: Array<String>,
                 selected: Int32?
@@ -790,18 +762,15 @@ mod tests {
                 readonly property current: Playlist?
                 property volume: Float64
             }
-            "#,
-        )
-        .expect("typed value IDL should parse");
-
-        let swift = swift(&idl);
+            "#);
+        let swift = swift(&plan);
         assert!(swift.contains("public struct Playlist"));
         assert!(swift.contains("public let titles: [String]"));
         assert!(swift.contains("public let selected: Int32?"));
         assert!(swift.contains("var current: Playlist? { get }"));
         assert!(swift.contains("var volume: Double { get set }"));
 
-        let kotlin = kotlin(&idl, "dev.example.queue");
+        let kotlin = kotlin(&plan, "dev.example.queue");
         assert!(kotlin.contains("public data class Playlist"));
         assert!(kotlin.contains("val titles: List<String>"));
         assert!(kotlin.contains("val selected: Int?"));
@@ -810,90 +779,78 @@ mod tests {
     }
 }
 
-fn swift_type(ty: &TypeRef) -> String {
-    let base = match ty.name.as_str() {
-        "Void" => "Void".to_owned(),
-        "Int8" | "Int16" | "Int32" | "Int64" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
-        | "Bool" | "String" => ty.name.clone(),
-        "Float32" => "Float".to_owned(),
-        "Float64" => "Double".to_owned(),
-        "Bytes" => "Data".to_owned(),
-        "Array" if ty.arguments.len() == 1 => format!("[{}]", swift_type(&ty.arguments[0])),
-        "Set" if ty.arguments.len() == 1 => format!("Set<{}>", swift_type(&ty.arguments[0])),
-        "Map" if ty.arguments.len() == 2 => format!(
-            "[{}: {}]",
-            swift_type(&ty.arguments[0]),
-            swift_type(&ty.arguments[1])
-        ),
-        "Pair" if ty.arguments.len() == 2 => format!(
-            "({}, {})",
-            swift_type(&ty.arguments[0]),
-            swift_type(&ty.arguments[1])
-        ),
-        "Triple" if ty.arguments.len() == 3 => format!(
+fn swift_type(ty: &BridgeType) -> String {
+    match ty {
+        BridgeType::Scalar(BridgeScalar::Void) => "Void".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Bool) => "Bool".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Int8) => "Int8".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Int16) => "Int16".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Int32) => "Int32".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Int64) => "Int64".to_owned(),
+        BridgeType::Scalar(BridgeScalar::UInt8) => "UInt8".to_owned(),
+        BridgeType::Scalar(BridgeScalar::UInt16) => "UInt16".to_owned(),
+        BridgeType::Scalar(BridgeScalar::UInt32) => "UInt32".to_owned(),
+        BridgeType::Scalar(BridgeScalar::UInt64) => "UInt64".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Float32) => "Float".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Float64) => "Double".to_owned(),
+        BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Bytes) => "Data".to_owned(),
+        BridgeType::Named { name, .. } => name.clone(),
+        BridgeType::Array(element) => format!("[{}]", swift_type(element)),
+        BridgeType::Set(element) => format!("Set<{}>", swift_type(element)),
+        BridgeType::Map(key, value) => {
+            format!("[{}: {}]", swift_type(key), swift_type(value))
+        }
+        BridgeType::Pair(first, second) => {
+            format!("({}, {})", swift_type(first), swift_type(second))
+        }
+        BridgeType::Triple(first, second, third) => format!(
             "({}, {}, {})",
-            swift_type(&ty.arguments[0]),
-            swift_type(&ty.arguments[1]),
-            swift_type(&ty.arguments[2])
+            swift_type(first),
+            swift_type(second),
+            swift_type(third)
         ),
-        "Result" if ty.arguments.len() == 2 => format!(
-            "Result<{}, {}>",
-            swift_type(&ty.arguments[0]),
-            swift_type(&ty.arguments[1])
-        ),
-        _ => ty.name.clone(),
-    };
-    if ty.optional {
-        format!("{base}?")
-    } else {
-        base
+        BridgeType::Optional(inner) => format!("{}?", swift_type(inner)),
+        BridgeType::Result { success, failure } => {
+            format!("Result<{}, {failure}>", swift_type(success))
+        }
     }
 }
 
-fn kotlin_type(ty: &TypeRef) -> String {
-    let base = match ty.name.as_str() {
-        "Void" => "Unit".to_owned(),
-        "Int8" => "Byte".to_owned(),
-        "Int16" => "Short".to_owned(),
-        "Int32" => "Int".to_owned(),
-        "Int64" => "Long".to_owned(),
-        "UInt8" => "UByte".to_owned(),
-        "UInt16" => "UShort".to_owned(),
-        "UInt32" => "UInt".to_owned(),
-        "UInt64" => "ULong".to_owned(),
-        "Float32" => "Float".to_owned(),
-        "Float64" => "Double".to_owned(),
-        "Bool" => "Boolean".to_owned(),
-        "String" => "String".to_owned(),
-        "Bytes" => "ByteArray".to_owned(),
-        "Array" if ty.arguments.len() == 1 => format!("List<{}>", kotlin_type(&ty.arguments[0])),
-        "Set" if ty.arguments.len() == 1 => format!("Set<{}>", kotlin_type(&ty.arguments[0])),
-        "Map" if ty.arguments.len() == 2 => format!(
-            "Map<{}, {}>",
-            kotlin_type(&ty.arguments[0]),
-            kotlin_type(&ty.arguments[1])
-        ),
-        "Pair" if ty.arguments.len() == 2 => format!(
-            "Pair<{}, {}>",
-            kotlin_type(&ty.arguments[0]),
-            kotlin_type(&ty.arguments[1])
-        ),
-        "Triple" if ty.arguments.len() == 3 => format!(
+fn kotlin_type(ty: &BridgeType) -> String {
+    match ty {
+        BridgeType::Scalar(BridgeScalar::Void) => "Unit".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Int8) => "Byte".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Int16) => "Short".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Int32) => "Int".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Int64) => "Long".to_owned(),
+        BridgeType::Scalar(BridgeScalar::UInt8) => "UByte".to_owned(),
+        BridgeType::Scalar(BridgeScalar::UInt16) => "UShort".to_owned(),
+        BridgeType::Scalar(BridgeScalar::UInt32) => "UInt".to_owned(),
+        BridgeType::Scalar(BridgeScalar::UInt64) => "ULong".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Float32) => "Float".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Float64) => "Double".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Bool) => "Boolean".to_owned(),
+        BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Bytes) => "ByteArray".to_owned(),
+        BridgeType::Named { name, .. } => name.clone(),
+        BridgeType::Array(element) => format!("List<{}>", kotlin_type(element)),
+        BridgeType::Set(element) => format!("Set<{}>", kotlin_type(element)),
+        BridgeType::Map(key, value) => {
+            format!("Map<{}, {}>", kotlin_type(key), kotlin_type(value))
+        }
+        BridgeType::Pair(first, second) => {
+            format!("Pair<{}, {}>", kotlin_type(first), kotlin_type(second))
+        }
+        BridgeType::Triple(first, second, third) => format!(
             "Triple<{}, {}, {}>",
-            kotlin_type(&ty.arguments[0]),
-            kotlin_type(&ty.arguments[1]),
-            kotlin_type(&ty.arguments[2])
+            kotlin_type(first),
+            kotlin_type(second),
+            kotlin_type(third)
         ),
-        "Result" if ty.arguments.len() == 2 => format!(
-            "Result<{}, {}>",
-            kotlin_type(&ty.arguments[0]),
-            kotlin_type(&ty.arguments[1])
-        ),
-        _ => ty.name.clone(),
-    };
-    if ty.optional {
-        format!("{base}?")
-    } else {
-        base
+        BridgeType::Optional(inner) => format!("{}?", kotlin_type(inner)),
+        BridgeType::Result { success, failure } => {
+            format!("Result<{}, {failure}>", kotlin_type(success))
+        }
     }
 }

@@ -63,6 +63,25 @@ pub fn analyze(module: &Module) -> Capabilities {
         ) {
             capabilities.uses_result = true;
         }
+        // Validated core calls carry the same capability signal as their
+        // `NativeCall` spelling; match both so lowering shapes cannot hide
+        // platform API usage from capability analysis.
+        match expression {
+            Expr::NetworkFetch(_) | Expr::NetworkDownload { .. } => {
+                capabilities.uses_network_api = true;
+            }
+            Expr::FileReadText { .. } | Expr::FileWriteText { .. } | Expr::FileDelete { .. } => {
+                capabilities.uses_file_api = true;
+                capabilities.uses_file_async = true;
+            }
+            Expr::FileExists { .. } => {
+                capabilities.uses_file_api = true;
+            }
+            Expr::PathJoin { .. } => {
+                capabilities.uses_path_api = true;
+            }
+            _ => {}
+        }
         if let Expr::NativeCall {
             namespace, name, ..
         } = expression

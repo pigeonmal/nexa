@@ -119,10 +119,7 @@ fn component_uses_sticky_header(component: &Component) -> bool {
         &mut |node| {
             found |= matches!(
                 node,
-                Node::FastList {
-                    sticky_header: Some(_),
-                    ..
-                }
+                Node::FastList { plan } if plan.sticky_header().is_some()
             )
         },
         &mut |_| {},

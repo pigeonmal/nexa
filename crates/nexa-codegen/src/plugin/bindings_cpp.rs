@@ -1,17 +1,19 @@
 //! C++ implementation contracts generated from the shared native IDL.
 #![allow(clippy::all)]
 
-use nexa_plugin_idl::{
-    Event, Interface, InterfaceKind, Literal, Method, NamedType, NamedTypeKind, PluginIdl,
-    Property, TypeRef,
+use nexa_plugin_idl::{InterfaceKind, Literal};
+
+use super::bridge_plan::{
+    self, BridgeConstructor, BridgeEvent, BridgeInterface, BridgeMethod, BridgeNamedType,
+    BridgeParameter, BridgePlan, BridgeProperty, BridgeScalar, BridgeType, BridgeTypeKind,
 };
 
-pub fn render(idl: &PluginIdl, plugin_id: &str) -> String {
+pub fn render(plan: &BridgePlan, plugin_id: &str) -> String {
     let mut out = String::from(
         "#pragma once\n\n#include <atomic>\n#include <cstdint>\n#include <exception>\n#include <functional>\n#include <future>\n#include <map>\n#include <memory>\n#include <optional>\n#include <set>\n#include <string>\n#include <tuple>\n#include <utility>\n#include <variant>\n#include <vector>\n\n#if __has_include(<swift/bridging>)\n#include <swift/bridging>\n#define NEXA_CXX_SWIFT_SHARED_REFERENCE(...) SWIFT_SHARED_REFERENCE(__VA_ARGS__)\n#define NEXA_CXX_SWIFT_RETURNS_RETAINED SWIFT_RETURNS_RETAINED\n#define NEXA_CXX_SWIFT_NONNULL _Nonnull\n#define NEXA_CXX_SWIFT_NULLABLE _Nullable\n#else\n#define NEXA_CXX_SWIFT_SHARED_REFERENCE(...)\n#define NEXA_CXX_SWIFT_RETURNS_RETAINED\n#define NEXA_CXX_SWIFT_NONNULL\n#define NEXA_CXX_SWIFT_NULLABLE\n#endif\n\n",
     );
     out.push_str(&format!("namespace {} {{\n\n", cpp_namespace(plugin_id)));
-    if idl.interfaces.iter().any(|interface| {
+    if plan.interfaces.iter().any(|interface| {
         interface.kind == InterfaceKind::NativeClass && !interface.events.is_empty()
     }) {
         out.push_str(
@@ -20,25 +22,25 @@ pub fn render(idl: &PluginIdl, plugin_id: &str) -> String {
     }
     out.push_str(&format!(
         "using {} = std::vector<std::uint8_t>;\n\n",
-        cpp_byte_buffer_alias_name(idl)
+        cpp_byte_buffer_alias_name(plan)
     ));
-    render_optional_bridge(&mut out, idl);
-    render_swift_array_aliases(&mut out, idl);
-    render_swift_map_adapters(&mut out, idl);
+    render_optional_bridge(&mut out, plan);
+    render_swift_array_aliases(&mut out, plan);
+    render_swift_map_adapters(&mut out, plan);
     render_result_type(&mut out);
 
-    for ty in &idl.types {
+    for ty in &plan.types {
         let declaration = match ty.kind {
-            NamedTypeKind::Struct | NamedTypeKind::Error => {
+            BridgeTypeKind::Struct | BridgeTypeKind::Error => {
                 format!("struct {};\n", cpp_identifier(&ty.name))
             }
-            NamedTypeKind::Enum => {
+            BridgeTypeKind::Enum => {
                 format!("enum class {} : std::uint8_t;\n", cpp_identifier(&ty.name))
             }
         };
         out.push_str(&declaration);
     }
-    for interface in &idl.interfaces {
+    for interface in &plan.interfaces {
         if matches!(
             interface.kind,
             InterfaceKind::Interface | InterfaceKind::NativeClass
@@ -48,21 +50,21 @@ pub fn render(idl: &PluginIdl, plugin_id: &str) -> String {
     }
     out.push('\n');
 
-    for ty in &idl.types {
+    for ty in &plan.types {
         render_named_type(&mut out, ty);
         out.push('\n');
     }
-    render_cpp_swift_future_adapters(&mut out, idl);
-    render_swift_cpp_error_bridges(&mut out, idl);
-    for interface in &idl.interfaces {
+    render_cpp_swift_future_adapters(&mut out, plan);
+    render_swift_cpp_error_bridges(&mut out, plan);
+    for interface in &plan.interfaces {
         match interface.kind {
             InterfaceKind::Interface | InterfaceKind::NativeClass => {
-                render_contract(&mut out, interface, idl);
+                render_contract(&mut out, interface, plan);
                 out.push('\n');
                 if interface.kind == InterfaceKind::NativeClass {
                     render_factory(&mut out, interface);
                     out.push('\n');
-                    render_swift_factory(&mut out, interface, idl);
+                    render_swift_factory(&mut out, interface, plan);
                     out.push('\n');
                 }
             }
@@ -71,7 +73,7 @@ pub fn render(idl: &PluginIdl, plugin_id: &str) -> String {
                 out.push('\n');
                 for method in &interface.methods {
                     if swift_cpp_method_uses_collection_adapter(method) {
-                        render_swift_service_collection_adapter(&mut out, idl, interface, method);
+                        render_swift_service_collection_adapter(&mut out, plan, interface, method);
                     }
                 }
                 if interface
@@ -96,13 +98,13 @@ pub fn render(idl: &PluginIdl, plugin_id: &str) -> String {
 /// Emits direct Swift adapters for supported C++ plugin values.
 /// Unsupported signatures fail generation instead of producing a wrapper that
 /// cannot honor the IDL.
-pub fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<String, String> {
+pub fn render_swift_adapters(plan: &BridgePlan, plugin_id: &str) -> Result<String, String> {
     let namespace = cpp_namespace(plugin_id).replace("::", ".");
-    let byte_buffer_type = format!("{namespace}.{}", cpp_byte_buffer_alias_name(idl));
-    let optional_bridge = format!("{namespace}.{}", cpp_optional_bridge_name(idl));
+    let byte_buffer_type = format!("{namespace}.{}", cpp_byte_buffer_alias_name(plan));
+    let optional_bridge = format!("{namespace}.{}", cpp_optional_bridge_name(plan));
     let mut out = String::from("import CxxStdlib\nimport Foundation\n\n");
-    render_swift_cpp_named_value_helpers(&mut out, idl, &namespace, &byte_buffer_type);
-    if idl
+    render_swift_cpp_named_value_helpers(&mut out, plan, &namespace, &byte_buffer_type);
+    if plan
         .interfaces
         .iter()
         .flat_map(|interface| &interface.methods)
@@ -112,27 +114,21 @@ pub fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<String,
             "private final class NexaCppFutureWork<Output>: @unchecked Sendable {\n    private let operation: () -> Output\n    init(_ operation: @escaping () -> Output) { self.operation = operation }\n    func run() -> Output { operation() }\n}\n\n",
         );
     }
-    render_swift_cpp_error_converters(&mut out, idl, &namespace);
-    for interface in idl
+    render_swift_cpp_error_converters(&mut out, plan, &namespace);
+    for interface in plan
         .interfaces
         .iter()
         .filter(|interface| interface.kind == InterfaceKind::NativeClass)
     {
         for event in &interface.events {
-            for parameter in &event.parameters {
-                ensure_swift_cpp_value(&interface.name, &parameter.name, &parameter.ty, false)?;
-            }
-            render_swift_cpp_event_adapters(&mut out, idl, plugin_id, &namespace, interface, event);
+            render_swift_cpp_event_adapters(&mut out, plan, plugin_id, &namespace, interface, event);
         }
     }
     let mut generated = false;
 
-    for interface in &idl.interfaces {
+    for interface in &plan.interfaces {
         match interface.kind {
             InterfaceKind::Service => {
-                for method in &interface.methods {
-                    validate_swift_cpp_method(idl, &interface.name, method)?;
-                }
                 generated = true;
                 out.push_str(&format!(
                     "public final class {}Plugin: {}, @unchecked Sendable {{\n    public static let shared = {}Plugin()\n    private init() {{}}\n",
@@ -154,7 +150,7 @@ pub fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<String,
                         &mut out,
                         &receiver,
                         adapter.as_deref(),
-                        idl,
+                        plan,
                         &namespace,
                         &byte_buffer_type,
                         &optional_bridge,
@@ -165,22 +161,6 @@ pub fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<String,
                 out.push_str("}\n\n");
             }
             InterfaceKind::NativeClass => {
-                for constructor in &interface.constructors {
-                    for parameter in &constructor.parameters {
-                        ensure_swift_cpp_value(
-                            &interface.name,
-                            &parameter.name,
-                            &parameter.ty,
-                            false,
-                        )?;
-                    }
-                }
-                for property in &interface.properties {
-                    ensure_swift_cpp_value(&interface.name, &property.name, &property.ty, false)?;
-                }
-                for method in &interface.methods {
-                    validate_swift_cpp_method(idl, &interface.name, method)?;
-                }
                 generated = true;
                 let cpp_type = format!("{namespace}.{}Spec", cpp_identifier(&interface.name));
                 out.push_str(&format!(
@@ -200,7 +180,7 @@ pub fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<String,
                     .map(|constructor| {
                         swift_cpp_arguments(
                             &constructor.parameters,
-                            idl,
+                            plan,
                             &namespace,
                             &byte_buffer_type,
                             &optional_bridge,
@@ -223,7 +203,7 @@ pub fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<String,
                         format!("nexaCppObject.{}()", cpp_getter_name(&property.name))
                     };
                     let getter =
-                        swift_cpp_result_expression(&property.ty, &getter, idl, &namespace);
+                        swift_cpp_result_expression(&property.ty, &getter, plan, &namespace);
                     out.push_str(&format!(
                         "\n    public var {}: {ty} {{\n        get {{ {getter} }}",
                         property.name
@@ -232,7 +212,7 @@ pub fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<String,
                         let setter_value = swift_cpp_argument_expression(
                             &property.ty,
                             "newValue",
-                            idl,
+                            plan,
                             &namespace,
                             &byte_buffer_type,
                             &optional_bridge,
@@ -258,8 +238,8 @@ pub fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<String,
                         && !interface.events.is_empty()
                         && method.parameters.is_empty()
                         && !method.is_async
-                        && swift_cpp_method_error_type(method).is_none()
-                        && swift_cpp_value_type(swift_cpp_method_success_type(method))
+                        && method.error_type().is_none()
+                        && swift_cpp_value_type(method.success_type())
                             .is_some_and(|ty| ty == "Void")
                     {
                         render_swift_cpp_dispose(&mut out, interface, method);
@@ -272,7 +252,7 @@ pub fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<String,
                                     cpp_swift_class_method_adapter_name(interface, &method.name)
                                 })
                                 .as_deref(),
-                            idl,
+                            plan,
                             &namespace,
                             &byte_buffer_type,
                             &optional_bridge,
@@ -296,11 +276,11 @@ pub fn render_swift_adapters(idl: &PluginIdl, plugin_id: &str) -> Result<String,
 
 fn render_swift_cpp_event_adapters(
     out: &mut String,
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     plugin_id: &str,
     namespace: &str,
-    interface: &Interface,
-    event: &Event,
+    interface: &BridgeInterface,
+    event: &BridgeEvent,
 ) {
     let context = swift_cpp_event_context_name(plugin_id, interface, event);
     let delivery = swift_cpp_event_delivery_name(plugin_id, interface, event);
@@ -366,12 +346,12 @@ fn render_swift_cpp_event_adapters(
     for (index, parameter) in event.parameters.iter().enumerate() {
         out.push_str(&format!(
             "    let nexaCxxEventValue{index} = {namespace}.{}(rawValue{index})\n",
-            cpp_swift_event_copy_adapter_name(idl, interface, event, index)
+            cpp_swift_event_copy_adapter_name(plan, interface, event, index)
         ));
         let swift_value = swift_cpp_result_expression(
             &parameter.ty,
             &format!("nexaCxxEventValue{index}"),
-            idl,
+            plan,
             namespace,
         );
         out.push_str(&format!("    let value{index} = {swift_value}\n"));
@@ -389,8 +369,8 @@ fn render_swift_cpp_event_adapters(
 fn render_swift_cpp_event_property(
     out: &mut String,
     plugin_id: &str,
-    interface: &Interface,
-    event: &Event,
+    interface: &BridgeInterface,
+    event: &BridgeEvent,
     _namespace: &str,
 ) {
     let property = nexa_plugin_idl::event_callback_property(&event.name);
@@ -406,7 +386,7 @@ fn render_swift_cpp_event_property(
     ));
 }
 
-fn render_swift_cpp_dispose(out: &mut String, interface: &Interface, method: &Method) {
+fn render_swift_cpp_dispose(out: &mut String, interface: &BridgeInterface, method: &BridgeMethod) {
     out.push_str(&format!("\n    public func {}() -> Void {{\n", method.name));
     for event in &interface.events {
         let backing = swift_cpp_event_backing_name(interface, event);
@@ -418,7 +398,7 @@ fn render_swift_cpp_dispose(out: &mut String, interface: &Interface, method: &Me
     out.push_str("        nexaCppObject.dispose()\n    }\n");
 }
 
-fn swift_cpp_event_callback_type(event: &Event) -> String {
+fn swift_cpp_event_callback_type(event: &BridgeEvent) -> String {
     let parameters = event
         .parameters
         .iter()
@@ -428,7 +408,7 @@ fn swift_cpp_event_callback_type(event: &Event) -> String {
     format!("({parameters}) -> Void")
 }
 
-fn swift_cpp_event_token(plugin_id: &str, interface: &Interface, event: &Event) -> String {
+fn swift_cpp_event_token(plugin_id: &str, interface: &BridgeInterface, event: &BridgeEvent) -> String {
     format!(
         "{}_{}_{}",
         cpp_identifier(plugin_id),
@@ -437,21 +417,21 @@ fn swift_cpp_event_token(plugin_id: &str, interface: &Interface, event: &Event) 
     )
 }
 
-fn swift_cpp_event_context_name(plugin_id: &str, interface: &Interface, event: &Event) -> String {
+fn swift_cpp_event_context_name(plugin_id: &str, interface: &BridgeInterface, event: &BridgeEvent) -> String {
     format!(
         "NexaCppEventContext_{}",
         swift_cpp_event_token(plugin_id, interface, event)
     )
 }
 
-fn swift_cpp_event_delivery_name(plugin_id: &str, interface: &Interface, event: &Event) -> String {
+fn swift_cpp_event_delivery_name(plugin_id: &str, interface: &BridgeInterface, event: &BridgeEvent) -> String {
     format!(
         "NexaCppEventDelivery_{}",
         swift_cpp_event_token(plugin_id, interface, event)
     )
 }
 
-fn swift_cpp_event_backing_name(interface: &Interface, event: &Event) -> String {
+fn swift_cpp_event_backing_name(interface: &BridgeInterface, event: &BridgeEvent) -> String {
     let mut occupied = std::collections::BTreeSet::new();
     occupied.extend(
         interface
@@ -481,7 +461,7 @@ fn swift_cpp_event_backing_name(interface: &Interface, event: &Event) -> String 
 /// IDL shapes fail generation instead of leaving declarations without a safe
 /// native implementation.
 pub fn render_android_adapters(
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     plugin_id: &str,
     plugin_namespace: &str,
     package: &str,
@@ -496,11 +476,10 @@ pub fn render_android_adapters(
     let mut service_methods = std::collections::BTreeSet::new();
     let mut has_adapters = false;
 
-    for interface in &idl.interfaces {
+    for interface in &plan.interfaces {
         match interface.kind {
             InterfaceKind::Service => {
                 for method in &interface.methods {
-                    validate_android_cpp_method(idl, &interface.name, method, false)?;
                     if !service_methods.insert(method.name.clone()) {
                         return Err(format!(
                             "Android C++ adapters do not support duplicate service method name `{}`",
@@ -526,34 +505,8 @@ pub fn render_android_adapters(
                 has_adapters = true;
             }
             InterfaceKind::NativeClass => {
-                if interface.constructors.len() > 1 {
-                    return Err(format!(
-                        "Android C++ adapters currently support one constructor for `{}`",
-                        interface.name
-                    ));
-                }
                 let constructor = interface.constructors.first();
-                if let Some(constructor) = constructor {
-                    for parameter in &constructor.parameters {
-                        ensure_android_cpp_value(
-                            idl,
-                            &interface.name,
-                            &parameter.name,
-                            &parameter.ty,
-                            false,
-                        )?;
-                    }
-                }
                 for event in &interface.events {
-                    for parameter in &event.parameters {
-                        ensure_android_cpp_value(
-                            idl,
-                            &interface.name,
-                            &parameter.name,
-                            &parameter.ty,
-                            false,
-                        )?;
-                    }
                     let setter = format!(
                         "set_{}_{}",
                         interface.name,
@@ -576,48 +529,18 @@ pub fn render_android_adapters(
                         plugin_index,
                     );
                 }
-                for property in &interface.properties {
-                    ensure_android_cpp_value(
-                        idl,
-                        &interface.name,
-                        &property.name,
-                        &property.ty,
-                        false,
-                    )?;
-                }
-                let dispose = interface
-                    .methods
-                    .iter()
-                    .find(|method| method.name == "dispose");
-                let Some(dispose) = dispose else {
-                    return Err(format!(
-                        "Android C++ native class `{}` must declare `fn dispose()` for deterministic native ownership",
-                        interface.name
-                    ));
-                };
-                validate_android_cpp_method(idl, &interface.name, dispose, true)?;
-                for method in &interface.methods {
-                    validate_android_cpp_method(
-                        idl,
-                        &interface.name,
-                        method,
-                        method.name == "dispose",
-                    )?;
-                }
-
+                // Plan validation proves every native class declares a
+                // well-formed `dispose` method; the method loop below
+                // renders it by name.
                 let create_name = format!("create_{}", interface.name);
                 render_kotlin_native_declaration(
                     &mut native_declarations,
-                    &Method {
+                    &BridgeMethod {
                         name: create_name.clone(),
                         parameters: constructor
                             .map(|constructor| constructor.parameters.clone())
                             .unwrap_or_default(),
-                        return_type: TypeRef {
-                            name: "Int64".to_owned(),
-                            optional: false,
-                            arguments: Vec::new(),
-                        },
+                        return_type: BridgeType::Scalar(BridgeScalar::Int64),
                         is_async: false,
                         throws: None,
                     },
@@ -705,7 +628,7 @@ pub fn render_android_adapters(
     kotlin_output.push_str(&native_declarations);
     kotlin_output.push_str("}\n\n");
 
-    render_android_error_factory(&mut kotlin_output, idl, plugin_index);
+    render_android_error_factory(&mut kotlin_output, plan, plugin_index);
 
     if !service_interfaces.is_empty() {
         let contracts = service_interfaces
@@ -716,7 +639,7 @@ pub fn render_android_adapters(
         kotlin_output.push_str(&format!(
             "public object {plugin_namespace}Plugin : {contracts} {{\n    public val instance: {plugin_namespace}Plugin get() = this\n"
         ));
-        for interface in idl
+        for interface in plan
             .interfaces
             .iter()
             .filter(|interface| interface.kind == InterfaceKind::Service)
@@ -741,8 +664,8 @@ pub fn render_android_adapters(
     }
     kotlin_output.push_str(&kotlin_implementations);
     let mut jni_output = render_android_jni_prelude(plugin_id);
-    render_android_jni_error_converters(&mut jni_output, idl, package, plugin_index);
-    render_android_jni_named_value_helpers(&mut jni_output, idl, package);
+    render_android_jni_error_converters(&mut jni_output, plan, package, plugin_index);
+    render_android_jni_named_value_helpers(&mut jni_output, plan, package);
     jni_output.push_str(&jni);
     Ok((kotlin_output, jni_output))
 }
@@ -1119,142 +1042,11 @@ jobject toJniMap(JNIEnv* env, const Map& input, KeyConverter&& convertKey, Value
     PRELUDE.replace("__NEXA_CPP_NAMESPACE__", &cpp_namespace(plugin_id))
 }
 
-fn validate_android_cpp_method(
-    idl: &PluginIdl,
-    interface: &str,
-    method: &Method,
-    is_dispose: bool,
-) -> Result<(), String> {
-    if let Some(error_type) = android_cpp_method_error_type(method) {
-        let Some(error) = idl
-            .types
-            .iter()
-            .find(|ty| ty.kind == NamedTypeKind::Error && ty.name == error_type.name)
-        else {
-            return Err(format!(
-                "Android C++ adapters cannot resolve typed error `{}` for `{interface}.{}`",
-                error_type.name, method.name
-            ));
-        };
-        for case in &error.cases {
-            for parameter in &case.parameters {
-                if parameter.ty.optional
-                    || !parameter.ty.arguments.is_empty()
-                    || parameter.ty.name == "Void"
-                    || android_cpp_value(&parameter.ty).is_none()
-                {
-                    return Err(format!(
-                        "Android C++ typed errors support non-optional primitive, `String`, and `Bytes` payloads; `{interface}.{}` error case `{}.{}` uses `{}`",
-                        method.name, error.name, case.name, parameter.ty.name
-                    ));
-                }
-            }
-        }
-    }
-    let success_type = android_cpp_method_success_type(method);
-    for parameter in &method.parameters {
-        ensure_android_cpp_value(idl, interface, &parameter.name, &parameter.ty, false)?;
-    }
-    if is_dispose {
-        if !method.parameters.is_empty()
-            || method.is_async
-            || method.return_type.name != "Void"
-            || method.return_type.optional
-        {
-            return Err(format!(
-                "Android C++ native class disposal must be a synchronous parameterless `fn dispose()` on `{interface}`"
-            ));
-        }
-    } else {
-        ensure_android_cpp_value(idl, interface, &method.name, success_type, true)?;
-    }
-    Ok(())
-}
 
-fn android_cpp_method_error_type(method: &Method) -> Option<&TypeRef> {
-    method.throws.as_ref().or_else(|| {
-        (method.return_type.name == "Result")
-            .then(|| method.return_type.arguments.get(1))
-            .flatten()
-    })
-}
 
-fn android_cpp_method_success_type(method: &Method) -> &TypeRef {
-    if method.return_type.name == "Result" {
-        method
-            .return_type
-            .arguments
-            .first()
-            .expect("validated Result type has a success type")
-    } else {
-        &method.return_type
-    }
-}
 
-fn ensure_android_cpp_value(
-    idl: &PluginIdl,
-    interface: &str,
-    member: &str,
-    ty: &TypeRef,
-    allow_void: bool,
-) -> Result<(), String> {
-    let named_scalar = android_cpp_named_value_type(idl, ty).is_some();
-    let collections_with_named_values = !named_scalar && android_cpp_contains_named_value(idl, ty);
-    let requires_named_declaration = ty.arguments.is_empty()
-        && android_cpp_value(ty).is_none()
-        && !matches!(
-            ty.name.as_str(),
-            "Array" | "Set" | "Map" | "Pair" | "Triple" | "Result"
-        );
-    let named_type_is_supported = !requires_named_declaration
-        || android_cpp_named_value_type(idl, ty)
-            .is_some_and(|named| !ty.optional && android_cpp_named_value_supported(idl, named));
-    if android_cpp_type(ty).is_some()
-        && named_type_is_supported
-        && !collections_with_named_values
-        && (allow_void || !android_cpp_is_void(ty))
-    {
-        return Ok(());
-    }
-    Err(format!(
-        "Android C++ adapters support primitive, `String`, `Bytes`, nested `Array` values, compatible `Set` values, flat primitive/string `Map` values, and maps with array or compatible set values; `{interface}.{member}` uses unsupported type `{}`",
-        ty.name
-    ))
-}
 
-fn android_cpp_named_value_type<'a>(idl: &'a PluginIdl, ty: &TypeRef) -> Option<&'a NamedType> {
-    if !ty.arguments.is_empty() {
-        return None;
-    }
-    idl.types.iter().find(|named| {
-        named.name == ty.name && matches!(named.kind, NamedTypeKind::Struct | NamedTypeKind::Enum)
-    })
-}
 
-fn android_cpp_named_value_supported(idl: &PluginIdl, ty: &NamedType) -> bool {
-    match ty.kind {
-        NamedTypeKind::Enum => !ty.cases.is_empty() && ty.cases.len() <= 256,
-        NamedTypeKind::Struct => ty.fields.iter().all(|field| {
-            let field_type = &field.ty;
-            if android_cpp_value(field_type).is_some_and(|value| !value.optional) {
-                return true;
-            }
-            !field_type.optional
-                && android_cpp_named_value_type(idl, field_type)
-                    .is_some_and(|nested| android_cpp_named_value_supported(idl, nested))
-        }),
-        NamedTypeKind::Error => false,
-    }
-}
-
-fn android_cpp_contains_named_value(idl: &PluginIdl, ty: &TypeRef) -> bool {
-    if android_cpp_named_value_type(idl, ty).is_some() {
-        return true;
-    }
-    ty.arguments
-        .iter()
-        .any(|argument| android_cpp_contains_named_value(idl, argument))
-}
 
 #[derive(Clone, Copy)]
 struct AndroidValue {
@@ -1268,16 +1060,24 @@ struct AndroidValue {
     optional: bool,
 }
 
-fn android_cpp_value(ty: &TypeRef) -> Option<AndroidValue> {
-    if !ty.arguments.is_empty() {
-        return None;
-    }
+fn android_cpp_value(ty: &BridgeType) -> Option<AndroidValue> {
+    // Scalar table over resolved types. Non-scalar shapes have dedicated
+    // total spellings elsewhere; validation guarantees this is only called
+    // where a scalar (or optional scalar) is legal.
+    let (scalar, optional) = match ty {
+        BridgeType::Scalar(scalar) => (*scalar, false),
+        BridgeType::Optional(inner) => match inner.as_ref() {
+            BridgeType::Scalar(scalar) => (*scalar, true),
+            _ => return None,
+        },
+        _ => return None,
+    };
     let (kotlin, jni_kotlin, jni, cpp, kotlin_to_jni, kotlin_from_jni, unsigned) =
-        match ty.name.as_str() {
-            "Void" => ("Unit", "Unit", "void", "void", None, None, false),
-            "Bool" => ("Boolean", "Boolean", "jboolean", "bool", None, None, false),
-            "Int8" => ("Byte", "Byte", "jbyte", "std::int8_t", None, None, false),
-            "Int16" => (
+        match scalar {
+            BridgeScalar::Void => ("Unit", "Unit", "void", "void", None, None, false),
+            BridgeScalar::Bool => ("Boolean", "Boolean", "jboolean", "bool", None, None, false),
+            BridgeScalar::Int8 => ("Byte", "Byte", "jbyte", "std::int8_t", None, None, false),
+            BridgeScalar::Int16 => (
                 "Short",
                 "Short",
                 "jshort",
@@ -1286,9 +1086,9 @@ fn android_cpp_value(ty: &TypeRef) -> Option<AndroidValue> {
                 None,
                 false,
             ),
-            "Int32" => ("Int", "Int", "jint", "std::int32_t", None, None, false),
-            "Int64" => ("Long", "Long", "jlong", "std::int64_t", None, None, false),
-            "UInt8" => (
+            BridgeScalar::Int32 => ("Int", "Int", "jint", "std::int32_t", None, None, false),
+            BridgeScalar::Int64 => ("Long", "Long", "jlong", "std::int64_t", None, None, false),
+            BridgeScalar::UInt8 => (
                 "UByte",
                 "Byte",
                 "jbyte",
@@ -1297,7 +1097,7 @@ fn android_cpp_value(ty: &TypeRef) -> Option<AndroidValue> {
                 Some("toUByte"),
                 true,
             ),
-            "UInt16" => (
+            BridgeScalar::UInt16 => (
                 "UShort",
                 "Short",
                 "jshort",
@@ -1306,7 +1106,7 @@ fn android_cpp_value(ty: &TypeRef) -> Option<AndroidValue> {
                 Some("toUShort"),
                 true,
             ),
-            "UInt32" => (
+            BridgeScalar::UInt32 => (
                 "UInt",
                 "Int",
                 "jint",
@@ -1315,7 +1115,7 @@ fn android_cpp_value(ty: &TypeRef) -> Option<AndroidValue> {
                 Some("toUInt"),
                 true,
             ),
-            "UInt64" => (
+            BridgeScalar::UInt64 => (
                 "ULong",
                 "Long",
                 "jlong",
@@ -1324,9 +1124,9 @@ fn android_cpp_value(ty: &TypeRef) -> Option<AndroidValue> {
                 Some("toULong"),
                 true,
             ),
-            "Float32" => ("Float", "Float", "jfloat", "float", None, None, false),
-            "Float64" => ("Double", "Double", "jdouble", "double", None, None, false),
-            "String" => (
+            BridgeScalar::Float32 => ("Float", "Float", "jfloat", "float", None, None, false),
+            BridgeScalar::Float64 => ("Double", "Double", "jdouble", "double", None, None, false),
+            BridgeScalar::String => (
                 "String",
                 "String",
                 "jstring",
@@ -1335,7 +1135,7 @@ fn android_cpp_value(ty: &TypeRef) -> Option<AndroidValue> {
                 None,
                 false,
             ),
-            "Bytes" => (
+            BridgeScalar::Bytes => (
                 "ByteArray",
                 "ByteArray",
                 "jbyteArray",
@@ -1344,12 +1144,11 @@ fn android_cpp_value(ty: &TypeRef) -> Option<AndroidValue> {
                 None,
                 false,
             ),
-            _ => return None,
         };
-    if ty.optional && kotlin == "Unit" {
+    if optional && kotlin == "Unit" {
         return None;
     }
-    let jni_kotlin = if ty.optional && unsigned {
+    let jni_kotlin = if optional && unsigned {
         "Long"
     } else {
         jni_kotlin
@@ -1357,174 +1156,105 @@ fn android_cpp_value(ty: &TypeRef) -> Option<AndroidValue> {
     Some(AndroidValue {
         kotlin,
         jni_kotlin,
-        jni: if ty.optional { "jobject" } else { jni },
+        jni: if optional { "jobject" } else { jni },
         cpp,
         kotlin_to_jni,
         kotlin_from_jni,
         unsigned,
-        optional: ty.optional,
+        optional,
     })
 }
 
-fn android_cpp_type(ty: &TypeRef) -> Option<String> {
-    if ty.name == "Map" {
-        let [key, value] = ty.arguments.as_slice() else {
-            return None;
-        };
-        if !android_map_is_supported(ty)
-            || !android_map_element_is_supported(key, true)
-            || !android_map_value_is_supported(value)
-        {
-            return None;
+fn android_cpp_type(ty: &BridgeType) -> String {
+    // Total C++ spelling over validated types. Plan validation proves every
+    // occurrence is mappable, so support checks are unnecessary here.
+    match ty {
+        BridgeType::Map(key, value) => {
+            format!(
+                "std::map<{}, {}>",
+                android_cpp_type(key),
+                android_cpp_type(value)
+            )
         }
-        let map_type = format!(
-            "std::map<{}, {}>",
-            android_cpp_type(key)?,
-            android_cpp_type(value)?
-        );
-        return Some(if ty.optional {
-            format!("std::optional<{map_type}>")
-        } else {
-            map_type
-        });
+        BridgeType::Array(element) => format!("std::vector<{}>", android_cpp_type(element)),
+        BridgeType::Set(element) => format!("std::set<{}>", android_cpp_type(element)),
+        BridgeType::Optional(inner) => format!("std::optional<{}>", android_cpp_type(inner)),
+        BridgeType::Scalar(_) | BridgeType::Named { .. } => cpp_type(ty),
+        BridgeType::Pair(first, second) => format!(
+            "std::pair<{}, {}>",
+            android_cpp_type(first),
+            android_cpp_type(second)
+        ),
+        BridgeType::Triple(first, second, third) => format!(
+            "std::tuple<{}, {}, {}>",
+            android_cpp_type(first),
+            android_cpp_type(second),
+            android_cpp_type(third)
+        ),
+        BridgeType::Result { success, failure } => {
+            debug_assert!(
+                false,
+                "validated Android values never nest `Result`; success types are unwrapped before mapping"
+            );
+            format!(
+                "NexaResult<{}, {failure}>",
+                android_cpp_type(success)
+            )
+        }
     }
-    if matches!(ty.name.as_str(), "Array" | "Set") {
-        let [element] = ty.arguments.as_slice() else {
-            return None;
-        };
-        if ty.name == "Set" && !android_set_element_is_supported(element) {
-            return None;
-        }
-        if ty.optional {
-            return None;
-        }
-        if ty.name == "Set" {
-            if android_primitive_array(element).is_none()
-                && android_reference_array_element(element).is_none()
-                && !element.optional
-            {
-                return None;
+}
+
+fn android_jni_type(ty: &BridgeType) -> String {
+    // Total JNI spelling over validated types. Plan validation proves every
+    // occurrence is mappable; unsupported shapes fall back to the universal
+    // `jobject` reference exactly where the old mapper produced it.
+    match ty {
+        BridgeType::Map(..) => "jobject".to_owned(),
+        BridgeType::Array(element) | BridgeType::Set(element) => {
+            if ty.is_optional() {
+                debug_assert!(
+                    false,
+                    "plan validation rejects optional collections"
+                );
+                return "jobject".to_owned();
             }
-            return Some(format!("std::set<{}>", android_cpp_type(element)?));
+            if let Some(array) = android_primitive_array(element) {
+                return array.jni_array.to_owned();
+            }
+            if !android_jni_reference_class_available(element) {
+                debug_assert!(
+                    false,
+                    "plan validation proves array elements have reference classes"
+                );
+                return "jobject".to_owned();
+            }
+            "jobjectArray".to_owned()
         }
-        return Some(format!("std::vector<{}>", android_cpp_type(element)?));
-    }
-    if let Some(value) = android_cpp_value(ty) {
-        return Some(if ty.optional {
-            format!("std::optional<{}>", value.cpp)
-        } else {
-            value.cpp.to_owned()
-        });
-    }
-    (ty.arguments.is_empty() && !matches!(ty.name.as_str(), "Pair" | "Triple" | "Result"))
-        .then(|| cpp_type(ty))
-}
-
-fn android_set_element_is_supported(ty: &TypeRef) -> bool {
-    matches!(
-        ty.name.as_str(),
-        "Bool"
-            | "Int8"
-            | "Int16"
-            | "Int32"
-            | "Int64"
-            | "UInt8"
-            | "UInt16"
-            | "UInt32"
-            | "UInt64"
-            | "String"
-    ) && ty.arguments.is_empty()
-}
-
-fn android_map_element_is_supported(ty: &TypeRef, is_key: bool) -> bool {
-    (!is_key || !ty.optional)
-        && ty.arguments.is_empty()
-        && matches!(
-            ty.name.as_str(),
-            "Bool"
-                | "Int8"
-                | "Int16"
-                | "Int32"
-                | "Int64"
-                | "UInt8"
-                | "UInt16"
-                | "UInt32"
-                | "UInt64"
-                | "Float32"
-                | "Float64"
-                | "String"
-        )
-        && (!is_key || !matches!(ty.name.as_str(), "Float32" | "Float64"))
-}
-
-fn android_map_value_is_supported(ty: &TypeRef) -> bool {
-    if ty.name == "Map" {
-        return android_map_is_supported(ty);
-    }
-    if android_map_element_is_supported(ty, false)
-        || (ty.name == "Bytes" && ty.arguments.is_empty())
-    {
-        return true;
-    }
-    if ty.optional || !matches!(ty.name.as_str(), "Array" | "Set") {
-        return false;
-    }
-    let [element] = ty.arguments.as_slice() else {
-        return false;
-    };
-    if ty.name == "Set" {
-        return android_set_element_is_supported(element);
-    }
-    android_map_value_is_supported(element)
-}
-
-fn android_cpp_map_type(ty: &TypeRef) -> Option<(&TypeRef, &TypeRef)> {
-    android_map_is_supported(ty).then(|| (&ty.arguments[0], &ty.arguments[1]))
-}
-
-fn android_map_is_supported(ty: &TypeRef) -> bool {
-    if ty.name != "Map" {
-        return false;
-    }
-    let [key, value] = ty.arguments.as_slice() else {
-        return false;
-    };
-    android_map_element_is_supported(key, true) && android_map_value_is_supported(value)
-}
-
-fn android_cpp_is_void(ty: &TypeRef) -> bool {
-    ty.name == "Void" && !ty.optional && ty.arguments.is_empty()
-}
-
-fn android_jni_type(ty: &TypeRef) -> Option<String> {
-    if android_cpp_map_type(ty).is_some() {
-        return Some("jobject".to_owned());
-    }
-    if matches!(ty.name.as_str(), "Array" | "Set") {
-        let [element] = ty.arguments.as_slice() else {
-            return None;
-        };
-        if ty.optional {
-            return None;
+        BridgeType::Optional(inner) => {
+            // Optional carriers are always references; the historical
+            // mapper produced `jobject` for every supported optional shape.
+            if matches!(inner.as_ref(), BridgeType::Scalar(BridgeScalar::Void)) {
+                debug_assert!(false, "plan validation rejects optional `Void`");
+            }
+            "jobject".to_owned()
         }
-        if let Some(array) = android_primitive_array(element) {
-            return Some(array.jni_array.to_owned());
+        BridgeType::Scalar(scalar) => android_scalar_value(*scalar, false).jni.to_owned(),
+        BridgeType::Named { .. } => "jobject".to_owned(),
+        BridgeType::Pair(..) | BridgeType::Triple(..) | BridgeType::Result { .. } => {
+            debug_assert!(
+                false,
+                "plan validation excludes compound value shapes from JNI positions"
+            );
+            "jobject".to_owned()
         }
-        if !android_jni_reference_class_available(element) {
-            return None;
-        }
-        return Some("jobjectArray".to_owned());
     }
-    android_cpp_value(ty)
-        .map(|value| value.jni.to_owned())
-        .or_else(|| {
-            (ty.arguments.is_empty() && !matches!(ty.name.as_str(), "Pair" | "Triple" | "Result"))
-                .then(|| "jobject".to_owned())
-        })
 }
 
-fn android_reference_array_element(ty: &TypeRef) -> Option<AndroidValue> {
-    if ty.optional || !ty.arguments.is_empty() || !matches!(ty.name.as_str(), "String" | "Bytes") {
+fn android_reference_array_element(ty: &BridgeType) -> Option<AndroidValue> {
+    if !matches!(
+        ty,
+        BridgeType::Scalar(BridgeScalar::String | BridgeScalar::Bytes)
+    ) {
         return None;
     }
     android_cpp_value(ty)
@@ -1538,49 +1268,51 @@ struct AndroidPrimitiveArray {
     set_region: &'static str,
 }
 
-fn android_primitive_array(ty: &TypeRef) -> Option<AndroidPrimitiveArray> {
-    if ty.optional || !ty.arguments.is_empty() {
+fn android_primitive_array(ty: &BridgeType) -> Option<AndroidPrimitiveArray> {
+    // Primitive backing stores require a non-optional scalar element.
+    // Strings and bytes use the reference-array path instead.
+    let BridgeType::Scalar(scalar) = ty else {
         return None;
-    }
-    let scalar = android_cpp_value(ty)?;
-    let (kotlin_array, jni_array, get_region, set_region) = match ty.name.as_str() {
-        "Bool" => (
+    };
+    let value = android_scalar_value(*scalar, false);
+    let (kotlin_array, jni_array, get_region, set_region) = match scalar {
+        BridgeScalar::Bool => (
             "BooleanArray",
             "jbooleanArray",
             "GetBooleanArrayRegion",
             "SetBooleanArrayRegion",
         ),
-        "Int8" | "UInt8" => (
+        BridgeScalar::Int8 | BridgeScalar::UInt8 => (
             "ByteArray",
             "jbyteArray",
             "GetByteArrayRegion",
             "SetByteArrayRegion",
         ),
-        "Int16" | "UInt16" => (
+        BridgeScalar::Int16 | BridgeScalar::UInt16 => (
             "ShortArray",
             "jshortArray",
             "GetShortArrayRegion",
             "SetShortArrayRegion",
         ),
-        "Int32" | "UInt32" => (
+        BridgeScalar::Int32 | BridgeScalar::UInt32 => (
             "IntArray",
             "jintArray",
             "GetIntArrayRegion",
             "SetIntArrayRegion",
         ),
-        "Int64" | "UInt64" => (
+        BridgeScalar::Int64 | BridgeScalar::UInt64 => (
             "LongArray",
             "jlongArray",
             "GetLongArrayRegion",
             "SetLongArrayRegion",
         ),
-        "Float32" => (
+        BridgeScalar::Float32 => (
             "FloatArray",
             "jfloatArray",
             "GetFloatArrayRegion",
             "SetFloatArrayRegion",
         ),
-        "Float64" => (
+        BridgeScalar::Float64 => (
             "DoubleArray",
             "jdoubleArray",
             "GetDoubleArrayRegion",
@@ -1591,27 +1323,20 @@ fn android_primitive_array(ty: &TypeRef) -> Option<AndroidPrimitiveArray> {
     Some(AndroidPrimitiveArray {
         kotlin_array,
         jni_array,
-        element_jni: scalar.jni,
+        element_jni: value.jni,
         get_region,
         set_region,
     })
 }
 
-fn android_kotlin_type(ty: &TypeRef, jni_carrier: bool) -> String {
-    if let Some((key, value)) = android_cpp_map_type(ty) {
-        let base = format!(
+fn android_kotlin_type(ty: &BridgeType, jni_carrier: bool) -> String {
+    match ty {
+        BridgeType::Map(key, value) => format!(
             "Map<{}, {}>",
             android_kotlin_type(key, jni_carrier),
             android_kotlin_type(value, jni_carrier)
-        );
-        return if ty.optional {
-            format!("{base}?")
-        } else {
-            base
-        };
-    }
-    if matches!(ty.name.as_str(), "Array" | "Set") {
-        if let Some(element) = ty.arguments.first() {
+        ),
+        BridgeType::Array(element) => {
             if jni_carrier {
                 if let Some(array) = android_primitive_array(element) {
                     return array.kotlin_array.to_owned();
@@ -1620,33 +1345,168 @@ fn android_kotlin_type(ty: &TypeRef, jni_carrier: bool) -> String {
                     return format!("Array<{}>", android_kotlin_type(element, true));
                 }
             }
-            if ty.name == "Set" {
-                return format!("Set<{}>", android_kotlin_type(element, false));
-            }
-            return format!("List<{}>", android_kotlin_type(&ty.arguments[0], false));
+            format!("List<{}>", android_kotlin_type(element, false))
         }
-    }
-    let Some(scalar) = android_cpp_value(ty) else {
-        let base = ty.name.clone();
-        return if ty.optional {
-            format!("{base}?")
-        } else {
-            base
-        };
-    };
-    let base = if jni_carrier {
-        scalar.jni_kotlin
-    } else {
-        scalar.kotlin
-    };
-    if ty.optional {
-        format!("{base}?")
-    } else {
-        base.to_owned()
+        BridgeType::Set(element) => {
+            if jni_carrier {
+                if let Some(array) = android_primitive_array(element) {
+                    return array.kotlin_array.to_owned();
+                }
+                if android_jni_reference_class_available(element) {
+                    return format!("Array<{}>", android_kotlin_type(element, true));
+                }
+            }
+            format!("Set<{}>", android_kotlin_type(element, false))
+        }
+        BridgeType::Optional(inner) => {
+            // Nullable unsigned integers cross JNI as a boxed signed Long
+            // carrier (every bit pattern plus null survives); the scalar
+            // table encodes that adjustment through the optional flag.
+            if jni_carrier && matches!(inner.as_ref(), BridgeType::Scalar(_)) {
+                let scalar = match inner.as_ref() {
+                    BridgeType::Scalar(scalar) => *scalar,
+                    _ => {
+                        debug_assert!(false, "optional scalar carrier should map");
+                        return format!("{}?", android_kotlin_type(inner, jni_carrier));
+                    }
+                };
+                // Optional `Void` never validates, but the historical
+                // spelling fell back to the source name; preserve it.
+                if scalar == BridgeScalar::Void {
+                    return "Void?".to_owned();
+                }
+                return format!("{}?", android_scalar_value(scalar, true).jni_kotlin);
+            }
+            format!("{}?", android_kotlin_type(inner, jni_carrier))
+        }
+        BridgeType::Scalar(scalar) => {
+            let value = android_scalar_value(*scalar, false);
+            if jni_carrier {
+                value.jni_kotlin.to_owned()
+            } else {
+                value.kotlin.to_owned()
+            }
+        }
+        BridgeType::Named { name, .. } => name.clone(),
+        BridgeType::Pair(first, second) => format!(
+            "Pair<{}, {}>",
+            android_kotlin_type(first, jni_carrier),
+            android_kotlin_type(second, jni_carrier)
+        ),
+        BridgeType::Triple(first, second, third) => format!(
+            "Triple<{}, {}, {}>",
+            android_kotlin_type(first, jni_carrier),
+            android_kotlin_type(second, jni_carrier),
+            android_kotlin_type(third, jni_carrier)
+        ),
+        BridgeType::Result { .. } => {
+            debug_assert!(
+                false,
+                "validated Kotlin types never nest `Result`; success types are unwrapped before mapping"
+            );
+            "Any".to_owned()
+        }
     }
 }
 
-fn render_kotlin_native_declaration(out: &mut String, method: &Method, native_name: &str) {
+/// Total scalar table behind [`android_cpp_value`]. The optional-`Void`
+/// combination is rejected by plan validation; the arm below is unreachable
+/// in practice and mirrors the historical adjustment.
+fn android_scalar_value(scalar: BridgeScalar, optional: bool) -> AndroidValue {
+    let (kotlin, jni_kotlin, jni, cpp, kotlin_to_jni, kotlin_from_jni, unsigned) = match scalar {
+        BridgeScalar::Void => ("Unit", "Unit", "void", "void", None, None, false),
+        BridgeScalar::Bool => ("Boolean", "Boolean", "jboolean", "bool", None, None, false),
+        BridgeScalar::Int8 => ("Byte", "Byte", "jbyte", "std::int8_t", None, None, false),
+        BridgeScalar::Int16 => (
+            "Short",
+            "Short",
+            "jshort",
+            "std::int16_t",
+            None,
+            None,
+            false,
+        ),
+        BridgeScalar::Int32 => ("Int", "Int", "jint", "std::int32_t", None, None, false),
+        BridgeScalar::Int64 => ("Long", "Long", "jlong", "std::int64_t", None, None, false),
+        BridgeScalar::UInt8 => (
+            "UByte",
+            "Byte",
+            "jbyte",
+            "std::uint8_t",
+            Some("toByte"),
+            Some("toUByte"),
+            true,
+        ),
+        BridgeScalar::UInt16 => (
+            "UShort",
+            "Short",
+            "jshort",
+            "std::uint16_t",
+            Some("toShort"),
+            Some("toUShort"),
+            true,
+        ),
+        BridgeScalar::UInt32 => (
+            "UInt",
+            "Int",
+            "jint",
+            "std::uint32_t",
+            Some("toInt"),
+            Some("toUInt"),
+            true,
+        ),
+        BridgeScalar::UInt64 => (
+            "ULong",
+            "Long",
+            "jlong",
+            "std::uint64_t",
+            Some("toLong"),
+            Some("toULong"),
+            true,
+        ),
+        BridgeScalar::Float32 => ("Float", "Float", "jfloat", "float", None, None, false),
+        BridgeScalar::Float64 => ("Double", "Double", "jdouble", "double", None, None, false),
+        BridgeScalar::String => (
+            "String",
+            "String",
+            "jstring",
+            "std::string",
+            None,
+            None,
+            false,
+        ),
+        BridgeScalar::Bytes => (
+            "ByteArray",
+            "ByteArray",
+            "jbyteArray",
+            "std::vector<std::uint8_t>",
+            None,
+            None,
+            false,
+        ),
+    };
+    debug_assert!(
+        !(optional && matches!(scalar, BridgeScalar::Void)),
+        "plan validation rejects optional `Void`"
+    );
+    let jni_kotlin = if optional && unsigned {
+        "Long"
+    } else {
+        jni_kotlin
+    };
+    AndroidValue {
+        kotlin,
+        jni_kotlin,
+        jni: if optional { "jobject" } else { jni },
+        cpp,
+        kotlin_to_jni,
+        kotlin_from_jni,
+        unsigned,
+        optional,
+    }
+}
+
+fn render_kotlin_native_declaration(out: &mut String, method: &BridgeMethod, native_name: &str) {
     let parameters = method
         .parameters
         .iter()
@@ -1659,13 +1519,13 @@ fn render_kotlin_native_declaration(out: &mut String, method: &Method, native_na
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let return_type = android_kotlin_type(android_cpp_method_success_type(method), true);
+    let return_type = android_kotlin_type(method.success_type(), true);
     out.push_str(&format!(
         "    external fun {native_name}({parameters}): {return_type}\n"
     ));
 }
 
-fn render_kotlin_class_native_declaration(out: &mut String, method: &Method, native_name: &str) {
+fn render_kotlin_class_native_declaration(out: &mut String, method: &BridgeMethod, native_name: &str) {
     let mut parameters = vec!["handle: Long".to_owned()];
     parameters.extend(method.parameters.iter().map(|parameter| {
         format!(
@@ -1674,7 +1534,7 @@ fn render_kotlin_class_native_declaration(out: &mut String, method: &Method, nat
             android_kotlin_type(&parameter.ty, true)
         )
     }));
-    let return_type = android_kotlin_type(android_cpp_method_success_type(method), true);
+    let return_type = android_kotlin_type(method.success_type(), true);
     out.push_str(&format!(
         "    external fun {native_name}({}): {return_type}\n",
         parameters.join(", ")
@@ -1683,7 +1543,7 @@ fn render_kotlin_class_native_declaration(out: &mut String, method: &Method, nat
 
 fn render_kotlin_property_native_declarations(
     out: &mut String,
-    property: &Property,
+    property: &BridgeProperty,
     interface: &str,
     getter_name: &str,
 ) {
@@ -1711,7 +1571,7 @@ fn render_kotlin_native_event_declaration(out: &mut String, native_name: &str) {
 
 fn render_kotlin_service_adapter(
     out: &mut String,
-    method: &Method,
+    method: &BridgeMethod,
     native_name: &str,
     bindings_class: &str,
 ) {
@@ -1733,7 +1593,7 @@ fn render_kotlin_service_adapter(
         .map(|parameter| kotlin_to_jni_expression(&parameter.name, &parameter.ty))
         .collect::<Vec<_>>()
         .join(", ");
-    let success_type = android_cpp_method_success_type(method);
+    let success_type = method.success_type();
     let return_type = android_kotlin_type(success_type, false);
     if method.is_async {
         let native_call = format!("{bindings_class}.{native_name}({arguments})");
@@ -1763,9 +1623,15 @@ fn render_kotlin_service_adapter(
     }
 }
 
-fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
-    if let Some((key, map_value)) = android_cpp_map_type(ty) {
-        let mut expression = if ty.optional {
+fn kotlin_to_jni_expression(value: &str, ty: &BridgeType) -> String {
+    // Split the historical optional flag from the shape so the branches
+    // below mirror the renderer's original structure exactly.
+    let (shape, optional) = match ty {
+        BridgeType::Optional(inner) => (inner.as_ref(), true),
+        other => (other, false),
+    };
+    if let BridgeType::Map(key, map_value) = shape {
+        let mut expression = if optional {
             "nexaOptionalMap".to_owned()
         } else {
             value.to_owned()
@@ -1778,21 +1644,21 @@ fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
             expression =
                 format!("{expression}.mapValues {{ (_, nexaMapValue) -> {converted_value} }}");
         }
-        if (!ty.optional && expression == value) || (ty.optional && expression == "nexaOptionalMap")
+        if (!optional && expression == value) || (optional && expression == "nexaOptionalMap")
         {
             return value.to_owned();
         }
-        return if ty.optional {
+        return if optional {
             format!("{value}?.let {{ nexaOptionalMap -> {expression} }}")
         } else {
             expression
         };
     }
-    if matches!(ty.name.as_str(), "Array" | "Set") {
-        let element = &ty.arguments[0];
-        if ty.name == "Array" && matches!(element.name.as_str(), "Array" | "Set")
-            || (ty.name == "Array" && android_cpp_map_type(element).is_some())
-            || element.optional
+    if let BridgeType::Array(element) | BridgeType::Set(element) = shape {
+        let is_set = matches!(shape, BridgeType::Set(_));
+        if !is_set && matches!(element.as_ref(), BridgeType::Array(_) | BridgeType::Set(_))
+            || (!is_set && matches!(element.as_ref(), BridgeType::Map(..)))
+            || element.is_optional()
         {
             return format!(
                 "{value}.map {{ nexaNestedCollection -> {} }}.toTypedArray()",
@@ -1803,8 +1669,14 @@ fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
             debug_assert!(android_reference_array_element(element).is_some());
             return format!("{value}.toTypedArray()");
         };
-        if ty.name == "Set" {
-            let scalar = android_cpp_value(element).expect("validated array element");
+        if is_set {
+            let Some(scalar) = android_cpp_value(element) else {
+                debug_assert!(
+                    false,
+                    "validated set elements map to an Android value"
+                );
+                return format!("{value}.toTypedArray()");
+            };
             let source = if let Some(conversion) = scalar.kotlin_to_jni {
                 format!("{value}.map {{ it.{conversion}() }}")
             } else {
@@ -1816,8 +1688,7 @@ fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
             );
         }
         if let Some(conversion) = android_cpp_value(element)
-            .expect("validated array element")
-            .kotlin_to_jni
+            .and_then(|scalar| scalar.kotlin_to_jni)
         {
             return format!(
                 "{}({value}.size) {{ {value}[it].{conversion}() }}",
@@ -1829,11 +1700,14 @@ fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
             array.kotlin_array.trim_end_matches("Array")
         );
     }
-    if android_cpp_value(ty).is_none() {
+    if android_cpp_value(shape).is_none() {
         return value.to_owned();
     }
-    let scalar = android_cpp_value(ty).expect("validated Android value");
-    if ty.optional && scalar.unsigned {
+    let Some(scalar) = android_cpp_value(shape) else {
+        debug_assert!(false, "validated scalar shape should map");
+        return value.to_owned();
+    };
+    if optional && scalar.unsigned {
         // A nullable signed Long carrier preserves every UInt64 bit pattern and null.
         return format!("{value}?.toLong()");
     }
@@ -1843,9 +1717,13 @@ fn kotlin_to_jni_expression(value: &str, ty: &TypeRef) -> String {
     )
 }
 
-fn kotlin_from_jni_expression(expression: String, ty: &TypeRef) -> String {
-    if let Some((key, map_value)) = android_cpp_map_type(ty) {
-        let mut result = if ty.optional {
+fn kotlin_from_jni_expression(expression: String, ty: &BridgeType) -> String {
+    let (shape, optional) = match ty {
+        BridgeType::Optional(inner) => (inner.as_ref(), true),
+        other => (other, false),
+    };
+    if let BridgeType::Map(key, map_value) = shape {
+        let mut result = if optional {
             "nexaOptionalMap".to_owned()
         } else {
             expression.clone()
@@ -1857,26 +1735,26 @@ fn kotlin_from_jni_expression(expression: String, ty: &TypeRef) -> String {
         if converted_value != "nexaMapValue" {
             result = format!("{result}.mapValues {{ (_, nexaMapValue) -> {converted_value} }}");
         }
-        if (!ty.optional && result == expression) || (ty.optional && result == "nexaOptionalMap") {
+        if (!optional && result == expression) || (optional && result == "nexaOptionalMap") {
             return expression;
         }
-        return if ty.optional {
+        return if optional {
             format!("{expression}?.let {{ nexaOptionalMap -> {result} }}")
         } else {
             result
         };
     }
-    if matches!(ty.name.as_str(), "Array" | "Set") {
-        let element = &ty.arguments[0];
-        if ty.name == "Array" && matches!(element.name.as_str(), "Array" | "Set")
-            || (ty.name == "Array" && android_cpp_map_type(element).is_some())
-            || element.optional
+    if let BridgeType::Array(element) | BridgeType::Set(element) = shape {
+        let is_set = matches!(shape, BridgeType::Set(_));
+        if !is_set && matches!(element.as_ref(), BridgeType::Array(_) | BridgeType::Set(_))
+            || (!is_set && matches!(element.as_ref(), BridgeType::Map(..)))
+            || element.is_optional()
         {
             let converted = format!(
                 "{expression}.map {{ nexaNestedCollection -> {} }}",
                 kotlin_from_jni_expression("nexaNestedCollection".to_owned(), element)
             );
-            return if ty.name == "Set" {
+            return if is_set {
                 format!("{converted}.toSet()")
             } else {
                 converted
@@ -1884,37 +1762,42 @@ fn kotlin_from_jni_expression(expression: String, ty: &TypeRef) -> String {
         }
         let Some(_array) = android_primitive_array(element) else {
             debug_assert!(android_reference_array_element(element).is_some());
-            return if ty.name == "Set" {
+            return if is_set {
                 format!("{expression}.toSet()")
             } else {
                 format!("{expression}.asList()")
             };
         };
-        if ty.name == "Set" {
+        if is_set {
             if let Some(conversion) = android_cpp_value(element)
-                .expect("validated array element")
-                .kotlin_from_jni
+                .and_then(|scalar| scalar.kotlin_from_jni)
             {
                 return format!("{expression}.map {{ it.{conversion}() }}.toSet()");
             }
             return format!("{expression}.toSet()");
         }
         if let Some(conversion) = android_cpp_value(element)
-            .expect("validated array element")
-            .kotlin_from_jni
+            .and_then(|scalar| scalar.kotlin_from_jni)
         {
             return format!("{expression}.map {{ it.{conversion}() }}");
         }
         return format!("{expression}.asList()");
     }
-    if android_cpp_value(ty).is_none() {
+    if android_cpp_value(shape).is_none() {
         return expression;
     }
-    let scalar = android_cpp_value(ty).expect("validated Android value");
-    if ty.optional && scalar.unsigned {
-        let conversion = scalar
-            .kotlin_from_jni
-            .expect("unsigned Kotlin values have a carrier conversion");
+    let Some(scalar) = android_cpp_value(shape) else {
+        debug_assert!(false, "validated scalar shape should map");
+        return expression;
+    };
+    if optional && scalar.unsigned {
+        let Some(conversion) = scalar.kotlin_from_jni else {
+            debug_assert!(
+                false,
+                "unsigned Kotlin values have a carrier conversion"
+            );
+            return expression;
+        };
         return format!("{expression}?.{conversion}()");
     }
     match scalar.kotlin_from_jni {
@@ -1925,9 +1808,9 @@ fn kotlin_from_jni_expression(expression: String, ty: &TypeRef) -> String {
 
 fn render_kotlin_cpp_class(
     out: &mut String,
-    interface: &Interface,
+    interface: &BridgeInterface,
     plugin_index: usize,
-    constructor: Option<&nexa_plugin_idl::Constructor>,
+    constructor: Option<&BridgeConstructor>,
 ) {
     let parameters = constructor
         .map(|constructor| {
@@ -2012,7 +1895,7 @@ fn render_kotlin_cpp_class(
             )
             .collect::<Vec<_>>()
             .join(", ");
-        let success_type = android_cpp_method_success_type(method);
+        let success_type = method.success_type();
         let return_type = android_kotlin_type(success_type, false);
         let native_name = format!("call_{}_{}", interface.name, method.name);
         if method.is_async {
@@ -2054,7 +1937,7 @@ fn render_kotlin_cpp_class(
     ));
 }
 
-fn android_cpp_event_backing_name(interface: &Interface, event: &Event) -> String {
+fn android_cpp_event_backing_name(interface: &BridgeInterface, event: &BridgeEvent) -> String {
     let mut occupied = std::collections::BTreeSet::new();
     occupied.extend(
         interface
@@ -2081,8 +1964,8 @@ fn android_cpp_event_backing_name(interface: &Interface, event: &Event) -> Strin
 
 fn render_kotlin_event_bridge(
     out: &mut String,
-    interface: &Interface,
-    event: &Event,
+    interface: &BridgeInterface,
+    event: &BridgeEvent,
     plugin_index: usize,
 ) {
     let name = android_cpp_event_bridge_name(plugin_index, interface, event);
@@ -2124,8 +2007,8 @@ fn render_kotlin_event_bridge(
 
 fn android_cpp_event_bridge_name(
     plugin_index: usize,
-    interface: &Interface,
-    event: &Event,
+    interface: &BridgeInterface,
+    event: &BridgeEvent,
 ) -> String {
     format!(
         "NexaPlugin{plugin_index}_CppEvent{}_{}",
@@ -2134,7 +2017,7 @@ fn android_cpp_event_bridge_name(
     )
 }
 
-fn android_kotlin_event_callback_type(event: &Event) -> String {
+fn android_kotlin_event_callback_type(event: &BridgeEvent) -> String {
     let parameters = event
         .parameters
         .iter()
@@ -2149,13 +2032,13 @@ fn render_jni_service_method(
     package: &str,
     class_name: &str,
     interface_name: &str,
-    method: &Method,
+    method: &BridgeMethod,
     native_name: &str,
 ) {
     let symbol = jni_symbol(package, class_name, native_name);
     let parameters = jni_parameter_declarations(&method.parameters);
-    let success_type = android_cpp_method_success_type(method);
-    let return_type = android_jni_type(success_type).expect("validated Android type");
+    let success_type = method.success_type();
+    let return_type = android_jni_type(success_type);
     let method_name = cpp_identifier(&method.name);
     let prefix = if parameters.is_empty() {
         String::new()
@@ -2180,15 +2063,15 @@ fn render_jni_service_method(
     } else {
         call
     };
-    if let Some(error_type) = android_cpp_method_error_type(method) {
+    if let Some(error_name) = method.error_type() {
         render_jni_typed_error_result(
             out,
             success_type,
-            error_type,
+            error_name,
             &call,
             jni_failure_return(&return_type),
         );
-    } else if android_cpp_is_void(success_type) {
+    } else if success_type.is_void() {
         out.push_str(&format!("        {call};\n"));
     } else {
         render_jni_return(out, success_type, &call);
@@ -2202,7 +2085,7 @@ fn render_jni_constructor(
     plugin_id: &str,
     package: &str,
     class_name: &str,
-    interface: &Interface,
+    interface: &BridgeInterface,
     native_name: &str,
 ) {
     let symbol = jni_symbol(package, class_name, native_name);
@@ -2244,8 +2127,8 @@ fn render_jni_property(
     plugin_id: &str,
     package: &str,
     class_name: &str,
-    interface: &Interface,
-    property: &Property,
+    interface: &BridgeInterface,
+    property: &BridgeProperty,
     getter_name: &str,
 ) {
     let cpp_type_name = format!(
@@ -2253,7 +2136,7 @@ fn render_jni_property(
         cpp_namespace(plugin_id),
         cpp_identifier(&interface.name)
     );
-    let return_type = android_jni_type(&property.ty).expect("validated property type");
+    let return_type = android_jni_type(&property.ty);
     let getter_symbol = jni_symbol(package, class_name, getter_name);
     out.push_str(&format!(
         "extern \"C\" JNIEXPORT {return_type} JNICALL {getter_symbol}(JNIEnv* env, jobject thiz, jlong rawHandle) {{\n    (void)thiz;\n",
@@ -2281,7 +2164,10 @@ fn render_jni_property(
         out.push_str(&format!(
             "        auto* handle = requireHandle<{cpp_type_name}>(env, rawHandle);\n        if (handle == nullptr) return;\n"
         ));
-        let value = if android_cpp_map_type(&property.ty).is_some() {
+        let value = if matches!(
+            bridge_strip_optional(&property.ty),
+            BridgeType::Map(..)
+        ) {
             render_jni_map_argument_conversion(
                 out,
                 &property.ty,
@@ -2289,7 +2175,7 @@ fn render_jni_property(
                 "return;",
                 "nexaJniMapProperty",
             )
-        } else if matches!(property.ty.name.as_str(), "Array" | "Set") {
+        } else if matches!(&property.ty, BridgeType::Array(_) | BridgeType::Set(_)) {
             render_jni_array_argument_conversion(
                 out,
                 &property.ty,
@@ -2321,7 +2207,7 @@ fn render_jni_property(
         } else {
             format!(
                 "static_cast<{}>(value)",
-                android_cpp_type(&property.ty).expect("validated property type")
+                android_cpp_type(&property.ty)
             )
         };
         out.push_str(&format!(
@@ -2338,8 +2224,8 @@ fn render_jni_class_method(
     plugin_id: &str,
     package: &str,
     class_name: &str,
-    interface: &Interface,
-    method: &Method,
+    interface: &BridgeInterface,
+    method: &BridgeMethod,
     native_name: &str,
 ) {
     let cpp_type_name = format!(
@@ -2347,15 +2233,15 @@ fn render_jni_class_method(
         cpp_namespace(plugin_id),
         cpp_identifier(&interface.name)
     );
-    let success_type = android_cpp_method_success_type(method);
-    let return_type = android_jni_type(success_type).expect("validated method type");
+    let success_type = method.success_type();
+    let return_type = android_jni_type(success_type);
     let failure_return = jni_failure_return(&return_type);
     let symbol = jni_symbol(package, class_name, native_name);
     let mut parameters = String::from("jlong rawHandle");
     for parameter in &method.parameters {
         parameters.push_str(&format!(
             ", {} {}",
-            android_jni_type(&parameter.ty).expect("validated parameter type"),
+            android_jni_type(&parameter.ty),
             parameter.name
         ));
     }
@@ -2378,9 +2264,9 @@ fn render_jni_class_method(
     } else {
         call
     };
-    if let Some(error_type) = android_cpp_method_error_type(method) {
-        render_jni_typed_error_result(out, success_type, error_type, &call, failure_return);
-    } else if android_cpp_is_void(success_type) {
+    if let Some(error_name) = method.error_type() {
+        render_jni_typed_error_result(out, success_type, error_name, &call, failure_return);
+    } else if success_type.is_void() {
         out.push_str(&format!("        {call};\n"));
     } else {
         render_jni_return(out, success_type, &call);
@@ -2394,7 +2280,7 @@ fn render_jni_dispose(
     plugin_id: &str,
     package: &str,
     class_name: &str,
-    interface: &Interface,
+    interface: &BridgeInterface,
     native_name: &str,
 ) {
     let cpp_type_name = format!(
@@ -2426,8 +2312,8 @@ fn render_jni_event_setter(
     plugin_id: &str,
     package: &str,
     class_name: &str,
-    interface: &Interface,
-    event: &Event,
+    interface: &BridgeInterface,
+    event: &BridgeEvent,
     native_name: &str,
 ) {
     let cpp_type_name = format!(
@@ -2472,7 +2358,7 @@ fn render_jni_event_setter(
     ));
     for (index, parameter) in event.parameters.iter().enumerate() {
         let jni_type =
-            android_jni_type(&parameter.ty).expect("validated event parameter has a JNI carrier");
+            android_jni_type(&parameter.ty);
         out.push_str(&format!(
             "                auto nexaArgument{index} = [&]() -> {jni_type} {{\n"
         ));
@@ -2504,12 +2390,13 @@ fn render_jni_event_setter(
     out.push_str("}\n\n");
 }
 
-fn android_jni_callback_descriptor(ty: &TypeRef, package: &str) -> String {
-    if android_cpp_map_type(ty).is_some() {
+fn android_jni_callback_descriptor(ty: &BridgeType, package: &str) -> String {
+    if matches!(bridge_strip_optional(ty), BridgeType::Map(..)) {
         return "Ljava/util/Map;".to_owned();
     }
-    if matches!(ty.name.as_str(), "Array" | "Set") {
-        let element = &ty.arguments[0];
+    if let BridgeType::Array(element) | BridgeType::Set(element) =
+        bridge_strip_optional(ty)
+    {
         if android_primitive_array(element).is_some() {
             let code = android_primitive_descriptor(element);
             return format!("[{code}");
@@ -2517,13 +2404,19 @@ fn android_jni_callback_descriptor(ty: &TypeRef, package: &str) -> String {
         return format!("[{}", android_jni_callback_descriptor(element, package));
     }
     let Some(scalar) = android_cpp_value(ty) else {
-        return format!("L{}/{};", package.replace('.', "/"), ty.name);
+        // Named declarations (and the historical spelling of any other
+        // compound shape) use the package-qualified name descriptor.
+        return format!(
+            "L{}/{};",
+            package.replace('.', "/"),
+            bridge_type_name(ty)
+        );
     };
-    if ty.optional {
-        return match ty.name.as_str() {
-            "String" => "Ljava/lang/String;".to_owned(),
-            "Bytes" => "[B".to_owned(),
-            _ => {
+    if let BridgeType::Optional(inner) = ty {
+        return match inner.as_ref() {
+            BridgeType::Scalar(BridgeScalar::String) => "Ljava/lang/String;".to_owned(),
+            BridgeType::Scalar(BridgeScalar::Bytes) => "[B".to_owned(),
+            BridgeType::Scalar(_) => {
                 let wrapper = match scalar.jni_kotlin {
                     "Boolean" => "java/lang/Boolean",
                     "Byte" => "java/lang/Byte",
@@ -2532,9 +2425,22 @@ fn android_jni_callback_descriptor(ty: &TypeRef, package: &str) -> String {
                     "Long" => "java/lang/Long",
                     "Float" => "java/lang/Float",
                     "Double" => "java/lang/Double",
-                    _ => unreachable!("validated optional scalar carrier has a wrapper"),
+                    _ => {
+                        debug_assert!(
+                            false,
+                            "validated optional scalar carrier should have a wrapper"
+                        );
+                        "java/lang/Object"
+                    }
                 };
                 format!("L{wrapper};")
+            }
+            _ => {
+                debug_assert!(
+                    false,
+                    "validated optional callback types should be scalars"
+                );
+                "Ljava/lang/Object;".to_owned()
             }
         };
     }
@@ -2548,20 +2454,33 @@ fn android_jni_callback_descriptor(ty: &TypeRef, package: &str) -> String {
         "jdouble" => "D".to_owned(),
         "jstring" => "Ljava/lang/String;".to_owned(),
         "jbyteArray" => "[B".to_owned(),
-        _ => unreachable!("validated event callback type has a JVM descriptor"),
+        // The scalar table only produces these carriers; anything else
+        // cannot occur for a validated scalar shape.
+        _ => {
+            debug_assert!(false, "scalar JNI carriers are covered above");
+            "Ljava/lang/Object;".to_owned()
+        }
     }
 }
 
-fn android_primitive_descriptor(ty: &TypeRef) -> &'static str {
-    match ty.name.as_str() {
-        "Bool" => "Z",
-        "Int8" | "UInt8" => "B",
-        "Int16" | "UInt16" => "S",
-        "Int32" | "UInt32" => "I",
-        "Int64" | "UInt64" => "J",
-        "Float32" => "F",
-        "Float64" => "D",
-        _ => unreachable!("validated primitive array element has a descriptor"),
+fn android_primitive_descriptor(ty: &BridgeType) -> &'static str {
+    match ty {
+        BridgeType::Scalar(BridgeScalar::Bool) => "Z",
+        BridgeType::Scalar(BridgeScalar::Int8 | BridgeScalar::UInt8) => "B",
+        BridgeType::Scalar(BridgeScalar::Int16 | BridgeScalar::UInt16) => "S",
+        BridgeType::Scalar(BridgeScalar::Int32 | BridgeScalar::UInt32) => "I",
+        BridgeType::Scalar(BridgeScalar::Int64 | BridgeScalar::UInt64) => "J",
+        BridgeType::Scalar(BridgeScalar::Float32) => "F",
+        BridgeType::Scalar(BridgeScalar::Float64) => "D",
+        BridgeType::Scalar(BridgeScalar::String) => "Ljava/lang/String;",
+        BridgeType::Scalar(BridgeScalar::Bytes) => "[B",
+        _ => {
+            debug_assert!(
+                false,
+                "primitive descriptors cover validated scalar shapes"
+            );
+            "V"
+        }
     }
 }
 
@@ -2585,23 +2504,23 @@ fn jni_failure_return(return_type: &str) -> &'static str {
 
 fn render_jni_typed_error_result(
     out: &mut String,
-    success_type: &TypeRef,
-    error_type: &TypeRef,
+    success_type: &BridgeType,
+    error_name: &str,
     expression: &str,
     failure_return: &str,
 ) {
-    let error_name = cpp_identifier(&error_type.name);
+    let error_name = cpp_identifier(error_name);
     out.push_str(&format!(
         "        auto nexaCppTypedResult = {expression};\n        if (!nexaCppTypedResult.has_value()) {{\n            nexaCppThrowError{error_name}(env, nexaCppTypedResult.error());\n            {failure_return}\n        }}\n"
     ));
-    if android_cpp_is_void(success_type) {
+    if success_type.is_void() {
         return;
     }
     render_jni_return(out, success_type, "nexaCppTypedResult.value()");
 }
 
-fn render_android_error_factory(out: &mut String, idl: &PluginIdl, plugin_index: usize) {
-    let errors = android_cpp_referenced_errors(idl);
+fn render_android_error_factory(out: &mut String, plan: &BridgePlan, plugin_index: usize) {
+    let errors = &plan.referenced_errors;
     if errors.is_empty() {
         return;
     }
@@ -2627,11 +2546,11 @@ fn render_android_error_factory(out: &mut String, idl: &PluginIdl, plugin_index:
                 .iter()
                 .map(|parameter| {
                     let name = cpp_identifier(&parameter.name);
-                    match parameter.ty.name.as_str() {
-                        "UInt8" => format!("{name}.toUByte()"),
-                        "UInt16" => format!("{name}.toUShort()"),
-                        "UInt32" => format!("{name}.toUInt()"),
-                        "UInt64" => format!("{name}.toULong()"),
+                    match bridge_strip_optional(&parameter.ty) {
+                        BridgeType::Scalar(BridgeScalar::UInt8) => format!("{name}.toUByte()"),
+                        BridgeType::Scalar(BridgeScalar::UInt16) => format!("{name}.toUShort()"),
+                        BridgeType::Scalar(BridgeScalar::UInt32) => format!("{name}.toUInt()"),
+                        BridgeType::Scalar(BridgeScalar::UInt64) => format!("{name}.toULong()"),
                         _ => name,
                     }
                 })
@@ -2655,11 +2574,11 @@ fn render_android_error_factory(out: &mut String, idl: &PluginIdl, plugin_index:
 
 fn render_android_jni_error_converters(
     out: &mut String,
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     package: &str,
     plugin_index: usize,
 ) {
-    let errors = android_cpp_referenced_errors(idl);
+    let errors = &plan.referenced_errors;
     if errors.is_empty() {
         return;
     }
@@ -2692,11 +2611,15 @@ fn render_android_jni_error_converters(
                     "std::get<{error_name}::{case_type}>(error.value).{}",
                     cpp_identifier(&parameter.name)
                 );
-                let scalar = android_cpp_value(&parameter.ty)
-                    .expect("validated Android typed error payload");
-                match parameter.ty.name.as_str() {
-                    "String" | "Bytes" => {
-                        let converter = if parameter.ty.name == "String" {
+                // Error payloads are validated to non-optional scalars, so
+                // this dispatches on the scalar spelling directly.
+                match &parameter.ty {
+                    BridgeType::Scalar(BridgeScalar::String)
+                    | BridgeType::Scalar(BridgeScalar::Bytes) => {
+                        let converter = if matches!(
+                            parameter.ty,
+                            BridgeType::Scalar(BridgeScalar::String)
+                        ) {
                             "toJniString"
                         } else {
                             "toJniBytes"
@@ -2706,34 +2629,48 @@ fn render_android_jni_error_converters(
                         ));
                     }
                     _ => {
-                        let carrier = if scalar.unsigned {
-                            match parameter.ty.name.as_str() {
-                                "UInt8" => format!(
-                                    "std::bit_cast<jbyte>(static_cast<std::uint8_t>({value}))"
-                                ),
-                                "UInt16" => format!(
-                                    "std::bit_cast<jshort>(static_cast<std::uint16_t>({value}))"
-                                ),
-                                "UInt32" => format!(
-                                    "std::bit_cast<jint>(static_cast<std::uint32_t>({value}))"
-                                ),
-                                "UInt64" => format!(
-                                    "std::bit_cast<jlong>(static_cast<std::uint64_t>({value}))"
-                                ),
-                                _ => unreachable!("only unsigned integer payloads are unsigned"),
-                            }
-                        } else {
-                            format!("static_cast<{}>({value})", scalar.jni)
+                        let BridgeType::Scalar(scalar) = &parameter.ty else {
+                            debug_assert!(
+                                false,
+                                "validated error payloads are scalars"
+                            );
+                            continue;
                         };
-                        let field = match scalar.jni {
-                            "jboolean" => "z",
-                            "jbyte" => "b",
-                            "jshort" => "s",
-                            "jint" => "i",
-                            "jlong" => "j",
-                            "jfloat" => "f",
-                            "jdouble" => "d",
-                            _ => unreachable!("validated error scalar has a JNI primitive"),
+                        let carrier = match scalar {
+                            BridgeScalar::UInt8 => format!(
+                                "std::bit_cast<jbyte>(static_cast<std::uint8_t>({value}))"
+                            ),
+                            BridgeScalar::UInt16 => format!(
+                                "std::bit_cast<jshort>(static_cast<std::uint16_t>({value}))"
+                            ),
+                            BridgeScalar::UInt32 => format!(
+                                "std::bit_cast<jint>(static_cast<std::uint32_t>({value}))"
+                            ),
+                            BridgeScalar::UInt64 => format!(
+                                "std::bit_cast<jlong>(static_cast<std::uint64_t>({value}))"
+                            ),
+                            _ => format!(
+                                "static_cast<{}>({value})",
+                                android_scalar_value(*scalar, false).jni
+                            ),
+                        };
+                        let field = match scalar {
+                            BridgeScalar::Bool => "z",
+                            BridgeScalar::Int8 | BridgeScalar::UInt8 => "b",
+                            BridgeScalar::Int16 | BridgeScalar::UInt16 => "s",
+                            BridgeScalar::Int32 | BridgeScalar::UInt32 => "i",
+                            BridgeScalar::Int64 | BridgeScalar::UInt64 => "j",
+                            BridgeScalar::Float32 => "f",
+                            BridgeScalar::Float64 => "d",
+                            BridgeScalar::String
+                            | BridgeScalar::Bytes
+                            | BridgeScalar::Void => {
+                                debug_assert!(
+                                    false,
+                                    "string, bytes, and void payloads render above"
+                                );
+                                continue;
+                            }
                         };
                         out.push_str(&format!(
                             "        arguments[{parameter_index}].{field} = {carrier};\n"
@@ -2752,14 +2689,11 @@ fn render_android_jni_error_converters(
     out.push_str("} // namespace\n");
 }
 
-fn render_android_jni_named_value_helpers(out: &mut String, idl: &PluginIdl, package: &str) {
-    let types = idl
+fn render_android_jni_named_value_helpers(out: &mut String, plan: &BridgePlan, package: &str) {
+    let types = plan
         .types
         .iter()
-        .filter(|ty| {
-            matches!(ty.kind, NamedTypeKind::Struct | NamedTypeKind::Enum)
-                && android_cpp_named_value_supported(idl, ty)
-        })
+        .filter(|ty| matches!(ty.kind, BridgeTypeKind::Struct | BridgeTypeKind::Enum))
         .collect::<Vec<_>>();
     if types.is_empty() {
         return;
@@ -2775,7 +2709,7 @@ fn render_android_jni_named_value_helpers(out: &mut String, idl: &PluginIdl, pac
         let name = cpp_identifier(&ty.name);
         let class_name = format!("{}/{}", package.replace('.', "/"), ty.name);
         match ty.kind {
-            NamedTypeKind::Enum => {
+            BridgeTypeKind::Enum => {
                 let values_descriptor = format!("()[L{};", class_name);
                 out.push_str(&format!(
                     "{name} nexaFromJni{name}(JNIEnv* env, jobject raw) {{\n    if (raw == nullptr) {{ throwIllegalState(env, \"non-null Nexa enum was null at the JNI boundary\"); throw std::runtime_error(\"null JNI enum\"); }}\n    ScopedLocalRef<jclass> enumClass(env, env->FindClass(\"{class_name}\"));\n    if (enumClass.get() == nullptr) throw std::runtime_error(\"unable to resolve Kotlin enum class\");\n    jmethodID ordinalMethod = env->GetMethodID(enumClass.get(), \"ordinal\", \"()I\");\n    if (ordinalMethod == nullptr) throw std::runtime_error(\"unable to resolve Kotlin enum ordinal\");\n    const jint ordinal = env->CallIntMethod(raw, ordinalMethod);\n    if (env->ExceptionCheck()) throw std::runtime_error(\"unable to read Kotlin enum ordinal\");\n    if (ordinal < 0 || ordinal >= {}) {{ throwIllegalState(env, \"Kotlin enum ordinal is outside the IDL definition\"); throw std::runtime_error(\"invalid JNI enum ordinal\"); }}\n    return static_cast<{name}>(ordinal);\n}}\n\njobject nexaToJni{name}(JNIEnv* env, const {name}& value) {{\n    const auto ordinal = static_cast<std::uint8_t>(value);\n    if (ordinal >= {}) {{ throwIllegalState(env, \"native enum value is outside the IDL definition\"); return nullptr; }}\n    ScopedLocalRef<jclass> enumClass(env, env->FindClass(\"{class_name}\"));\n    if (enumClass.get() == nullptr) return nullptr;\n    jmethodID valuesMethod = env->GetStaticMethodID(enumClass.get(), \"values\", \"{values_descriptor}\");\n    if (valuesMethod == nullptr) return nullptr;\n    ScopedLocalRef<jobjectArray> values(env, static_cast<jobjectArray>(env->CallStaticObjectMethod(enumClass.get(), valuesMethod)));\n    if (values.get() == nullptr || env->ExceptionCheck()) return nullptr;\n    return env->GetObjectArrayElement(values.get(), static_cast<jsize>(ordinal));\n}}\n\n",
@@ -2783,7 +2717,7 @@ fn render_android_jni_named_value_helpers(out: &mut String, idl: &PluginIdl, pac
                     ty.cases.len()
                 ));
             }
-            NamedTypeKind::Struct => {
+            BridgeTypeKind::Struct => {
                 let descriptor = ty
                     .fields
                     .iter()
@@ -2801,7 +2735,7 @@ fn render_android_jni_named_value_helpers(out: &mut String, idl: &PluginIdl, pac
                     let getter = android_kotlin_getter_name(&field.name);
                     let signature = android_jni_callback_descriptor(&field.ty, package);
                     let jni_type =
-                        android_jni_type(&field.ty).expect("supported struct field has a JNI type");
+                        android_jni_type(&field.ty);
                     let method = android_jni_call_method(&jni_type);
                     out.push_str(&format!(
                         "    jmethodID getter{index} = env->GetMethodID(valueClass.get(), \"{getter}\", \"(){signature}\");\n    if (getter{index} == nullptr) throw std::runtime_error(\"unable to resolve Kotlin data-class getter\");\n"
@@ -2826,7 +2760,7 @@ fn render_android_jni_named_value_helpers(out: &mut String, idl: &PluginIdl, pac
                 for (index, field) in ty.fields.iter().enumerate() {
                     let field_name = cpp_identifier(&field.name);
                     let jni_type =
-                        android_jni_type(&field.ty).expect("supported struct field has a JNI type");
+                        android_jni_type(&field.ty);
                     let conversion =
                         android_cpp_to_jni_field(&field.ty, &format!("value.{field_name}"));
                     if android_jni_type_is_reference(&jni_type) {
@@ -2840,15 +2774,15 @@ fn render_android_jni_named_value_helpers(out: &mut String, idl: &PluginIdl, pac
                 }
                 out.push_str("    return env->NewObjectA(valueClass.get(), constructor, arguments.data());\n}\n\n");
             }
-            NamedTypeKind::Error => unreachable!("errors are not Android value types"),
+            BridgeTypeKind::Error => unreachable!("errors are not Android value types"),
         }
     }
     out.push_str("} // namespace\n");
 }
 
-fn android_jni_to_cpp_field(ty: &TypeRef, index: usize) -> String {
+fn android_jni_to_cpp_field(ty: &BridgeType, index: usize) -> String {
     if let Some(value) = android_cpp_value(ty) {
-        return match ty.name.as_str() {
+        return match bridge_type_name(ty) {
             "String" => format!("fromJniString(env, static_cast<jstring>(field{index}.get()))"),
             "Bytes" => format!("fromJniBytes(env, static_cast<jbyteArray>(field{index}.get()))"),
             _ if value.unsigned => format!("std::bit_cast<{}>(field{index})", value.cpp),
@@ -2857,20 +2791,20 @@ fn android_jni_to_cpp_field(ty: &TypeRef, index: usize) -> String {
     }
     format!(
         "nexaFromJni{}(env, field{index}.get())",
-        cpp_identifier(&ty.name)
+        cpp_identifier(bridge_type_name(ty))
     )
 }
 
-fn android_cpp_to_jni_field(ty: &TypeRef, expression: &str) -> String {
+fn android_cpp_to_jni_field(ty: &BridgeType, expression: &str) -> String {
     if let Some(value) = android_cpp_value(ty) {
-        return match ty.name.as_str() {
+        return match bridge_type_name(ty) {
             "String" => format!("toJniString(env, {expression})"),
             "Bytes" => format!("toJniBytes(env, {expression})"),
             _ if value.unsigned => format!("std::bit_cast<{}>({expression})", value.jni),
             _ => format!("static_cast<{}>({expression})", value.jni),
         };
     }
-    format!("nexaToJni{}(env, {expression})", cpp_identifier(&ty.name))
+    format!("nexaToJni{}(env, {expression})", cpp_identifier(bridge_type_name(ty)))
 }
 
 fn android_jni_call_method(jni_type: &str) -> &'static str {
@@ -2914,39 +2848,12 @@ fn android_kotlin_getter_name(field_name: &str) -> String {
     }
 }
 
-fn android_cpp_referenced_errors(idl: &PluginIdl) -> Vec<&nexa_plugin_idl::NamedType> {
-    let names = idl
-        .interfaces
-        .iter()
-        .filter(|interface| {
-            matches!(
-                interface.kind,
-                InterfaceKind::Service | InterfaceKind::NativeClass
-            )
-        })
-        .flat_map(|interface| &interface.methods)
-        .filter_map(android_cpp_method_error_type)
-        .map(|ty| ty.name.as_str())
-        .collect::<std::collections::BTreeSet<_>>();
-    names
-        .into_iter()
-        .filter_map(|name| {
-            idl.types
-                .iter()
-                .find(|ty| ty.kind == NamedTypeKind::Error && ty.name == name)
-        })
-        .collect()
-}
-
 fn android_cpp_error_factory_method(error_name: &str, case_index: usize) -> String {
     format!("create{}Case{case_index}", cpp_identifier(error_name))
 }
 
-fn android_jni_signature(ty: &TypeRef) -> String {
-    match android_jni_type(ty)
-        .expect("validated Android typed error payload")
-        .as_str()
-    {
+fn android_jni_signature(ty: &BridgeType) -> String {
+    match android_jni_type(ty).as_str() {
         "jboolean" => "Z".to_owned(),
         "jbyte" => "B".to_owned(),
         "jshort" => "S".to_owned(),
@@ -2956,20 +2863,32 @@ fn android_jni_signature(ty: &TypeRef) -> String {
         "jdouble" => "D".to_owned(),
         "jstring" => "Ljava/lang/String;".to_owned(),
         "jbyteArray" => "[B".to_owned(),
-        _ => unreachable!("validated Android typed error payload has a JNI type"),
+        // Error payloads are validated to primitive, `String`, and `Bytes`
+        // shapes, all of which map above. Anything else cannot reach this
+        // signature.
+        _ => {
+            debug_assert!(
+                false,
+                "validated Android typed error payload should have a JNI type"
+            );
+            "Ljava/lang/Object;".to_owned()
+        }
     }
 }
 
 fn render_jni_argument_conversions(
     out: &mut String,
-    parameters: &[nexa_plugin_idl::Parameter],
+    parameters: &[BridgeParameter],
     failure_return: &str,
 ) -> Vec<String> {
     parameters
         .iter()
         .enumerate()
         .map(|(index, parameter)| {
-            if android_cpp_map_type(&parameter.ty).is_some() {
+            if matches!(
+                bridge_strip_optional(&parameter.ty),
+                BridgeType::Map(..)
+            ) {
                 let mut local = format!("nexaJniMapArgument{index}");
                 while parameters.iter().any(|parameter| parameter.name == local) {
                     local.push('_');
@@ -2982,7 +2901,10 @@ fn render_jni_argument_conversions(
                     &local,
                 );
             }
-            if matches!(parameter.ty.name.as_str(), "Array" | "Set") {
+            if matches!(
+                bridge_strip_optional(&parameter.ty),
+                BridgeType::Array(_) | BridgeType::Set(_)
+            ) {
                 let mut local = format!("nexaJniArrayArgument{index}");
                 while parameters.iter().any(|parameter| parameter.name == local) {
                     local.push('_');
@@ -2996,7 +2918,7 @@ fn render_jni_argument_conversions(
                 );
             }
             let Some(scalar) = android_cpp_value(&parameter.ty) else {
-                let name = cpp_identifier(&parameter.ty.name);
+                let name = cpp_identifier(bridge_type_name(&parameter.ty));
                 let local = format!("nexaJniNamedArgument{index}");
                 out.push_str(&format!(
                     "        auto {local} = nexaFromJni{name}(env, {});\n        if (env->ExceptionCheck()) {failure_return}\n",
@@ -3041,17 +2963,28 @@ fn render_jni_argument_conversions(
 
 fn render_jni_array_argument_conversion(
     out: &mut String,
-    ty: &TypeRef,
+    ty: &BridgeType,
     value: &str,
     failure_return: &str,
     local: &str,
 ) -> String {
-    let element = &ty.arguments[0];
-    if (ty.name == "Array"
-        && (matches!(element.name.as_str(), "Array" | "Set")
-            || android_cpp_map_type(element).is_some()
-            || element.optional))
-        || (ty.name == "Set" && element.optional)
+    let element = match ty {
+        BridgeType::Array(element) | BridgeType::Set(element) => element,
+        _ => {
+            debug_assert!(
+                false,
+                "array argument conversion requires a validated array or set type"
+            );
+            return String::new();
+        }
+    };
+    let is_set = matches!(ty, BridgeType::Set(_));
+    if (!is_set
+        && matches!(
+            bridge_strip_optional(element),
+            BridgeType::Array(_) | BridgeType::Set(_) | BridgeType::Map(..)
+        ))
+        || element.is_optional()
     {
         return render_jni_nested_array_argument_conversion(out, ty, value, failure_return, local);
     }
@@ -3060,20 +2993,31 @@ fn render_jni_array_argument_conversion(
 
 fn render_jni_nested_array_argument_conversion(
     out: &mut String,
-    ty: &TypeRef,
+    ty: &BridgeType,
     value: &str,
     failure_return: &str,
     local: &str,
 ) -> String {
-    let element = &ty.arguments[0];
-    let cpp_type = android_cpp_type(ty).expect("validated nested array type");
-    let is_set = ty.name == "Set";
+    // Optional collections are rejected by plan validation; the dispatch
+    // above only routes non-optional arrays and sets here.
+    let element = match ty {
+        BridgeType::Array(element) | BridgeType::Set(element) => element,
+        _ => {
+            debug_assert!(
+                false,
+                "nested array conversion requires a validated array or set type"
+            );
+            return String::new();
+        }
+    };
+    let cpp_type = android_cpp_type(ty);
+    let is_set = matches!(ty, BridgeType::Set(_));
     let reserve = if is_set {
         String::new()
     } else {
         format!("{local}.reserve(static_cast<std::size_t>({local}Length));\n        ")
     };
-    let null_element_check = if element.optional {
+    let null_element_check = if element.is_optional() {
         String::new()
     } else {
         format!(
@@ -3084,7 +3028,7 @@ fn render_jni_nested_array_argument_conversion(
         "        if ({value} == nullptr) {{\n            throwIllegalState(env, \"non-null Nexa collection was null at the JNI boundary\");\n            {failure_return}\n        }}\n        const jsize {local}Length = env->GetArrayLength(static_cast<jobjectArray>({value}));\n        if (env->ExceptionCheck()) {failure_return}\n        {cpp_type} {local};\n        {reserve}for (jsize {local}Index = 0; {local}Index < {local}Length; ++{local}Index) {{\n            auto {local}Element = env->GetObjectArrayElement(static_cast<jobjectArray>({value}), {local}Index);\n            if (env->ExceptionCheck()) {failure_return}\n{null_element_check}"
     ));
     let element_local = format!("{local}ElementValue");
-    let element_value = if element.name == "Map" {
+    let element_value = if matches!(bridge_strip_optional(element), BridgeType::Map(..)) {
         render_jni_map_argument_conversion(
             out,
             element,
@@ -3092,7 +3036,10 @@ fn render_jni_nested_array_argument_conversion(
             failure_return,
             &element_local,
         )
-    } else if matches!(element.name.as_str(), "Array" | "Set") {
+    } else if matches!(
+        bridge_strip_optional(element),
+        BridgeType::Array(_) | BridgeType::Set(_)
+    ) {
         render_jni_array_argument_conversion(
             out,
             element,
@@ -3122,17 +3069,34 @@ fn render_jni_nested_array_argument_conversion(
 
 fn render_jni_array_argument_conversion_flat(
     out: &mut String,
-    ty: &TypeRef,
+    ty: &BridgeType,
     value: &str,
     failure_return: &str,
     local: &str,
 ) -> String {
-    let element = &ty.arguments[0];
-    let is_set = ty.name == "Set";
+    let element = match ty {
+        BridgeType::Array(element) | BridgeType::Set(element) => element,
+        _ => {
+            debug_assert!(
+                false,
+                "flat array conversion requires a validated array or set type"
+            );
+            return String::new();
+        }
+    };
+    let is_set = matches!(ty, BridgeType::Set(_));
     if android_primitive_array(element).is_none() {
-        let scalar =
-            android_reference_array_element(element).expect("validated reference array element");
-        let (jni_type, conversion) = if element.name == "String" {
+        let Some(scalar) = android_reference_array_element(element) else {
+            debug_assert!(
+                false,
+                "validated reference array elements map to an Android value"
+            );
+            return String::new();
+        };
+        let (jni_type, conversion) = if matches!(
+            element.as_ref(),
+            BridgeType::Scalar(BridgeScalar::String)
+        ) {
             ("jstring", "fromJniString")
         } else {
             ("jbyteArray", "fromJniBytes")
@@ -3268,26 +3232,26 @@ fn android_boxed_primitive(name: &str) -> Option<AndroidBoxedPrimitive> {
     })
 }
 
-fn android_jni_map_boxed_primitive(ty: &TypeRef) -> Option<AndroidBoxedPrimitive> {
-    let carrier_name = match ty.name.as_str() {
-        "UInt8" => "Int8",
-        "UInt16" => "Int16",
-        "UInt32" => "Int32",
-        "UInt64" => "Int64",
-        name => name,
+fn android_jni_map_boxed_primitive(ty: &BridgeType) -> Option<AndroidBoxedPrimitive> {
+    let carrier_name = match bridge_strip_optional(ty) {
+        BridgeType::Scalar(BridgeScalar::UInt8) => "Int8",
+        BridgeType::Scalar(BridgeScalar::UInt16) => "Int16",
+        BridgeType::Scalar(BridgeScalar::UInt32) => "Int32",
+        BridgeType::Scalar(BridgeScalar::UInt64) => "Int64",
+        _ => return android_boxed_primitive(bridge_type_name(ty)),
     };
     android_boxed_primitive(carrier_name)
 }
 
 fn render_android_jni_map_converter(
     out: &mut String,
-    ty: &TypeRef,
+    ty: &BridgeType,
     name: &str,
     to_java: bool,
     failure_return: &str,
 ) -> String {
-    if let Some((key, value)) = android_cpp_map_type(ty) {
-        let cpp_type = android_cpp_type(ty).expect("validated nested Android map type");
+    if let BridgeType::Map(key, value) = bridge_strip_optional(ty) {
+        let cpp_type = android_cpp_type(ty);
         let key_converter = render_android_jni_map_converter(
             out,
             key,
@@ -3302,15 +3266,15 @@ fn render_android_jni_map_converter(
             to_java,
             failure_return,
         );
-        return match (to_java, ty.optional) {
+        return match (to_java, ty.is_optional()) {
             (true, true) => format!(
                 "[&](const {cpp_type}& value) -> jobject {{ if (!value.has_value()) return nullptr; return toJniMap(env, *value, {key_converter}, {value_converter}); }}"
             ),
             (false, true) => {
                 let map_type = format!(
                     "std::map<{}, {}>",
-                    android_cpp_type(key).expect("validated nested Android map key"),
-                    android_cpp_type(value).expect("validated nested Android map value")
+                    android_cpp_type(key),
+                    android_cpp_type(value)
                 );
                 format!(
                     "[&](jobject raw) -> {cpp_type} {{ if (raw == nullptr) return std::nullopt; return fromJniMap<{map_type}>(env, raw, {key_converter}, {value_converter}); }}"
@@ -3324,19 +3288,21 @@ fn render_android_jni_map_converter(
             ),
         };
     }
-    if matches!(ty.name.as_str(), "Array" | "Set") {
-        let [element] = ty.arguments.as_slice() else {
-            unreachable!("validated Android map collection has one element type")
-        };
-        let collection_type = android_cpp_type(ty)
-            .expect("validated Android map collection has a C++ representation");
-        if matches!(ty.name.as_str(), "Array" | "Set")
-            && (matches!(element.name.as_str(), "Array" | "Set")
-                || android_cpp_map_type(element).is_some()
-                || element.optional)
+    if let BridgeType::Array(element) | BridgeType::Set(element) = ty {
+        let is_set = matches!(ty, BridgeType::Set(_));
+        let collection_type = android_cpp_type(ty);
+        if matches!(
+            bridge_strip_optional(element),
+            BridgeType::Array(_) | BridgeType::Set(_) | BridgeType::Map(..)
+        ) || element.is_optional()
         {
-            let element_class = android_jni_class_descriptor(element)
-                .expect("validated nested Android collection has a JNI descriptor");
+            let Some(element_class) = android_jni_class_descriptor(element) else {
+                debug_assert!(
+                    false,
+                    "validated nested Android collections have JNI descriptors"
+                );
+                return String::new();
+            };
             let converter = render_android_jni_map_converter(
                 out,
                 element,
@@ -3344,18 +3310,18 @@ fn render_android_jni_map_converter(
                 to_java,
                 failure_return,
             );
-            let set_reserve = ty.name != "Set";
+            let set_reserve = !is_set;
             let reserve = if set_reserve {
                 "            output.reserve(static_cast<std::size_t>(length));\n"
             } else {
                 ""
             };
-            let null_check = if element.optional {
+            let null_check = if element.is_optional() {
                 ""
             } else {
                 "                if (element.get() == nullptr) { throwIllegalState(env, \"non-null Nexa nested collection contained null\"); throw std::runtime_error(\"null JNI nested collection element\"); }\n"
             };
-            let append = if ty.name == "Set" {
+            let append = if is_set {
                 "output.insert(std::move(value));"
             } else {
                 "output.push_back(std::move(value));"
@@ -3371,15 +3337,26 @@ fn render_android_jni_map_converter(
             };
         }
         let Some(array) = android_primitive_array(element) else {
-            android_reference_array_element(element)
-                .expect("validated Android map collection has a reference element");
-            let element_class = if element.name == "String" {
+            let Some(_) = android_reference_array_element(element) else {
+                debug_assert!(
+                    false,
+                    "validated Android map collection has a reference element"
+                );
+                return String::new();
+            };
+            let element_class = if matches!(
+                element.as_ref(),
+                BridgeType::Scalar(BridgeScalar::String)
+            ) {
                 "java/lang/String"
             } else {
                 "[B"
             };
             if to_java {
-                let to_jni = if element.name == "String" {
+                let to_jni = if matches!(
+                    element.as_ref(),
+                    BridgeType::Scalar(BridgeScalar::String)
+                ) {
                     "toJniString"
                 } else {
                     "toJniBytes"
@@ -3388,17 +3365,17 @@ fn render_android_jni_map_converter(
                     "[&](const {collection_type}& values) -> jobject {{\n            if (values.size() > static_cast<std::size_t>(std::numeric_limits<jsize>::max())) throw std::length_error(\"native plugin collection is too large for JNI\");\n            const auto length = static_cast<jsize>(values.size());\n            ScopedLocalRef<jclass> elementClass(env, env->FindClass(\"{element_class}\"));\n            requireJniMapOperation(env, \"unable to resolve JNI map collection element type\");\n            ScopedLocalRef<jobjectArray> output(env, env->NewObjectArray(length, elementClass.get(), nullptr));\n            requireJniMapOperation(env, \"unable to allocate JNI map collection\");\n            jsize index = 0;\n            for (const auto& value : values) {{\n                ScopedLocalRef<jobject> element(env, {to_jni}(env, value));\n                requireJniMapOperation(env, \"unable to convert native map collection element\");\n                env->SetObjectArrayElement(output.get(), index++, element.get());\n                requireJniMapOperation(env, \"unable to populate JNI map collection\");\n            }}\n            return output.release();\n        }}"
                 );
             }
-            let from_jni = if element.name == "String" {
+            let from_jni = if matches!(element.as_ref(), BridgeType::Scalar(BridgeScalar::String)) {
                 "fromJniString"
             } else {
                 "fromJniBytes"
             };
-            let reference_type = if element.name == "String" {
+            let reference_type = if matches!(element.as_ref(), BridgeType::Scalar(BridgeScalar::String)) {
                 "jstring"
             } else {
                 "jbyteArray"
             };
-            let append = if ty.name == "Set" {
+            let append = if matches!(ty, BridgeType::Set(_)) {
                 "output.insert(std::move(value));"
             } else {
                 "output.push_back(std::move(value));"
@@ -3407,8 +3384,13 @@ fn render_android_jni_map_converter(
                 "[&](jobject raw) -> {collection_type} {{\n            if (raw == nullptr) {{ throwIllegalState(env, \"non-null Nexa map collection was null at the JNI boundary\"); throw std::runtime_error(\"null JNI map collection\"); }}\n            auto input = static_cast<jobjectArray>(raw);\n            const jsize length = env->GetArrayLength(input);\n            requireJniMapOperation(env, \"unable to read JNI map collection length\");\n            {collection_type} output;\n            for (jsize index = 0; index < length; ++index) {{\n                ScopedLocalRef<jobject> element(env, env->GetObjectArrayElement(input, index));\n                requireJniMapOperation(env, \"unable to read JNI map collection element\");\n                if (element.get() == nullptr) {{ throwIllegalState(env, \"non-null Nexa map collection contained null\"); throw std::runtime_error(\"null JNI map collection element\"); }}\n                auto value = {from_jni}(env, static_cast<{reference_type}>(element.get()));\n                requireJniMapOperation(env, \"unable to convert JNI map collection element\");\n                {append}\n            }}\n            return output;\n        }}"
             );
         };
-        let scalar = android_cpp_value(element)
-            .expect("validated Android map collection has a native scalar element");
+        let Some(scalar) = android_cpp_value(element) else {
+            debug_assert!(
+                false,
+                "validated map collection elements map to an Android value"
+            );
+            return String::new();
+        };
         if to_java {
             let carrier = if scalar.unsigned {
                 format!(
@@ -3431,7 +3413,7 @@ fn render_android_jni_map_converter(
         } else {
             format!("static_cast<{}>(carrier[index])", scalar.cpp)
         };
-        let insertion = if ty.name == "Set" {
+        let insertion = if matches!(ty, BridgeType::Set(_)) {
             format!("output.insert({converted});")
         } else {
             format!("output.push_back({converted});")
@@ -3441,11 +3423,20 @@ fn render_android_jni_map_converter(
             array.jni_array, array.element_jni, array.get_region,
         );
     }
-    let scalar = android_cpp_value(ty).expect("validated Android map scalar");
-    if ty.optional {
-        let cpp_type = android_cpp_type(ty).expect("validated nullable map scalar");
-        if matches!(ty.name.as_str(), "String" | "Bytes") {
-            let (class, converter) = if ty.name == "String" {
+    let Some(scalar) = android_cpp_value(ty) else {
+        debug_assert!(false, "validated Android map scalar should map");
+        return String::new();
+    };
+    if ty.is_optional() {
+        let cpp_type = android_cpp_type(ty);
+        if matches!(
+            bridge_strip_optional(ty),
+            BridgeType::Scalar(BridgeScalar::String | BridgeScalar::Bytes)
+        ) {
+            let (class, converter) = if matches!(
+                bridge_strip_optional(ty),
+                BridgeType::Scalar(BridgeScalar::String)
+            ) {
                 ("jstring", "String")
             } else {
                 ("jbyteArray", "Bytes")
@@ -3460,12 +3451,22 @@ fn render_android_jni_map_converter(
                 )
             };
         }
-        let boxed = android_boxed_primitive(&ty.name)
-            .expect("validated nullable map primitive has a boxed JNI type");
+        let Some(boxed) = android_boxed_primitive(bridge_type_name(ty)) else {
+            debug_assert!(
+                false,
+                "validated nullable map primitives have a boxed JNI type"
+            );
+            return String::new();
+        };
         let class_name = format!("{name}Class");
-        let method_name = format!("{name}Method");
+        let method_name = format!("{name}BridgeMethod");
         let (lookup, lambda) = if to_java {
-            let carrier = if scalar.unsigned && ty.name == "UInt64" {
+            let carrier = if scalar.unsigned
+                && matches!(
+                    bridge_strip_optional(ty),
+                    BridgeType::Scalar(BridgeScalar::UInt64)
+                )
+            {
                 "std::bit_cast<jlong>(static_cast<std::uint64_t>(*value))".to_owned()
             } else if scalar.unsigned {
                 "static_cast<jlong>(*value)".to_owned()
@@ -3497,7 +3498,10 @@ fn render_android_jni_map_converter(
         out.push_str(&lookup);
         return lambda;
     }
-    if ty.name == "String" {
+    if matches!(
+        bridge_strip_optional(ty),
+        BridgeType::Scalar(BridgeScalar::String)
+    ) {
         return if to_java {
             "[&](const std::string& value) -> jobject { return toJniString(env, value); }"
                 .to_owned()
@@ -3505,7 +3509,10 @@ fn render_android_jni_map_converter(
             "[&](jobject raw) -> std::string { return fromJniString(env, static_cast<jstring>(raw)); }".to_owned()
         };
     }
-    if ty.name == "Bytes" {
+    if matches!(
+        bridge_strip_optional(ty),
+        BridgeType::Scalar(BridgeScalar::Bytes)
+    ) {
         return if to_java {
             "[&](const std::vector<std::uint8_t>& value) -> jobject { return toJniBytes(env, value); }"
                 .to_owned()
@@ -3516,7 +3523,7 @@ fn render_android_jni_map_converter(
     }
     let boxed = android_jni_map_boxed_primitive(ty).expect("validated boxed map scalar");
     let class_name = format!("{name}Class");
-    let method_name = format!("{name}Method");
+    let method_name = format!("{name}BridgeMethod");
     let (lookup, lambda) = if to_java {
         let carrier = if scalar.unsigned {
             format!(
@@ -3555,16 +3562,19 @@ fn render_android_jni_map_converter(
 
 fn render_jni_map_argument_conversion(
     out: &mut String,
-    ty: &TypeRef,
+    ty: &BridgeType,
     value: &str,
     failure_return: &str,
     local: &str,
 ) -> String {
-    let (key, map_value) = android_cpp_map_type(ty).expect("validated Android map type");
+    let BridgeType::Map(key, map_value) = bridge_strip_optional(ty) else {
+        debug_assert!(false, "map argument conversion requires a validated map type");
+        return String::new();
+    };
     let map_cpp_type = format!(
         "std::map<{}, {}>",
-        android_cpp_type(key).expect("validated Android map key type"),
-        android_cpp_type(map_value).expect("validated Android map value type")
+        android_cpp_type(key),
+        android_cpp_type(map_value)
     );
     let key_converter =
         render_android_jni_map_converter(out, key, &format!("{local}Key"), false, failure_return);
@@ -3575,7 +3585,7 @@ fn render_jni_map_argument_conversion(
         false,
         failure_return,
     );
-    if ty.optional {
+    if ty.is_optional() {
         out.push_str(&format!(
             "        std::optional<{map_cpp_type}> {local};\n        if ({value} != nullptr) {{\n            {local}.emplace(fromJniMap<{map_cpp_type}>(env, {value}, {key_converter}, {value_converter}));\n            if (env->ExceptionCheck()) {failure_return}\n        }}\n",
         ));
@@ -3589,23 +3599,34 @@ fn render_jni_map_argument_conversion(
 
 fn render_jni_optional_argument_conversion(
     out: &mut String,
-    ty: &TypeRef,
+    ty: &BridgeType,
     value: &str,
     failure_return: &str,
     local: &str,
 ) -> String {
-    let scalar = android_cpp_value(ty).expect("validated optional JNI value");
+    let Some(scalar) = android_cpp_value(ty) else {
+        debug_assert!(
+            false,
+            "validated optional JNI values map to an Android value"
+        );
+        return String::new();
+    };
     out.push_str(&format!("        std::optional<{}> {local};\n", scalar.cpp));
-    match ty.name.as_str() {
-        "String" => out.push_str(&format!(
+    match bridge_strip_optional(ty) {
+        BridgeType::Scalar(BridgeScalar::String) => out.push_str(&format!(
             "        if ({value} != nullptr) {{\n            {local} = fromJniString(env, static_cast<jstring>({value}));\n            if (env->ExceptionCheck()) {failure_return}\n        }}\n"
         )),
-        "Bytes" => out.push_str(&format!(
+        BridgeType::Scalar(BridgeScalar::Bytes) => out.push_str(&format!(
             "        if ({value} != nullptr) {{\n            {local} = fromJniBytes(env, static_cast<jbyteArray>({value}));\n            if (env->ExceptionCheck()) {failure_return}\n        }}\n"
         )),
         _ => {
-            let boxed = android_boxed_primitive(&ty.name)
-                .expect("validated optional boxed primitive");
+            let Some(boxed) = android_boxed_primitive(bridge_type_name(ty)) else {
+                debug_assert!(
+                    false,
+                    "validated nullable map primitives have a boxed JNI type"
+                );
+                return String::new();
+            };
             out.push_str(&format!(
                 "        if ({value} != nullptr) {{\n            jclass {local}Class = env->FindClass(\"{}\");\n            if ({local}Class == nullptr) {failure_return}\n            jmethodID {local}Unbox = env->GetMethodID({local}Class, \"{}\", \"{}\");\n            if ({local}Unbox == nullptr) {failure_return}\n            {local} = static_cast<{}>(env->{}({value}, {local}Unbox));\n            if (env->ExceptionCheck()) {failure_return}\n        }}\n",
                 boxed.class_name,
@@ -3619,8 +3640,12 @@ fn render_jni_optional_argument_conversion(
     format!("std::move({local})")
 }
 
-fn render_jni_return(out: &mut String, ty: &TypeRef, expression: &str) {
-    if let Some((key, map_value)) = android_cpp_map_type(ty) {
+fn render_jni_return(out: &mut String, ty: &BridgeType, expression: &str) {
+    // Optional wrappers are transparent to shape dispatch, mirroring how
+    // the historical renderer matched on the inner type name.
+    let shape = bridge_strip_optional(ty);
+    let optional = ty.is_optional();
+    if let BridgeType::Map(key, map_value) = shape {
         out.push_str("        return [&]() -> jobject {\n");
         let key_converter = render_android_jni_map_converter(
             out,
@@ -3636,7 +3661,7 @@ fn render_jni_return(out: &mut String, ty: &TypeRef, expression: &str) {
             true,
             "return nullptr;",
         );
-        if ty.optional {
+        if optional {
             out.push_str(&format!(
                 "            auto nexaJniOptionalMapReturn = {expression};\n            if (!nexaJniOptionalMapReturn.has_value()) return nullptr;\n            return toJniMap(env, *nexaJniOptionalMapReturn, {key_converter}, {value_converter});\n        }}();\n",
             ));
@@ -3647,19 +3672,20 @@ fn render_jni_return(out: &mut String, ty: &TypeRef, expression: &str) {
         }
         return;
     }
-    if matches!(ty.name.as_str(), "Array" | "Set") {
-        let element = &ty.arguments[0];
-        if (ty.name == "Array"
-            && (matches!(element.name.as_str(), "Array" | "Set")
-                || android_cpp_map_type(element).is_some()
-                || element.optional))
-            || (ty.name == "Set" && element.optional)
+    if let BridgeType::Array(element) | BridgeType::Set(element) = shape {
+        let is_set = matches!(ty, BridgeType::Set(_));
+        if (!is_set
+            && matches!(
+                bridge_strip_optional(element),
+                BridgeType::Array(_) | BridgeType::Set(_) | BridgeType::Map(..)
+            ))
+            || element.is_optional()
         {
             render_jni_nested_array_return(out, ty, expression);
             return;
         }
-        let cpp_element = android_cpp_type(element).expect("validated collection element");
-        if ty.name == "Set" {
+        let cpp_element = android_cpp_type(element);
+        if matches!(shape, BridgeType::Set(_)) {
             out.push_str(&format!(
                 "        auto nexaArraySetValues = {expression};\n        std::vector<{cpp_element}> nexaArrayValues(nexaArraySetValues.begin(), nexaArraySetValues.end());\n"
             ));
@@ -3667,8 +3693,17 @@ fn render_jni_return(out: &mut String, ty: &TypeRef, expression: &str) {
             out.push_str(&format!("        auto nexaArrayValues = {expression};\n"));
         }
         if android_primitive_array(element).is_none() {
-            android_reference_array_element(element).expect("validated reference array element");
-            let (element_class, conversion) = if element.name == "String" {
+            let Some(_) = android_reference_array_element(element) else {
+                debug_assert!(
+                    false,
+                    "validated reference array elements map to an Android value"
+                );
+                return;
+            };
+            let (element_class, conversion) = if matches!(
+                element.as_ref(),
+                BridgeType::Scalar(BridgeScalar::String)
+            ) {
                 ("java/lang/String", "toJniString")
             } else {
                 ("[B", "toJniBytes")
@@ -3678,7 +3713,13 @@ fn render_jni_return(out: &mut String, ty: &TypeRef, expression: &str) {
             ));
             return;
         }
-        let array = android_primitive_array(element).expect("validated primitive array");
+        let Some(array) = android_primitive_array(element) else {
+            debug_assert!(
+                false,
+                "validated primitive array elements have backing stores"
+            );
+            return;
+        };
         out.push_str(&format!(
             "        if (nexaArrayValues.size() > static_cast<std::size_t>(std::numeric_limits<jsize>::max())) throw std::length_error(\"native plugin array is too large for JNI\");\n        const auto nexaArrayLength = static_cast<jsize>(nexaArrayValues.size());\n        auto nexaArrayOutput = env->New{}Array(nexaArrayLength);\n        if (nexaArrayOutput == nullptr) return nullptr;\n",
             array.kotlin_array.trim_end_matches("Array"),
@@ -3692,7 +3733,7 @@ fn render_jni_return(out: &mut String, ty: &TypeRef, expression: &str) {
         return;
     }
     let Some(scalar) = android_cpp_value(ty) else {
-        let name = cpp_identifier(&ty.name);
+        let name = cpp_identifier(bridge_type_name(ty));
         out.push_str(&format!(
             "        return nexaToJni{name}(env, {expression});\n"
         ));
@@ -3704,13 +3745,18 @@ fn render_jni_return(out: &mut String, ty: &TypeRef, expression: &str) {
             "            auto nexaOptionalValue = {expression};\n"
         ));
         out.push_str("            if (!nexaOptionalValue) return nullptr;\n");
-        match ty.name.as_str() {
+        match bridge_type_name(ty) {
             "String" => out.push_str("            return toJniString(env, *nexaOptionalValue);\n"),
             "Bytes" => out.push_str("            return toJniBytes(env, *nexaOptionalValue);\n"),
             _ => {
-                let boxed =
-                    android_boxed_primitive(&ty.name).expect("validated optional boxed primitive");
-                let value_expression = if scalar.unsigned && ty.name == "UInt64" {
+                let Some(boxed) = android_boxed_primitive(bridge_type_name(ty)) else {
+                    debug_assert!(
+                        false,
+                        "validated optional boxed primitive has a boxed JNI type"
+                    );
+                    return;
+                };
+                let value_expression = if scalar.unsigned && bridge_type_name(ty) == "UInt64" {
                     "std::bit_cast<jlong>(static_cast<std::uint64_t>(*nexaOptionalValue))"
                         .to_owned()
                 } else if scalar.unsigned {
@@ -3743,12 +3789,23 @@ fn render_jni_return(out: &mut String, ty: &TypeRef, expression: &str) {
     }
 }
 
-fn render_jni_nested_array_return(out: &mut String, ty: &TypeRef, expression: &str) {
-    let element = &ty.arguments[0];
-    let element_class = android_jni_class_descriptor(element)
-        .expect("validated nested array element has a JNI array class");
-    if ty.name == "Set" {
-        let element_type = android_cpp_type(element).expect("validated set element type");
+fn render_jni_nested_array_return(out: &mut String, ty: &BridgeType, expression: &str) {
+    let element: &BridgeType = match ty {
+        BridgeType::Array(element) | BridgeType::Set(element) => element,
+        _ => {
+            debug_assert!(false, "nested array return requires an array or set type");
+            return;
+        }
+    };
+    let Some(element_class) = android_jni_class_descriptor(element) else {
+        debug_assert!(
+            false,
+            "validated nested array element has a JNI array class"
+        );
+        return;
+    };
+    if matches!(ty, BridgeType::Set(_)) {
+        let element_type = android_cpp_type(element);
         out.push_str(&format!(
             "        auto nexaNestedArraySetValues = {expression};\n        std::vector<{element_type}> nexaNestedArrayValues(nexaNestedArraySetValues.begin(), nexaNestedArraySetValues.end());\n"
         ));
@@ -3770,12 +3827,54 @@ fn render_jni_nested_array_return(out: &mut String, ty: &TypeRef, expression: &s
     );
 }
 
-fn android_jni_reference_class_available(ty: &TypeRef) -> bool {
-    if android_boxed_primitive(&ty.name).is_some() && ty.optional {
+/// Strips one optional layer, mirroring how the historical renderers
+/// matched on `TypeRef::name` while the `optional` flag lived separately.
+/// Only use where the original code ignored the flag in the same check.
+fn bridge_strip_optional(ty: &BridgeType) -> &BridgeType {
+    match ty {
+        BridgeType::Optional(inner) => inner,
+        other => other,
+    }
+}
+
+/// Source-level name of a resolved type, mirroring the IDL spelling the
+/// renderers historically matched on (`optional` is transparent, like the
+/// old `TypeRef::name` field).
+fn bridge_type_name(ty: &BridgeType) -> &str {
+    match ty {
+        BridgeType::Scalar(scalar) => match scalar {
+            BridgeScalar::Void => "Void",
+            BridgeScalar::Bool => "Bool",
+            BridgeScalar::Int8 => "Int8",
+            BridgeScalar::Int16 => "Int16",
+            BridgeScalar::Int32 => "Int32",
+            BridgeScalar::Int64 => "Int64",
+            BridgeScalar::UInt8 => "UInt8",
+            BridgeScalar::UInt16 => "UInt16",
+            BridgeScalar::UInt32 => "UInt32",
+            BridgeScalar::UInt64 => "UInt64",
+            BridgeScalar::Float32 => "Float32",
+            BridgeScalar::Float64 => "Float64",
+            BridgeScalar::String => "String",
+            BridgeScalar::Bytes => "Bytes",
+        },
+        BridgeType::Named { name, .. } => name,
+        BridgeType::Array(_) => "Array",
+        BridgeType::Set(_) => "Set",
+        BridgeType::Map(..) => "Map",
+        BridgeType::Pair(..) => "Pair",
+        BridgeType::Triple(..) => "Triple",
+        BridgeType::Optional(inner) => bridge_type_name(inner),
+        BridgeType::Result { .. } => "Result",
+    }
+}
+
+fn android_jni_reference_class_available(ty: &BridgeType) -> bool {
+    if android_boxed_primitive(bridge_type_name(ty)).is_some() && ty.is_optional() {
         return true;
     }
     matches!(
-        ty.name.as_str(),
+        bridge_type_name(ty),
         "Bool"
             | "Int8"
             | "Int16"
@@ -3792,39 +3891,62 @@ fn android_jni_reference_class_available(ty: &TypeRef) -> bool {
             | "Map"
             | "Array"
             | "Set"
-    ) || (ty.arguments.is_empty() && android_cpp_value(ty).is_none())
+    ) || (bridge_type_arguments(ty).is_empty() && android_cpp_value(ty).is_none())
 }
 
-fn android_jni_class_descriptor(ty: &TypeRef) -> Option<String> {
-    if ty.optional {
-        if let Some(boxed) = android_boxed_primitive(&ty.name) {
+/// Generic arguments of a compound bridge type, mirroring the old
+/// `TypeRef::arguments` vector (`optional` was a separate flag there, so
+/// `Optional` contributes no arguments here either).
+fn bridge_type_arguments(ty: &BridgeType) -> Vec<&BridgeType> {
+    match ty {
+        BridgeType::Array(element) | BridgeType::Set(element) => vec![element],
+        BridgeType::Map(key, value) | BridgeType::Pair(key, value) => vec![key, value],
+        BridgeType::Triple(first, second, third) => vec![first, second, third],
+        BridgeType::Result { success, .. } => vec![success],
+        BridgeType::Scalar(_) | BridgeType::Named { .. } | BridgeType::Optional(_) => Vec::new(),
+    }
+}
+
+fn android_jni_class_descriptor(ty: &BridgeType) -> Option<String> {
+    if ty.is_optional() {
+        if let Some(boxed) = android_boxed_primitive(bridge_type_name(ty)) {
             return Some(format!("L{};", boxed.class_name));
         }
     }
-    match ty.name.as_str() {
-        "Bool" => Some("Z".to_owned()),
-        "Int8" | "UInt8" => Some("B".to_owned()),
-        "Int16" | "UInt16" => Some("S".to_owned()),
-        "Int32" | "UInt32" => Some("I".to_owned()),
-        "Int64" | "UInt64" => Some("J".to_owned()),
-        "Float32" => Some("F".to_owned()),
-        "Float64" => Some("D".to_owned()),
-        "String" => Some("Ljava/lang/String;".to_owned()),
-        "Bytes" => Some("[B".to_owned()),
-        "Map" => Some("Ljava/util/Map;".to_owned()),
-        "Array" => {
-            let [element] = ty.arguments.as_slice() else {
-                return None;
-            };
+    match ty {
+        BridgeType::Scalar(scalar) => Some(
+            match scalar {
+                BridgeScalar::Bool => "Z",
+                BridgeScalar::Int8 | BridgeScalar::UInt8 => "B",
+                BridgeScalar::Int16 | BridgeScalar::UInt16 => "S",
+                BridgeScalar::Int32 | BridgeScalar::UInt32 => "I",
+                BridgeScalar::Int64 | BridgeScalar::UInt64 => "J",
+                BridgeScalar::Float32 => "F",
+                BridgeScalar::Float64 => "D",
+                BridgeScalar::String => "Ljava/lang/String;",
+                BridgeScalar::Bytes => "[B",
+                BridgeScalar::Void => return None,
+            }
+            .to_owned(),
+        ),
+        BridgeType::Named { .. } => None,
+        BridgeType::Optional(inner) => {
+            if let Some(boxed) = android_boxed_primitive(bridge_type_name(inner)) {
+                return Some(format!("L{};", boxed.class_name));
+            }
+            android_jni_class_descriptor(inner)
+        }
+        BridgeType::Map(..) => Some("Ljava/util/Map;".to_owned()),
+        BridgeType::Array(element) => {
             if android_primitive_array(element).is_some() {
-                let descriptor = match element.name.as_str() {
-                    "Bool" => "Z",
-                    "Int8" | "UInt8" => "B",
-                    "Int16" | "UInt16" => "S",
-                    "Int32" | "UInt32" => "I",
-                    "Int64" | "UInt64" => "J",
-                    "Float32" => "F",
-                    "Float64" => "D",
+                let descriptor = match element.as_ref() {
+                    BridgeType::Scalar(BridgeScalar::Bool) => "Z",
+                    BridgeType::Scalar(BridgeScalar::Int8 | BridgeScalar::UInt8) => "B",
+                    BridgeType::Scalar(BridgeScalar::Int16 | BridgeScalar::UInt16) => "S",
+                    BridgeType::Scalar(BridgeScalar::Int32 | BridgeScalar::UInt32) => "I",
+                    BridgeType::Scalar(BridgeScalar::Int64 | BridgeScalar::UInt64) => "J",
+                    BridgeType::Scalar(BridgeScalar::Float32) => "F",
+                    BridgeType::Scalar(BridgeScalar::Float64) => "D",
                     _ => return None,
                 };
                 Some(format!("[{descriptor}"))
@@ -3832,10 +3954,7 @@ fn android_jni_class_descriptor(ty: &TypeRef) -> Option<String> {
                 Some(format!("[{}", android_jni_class_descriptor(element)?))
             }
         }
-        "Set" => {
-            let [element] = ty.arguments.as_slice() else {
-                return None;
-            };
+        BridgeType::Set(element) => {
             if android_primitive_array(element).is_some() {
                 Some(format!("[{}", android_jni_class_descriptor(element)?))
             } else if android_reference_array_element(element).is_some() {
@@ -3844,17 +3963,17 @@ fn android_jni_class_descriptor(ty: &TypeRef) -> Option<String> {
                 None
             }
         }
-        _ => None,
+        BridgeType::Pair(..) | BridgeType::Triple(..) | BridgeType::Result { .. } => None,
     }
 }
 
-fn jni_parameter_declarations(parameters: &[nexa_plugin_idl::Parameter]) -> String {
+fn jni_parameter_declarations(parameters: &[BridgeParameter]) -> String {
     parameters
         .iter()
         .map(|parameter| {
             format!(
                 "{} {}",
-                android_jni_type(&parameter.ty).expect("validated parameter type"),
+                android_jni_type(&parameter.ty),
                 parameter.name
             )
         })
@@ -3887,108 +4006,7 @@ fn jni_mangle(value: &str) -> String {
     out
 }
 
-fn validate_swift_cpp_method(
-    idl: &PluginIdl,
-    interface: &str,
-    method: &Method,
-) -> Result<(), String> {
-    if let Some(error_type) = swift_cpp_method_error_type(method) {
-        let Some(error) = idl
-            .types
-            .iter()
-            .find(|ty| ty.kind == NamedTypeKind::Error && ty.name == error_type.name)
-        else {
-            return Err(format!(
-                "C++ Swift adapters cannot resolve typed error `{}` for `{interface}.{}`",
-                error_type.name, method.name
-            ));
-        };
-        for case in &error.cases {
-            for parameter in &case.parameters {
-                if !swift_cpp_error_payload_supported(&parameter.ty) {
-                    return Err(format!(
-                        "C++ Swift typed errors support primitive, `String`, and `Bytes` payloads; `{interface}.{}` error case `{}.{}` uses `{}`",
-                        method.name, error.name, case.name, parameter.ty.name
-                    ));
-                }
-            }
-        }
-        for parameter in &method.parameters {
-            ensure_swift_cpp_value(interface, &parameter.name, &parameter.ty, false)?;
-        }
-        return ensure_swift_cpp_value(
-            interface,
-            &method.name,
-            swift_cpp_method_success_type(method),
-            true,
-        );
-    }
-    for parameter in &method.parameters {
-        ensure_swift_cpp_value(interface, &parameter.name, &parameter.ty, false)?;
-    }
-    ensure_swift_cpp_value(
-        interface,
-        &method.name,
-        swift_cpp_method_success_type(method),
-        true,
-    )
-}
-
-fn swift_cpp_method_error_type(method: &Method) -> Option<&TypeRef> {
-    method.throws.as_ref().or_else(|| {
-        (method.return_type.name == "Result")
-            .then(|| method.return_type.arguments.get(1))
-            .flatten()
-    })
-}
-
-fn swift_cpp_method_success_type(method: &Method) -> &TypeRef {
-    if method.return_type.name == "Result" {
-        method
-            .return_type
-            .arguments
-            .first()
-            .expect("validated Result type has a success type")
-    } else {
-        &method.return_type
-    }
-}
-
-fn swift_cpp_error_payload_supported(ty: &TypeRef) -> bool {
-    matches!(
-        ty.name.as_str(),
-        "Bool"
-            | "Int8"
-            | "Int16"
-            | "Int32"
-            | "Int64"
-            | "UInt8"
-            | "UInt16"
-            | "UInt32"
-            | "UInt64"
-            | "Float32"
-            | "Float64"
-            | "String"
-            | "Bytes"
-    ) && ty.arguments.is_empty()
-}
-
-fn ensure_swift_cpp_value(
-    interface: &str,
-    member: &str,
-    ty: &TypeRef,
-    allow_void: bool,
-) -> Result<(), String> {
-    if swift_cpp_value_type(ty).is_some_and(|swift_type| allow_void || swift_type != "Void") {
-        return Ok(());
-    }
-    Err(format!(
-        "C++ Swift adapters support primitive, `String`, `Bytes`, nested `Array` values, compatible `Set` values, and supported-key `Map` values; `{interface}.{member}` uses `{}`",
-        ty.name
-    ))
-}
-
-fn swift_cpp_value_type(ty: &TypeRef) -> Option<String> {
+fn swift_cpp_value_type(ty: &BridgeType) -> Option<String> {
     if let Some((key, value)) = swift_cpp_map_types(ty) {
         return Some(format!(
             "[{}: {}]",
@@ -3996,15 +4014,15 @@ fn swift_cpp_value_type(ty: &TypeRef) -> Option<String> {
             swift_cpp_value_type(value)?
         ));
     }
-    if ty.name == "Set" {
+    if matches!(ty, BridgeType::Set(_)) {
         let element = swift_cpp_set_element_type(ty)?;
         return Some(format!("Set<{element}>"));
     }
-    if ty.name == "Array" {
+    if matches!(ty, BridgeType::Array(_)) {
         return swift_cpp_array_swift_type(ty);
     }
     let base = swift_cpp_value_base_type(ty)?;
-    if ty.optional {
+    if ty.is_optional() {
         if base == "Void" {
             return None;
         }
@@ -4014,11 +4032,11 @@ fn swift_cpp_value_type(ty: &TypeRef) -> Option<String> {
     }
 }
 
-fn swift_cpp_base_type(ty: &TypeRef) -> Option<&'static str> {
-    if !ty.arguments.is_empty() {
+fn swift_cpp_base_type(ty: &BridgeType) -> Option<&'static str> {
+    if !bridge_type_arguments(ty).is_empty() {
         return None;
     }
-    match ty.name.as_str() {
+    match bridge_type_name(ty) {
         "Void" => Some("Void"),
         "Bool" => Some("Bool"),
         "Int8" => Some("Int8"),
@@ -4037,39 +4055,42 @@ fn swift_cpp_base_type(ty: &TypeRef) -> Option<&'static str> {
     }
 }
 
-fn swift_cpp_value_base_type(ty: &TypeRef) -> Option<String> {
+fn swift_cpp_value_base_type(ty: &BridgeType) -> Option<String> {
     if let Some(base) = swift_cpp_base_type(ty) {
         return Some(base.to_owned());
     }
-    if ty.arguments.is_empty()
+    if bridge_type_arguments(ty).is_empty()
         && !matches!(
-            ty.name.as_str(),
+            bridge_type_name(ty),
             "Array" | "Set" | "Map" | "Pair" | "Triple" | "Result"
         )
     {
-        return Some(ty.name.clone());
+        return Some(bridge_type_name(ty).to_owned());
     }
     None
 }
 
-fn swift_cpp_named_value_type<'a>(idl: &'a PluginIdl, ty: &TypeRef) -> Option<&'a NamedType> {
-    if ty.optional || !ty.arguments.is_empty() {
+fn swift_cpp_named_value_type<'a>(plan: &'a BridgePlan, ty: &BridgeType) -> Option<&'a BridgeNamedType> {
+    if ty.is_optional() || !bridge_type_arguments(ty).is_empty() {
         return None;
     }
-    idl.types.iter().find(|named| {
-        named.name == ty.name && matches!(named.kind, NamedTypeKind::Struct | NamedTypeKind::Enum)
+    plan.types.iter().find(|named| {
+        named.name == bridge_type_name(ty) && matches!(named.kind, BridgeTypeKind::Struct | BridgeTypeKind::Enum)
     })
 }
 
-fn swift_cpp_set_element_type(ty: &TypeRef) -> Option<&'static str> {
-    if ty.optional || ty.name != "Set" || ty.arguments.len() != 1 {
+fn swift_cpp_set_element_type(ty: &BridgeType) -> Option<&'static str> {
+    if ty.is_optional() || !matches!(ty, BridgeType::Set(_)) || bridge_type_arguments(ty).len() != 1 {
         return None;
     }
-    let element = &ty.arguments[0];
-    if element.optional || !element.arguments.is_empty() {
+    let element: &BridgeType = match ty {
+        BridgeType::Set(element) => element,
+        _ => return None,
+    };
+    if element.is_optional() || !bridge_type_arguments(element).is_empty() {
         return None;
     }
-    match element.name.as_str() {
+    match bridge_type_name(element) {
         "Bool" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt8" | "UInt16" | "UInt32"
         | "UInt64" | "Bytes" => swift_cpp_base_type(element),
         // C++ ordering for floating point and UTF-8 strings does not match
@@ -4078,23 +4099,24 @@ fn swift_cpp_set_element_type(ty: &TypeRef) -> Option<&'static str> {
     }
 }
 
-fn swift_cpp_supported_set(ty: &TypeRef) -> bool {
-    ty.name == "Set" && swift_cpp_set_element_type(ty).is_some()
+fn swift_cpp_supported_set(ty: &BridgeType) -> bool {
+    matches!(ty, BridgeType::Set(_)) && swift_cpp_set_element_type(ty).is_some()
 }
 
-fn swift_cpp_map_types(ty: &TypeRef) -> Option<(&TypeRef, &TypeRef)> {
-    if ty.name != "Map" || ty.optional {
+fn swift_cpp_map_types(ty: &BridgeType) -> Option<(&BridgeType, &BridgeType)> {
+    if !matches!(ty, BridgeType::Map(..)) || ty.is_optional() {
         return None;
     }
-    let [key, value] = ty.arguments.as_slice() else {
-        return None;
+    let (key, value): (&BridgeType, &BridgeType) = match ty {
+        BridgeType::Map(key, value) => (key, value),
+        _ => return None,
     };
-    if key.optional
-        || value.optional
+    if key.is_optional()
+        || value.is_optional()
         || swift_cpp_base_type(key).is_none()
         || !swift_cpp_map_value_supported(value)
         || !matches!(
-            key.name.as_str(),
+            bridge_type_name(key),
             "Bool"
                 | "Int8"
                 | "Int16"
@@ -4112,8 +4134,8 @@ fn swift_cpp_map_types(ty: &TypeRef) -> Option<(&TypeRef, &TypeRef)> {
     Some((key, value))
 }
 
-fn swift_cpp_map_value_supported(ty: &TypeRef) -> bool {
-    if ty.name == "Map" {
+fn swift_cpp_map_value_supported(ty: &BridgeType) -> bool {
+    if matches!(ty, BridgeType::Map(..)) {
         return swift_cpp_map_types(ty).is_some();
     }
     if swift_cpp_supported_set(ty) {
@@ -4125,34 +4147,40 @@ fn swift_cpp_map_value_supported(ty: &TypeRef) -> bool {
     swift_cpp_array_swift_type(ty).is_some()
 }
 
-fn swift_cpp_array_swift_type(ty: &TypeRef) -> Option<String> {
-    if ty.optional || ty.name != "Array" || ty.arguments.len() != 1 {
+fn swift_cpp_array_swift_type(ty: &BridgeType) -> Option<String> {
+    if ty.is_optional() || !matches!(ty, BridgeType::Array(_)) || bridge_type_arguments(ty).len() != 1 {
         return None;
     }
-    let element = &ty.arguments[0];
-    if element.optional {
+    let element: &BridgeType = match ty {
+        BridgeType::Array(element) => element,
+        _ => return None,
+    };
+    if element.is_optional() {
         return None;
     }
-    if element.name == "Array" {
+    if matches!(element, BridgeType::Array(_)) {
         swift_cpp_array_leaf(element)?;
         return Some(format!("[{}]", swift_cpp_array_swift_type(element)?));
     }
-    if element.name == "Set" {
+    if matches!(element, BridgeType::Set(_)) {
         return Some(format!("[{}]", swift_cpp_value_type(element)?));
     }
     let swift_type = swift_cpp_value_base_type(element)?;
     (swift_type != "Void").then(|| format!("[{swift_type}]"))
 }
 
-fn swift_cpp_array_leaf(ty: &TypeRef) -> Option<&TypeRef> {
-    if ty.name != "Array" || ty.optional || ty.arguments.len() != 1 {
+fn swift_cpp_array_leaf(ty: &BridgeType) -> Option<&BridgeType> {
+    if !matches!(ty, BridgeType::Array(_)) || ty.is_optional() || bridge_type_arguments(ty).len() != 1 {
         return None;
     }
-    let element = &ty.arguments[0];
-    if element.optional {
+    let element: &BridgeType = match ty {
+        BridgeType::Array(element) => element,
+        _ => return None,
+    };
+    if element.is_optional() {
         return None;
     }
-    if element.name == "Array" {
+    if matches!(element, BridgeType::Array(_)) {
         swift_cpp_array_leaf(element)
     } else if swift_cpp_value_base_type(element).is_some_and(|base| base != "Void") {
         Some(element)
@@ -4161,41 +4189,45 @@ fn swift_cpp_array_leaf(ty: &TypeRef) -> Option<&TypeRef> {
     }
 }
 
-fn swift_cpp_nested_array_supported(ty: &TypeRef) -> bool {
-    ty.name == "Array"
-        && ty
-            .arguments
+fn swift_cpp_nested_array_supported(ty: &BridgeType) -> bool {
+    matches!(ty, BridgeType::Array(_))
+        && bridge_type_arguments(ty)
             .first()
-            .is_some_and(|element| matches!(element.name.as_str(), "Array" | "Set"))
+            .is_some_and(|element| matches!(bridge_type_name(element), "Array" | "Set"))
         && swift_cpp_array_swift_type(ty).is_some()
 }
 
-fn swift_cpp_array_depth(ty: &TypeRef) -> usize {
+fn swift_cpp_array_depth(ty: &BridgeType) -> usize {
     let mut depth = 0;
     let mut current = ty;
-    while current.name == "Array" {
+    while matches!(current, BridgeType::Array(_)) {
         depth += 1;
-        let Some(element) = current.arguments.first() else {
-            break;
+        let next: &BridgeType = match current {
+            BridgeType::Array(element) => element,
+            _ => break,
         };
-        current = element;
+        current = next;
     }
     depth
 }
 
-fn swift_cpp_needs_vector_bridge(ty: &TypeRef) -> bool {
+fn swift_cpp_needs_vector_bridge(ty: &BridgeType) -> bool {
     swift_cpp_supported_set(ty)
         || swift_cpp_map_types(ty).is_some()
         || swift_cpp_nested_array_supported(ty)
-        || (ty.name == "Array"
-            && !ty.optional
-            && ty.arguments.len() == 1
-            && !ty.arguments[0].optional
-            && ty.arguments[0].name == "Bool")
+        || matches!(
+            ty,
+            BridgeType::Array(element)
+                if !ty.is_optional()
+                    && matches!(
+                        element.as_ref(),
+                        BridgeType::Scalar(BridgeScalar::Bool)
+                    )
+        )
 }
 
-fn swift_cpp_method_uses_collection_adapter(method: &Method) -> bool {
-    let success_type = swift_cpp_method_success_type(method);
+fn swift_cpp_method_uses_collection_adapter(method: &BridgeMethod) -> bool {
+    let success_type = method.success_type();
     let values_are_supported = method
         .parameters
         .iter()
@@ -4209,11 +4241,11 @@ fn swift_cpp_method_uses_collection_adapter(method: &Method) -> bool {
             || swift_cpp_needs_vector_bridge(success_type))
 }
 
-fn swift_cpp_future_adapter_needed(method: &Method) -> bool {
-    method.is_async && swift_cpp_needs_vector_bridge(swift_cpp_method_success_type(method))
+fn swift_cpp_future_adapter_needed(method: &BridgeMethod) -> bool {
+    method.is_async && swift_cpp_needs_vector_bridge(method.success_type())
 }
 
-fn swift_cpp_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
+fn swift_cpp_parameters(parameters: &[BridgeParameter]) -> String {
     parameters
         .iter()
         .map(|parameter| {
@@ -4228,8 +4260,8 @@ fn swift_cpp_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
 }
 
 fn swift_cpp_arguments(
-    parameters: &[nexa_plugin_idl::Parameter],
-    idl: &PluginIdl,
+    parameters: &[BridgeParameter],
+    plan: &BridgePlan,
     namespace: &str,
     byte_buffer_type: &str,
     optional_bridge: &str,
@@ -4240,7 +4272,7 @@ fn swift_cpp_arguments(
             swift_cpp_argument_expression(
                 &parameter.ty,
                 &parameter.name,
-                idl,
+                plan,
                 namespace,
                 byte_buffer_type,
                 optional_bridge,
@@ -4251,118 +4283,124 @@ fn swift_cpp_arguments(
 }
 
 fn swift_cpp_argument_expression(
-    ty: &TypeRef,
+    ty: &BridgeType,
     value: &str,
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     namespace: &str,
     byte_buffer_type: &str,
     optional_bridge: &str,
 ) -> String {
-    if !ty.optional {
-        return swift_cpp_argument_value(ty, value, idl, namespace, byte_buffer_type);
+    if !ty.is_optional() {
+        return swift_cpp_argument_value(ty, value, plan, namespace, byte_buffer_type);
     }
-    let some = format!("{optional_bridge}.some{}", cpp_identifier(&ty.name));
-    let none = format!("{optional_bridge}.none{}()", cpp_identifier(&ty.name));
-    let converted = swift_cpp_argument_value(ty, "$0", idl, namespace, byte_buffer_type);
+    let some = format!("{optional_bridge}.some{}", cpp_identifier(bridge_type_name(ty)));
+    let none = format!("{optional_bridge}.none{}()", cpp_identifier(bridge_type_name(ty)));
+    let converted = swift_cpp_argument_value(ty, "$0", plan, namespace, byte_buffer_type);
     format!("{value}.map {{ {some}({converted}) }} ?? {none}")
 }
 
 fn swift_cpp_argument_value(
-    ty: &TypeRef,
+    ty: &BridgeType,
     value: &str,
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     namespace: &str,
     byte_buffer_type: &str,
 ) -> String {
-    match ty.name.as_str() {
+    match bridge_type_name(ty) {
         "Map" if swift_cpp_map_types(ty).is_some() => {
             let (key, value_type) = swift_cpp_map_types(ty).expect("validated Swift C++ map value");
-            let entry = format!("{namespace}.{}", cpp_swift_map_entry_name(idl, ty));
-            let entries = format!("{namespace}.{}", cpp_swift_map_entries_name(idl, ty));
-            let key_value = swift_cpp_map_value_argument(key, "$0.key", idl, byte_buffer_type);
+            let entry = format!("{namespace}.{}", cpp_swift_map_entry_name(plan, ty));
+            let entries = format!("{namespace}.{}", cpp_swift_map_entries_name(plan, ty));
+            let key_value = swift_cpp_map_value_argument(key, "$0.key", plan, byte_buffer_type);
             let mapped_value =
-                swift_cpp_argument_value(value_type, "$0.value", idl, namespace, byte_buffer_type);
+                swift_cpp_argument_value(value_type, "$0.value", plan, namespace, byte_buffer_type);
             format!("{entries}({value}.map {{ {entry}({key_value}, {mapped_value}) }})")
         }
         "String" => format!("std.string({value})"),
         "Bytes" => format!("{byte_buffer_type}({value})"),
         "Array" if swift_cpp_nested_array_supported(ty) => {
-            swift_cpp_array_argument_expression(ty, value, idl, namespace, byte_buffer_type)
+            swift_cpp_array_argument_expression(ty, value, plan, namespace, byte_buffer_type)
         }
         "Array" => {
-            let element = &ty.arguments[0];
-            let converted = match element.name.as_str() {
+            let BridgeType::Array(element) = bridge_strip_optional(ty) else {
+                return value.to_owned();
+            };
+            let converted = match bridge_type_name(element) {
                 "Bool" => format!("{value}.map {{ UInt8($0 ? 1 : 0) }}"),
                 "String" => format!("{value}.map {{ std.string($0) }}"),
                 "Bytes" => format!("{value}.map {{ {byte_buffer_type}($0) }}"),
-                _ if swift_cpp_named_value_type(idl, element).is_some() => format!(
+                _ if swift_cpp_named_value_type(plan, element).is_some() => format!(
                     "{value}.map {{ nexaSwiftToCpp{}($0) }}",
-                    cpp_identifier(&element.name)
+                    cpp_identifier(bridge_type_name(element))
                 ),
                 _ => value.to_owned(),
             };
             format!(
                 "{namespace}.{}({converted})",
-                cpp_swift_array_alias_name(idl, &element.name)
+                cpp_swift_array_alias_name(plan, bridge_type_name(element))
             )
         }
         "Set" => {
-            let element = &ty.arguments[0];
-            let converted = match element.name.as_str() {
+            let BridgeType::Set(element) = bridge_strip_optional(ty) else {
+                return value.to_owned();
+            };
+            let converted = match bridge_type_name(element) {
                 "Bool" => format!("Array({value}).map {{ UInt8($0 ? 1 : 0) }}"),
                 "Bytes" => format!("{value}.map {{ {byte_buffer_type}($0) }}"),
                 _ => format!("Array({value})"),
             };
             format!(
                 "{namespace}.{}({converted})",
-                cpp_swift_array_alias_name(idl, &element.name)
+                cpp_swift_array_alias_name(plan, bridge_type_name(element))
             )
         }
-        _ if swift_cpp_named_value_type(idl, ty).is_some() => {
-            format!("nexaSwiftToCpp{}({value})", cpp_identifier(&ty.name))
+        _ if swift_cpp_named_value_type(plan, ty).is_some() => {
+            format!("nexaSwiftToCpp{}({value})", cpp_identifier(bridge_type_name(ty)))
         }
         _ => value.to_owned(),
     }
 }
 
 fn swift_cpp_array_argument_expression(
-    ty: &TypeRef,
+    ty: &BridgeType,
     value: &str,
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     namespace: &str,
     byte_buffer_type: &str,
 ) -> String {
-    let element = &ty.arguments[0];
+    let BridgeType::Array(element) = bridge_strip_optional(ty) else {
+        return format!("{namespace}.{}({value})", cpp_swift_array_alias_name_for_type(plan, ty));
+    };
     let alias = format!(
         "{namespace}.{}",
-        cpp_swift_array_alias_name_for_type(idl, ty)
+        cpp_swift_array_alias_name_for_type(plan, ty)
     );
-    let converted = if element.name == "Array" {
+    let converted = if matches!(element.as_ref(), BridgeType::Array(_)) {
         let nested = swift_cpp_array_argument_expression(
             element,
             "nexaNestedArray",
-            idl,
+            plan,
             namespace,
             byte_buffer_type,
         );
         format!("{value}.map {{ nexaNestedArray in {nested} }}")
-    } else if element.name == "Set" {
+    } else if matches!(element.as_ref(), BridgeType::Set(_)) {
         let nested = swift_cpp_argument_value(
             element,
             "nexaNestedCollection",
-            idl,
+            plan,
             namespace,
             byte_buffer_type,
         );
         format!("{value}.map {{ nexaNestedCollection in {nested} }}")
     } else {
-        match element.name.as_str() {
+        match bridge_type_name(element) {
             "Bool" => format!("{value}.map {{ UInt8($0 ? 1 : 0) }}"),
             "String" => format!("{value}.map {{ std.string($0) }}"),
             "Bytes" => format!("{value}.map {{ {byte_buffer_type}($0) }}"),
-            _ if swift_cpp_named_value_type(idl, element).is_some() => format!(
+            _ if swift_cpp_named_value_type(plan, element).is_some() => format!(
                 "{value}.map {{ nexaSwiftToCpp{}($0) }}",
-                cpp_identifier(&element.name)
+                cpp_identifier(bridge_type_name(element))
             ),
             _ => value.to_owned(),
         }
@@ -4371,35 +4409,35 @@ fn swift_cpp_array_argument_expression(
 }
 
 fn swift_cpp_map_value_argument(
-    ty: &TypeRef,
+    ty: &BridgeType,
     value: &str,
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     byte_buffer_type: &str,
 ) -> String {
-    match ty.name.as_str() {
+    match bridge_type_name(ty) {
         "String" => format!("std.string({value})"),
         "Bytes" => format!("{byte_buffer_type}({value})"),
-        _ if swift_cpp_named_value_type(idl, ty).is_some() => {
-            format!("nexaSwiftToCpp{}({value})", cpp_identifier(&ty.name))
+        _ if swift_cpp_named_value_type(plan, ty).is_some() => {
+            format!("nexaSwiftToCpp{}({value})", cpp_identifier(bridge_type_name(ty)))
         }
         _ => value.to_owned(),
     }
 }
 
 fn swift_cpp_result_expression(
-    ty: &TypeRef,
+    ty: &BridgeType,
     call: &str,
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     namespace: &str,
 ) -> String {
-    if ty.optional {
-        let converted = match ty.name.as_str() {
+    if ty.is_optional() {
+        let converted = match bridge_type_name(ty) {
             "String" => "String($0)",
             "Bytes" => "Data($0)",
-            _ if swift_cpp_named_value_type(idl, ty).is_some() => {
+            _ if swift_cpp_named_value_type(plan, ty).is_some() => {
                 return format!(
                     "Optional(fromCxx: {call}).map {{ nexaSwiftFromCpp{}($0) }}",
-                    cpp_identifier(&ty.name)
+                    cpp_identifier(bridge_type_name(ty))
                 );
             }
             _ => "$0",
@@ -4410,7 +4448,7 @@ fn swift_cpp_result_expression(
             format!("Optional(fromCxx: {call}).map {{ {converted} }}")
         }
     } else {
-        match ty.name.as_str() {
+        match bridge_type_name(ty) {
             "Map" => {
                 let (key, value_type) =
                     swift_cpp_map_types(ty).expect("validated Swift C++ map result");
@@ -4420,7 +4458,7 @@ fn swift_cpp_result_expression(
                 let entries = format!("Array({call})");
                 let key_value = swift_cpp_map_key_result(key, "$0.key");
                 let mapped_value =
-                    swift_cpp_result_expression(value_type, "$0.value", idl, namespace);
+                    swift_cpp_result_expression(value_type, "$0.value", plan, namespace);
                 format!(
                     "Dictionary(uniqueKeysWithValues: {entries}.map {{ ({key_value}, {mapped_value}) }})"
                 )
@@ -4428,15 +4466,17 @@ fn swift_cpp_result_expression(
             "String" => format!("String({call})"),
             "Bytes" => format!("Data({call})"),
             "Array" if swift_cpp_nested_array_supported(ty) => {
-                swift_cpp_array_result_expression(ty, call, idl, namespace)
+                swift_cpp_array_result_expression(ty, call, plan, namespace)
             }
             "Array" => {
-                let element = &ty.arguments[0];
+                let BridgeType::Array(element) = bridge_strip_optional(ty) else {
+                    return call.to_owned();
+                };
                 let copied = format!(
                     "Array({namespace}.{}({call}))",
-                    cpp_swift_array_alias_name(idl, &element.name)
+                    cpp_swift_array_alias_name(plan, bridge_type_name(element))
                 );
-                match element.name.as_str() {
+                match bridge_type_name(element) {
                     "Bool" => format!("{copied}.map {{ $0 != 0 }}"),
                     "String" => format!("{copied}.map {{ String($0) }}"),
                     "Bytes" => format!("{copied}.map {{ Data($0) }}"),
@@ -4444,20 +4484,22 @@ fn swift_cpp_result_expression(
                 }
             }
             "Set" => {
-                let element = &ty.arguments[0];
+                let BridgeType::Set(element) = bridge_strip_optional(ty) else {
+                    return call.to_owned();
+                };
                 let copied = format!(
                     "Array({namespace}.{}({call}))",
-                    cpp_swift_array_alias_name(idl, &element.name)
+                    cpp_swift_array_alias_name(plan, bridge_type_name(element))
                 );
-                let converted = match element.name.as_str() {
+                let converted = match bridge_type_name(element) {
                     "Bool" => format!("{copied}.map {{ $0 != 0 }}"),
                     "Bytes" => format!("{copied}.map {{ Data($0) }}"),
                     _ => copied,
                 };
                 format!("Set({converted})")
             }
-            _ if swift_cpp_named_value_type(idl, ty).is_some() => {
-                format!("nexaSwiftFromCpp{}({call})", cpp_identifier(&ty.name))
+            _ if swift_cpp_named_value_type(plan, ty).is_some() => {
+                format!("nexaSwiftFromCpp{}({call})", cpp_identifier(bridge_type_name(ty)))
             }
             _ => call.to_owned(),
         }
@@ -4465,33 +4507,35 @@ fn swift_cpp_result_expression(
 }
 
 fn swift_cpp_array_result_expression(
-    ty: &TypeRef,
+    ty: &BridgeType,
     call: &str,
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     namespace: &str,
 ) -> String {
-    let alias = cpp_swift_array_alias_name_for_type(idl, ty);
+    let alias = cpp_swift_array_alias_name_for_type(plan, ty);
     let copied = format!("Array({namespace}.{alias}({call}))");
-    let element = &ty.arguments[0];
-    if matches!(element.name.as_str(), "Array" | "Set") {
-        let nested = swift_cpp_result_expression(element, "nexaNestedCollection", idl, namespace);
+    let BridgeType::Array(element) = bridge_strip_optional(ty) else {
+        return copied;
+    };
+    if matches!(element.as_ref(), BridgeType::Array(_) | BridgeType::Set(_)) {
+        let nested = swift_cpp_result_expression(element, "nexaNestedCollection", plan, namespace);
         format!("{copied}.map {{ nexaNestedCollection in {nested} }}")
     } else {
-        match element.name.as_str() {
+        match bridge_type_name(element) {
             "Bool" => format!("{copied}.map {{ $0 != 0 }}"),
             "String" => format!("{copied}.map {{ String($0) }}"),
             "Bytes" => format!("{copied}.map {{ Data($0) }}"),
-            _ if swift_cpp_named_value_type(idl, element).is_some() => format!(
+            _ if swift_cpp_named_value_type(plan, element).is_some() => format!(
                 "{copied}.map {{ nexaSwiftFromCpp{}($0) }}",
-                cpp_identifier(&element.name)
+                cpp_identifier(bridge_type_name(element))
             ),
             _ => copied,
         }
     }
 }
 
-fn swift_cpp_map_key_result(ty: &TypeRef, value: &str) -> String {
-    match ty.name.as_str() {
+fn swift_cpp_map_key_result(ty: &BridgeType, value: &str) -> String {
+    match bridge_type_name(ty) {
         "String" => format!("String({value})"),
         "Bytes" => format!("Data({value})"),
         _ => value.to_owned(),
@@ -4502,28 +4546,29 @@ fn render_swift_cpp_method(
     out: &mut String,
     receiver: &str,
     adapter_method: Option<&str>,
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     namespace: &str,
     byte_buffer_type: &str,
     optional_bridge: &str,
-    method: &Method,
+    method: &BridgeMethod,
     depth: usize,
 ) {
     let indent = "    ".repeat(depth);
     let parameters = swift_cpp_parameters(&method.parameters);
     let arguments = swift_cpp_arguments(
         &method.parameters,
-        idl,
+        plan,
         namespace,
         byte_buffer_type,
         optional_bridge,
     );
-    let success_type = swift_cpp_method_success_type(method);
+    let success_type = method.success_type();
     let return_type = swift_cpp_value_type(success_type).expect("validated method return type");
     let call_on_worker = method.is_async && adapter_method.is_some();
     let async_modifier = if method.is_async { " async" } else { "" };
-    let throws_modifier = swift_cpp_method_error_type(method)
-        .map(|error| format!(" throws({})", error.name))
+    let throws_modifier = method
+        .error_type()
+        .map(|error| format!(" throws({error})"))
         .unwrap_or_default();
     out.push_str(&format!(
         "\n{indent}public func {}({parameters}){async_modifier}{throws_modifier} -> {return_type} {{\n",
@@ -4537,16 +4582,16 @@ fn render_swift_cpp_method(
         ));
         call = call.replacen("nexaCppObject", "nexaCppObjectForAsync", 1);
     }
-    if let Some(error_type) = swift_cpp_method_error_type(method) {
+    if let Some(error_name) = method.error_type() {
         render_swift_cpp_typed_error_call(
             out,
             method,
             success_type,
             &return_type,
-            error_type,
+            error_name,
             &call,
             call_on_worker,
-            idl,
+            plan,
             namespace,
             depth,
         );
@@ -4570,7 +4615,7 @@ fn render_swift_cpp_method(
             }
         } else {
             let converted =
-                swift_cpp_result_expression(success_type, "nexaCppFuture.get()", idl, namespace);
+                swift_cpp_result_expression(success_type, "nexaCppFuture.get()", plan, namespace);
             if call_on_worker {
                 format!("var nexaCppFuture = {call}; {converted}")
             } else {
@@ -4595,7 +4640,7 @@ fn render_swift_cpp_method(
     if return_type == "Void" {
         out.push_str(&format!("{indent}    {call}\n"));
     } else {
-        let converted = swift_cpp_result_expression(success_type, &call, idl, namespace);
+        let converted = swift_cpp_result_expression(success_type, &call, plan, namespace);
         out.push_str(&format!("{indent}    return {converted}\n"));
     }
     out.push_str(&format!("{indent}}}\n"));
@@ -4604,20 +4649,20 @@ fn render_swift_cpp_method(
 #[allow(clippy::too_many_arguments)]
 fn render_swift_cpp_typed_error_call(
     out: &mut String,
-    method: &Method,
-    success_type: &TypeRef,
+    method: &BridgeMethod,
+    success_type: &BridgeType,
     return_type: &str,
-    error_type: &TypeRef,
+    error_name: &str,
     call: &str,
     call_on_worker: bool,
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     namespace: &str,
     depth: usize,
 ) {
     let indent = "    ".repeat(depth);
-    let converter = swift_cpp_error_converter_name(&error_type.name);
+    let converter = swift_cpp_error_converter_name(error_name);
     if method.is_async {
-        let result_type = format!("Result<{return_type}, {}>", error_type.name);
+        let result_type = format!("Result<{return_type}, {error_name}>");
         if !call_on_worker {
             out.push_str(&format!("{indent}    var nexaCppFuture = {call}\n"));
         }
@@ -4634,7 +4679,7 @@ fn render_swift_cpp_typed_error_call(
             let converted = swift_cpp_result_expression(
                 success_type,
                 "nexaCppTypedResult.nexaSwiftValue()",
-                idl,
+                plan,
                 namespace,
             );
             format!(
@@ -4662,7 +4707,7 @@ fn render_swift_cpp_typed_error_call(
     let converted = swift_cpp_result_expression(
         success_type,
         "nexaCppTypedResult.nexaSwiftValue()",
-        idl,
+        plan,
         namespace,
     );
     out.push_str(&format!("{indent}    return {converted}\n"));
@@ -4674,32 +4719,24 @@ fn render_result_type(out: &mut String) {
     );
 }
 
-fn render_optional_bridge(out: &mut String, idl: &PluginIdl) {
-    let optional_types = optional_swift_cpp_types(idl);
+fn render_optional_bridge(out: &mut String, plan: &BridgePlan) {
+    let optional_types = optional_swift_cpp_types(plan);
     if optional_types.is_empty() {
         return;
     }
 
-    for name in &optional_types {
-        let ty = TypeRef {
-            name: name.clone(),
-            arguments: Vec::new(),
-            optional: false,
-        };
+    for ty in &optional_types {
+        let name = bridge_value_base_name(ty);
         out.push_str(&format!(
             "using {} = std::optional<{}>;\n",
-            cpp_optional_alias_name(idl, name),
-            cpp_type(&ty)
+            cpp_optional_alias_name(plan, name),
+            cpp_type(ty)
         ));
     }
-    out.push_str(&format!("\nstruct {} {{\n", cpp_optional_bridge_name(idl)));
-    for name in optional_types {
-        let ty = TypeRef {
-            name: name.clone(),
-            arguments: Vec::new(),
-            optional: false,
-        };
-        let alias = cpp_optional_alias_name(idl, &name);
+    out.push_str(&format!("\nstruct {} {{\n", cpp_optional_bridge_name(plan)));
+    for ty in optional_types {
+        let name = bridge_value_base_name(&ty);
+        let alias = cpp_optional_alias_name(plan, name);
         let cpp_type = cpp_type(&ty);
         out.push_str(&format!(
             "    static {alias} some{name}({cpp_type} value) noexcept {{ return value; }}\n    static {alias} none{name}() noexcept {{ return std::nullopt; }}\n"
@@ -4708,49 +4745,63 @@ fn render_optional_bridge(out: &mut String, idl: &PluginIdl) {
     out.push_str("};\n\n");
 }
 
-fn render_swift_array_aliases(out: &mut String, idl: &PluginIdl) {
+/// Base name of an optional element type: the scalar spelling or the
+/// referenced declaration name. Validation guarantees only scalars and
+/// named values reach the optional bridge.
+fn bridge_value_base_name(ty: &BridgeType) -> &str {
+    match ty {
+        BridgeType::Scalar(scalar) => bridge_plan::bridge_scalar_name(*scalar),
+        BridgeType::Named { name, .. } => name,
+        _ => {
+            debug_assert!(
+                false,
+                "optional bridge collection should not contain compound element types"
+            );
+            "NexaValue"
+        }
+    }
+}
+
+fn render_swift_array_aliases(out: &mut String, plan: &BridgePlan) {
     let mut arrays = Vec::new();
-    let mut add = |ty: &TypeRef| {
-        let array = if ty.name == "Set" && swift_cpp_supported_set(ty) {
-            TypeRef {
-                name: "Array".to_owned(),
-                arguments: ty.arguments.clone(),
-                optional: false,
+    let mut add = |ty: &BridgeType| {
+        let array = match ty {
+            BridgeType::Set(element) if swift_cpp_supported_set(ty) => {
+                BridgeType::Array(element.clone())
             }
-        } else {
-            ty.clone()
+            BridgeType::Array(_) => ty.clone(),
+            // Non-array shapes never enter the alias table.
+            _ => return,
         };
+        // Only adapter-spellable arrays enter the alias table; anything
+        // else (such as optional-element arrays, which share the bare
+        // element alias name) renders through direct `cpp_type` spellings.
         if swift_cpp_array_swift_type(&array).is_some()
             && !arrays.iter().any(|existing| existing == &array)
         {
             arrays.push(array.clone());
         }
-        if array.name == "Array"
-            && array
-                .arguments
-                .first()
-                .is_some_and(|element| element.name == "Array")
-        {
-            let mut nested = array.arguments[0].clone();
-            while nested.name == "Array" {
+        if let BridgeType::Array(element) = &array {
+            if !matches!(element.as_ref(), BridgeType::Array(_)) {
+                return;
+            }
+            // Peel nested array levels with the same per-level support
+            // check the historical collector applied.
+            let mut nested = element.as_ref().clone();
+            while matches!(nested, BridgeType::Array(_)) {
                 if swift_cpp_array_swift_type(&nested).is_some()
                     && !arrays.iter().any(|existing| existing == &nested)
                 {
                     arrays.push(nested.clone());
                 }
-                if nested
-                    .arguments
-                    .first()
-                    .is_some_and(|element| element.name == "Array")
-                {
-                    nested = nested.arguments[0].clone();
-                } else {
-                    break;
-                }
+                nested = match nested {
+                    BridgeType::Array(inner) => (*inner).clone(),
+                    _ => break,
+                };
             }
         }
     };
-    for interface in &idl.interfaces {
+    for interface in &plan.interfaces {
         for constructor in &interface.constructors {
             for parameter in &constructor.parameters {
                 collect_swift_array_types(&parameter.ty, &mut add);
@@ -4772,61 +4823,71 @@ fn render_swift_array_aliases(out: &mut String, idl: &PluginIdl) {
         }
     }
     arrays.sort_by_key(|array| {
-        let depends_on_set_facade = array
-            .arguments
-            .first()
-            .is_some_and(|element| element.name == "Set");
+        let depends_on_set_facade = matches!(
+            array,
+            BridgeType::Array(element) if matches!(element.as_ref(), BridgeType::Set(_))
+        );
         (swift_cpp_array_depth(array), depends_on_set_facade)
     });
     for array in arrays {
         out.push_str(&format!(
             "using {} = {};\n",
-            cpp_swift_array_alias_name_for_type(idl, &array),
-            cpp_swift_array_facade_type(&array, idl)
+            cpp_swift_array_alias_name_for_type(plan, &array),
+            cpp_swift_array_facade_type(&array, plan)
         ));
     }
-    let mut bool_facades = arrays_with_bool_facades(idl);
+    let mut bool_facades = arrays_with_bool_facades(plan);
     bool_facades.sort_by_key(swift_cpp_array_depth);
     for array in bool_facades {
-        render_swift_array_conversion_adapters(out, idl, &array);
+        render_swift_array_conversion_adapters(out, plan, &array);
     }
-    let mut set_facades = arrays_with_nested_set_facades(idl);
+    let mut set_facades = arrays_with_nested_set_facades(plan);
     set_facades.sort_by_key(swift_cpp_array_depth);
     for array in set_facades {
-        render_swift_array_conversion_adapters(out, idl, &array);
+        render_swift_array_conversion_adapters(out, plan, &array);
     }
     if !out.ends_with("\n\n") && out.ends_with('\n') {
         out.push('\n');
     }
 }
 
-fn cpp_swift_array_facade_type(ty: &TypeRef, idl: &PluginIdl) -> String {
-    let element = &ty.arguments[0];
-    if element.name == "Array" {
-        format!("std::vector<{}>", cpp_swift_array_facade_type(element, idl))
-    } else if element.name == "Set" {
+fn cpp_swift_array_facade_type(ty: &BridgeType, plan: &BridgePlan) -> String {
+    let BridgeType::Array(element) = bridge_strip_optional(ty) else {
+        return cpp_type(ty);
+    };
+    if matches!(element.as_ref(), BridgeType::Array(_)) {
+        format!("std::vector<{}>", cpp_swift_array_facade_type(element, plan))
+    } else if let BridgeType::Set(inner) = element.as_ref() {
         format!(
             "std::vector<{}>",
-            cpp_swift_array_alias_name(idl, &element.arguments[0].name)
+            cpp_swift_array_alias_name(plan, bridge_type_name(inner))
         )
-    } else if element.name == "Bool" {
+    } else if matches!(
+        bridge_strip_optional(element),
+        BridgeType::Scalar(BridgeScalar::Bool)
+    ) {
         "std::vector<std::uint8_t>".to_owned()
     } else {
         format!("std::vector<{}>", cpp_type(element))
     }
 }
 
-fn arrays_with_bool_facades(idl: &PluginIdl) -> Vec<TypeRef> {
+fn arrays_with_bool_facades(plan: &BridgePlan) -> Vec<BridgeType> {
     let mut arrays = Vec::new();
-    let mut add = |ty: &TypeRef| {
+    let mut add = |ty: &BridgeType| {
         if swift_cpp_array_swift_type(ty).is_some()
-            && swift_cpp_array_leaf(ty).is_some_and(|leaf| leaf.name == "Bool")
+            && swift_cpp_array_leaf(ty).is_some_and(|leaf| {
+                matches!(
+                    bridge_strip_optional(leaf),
+                    BridgeType::Scalar(BridgeScalar::Bool)
+                )
+            })
             && !arrays.iter().any(|existing| existing == ty)
         {
             arrays.push(ty.clone());
         }
     };
-    for interface in &idl.interfaces {
+    for interface in &plan.interfaces {
         for constructor in &interface.constructors {
             for parameter in &constructor.parameters {
                 collect_swift_array_types(&parameter.ty, &mut add);
@@ -4850,17 +4911,20 @@ fn arrays_with_bool_facades(idl: &PluginIdl) -> Vec<TypeRef> {
     arrays
 }
 
-fn arrays_with_nested_set_facades(idl: &PluginIdl) -> Vec<TypeRef> {
+fn arrays_with_nested_set_facades(plan: &BridgePlan) -> Vec<BridgeType> {
     let mut arrays = Vec::new();
-    let mut add = |ty: &TypeRef| {
+    let mut add = |ty: &BridgeType| {
         if swift_cpp_nested_array_supported(ty)
-            && ty.arguments[0].name == "Set"
+            && matches!(
+                ty,
+                BridgeType::Array(element) if matches!(element.as_ref(), BridgeType::Set(_))
+            )
             && !arrays.iter().any(|existing| existing == ty)
         {
             arrays.push(ty.clone());
         }
     };
-    for interface in &idl.interfaces {
+    for interface in &plan.interfaces {
         for constructor in &interface.constructors {
             for parameter in &constructor.parameters {
                 collect_swift_array_types(&parameter.ty, &mut add);
@@ -4884,65 +4948,64 @@ fn arrays_with_nested_set_facades(idl: &PluginIdl) -> Vec<TypeRef> {
     arrays
 }
 
-fn collect_swift_array_types(ty: &TypeRef, add: &mut impl FnMut(&TypeRef)) {
-    if ty.name == "Set" && swift_cpp_supported_set(ty) {
-        let array = TypeRef {
-            name: "Array".to_owned(),
-            arguments: ty.arguments.clone(),
-            optional: false,
-        };
-        add(&array);
-    } else if ty.name == "Array" && swift_cpp_array_swift_type(ty).is_some() {
+fn collect_swift_array_types(ty: &BridgeType, add: &mut impl FnMut(&BridgeType)) {
+    if let BridgeType::Set(element) = ty {
+        if swift_cpp_supported_set(ty) {
+            add(&BridgeType::Array(element.clone()));
+        }
+    } else if matches!(ty, BridgeType::Array(_)) {
+        // Plan validation proves every array in the contract is adapter-
+        // supported, so collection needs no further legality check.
         add(ty);
     }
-    if ty.name == "Array" {
-        if let Some(element) = ty
-            .arguments
-            .first()
-            .filter(|element| matches!(element.name.as_str(), "Array" | "Set"))
-        {
+    if let BridgeType::Array(element) = bridge_strip_optional(ty) {
+        if matches!(
+            element.as_ref(),
+            BridgeType::Array(_) | BridgeType::Set(_)
+        ) {
             collect_swift_array_types(element, add);
         }
-    } else if ty.name == "Map" {
-        for argument in &ty.arguments {
-            collect_swift_array_types(argument, add);
-        }
+    } else if let BridgeType::Map(key, value) = bridge_strip_optional(ty) {
+        collect_swift_array_types(key, add);
+        collect_swift_array_types(value, add);
     }
 }
 
-fn render_swift_array_conversion_adapters(out: &mut String, idl: &PluginIdl, ty: &TypeRef) {
+fn render_swift_array_conversion_adapters(out: &mut String, plan: &BridgePlan, ty: &BridgeType) {
     let native_type = cpp_type(ty);
-    let facade_type = cpp_swift_array_alias_name_for_type(idl, ty);
-    let to_native_name = cpp_swift_array_conversion_name(idl, ty, "ToNative");
-    let from_native_name = cpp_swift_array_conversion_name(idl, ty, "FromNative");
+    let facade_type = cpp_swift_array_alias_name_for_type(plan, ty);
+    let to_native_name = cpp_swift_array_conversion_name(plan, ty, "ToNative");
+    let from_native_name = cpp_swift_array_conversion_name(plan, ty, "FromNative");
     out.push_str(&format!(
         "inline {native_type} {to_native_name}({facade_type} value) noexcept {{\n    {native_type} result;\n    result.reserve(value.size());\n    for (auto&& element : value) result.push_back({});\n    return result;\n}}\ninline {facade_type} {from_native_name}({native_type} value) noexcept {{\n    {facade_type} result;\n    result.reserve(value.size());\n    for (auto&& element : value) result.push_back({});\n    return result;\n}}\n\n",
-        cpp_swift_array_convert_element(idl, ty, "element", true),
-        cpp_swift_array_convert_element(idl, ty, "element", false),
+        cpp_swift_array_convert_element(plan, ty, "element", true),
+        cpp_swift_array_convert_element(plan, ty, "element", false),
     ));
 }
 
 fn cpp_swift_array_convert_element(
-    idl: &PluginIdl,
-    ty: &TypeRef,
+    plan: &BridgePlan,
+    ty: &BridgeType,
     element: &str,
     to_native: bool,
 ) -> String {
-    let nested = &ty.arguments[0];
-    if nested.name == "Array" {
+    let BridgeType::Array(nested) = bridge_strip_optional(ty) else {
+        return format!("static_cast<bool>({element})");
+    };
+    if matches!(nested.as_ref(), BridgeType::Array(_)) {
         let direction = if to_native { "ToNative" } else { "FromNative" };
         format!(
             "{}(std::move({element}))",
-            cpp_swift_array_conversion_name(idl, nested, direction)
+            cpp_swift_array_conversion_name(plan, nested, direction)
         )
-    } else if nested.name == "Set" {
-        let element_type = cpp_type(&nested.arguments[0]);
+    } else if let BridgeType::Set(inner) = nested.as_ref() {
+        let element_type = cpp_type(inner);
         if to_native {
             format!("std::set<{element_type}>({element}.begin(), {element}.end())")
         } else {
             format!(
                 "{}({element}.begin(), {element}.end())",
-                cpp_swift_array_alias_name(idl, &nested.arguments[0].name)
+                cpp_swift_array_alias_name(plan, bridge_type_name(inner))
             )
         }
     } else if to_native {
@@ -4952,15 +5015,15 @@ fn cpp_swift_array_convert_element(
     }
 }
 
-fn cpp_swift_array_conversion_name(idl: &PluginIdl, ty: &TypeRef, direction: &str) -> String {
-    let alias = cpp_swift_array_alias_name_for_type(idl, ty);
+fn cpp_swift_array_conversion_name(plan: &BridgePlan, ty: &BridgeType, direction: &str) -> String {
+    let alias = cpp_swift_array_alias_name_for_type(plan, ty);
     let signature = alias.trim_start_matches("NexaCppArray");
     format!("nexaCppArray{direction}{signature}")
 }
 
-fn render_swift_map_adapters(out: &mut String, idl: &PluginIdl) {
+fn render_swift_map_adapters(out: &mut String, plan: &BridgePlan) {
     let mut maps = Vec::new();
-    for interface in &idl.interfaces {
+    for interface in &plan.interfaces {
         for constructor in &interface.constructors {
             for parameter in &constructor.parameters {
                 collect_swift_map_types(&parameter.ty, &mut maps);
@@ -4984,23 +5047,23 @@ fn render_swift_map_adapters(out: &mut String, idl: &PluginIdl) {
 
     for ty in maps {
         let (key, value) = swift_cpp_map_types(&ty).expect("collected map type is supported");
-        let entry = cpp_swift_map_entry_name(idl, &ty);
-        let entries = cpp_swift_map_entries_name(idl, &ty);
+        let entry = cpp_swift_map_entry_name(plan, &ty);
+        let entries = cpp_swift_map_entries_name(plan, &ty);
         let map_type = cpp_type(&ty);
         let key_type = cpp_type(key);
-        let value_type = cpp_swift_collection_bridge_type(value, idl);
-        let from_entries = cpp_swift_map_conversion_name(idl, &ty, "FromEntries");
-        let to_entries = cpp_swift_map_conversion_name(idl, &ty, "ToEntries");
-        let native_value = cpp_swift_collection_argument(value, "entry.value", idl);
-        let bridge_value = cpp_swift_map_value_for_entry(value, "mappedValue", idl);
+        let value_type = cpp_swift_collection_bridge_type(value, plan);
+        let from_entries = cpp_swift_map_conversion_name(plan, &ty, "FromEntries");
+        let to_entries = cpp_swift_map_conversion_name(plan, &ty, "ToEntries");
+        let native_value = cpp_swift_collection_argument(value, "entry.value", plan);
+        let bridge_value = cpp_swift_map_value_for_entry(value, "mappedValue", plan);
         out.push_str(&format!(
             "struct {entry} {{\n    {key_type} key;\n    {value_type} value;\n    {entry}({key_type} keyValue, {value_type} mappedValue) : key(std::move(keyValue)), value(std::move(mappedValue)) {{}}\n}};\nusing {entries} = std::vector<{entry}>;\ninline {map_type} {from_entries}({entries} entries) noexcept {{\n    {map_type} result;\n    for (auto& entry : entries) result.emplace(std::move(entry.key), {native_value});\n    return result;\n}}\ninline {entries} {to_entries}({map_type} value) noexcept {{\n    {entries} entries;\n    entries.reserve(value.size());\n    for (auto& [key, mappedValue] : value) entries.emplace_back(std::move(key), {bridge_value});\n    return entries;\n}}\n\n"
         ));
     }
 }
 
-fn collect_swift_map_types(ty: &TypeRef, maps: &mut Vec<TypeRef>) {
-    for argument in &ty.arguments {
+fn collect_swift_map_types(ty: &BridgeType, maps: &mut Vec<BridgeType>) {
+    for argument in bridge_type_arguments(bridge_strip_optional(ty)) {
         collect_swift_map_types(argument, maps);
     }
     if swift_cpp_map_types(ty).is_some() && !maps.iter().any(|existing| existing == ty) {
@@ -5008,69 +5071,73 @@ fn collect_swift_map_types(ty: &TypeRef, maps: &mut Vec<TypeRef>) {
     }
 }
 
-fn cpp_swift_map_value_for_entry(ty: &TypeRef, value: &str, idl: &PluginIdl) -> String {
-    match ty.name.as_str() {
+fn cpp_swift_map_value_for_entry(ty: &BridgeType, value: &str, plan: &BridgePlan) -> String {
+    match bridge_type_name(ty) {
         "Map" => format!(
             "{}({value})",
-            cpp_swift_map_conversion_name(idl, ty, "ToEntries")
+            cpp_swift_map_conversion_name(plan, ty, "ToEntries")
         ),
-        "Array" if swift_cpp_nested_array_supported(ty) && ty.arguments[0].name == "Set" => {
+        "Array" if swift_cpp_nested_array_supported(ty)
+            && matches!(
+                bridge_strip_optional(ty),
+                BridgeType::Array(element) if matches!(element.as_ref(), BridgeType::Set(_))
+            ) => {
             format!(
                 "{}({value})",
-                cpp_swift_array_conversion_name(idl, ty, "FromNative")
+                cpp_swift_array_conversion_name(plan, ty, "FromNative")
             )
         }
         "Set" => {
-            let facade = cpp_swift_collection_bridge_type(ty, idl);
+            let facade = cpp_swift_collection_bridge_type(ty, plan);
             format!("{facade}({value}.begin(), {value}.end())")
         }
         _ => format!("std::move({value})"),
     }
 }
 
-fn cpp_swift_map_signature(ty: &TypeRef) -> String {
-    ty.arguments
-        .iter()
+fn cpp_swift_map_signature(ty: &BridgeType) -> String {
+    bridge_type_arguments(ty)
+        .into_iter()
         .map(cpp_swift_type_signature)
         .collect::<String>()
 }
 
-fn cpp_swift_type_signature(ty: &TypeRef) -> String {
-    let mut signature = cpp_identifier(&ty.name);
-    for argument in &ty.arguments {
+fn cpp_swift_type_signature(ty: &BridgeType) -> String {
+    let mut signature = cpp_identifier(bridge_type_name(ty));
+    for argument in bridge_type_arguments(bridge_strip_optional(ty)) {
         signature.push_str(&cpp_swift_type_signature(argument));
     }
-    if ty.optional {
+    if ty.is_optional() {
         signature.push_str("Optional");
     }
     signature
 }
 
-fn cpp_swift_map_entry_name(idl: &PluginIdl, ty: &TypeRef) -> String {
+fn cpp_swift_map_entry_name(plan: &BridgePlan, ty: &BridgeType) -> String {
     unique_cpp_type_name(
-        idl,
+        plan,
         &format!("NexaCppMapEntry{}", cpp_swift_map_signature(ty)),
     )
 }
 
-fn cpp_swift_map_entries_name(idl: &PluginIdl, ty: &TypeRef) -> String {
+fn cpp_swift_map_entries_name(plan: &BridgePlan, ty: &BridgeType) -> String {
     unique_cpp_type_name(
-        idl,
+        plan,
         &format!("NexaCppMapEntries{}", cpp_swift_map_signature(ty)),
     )
 }
 
-fn cpp_swift_map_conversion_name(idl: &PluginIdl, ty: &TypeRef, direction: &str) -> String {
+fn cpp_swift_map_conversion_name(plan: &BridgePlan, ty: &BridgeType, direction: &str) -> String {
     format!(
         "nexaCppMap{direction}{}",
-        cpp_swift_map_entries_name(idl, ty).trim_start_matches("NexaCppMapEntries")
+        cpp_swift_map_entries_name(plan, ty).trim_start_matches("NexaCppMapEntries")
     )
 }
 
-fn render_named_type(out: &mut String, ty: &NamedType) {
+fn render_named_type(out: &mut String, ty: &BridgeNamedType) {
     let name = cpp_identifier(&ty.name);
     match ty.kind {
-        NamedTypeKind::Struct => {
+        BridgeTypeKind::Struct => {
             out.push_str(&format!("struct {name} {{\n"));
             for field in &ty.fields {
                 out.push_str(&format!(
@@ -5086,7 +5153,7 @@ fn render_named_type(out: &mut String, ty: &NamedType) {
             }
             out.push_str("};\n");
         }
-        NamedTypeKind::Enum => {
+        BridgeTypeKind::Enum => {
             out.push_str(&format!("enum class {name} : std::uint8_t {{\n    "));
             out.push_str(
                 &ty.cases
@@ -5097,7 +5164,7 @@ fn render_named_type(out: &mut String, ty: &NamedType) {
             );
             out.push_str("\n};\n");
         }
-        NamedTypeKind::Error => {
+        BridgeTypeKind::Error => {
             out.push_str(&format!("struct {name} {{\n"));
             for case in &ty.cases {
                 let case_name = cpp_case_type_name(&case.name);
@@ -5129,28 +5196,10 @@ fn render_named_type(out: &mut String, ty: &NamedType) {
     }
 }
 
-fn render_swift_cpp_error_bridges(out: &mut String, idl: &PluginIdl) {
-    let error_names = idl
-        .interfaces
-        .iter()
-        .filter(|interface| {
-            matches!(
-                interface.kind,
-                InterfaceKind::Service | InterfaceKind::NativeClass
-            )
-        })
-        .flat_map(|interface| &interface.methods)
-        .filter_map(swift_cpp_method_error_type)
-        .map(|ty| ty.name.as_str())
-        .collect::<std::collections::BTreeSet<_>>();
-
-    for error_name in error_names {
-        let error = idl
-            .types
-            .iter()
-            .find(|ty| ty.kind == NamedTypeKind::Error && ty.name == error_name)
-            .expect("typed errors are validated by the plugin IDL parser");
-        let bridge = cpp_swift_error_bridge_name(idl, error_name);
+fn render_swift_cpp_error_bridges(out: &mut String, plan: &BridgePlan) {
+    for error in &plan.referenced_errors {
+        let error_name = error.name.as_str();
+        let bridge = cpp_swift_error_bridge_name(plan, error_name);
         let name = cpp_identifier(error_name);
         out.push_str(&format!("struct {bridge} {{\n    static std::uint8_t caseIndex(const {name}& error) noexcept {{ return static_cast<std::uint8_t>(error.value.index()); }}\n"));
         for (case_index, case) in error.cases.iter().enumerate() {
@@ -5169,20 +5218,20 @@ fn render_swift_cpp_error_bridges(out: &mut String, idl: &PluginIdl) {
 
 fn render_swift_cpp_named_value_helpers(
     out: &mut String,
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     namespace: &str,
     byte_buffer_type: &str,
 ) {
-    let optional_bridge = format!("{namespace}.{}", cpp_optional_bridge_name(idl));
-    for ty in idl
+    let optional_bridge = format!("{namespace}.{}", cpp_optional_bridge_name(plan));
+    for ty in plan
         .types
         .iter()
-        .filter(|ty| matches!(ty.kind, NamedTypeKind::Struct | NamedTypeKind::Enum))
+        .filter(|ty| matches!(ty.kind, BridgeTypeKind::Struct | BridgeTypeKind::Enum))
     {
         let name = cpp_identifier(&ty.name);
         let cxx_type = format!("{namespace}.{name}");
         match ty.kind {
-            NamedTypeKind::Enum => {
+            BridgeTypeKind::Enum => {
                 out.push_str(&format!(
                     "private func nexaSwiftToCpp{name}(_ value: {name}) -> {cxx_type} {{\n    switch value {{\n"
                 ));
@@ -5204,7 +5253,7 @@ fn render_swift_cpp_named_value_helpers(
                     "    @unknown default: preconditionFailure(\"invalid C++ {name} case\")\n    }}\n}}\n\n"
                 ));
             }
-            NamedTypeKind::Struct => {
+            BridgeTypeKind::Struct => {
                 let swift_fields = ty
                     .fields
                     .iter()
@@ -5213,7 +5262,7 @@ fn render_swift_cpp_named_value_helpers(
                         let converted = swift_cpp_result_expression(
                             &field.ty,
                             &format!("value.{cpp_field}"),
-                            idl,
+                            plan,
                             namespace,
                         );
                         format!("{}: {converted}", field.name)
@@ -5227,7 +5276,7 @@ fn render_swift_cpp_named_value_helpers(
                     let converted = swift_cpp_argument_expression(
                         &field.ty,
                         &format!("value.{}", field.name),
-                        idl,
+                        plan,
                         namespace,
                         byte_buffer_type,
                         &optional_bridge,
@@ -5242,37 +5291,20 @@ fn render_swift_cpp_named_value_helpers(
                     "private func nexaSwiftFromCpp{name}(_ value: {cxx_type}) -> {name} {{\n    {name}({swift_fields})\n}}\n\n"
                 ));
             }
-            NamedTypeKind::Error => unreachable!(),
+            BridgeTypeKind::Error => {
+                // Excluded by the struct/enum filter above; error converters
+                // render through the referenced-error lists instead.
+            }
         }
     }
 }
 
-fn render_swift_cpp_error_converters(out: &mut String, idl: &PluginIdl, namespace: &str) {
-    let error_names = idl
-        .interfaces
-        .iter()
-        .filter(|interface| {
-            matches!(
-                interface.kind,
-                InterfaceKind::Service | InterfaceKind::NativeClass
-            )
-        })
-        .flat_map(|interface| &interface.methods)
-        .filter_map(swift_cpp_method_error_type)
-        .map(|ty| ty.name.as_str())
-        .collect::<std::collections::BTreeSet<_>>();
-
-    for error_name in error_names {
-        let Some(error) = idl
-            .types
-            .iter()
-            .find(|ty| ty.kind == NamedTypeKind::Error && ty.name == error_name)
-        else {
-            continue;
-        };
+fn render_swift_cpp_error_converters(out: &mut String, plan: &BridgePlan, namespace: &str) {
+    for error in &plan.referenced_errors {
+        let error_name = error.name.as_str();
         let bridge = format!(
             "{namespace}.{}",
-            cpp_swift_error_bridge_name(idl, error_name)
+            cpp_swift_error_bridge_name(plan, error_name)
         );
         out.push_str(&format!(
             "private func {}(_ error: {namespace}.{error_name}) -> {error_name} {{\n    switch {bridge}.caseIndex(error) {{\n",
@@ -5294,7 +5326,7 @@ fn render_swift_cpp_error_converters(out: &mut String, idl: &PluginIdl, namespac
                     let bridge_call =
                         format!("{bridge}.payload_{case_index}_{parameter_index}(error)");
                     let value =
-                        swift_cpp_result_expression(&parameter.ty, &bridge_call, idl, namespace);
+                        swift_cpp_result_expression(&parameter.ty, &bridge_call, plan, namespace);
                     format!("{}: {value}", parameter.name)
                 })
                 .collect::<Vec<_>>()
@@ -5310,7 +5342,7 @@ fn render_swift_cpp_error_converters(out: &mut String, idl: &PluginIdl, namespac
     }
 }
 
-fn render_contract(out: &mut String, interface: &Interface, idl: &PluginIdl) {
+fn render_contract(out: &mut String, interface: &BridgeInterface, plan: &BridgePlan) {
     let name = cpp_identifier(&interface.name);
     out.push_str(&format!(
         "class {name}Spec {{\npublic:\n    void nexaRetainForSwift() const noexcept {{ swift_references_.fetch_add(1, std::memory_order_relaxed); }}\n    void nexaReleaseFromSwift() const noexcept {{\n        if (swift_references_.fetch_sub(1, std::memory_order_acq_rel) == 1) delete this;\n    }}\n    virtual ~{name}Spec() = default;\n"
@@ -5335,36 +5367,36 @@ fn render_contract(out: &mut String, interface: &Interface, idl: &PluginIdl) {
     }
     for property in &interface.properties {
         if swift_cpp_needs_vector_bridge(&property.ty) {
-            render_cpp_swift_collection_property_adapter(out, interface, property, idl);
+            render_cpp_swift_collection_property_adapter(out, interface, property, plan);
         }
     }
     for method in &interface.methods {
         if swift_cpp_method_uses_collection_adapter(method) {
-            render_cpp_swift_collection_method_adapter(out, interface, method, idl);
+            render_cpp_swift_collection_method_adapter(out, interface, method, plan);
         }
     }
     for event in &interface.events {
         render_event_setter(out, event);
-        render_cpp_swift_event_setter(out, idl, interface, event);
+        render_cpp_swift_event_setter(out, plan, interface, event);
     }
     out.push_str(
         "private:\n    mutable std::atomic<std::size_t> swift_references_{1};\n} NEXA_CXX_SWIFT_SHARED_REFERENCE(.nexaRetainForSwift, .nexaReleaseFromSwift);\n",
     );
     for event in &interface.events {
         for (index, parameter) in event.parameters.iter().enumerate() {
-            render_cpp_swift_event_copy_adapter(out, idl, interface, event, index, &parameter.ty);
+            render_cpp_swift_event_copy_adapter(out, plan, interface, event, index, &parameter.ty);
         }
     }
 }
 
 fn render_cpp_swift_event_setter(
     out: &mut String,
-    idl: &PluginIdl,
-    interface: &Interface,
-    event: &Event,
+    plan: &BridgePlan,
+    interface: &BridgeInterface,
+    event: &BridgeEvent,
 ) {
-    let callback_name = cpp_swift_event_callback_type_name(idl, interface, event);
-    let release_name = cpp_swift_event_release_type_name(idl, interface, event);
+    let callback_name = cpp_swift_event_callback_type_name(plan, interface, event);
+    let release_name = cpp_swift_event_release_type_name(plan, interface, event);
     let setter = cpp_setter_name(&nexa_plugin_idl::event_callback_property(&event.name));
     let method = cpp_swift_event_setter_name(interface, event);
     let parameters = event
@@ -5394,33 +5426,38 @@ fn render_cpp_swift_event_setter(
 
 fn render_cpp_swift_event_copy_adapter(
     out: &mut String,
-    idl: &PluginIdl,
-    interface: &Interface,
-    event: &Event,
+    plan: &BridgePlan,
+    interface: &BridgeInterface,
+    event: &BridgeEvent,
     index: usize,
-    ty: &TypeRef,
+    ty: &BridgeType,
 ) {
-    let name = cpp_swift_event_copy_adapter_name(idl, interface, event, index);
-    let return_type = cpp_swift_collection_bridge_type(ty, idl);
+    let name = cpp_swift_event_copy_adapter_name(plan, interface, event, index);
+    let return_type = cpp_swift_collection_bridge_type(ty, plan);
     let value = format!("*static_cast<const {}*>(rawValue)", cpp_type(ty));
     let converted = if swift_cpp_map_types(ty).is_some() {
         format!(
             "{}({value})",
-            cpp_swift_map_conversion_name(idl, ty, "ToEntries")
+            cpp_swift_map_conversion_name(plan, ty, "ToEntries")
         )
-    } else if ty.name == "Array" && swift_cpp_array_leaf(ty).is_some_and(|leaf| leaf.name == "Bool")
+    } else if matches!(bridge_strip_optional(ty), BridgeType::Array(_))
+        && swift_cpp_array_leaf(ty)
+            .is_some_and(|leaf| matches!(bridge_strip_optional(leaf), BridgeType::Scalar(BridgeScalar::Bool)))
     {
         format!(
             "{}({value})",
-            cpp_swift_array_conversion_name(idl, ty, "FromNative")
+            cpp_swift_array_conversion_name(plan, ty, "FromNative")
         )
-    } else if ty.name == "Array"
+    } else if matches!(bridge_strip_optional(ty), BridgeType::Array(_))
         && swift_cpp_nested_array_supported(ty)
-        && ty.arguments[0].name == "Set"
+        && matches!(
+            ty,
+            BridgeType::Array(element) if matches!(element.as_ref(), BridgeType::Set(_))
+        )
     {
         format!(
             "{}({value})",
-            cpp_swift_array_conversion_name(idl, ty, "FromNative")
+            cpp_swift_array_conversion_name(plan, ty, "FromNative")
         )
     } else if swift_cpp_needs_vector_bridge(ty) {
         format!("{return_type}({value}.begin(), {value}.end())")
@@ -5433,12 +5470,12 @@ fn render_cpp_swift_event_copy_adapter(
 }
 
 fn cpp_swift_event_callback_type_name(
-    idl: &PluginIdl,
-    interface: &Interface,
-    event: &Event,
+    plan: &BridgePlan,
+    interface: &BridgeInterface,
+    event: &BridgeEvent,
 ) -> String {
     unique_cpp_type_name(
-        idl,
+        plan,
         &format!(
             "NexaCppSwiftEventCallback{}_{}",
             cpp_identifier(&interface.name),
@@ -5448,12 +5485,12 @@ fn cpp_swift_event_callback_type_name(
 }
 
 fn cpp_swift_event_release_type_name(
-    idl: &PluginIdl,
-    interface: &Interface,
-    event: &Event,
+    plan: &BridgePlan,
+    interface: &BridgeInterface,
+    event: &BridgeEvent,
 ) -> String {
     unique_cpp_type_name(
-        idl,
+        plan,
         &format!(
             "NexaCppSwiftEventRelease{}_{}",
             cpp_identifier(&interface.name),
@@ -5462,7 +5499,7 @@ fn cpp_swift_event_release_type_name(
     )
 }
 
-fn cpp_swift_event_setter_name(interface: &Interface, event: &Event) -> String {
+fn cpp_swift_event_setter_name(interface: &BridgeInterface, event: &BridgeEvent) -> String {
     let base = format!("nexaSwiftSetEvent{}", cpp_identifier(&event.name));
     let mut occupied = std::collections::BTreeSet::new();
     occupied.extend(
@@ -5487,13 +5524,13 @@ fn cpp_swift_event_setter_name(interface: &Interface, event: &Event) -> String {
 }
 
 fn cpp_swift_event_copy_adapter_name(
-    idl: &PluginIdl,
-    interface: &Interface,
-    event: &Event,
+    plan: &BridgePlan,
+    interface: &BridgeInterface,
+    event: &BridgeEvent,
     index: usize,
 ) -> String {
     unique_cpp_type_name(
-        idl,
+        plan,
         &format!(
             "nexaSwiftCopyEvent{}_{}_{index}",
             cpp_identifier(&interface.name),
@@ -5502,7 +5539,7 @@ fn cpp_swift_event_copy_adapter_name(
     )
 }
 
-fn render_getter(out: &mut String, property: &Property) {
+fn render_getter(out: &mut String, property: &BridgeProperty) {
     out.push_str(&format!(
         "    virtual {} {}() const noexcept = 0;\n",
         cpp_type(&property.ty),
@@ -5510,7 +5547,7 @@ fn render_getter(out: &mut String, property: &Property) {
     ));
 }
 
-fn render_setter(out: &mut String, property: &Property) {
+fn render_setter(out: &mut String, property: &BridgeProperty) {
     out.push_str(&format!(
         "    virtual void {}({} value) noexcept = 0;\n",
         cpp_setter_name(&property.name),
@@ -5518,7 +5555,7 @@ fn render_setter(out: &mut String, property: &Property) {
     ));
 }
 
-fn render_event_setter(out: &mut String, event: &Event) {
+fn render_event_setter(out: &mut String, event: &BridgeEvent) {
     let parameters = event
         .parameters
         .iter()
@@ -5536,7 +5573,7 @@ fn render_event_setter(out: &mut String, event: &Event) {
     ));
 }
 
-fn render_factory(out: &mut String, interface: &Interface) {
+fn render_factory(out: &mut String, interface: &BridgeInterface) {
     let constructor = interface.constructors.first();
     let parameters = constructor
         .map(|constructor| cpp_parameters(&constructor.parameters))
@@ -5548,7 +5585,7 @@ fn render_factory(out: &mut String, interface: &Interface) {
     ));
 }
 
-fn render_swift_factory(out: &mut String, interface: &Interface, idl: &PluginIdl) {
+fn render_swift_factory(out: &mut String, interface: &BridgeInterface, plan: &BridgePlan) {
     let name = cpp_identifier(&interface.name);
     let constructor = interface.constructors.first();
     let parameters = constructor
@@ -5579,12 +5616,12 @@ fn render_swift_factory(out: &mut String, interface: &Interface, idl: &PluginIdl
                 .any(|parameter| swift_cpp_needs_vector_bridge(&parameter.ty))
     }) {
         let bridge_parameters =
-            cpp_swift_collection_bridge_parameters(&constructor.parameters, idl);
+            cpp_swift_collection_bridge_parameters(&constructor.parameters, plan);
         let bridge_arguments = constructor
             .parameters
             .iter()
             .map(|parameter| {
-                cpp_swift_collection_argument(&parameter.ty, &cpp_identifier(&parameter.name), idl)
+                cpp_swift_collection_argument(&parameter.ty, &cpp_identifier(&parameter.name), plan)
             })
             .collect::<Vec<_>>()
             .join(", ");
@@ -5595,7 +5632,7 @@ fn render_swift_factory(out: &mut String, interface: &Interface, idl: &PluginIdl
     }
 }
 
-fn render_service(out: &mut String, interface: &Interface) {
+fn render_service(out: &mut String, interface: &BridgeInterface) {
     let name = cpp_identifier(&interface.name);
     out.push_str(&format!("namespace {name} {{\n"));
     for method in &interface.methods {
@@ -5614,18 +5651,18 @@ fn render_service(out: &mut String, interface: &Interface) {
 
 fn render_swift_service_collection_adapter(
     out: &mut String,
-    idl: &PluginIdl,
-    interface: &Interface,
-    method: &Method,
+    plan: &BridgePlan,
+    interface: &BridgeInterface,
+    method: &BridgeMethod,
 ) {
-    let success_type = swift_cpp_method_success_type(method);
-    let return_type = cpp_swift_collection_bridge_type(success_type, idl);
-    let parameters = cpp_swift_collection_bridge_parameters(&method.parameters, idl);
+    let success_type = method.success_type();
+    let return_type = cpp_swift_collection_bridge_type(success_type, plan);
+    let parameters = cpp_swift_collection_bridge_parameters(&method.parameters, plan);
     let arguments = method
         .parameters
         .iter()
         .map(|parameter| {
-            cpp_swift_collection_argument(&parameter.ty, &cpp_identifier(&parameter.name), idl)
+            cpp_swift_collection_argument(&parameter.ty, &cpp_identifier(&parameter.name), plan)
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -5637,7 +5674,7 @@ fn render_swift_service_collection_adapter(
     let adapter_name = cpp_swift_service_adapter_name(&interface.name, &method.name);
     if method.is_async {
         if swift_cpp_future_adapter_needed(method) {
-            let future_adapter = cpp_swift_future_adapter_name(idl, interface, method);
+            let future_adapter = cpp_swift_future_adapter_name(plan, interface, method);
             out.push_str(&format!(
                 "inline {future_adapter} {adapter_name}({parameters}) noexcept {{\n    return {future_adapter}({}::{}({arguments}));\n}}\n",
                 cpp_identifier(&interface.name),
@@ -5656,36 +5693,44 @@ fn render_swift_service_collection_adapter(
     out.push_str(&format!(
         "inline {return_type} {adapter_name}({parameters}) noexcept {{\n"
     ));
-    render_cpp_swift_collection_result(out, success_type, &call, idl, 1);
+    render_cpp_swift_collection_result(out, success_type, &call, plan, 1);
     out.push_str("}\n");
 }
 
 fn render_cpp_swift_collection_property_adapter(
     out: &mut String,
-    interface: &Interface,
-    property: &Property,
-    idl: &PluginIdl,
+    interface: &BridgeInterface,
+    property: &BridgeProperty,
+    plan: &BridgePlan,
 ) {
-    let bridge_type = cpp_swift_collection_bridge_type(&property.ty, idl);
+    let bridge_type = cpp_swift_collection_bridge_type(&property.ty, plan);
     let getter = cpp_getter_name(&property.name);
     let get_adapter = cpp_swift_property_adapter_name(interface, &property.name, false);
     if swift_cpp_map_types(&property.ty).is_some() {
-        let to_entries = cpp_swift_map_conversion_name(idl, &property.ty, "ToEntries");
+        let to_entries = cpp_swift_map_conversion_name(plan, &property.ty, "ToEntries");
         out.push_str(&format!(
             "    {bridge_type} {get_adapter}() const noexcept {{ return {to_entries}({getter}()); }}\n"
         ));
-    } else if property.ty.name == "Array"
-        && swift_cpp_array_leaf(&property.ty).is_some_and(|leaf| leaf.name == "Bool")
+    } else if matches!(bridge_strip_optional(&property.ty), BridgeType::Array(_))
+        && swift_cpp_array_leaf(&property.ty).is_some_and(|leaf| {
+            matches!(
+                bridge_strip_optional(leaf),
+                BridgeType::Scalar(BridgeScalar::Bool)
+            )
+        })
     {
-        let from_native = cpp_swift_array_conversion_name(idl, &property.ty, "FromNative");
+        let from_native = cpp_swift_array_conversion_name(plan, &property.ty, "FromNative");
         out.push_str(&format!(
             "    {bridge_type} {get_adapter}() const noexcept {{ return {from_native}({getter}()); }}\n"
         ));
-    } else if property.ty.name == "Array"
+    } else if matches!(bridge_strip_optional(&property.ty), BridgeType::Array(_))
         && swift_cpp_nested_array_supported(&property.ty)
-        && property.ty.arguments[0].name == "Set"
+        && matches!(
+            &property.ty,
+            BridgeType::Array(element) if matches!(element.as_ref(), BridgeType::Set(_))
+        )
     {
-        let from_native = cpp_swift_array_conversion_name(idl, &property.ty, "FromNative");
+        let from_native = cpp_swift_array_conversion_name(plan, &property.ty, "FromNative");
         out.push_str(&format!(
             "    {bridge_type} {get_adapter}() const noexcept {{ return {from_native}({getter}()); }}\n"
         ));
@@ -5697,7 +5742,7 @@ fn render_cpp_swift_collection_property_adapter(
     if property.mutable {
         let setter = cpp_setter_name(&property.name);
         let set_adapter = cpp_swift_property_adapter_name(interface, &property.name, true);
-        let converted = cpp_swift_collection_argument(&property.ty, "value", idl);
+        let converted = cpp_swift_collection_argument(&property.ty, "value", plan);
         out.push_str(&format!(
             "    void {set_adapter}({bridge_type} value) noexcept {{ {setter}({converted}); }}\n"
         ));
@@ -5706,18 +5751,18 @@ fn render_cpp_swift_collection_property_adapter(
 
 fn render_cpp_swift_collection_method_adapter(
     out: &mut String,
-    interface: &Interface,
-    method: &Method,
-    idl: &PluginIdl,
+    interface: &BridgeInterface,
+    method: &BridgeMethod,
+    plan: &BridgePlan,
 ) {
-    let success_type = swift_cpp_method_success_type(method);
-    let return_type = cpp_swift_collection_bridge_type(success_type, idl);
-    let parameters = cpp_swift_collection_bridge_parameters(&method.parameters, idl);
+    let success_type = method.success_type();
+    let return_type = cpp_swift_collection_bridge_type(success_type, plan);
+    let parameters = cpp_swift_collection_bridge_parameters(&method.parameters, plan);
     let arguments = method
         .parameters
         .iter()
         .map(|parameter| {
-            cpp_swift_collection_argument(&parameter.ty, &cpp_identifier(&parameter.name), idl)
+            cpp_swift_collection_argument(&parameter.ty, &cpp_identifier(&parameter.name), plan)
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -5725,7 +5770,7 @@ fn render_cpp_swift_collection_method_adapter(
     let adapter_name = cpp_swift_class_method_adapter_name(interface, &method.name);
     if method.is_async {
         if swift_cpp_future_adapter_needed(method) {
-            let future_adapter = cpp_swift_future_adapter_name(idl, interface, method);
+            let future_adapter = cpp_swift_future_adapter_name(plan, interface, method);
             out.push_str(&format!(
                 "    {future_adapter} {adapter_name}({parameters}) noexcept {{ return {future_adapter}({call}); }}\n"
             ));
@@ -5740,32 +5785,44 @@ fn render_cpp_swift_collection_method_adapter(
     out.push_str(&format!(
         "    {return_type} {adapter_name}({parameters}) noexcept {{\n"
     ));
-    render_cpp_swift_collection_result(out, success_type, &call, idl, 2);
+    render_cpp_swift_collection_result(out, success_type, &call, plan, 2);
     out.push_str("    }\n");
 }
 
-fn cpp_swift_collection_bridge_type(ty: &TypeRef, idl: &PluginIdl) -> String {
+fn cpp_swift_collection_bridge_type(ty: &BridgeType, plan: &BridgePlan) -> String {
     if swift_cpp_map_types(ty).is_some() {
-        cpp_swift_map_entries_name(idl, ty)
+        cpp_swift_map_entries_name(plan, ty)
     } else if swift_cpp_nested_array_supported(ty) {
-        cpp_swift_array_alias_name_for_type(idl, ty)
+        cpp_swift_array_alias_name_for_type(plan, ty)
     } else if swift_cpp_needs_vector_bridge(ty) {
-        cpp_swift_array_alias_name(idl, &ty.arguments[0].name)
+        let element_name = match ty {
+            BridgeType::Array(element) | BridgeType::Set(element) => {
+                bridge_type_name(element).to_owned()
+            }
+            _ => {
+                debug_assert!(
+                    false,
+                    "vector bridge requires a validated array or set type"
+                );
+                bridge_type_name(ty).to_owned()
+            }
+        };
+        cpp_swift_array_alias_name(plan, &element_name)
     } else {
         cpp_type(ty)
     }
 }
 
 fn cpp_swift_collection_bridge_parameters(
-    parameters: &[nexa_plugin_idl::Parameter],
-    idl: &PluginIdl,
+    parameters: &[BridgeParameter],
+    plan: &BridgePlan,
 ) -> String {
     parameters
         .iter()
         .map(|parameter| {
             format!(
                 "{} {}",
-                cpp_swift_collection_bridge_type(&parameter.ty, idl),
+                cpp_swift_collection_bridge_type(&parameter.ty, plan),
                 cpp_identifier(&parameter.name)
             )
         })
@@ -5773,26 +5830,51 @@ fn cpp_swift_collection_bridge_parameters(
         .join(", ")
 }
 
-fn cpp_swift_collection_argument(ty: &TypeRef, argument: &str, idl: &PluginIdl) -> String {
-    match ty.name.as_str() {
+fn cpp_swift_collection_argument(ty: &BridgeType, argument: &str, plan: &BridgePlan) -> String {
+    match bridge_type_name(ty) {
         "Map" if swift_cpp_map_types(ty).is_some() => format!(
             "{}({argument})",
-            cpp_swift_map_conversion_name(idl, ty, "FromEntries")
+            cpp_swift_map_conversion_name(plan, ty, "FromEntries")
         ),
-        "Set" => format!(
-            "std::set<{}>({argument}.begin(), {argument}.end())",
-            cpp_type(&ty.arguments[0])
-        ),
-        "Array" if swift_cpp_array_leaf(ty).is_some_and(|leaf| leaf.name == "Bool") => {
+        "Set" => {
+            let element = match ty {
+                BridgeType::Set(element) => element.as_ref(),
+                _ => {
+                    debug_assert!(
+                        false,
+                        "set collection argument requires a validated set type"
+                    );
+                    return argument.to_owned();
+                }
+            };
             format!(
-                "{}({argument})",
-                cpp_swift_array_conversion_name(idl, ty, "ToNative")
+                "std::set<{}>({argument}.begin(), {argument}.end())",
+                cpp_type(element)
             )
         }
-        "Array" if swift_cpp_nested_array_supported(ty) && ty.arguments[0].name == "Set" => {
+        "Array"
+            if swift_cpp_array_leaf(ty).is_some_and(|leaf| {
+                matches!(
+                    bridge_strip_optional(leaf),
+                    BridgeType::Scalar(BridgeScalar::Bool)
+                )
+            }) =>
+        {
             format!(
                 "{}({argument})",
-                cpp_swift_array_conversion_name(idl, ty, "ToNative")
+                cpp_swift_array_conversion_name(plan, ty, "ToNative")
+            )
+        }
+        "Array"
+            if swift_cpp_nested_array_supported(ty)
+                && matches!(
+                    ty,
+                    BridgeType::Array(element) if matches!(element.as_ref(), BridgeType::Set(_))
+                ) =>
+        {
+            format!(
+                "{}({argument})",
+                cpp_swift_array_conversion_name(plan, ty, "ToNative")
             )
         }
         "Array" if swift_cpp_nested_array_supported(ty) => argument.to_owned(),
@@ -5805,27 +5887,37 @@ fn cpp_swift_collection_argument(ty: &TypeRef, argument: &str, idl: &PluginIdl) 
 
 fn render_cpp_swift_collection_result(
     out: &mut String,
-    ty: &TypeRef,
+    ty: &BridgeType,
     expression: &str,
-    idl: &PluginIdl,
+    plan: &BridgePlan,
     indent: usize,
 ) {
     let prefix = "    ".repeat(indent);
-    if ty.name == "Void" {
+    if ty.is_void() {
         out.push_str(&format!("{prefix}{expression};\n"));
     } else if swift_cpp_map_types(ty).is_some() {
-        let to_entries = cpp_swift_map_conversion_name(idl, ty, "ToEntries");
+        let to_entries = cpp_swift_map_conversion_name(plan, ty, "ToEntries");
         out.push_str(&format!("{prefix}return {to_entries}({expression});\n"));
     } else if swift_cpp_needs_vector_bridge(ty) {
-        let alias = cpp_swift_collection_bridge_type(ty, idl);
-        if ty.name == "Array" && swift_cpp_array_leaf(ty).is_some_and(|leaf| leaf.name == "Bool") {
-            let from_native = cpp_swift_array_conversion_name(idl, ty, "FromNative");
-            out.push_str(&format!("{prefix}return {from_native}({expression});\n"));
-        } else if ty.name == "Array"
-            && swift_cpp_nested_array_supported(ty)
-            && ty.arguments[0].name == "Set"
+        let alias = cpp_swift_collection_bridge_type(ty, plan);
+        if matches!(bridge_strip_optional(ty), BridgeType::Array(_))
+            && swift_cpp_array_leaf(ty).is_some_and(|leaf| {
+                matches!(
+                    bridge_strip_optional(leaf),
+                    BridgeType::Scalar(BridgeScalar::Bool)
+                )
+            })
         {
-            let from_native = cpp_swift_array_conversion_name(idl, ty, "FromNative");
+            let from_native = cpp_swift_array_conversion_name(plan, ty, "FromNative");
+            out.push_str(&format!("{prefix}return {from_native}({expression});\n"));
+        } else if matches!(bridge_strip_optional(ty), BridgeType::Array(_))
+            && swift_cpp_nested_array_supported(ty)
+            && matches!(
+                ty,
+                BridgeType::Array(element) if matches!(element.as_ref(), BridgeType::Set(_))
+            )
+        {
+            let from_native = cpp_swift_array_conversion_name(plan, ty, "FromNative");
             out.push_str(&format!("{prefix}return {from_native}({expression});\n"));
         } else {
             out.push_str(&format!(
@@ -5837,8 +5929,8 @@ fn render_cpp_swift_collection_result(
     }
 }
 
-fn render_cpp_swift_future_adapters(out: &mut String, idl: &PluginIdl) {
-    for interface in &idl.interfaces {
+fn render_cpp_swift_future_adapters(out: &mut String, plan: &BridgePlan) {
+    for interface in &plan.interfaces {
         if !matches!(
             interface.kind,
             InterfaceKind::Service | InterfaceKind::NativeClass
@@ -5846,7 +5938,7 @@ fn render_cpp_swift_future_adapters(out: &mut String, idl: &PluginIdl) {
             continue;
         }
         for method in &interface.methods {
-            let success_type = swift_cpp_method_success_type(method);
+            let success_type = method.success_type();
             if method.is_async
                 && swift_cpp_needs_vector_bridge(success_type)
                 && swift_cpp_value_type(success_type).is_some()
@@ -5855,7 +5947,7 @@ fn render_cpp_swift_future_adapters(out: &mut String, idl: &PluginIdl) {
                     .iter()
                     .all(|parameter| swift_cpp_value_type(&parameter.ty).is_some())
             {
-                render_cpp_swift_future_adapter(out, idl, interface, method);
+                render_cpp_swift_future_adapter(out, plan, interface, method);
             }
         }
     }
@@ -5863,33 +5955,33 @@ fn render_cpp_swift_future_adapters(out: &mut String, idl: &PluginIdl) {
 
 fn render_cpp_swift_future_adapter(
     out: &mut String,
-    idl: &PluginIdl,
-    interface: &Interface,
-    method: &Method,
+    plan: &BridgePlan,
+    interface: &BridgeInterface,
+    method: &BridgeMethod,
 ) {
-    let adapter_name = cpp_swift_future_adapter_name(idl, interface, method);
-    let success_type = swift_cpp_method_success_type(method);
-    let bridge_success = cpp_swift_collection_bridge_type(success_type, idl);
+    let adapter_name = cpp_swift_future_adapter_name(plan, interface, method);
+    let success_type = method.success_type();
+    let bridge_success = cpp_swift_collection_bridge_type(success_type, plan);
     let future_type = cpp_method_return(method);
-    let error_type = swift_cpp_method_error_type(method);
-    let bridge_result = error_type
-        .map(|error| format!("NexaResult<{bridge_success}, {}>", cpp_type(error)))
+    let error_name = method.error_type();
+    let bridge_result = error_name
+        .map(|error| format!("NexaResult<{bridge_success}, {}>", cpp_identifier(error)))
         .unwrap_or_else(|| bridge_success.clone());
 
     out.push_str(&format!(
         "class {adapter_name} {{\npublic:\n    explicit {adapter_name}({future_type} future) noexcept : future_(std::move(future)) {{}}\n    {bridge_result} get() noexcept {{\n"
     ));
-    if let Some(error_type) = error_type {
-        let cpp_error = cpp_type(error_type);
+    if let Some(error_name) = error_name {
+        let cpp_error = cpp_identifier(error_name);
         out.push_str(&format!(
             "        auto result = future_.get();\n        if (!result.has_value()) return NexaResult<{bridge_success}, {cpp_error}>::failure(std::move(result.error()));\n        return NexaResult<{bridge_success}, {cpp_error}>::success([&]() -> {bridge_success} {{\n"
         ));
-        render_cpp_swift_collection_result(out, success_type, "result.value()", idl, 3);
+        render_cpp_swift_collection_result(out, success_type, "result.value()", plan, 3);
         out.push_str("        }());\n");
     } else {
         out.push_str("        auto result = future_.get();\n");
         out.push_str(&format!("        return [&]() -> {bridge_success} {{\n"));
-        render_cpp_swift_collection_result(out, success_type, "result", idl, 3);
+        render_cpp_swift_collection_result(out, success_type, "result", plan, 3);
         out.push_str("        }();\n");
     }
     out.push_str(&format!(
@@ -5906,12 +5998,12 @@ fn cpp_swift_service_adapter_name(interface: &str, method: &str) -> String {
 }
 
 fn cpp_swift_future_adapter_name(
-    idl: &PluginIdl,
-    interface: &Interface,
-    method: &Method,
+    plan: &BridgePlan,
+    interface: &BridgeInterface,
+    method: &BridgeMethod,
 ) -> String {
     unique_cpp_type_name(
-        idl,
+        plan,
         &format!(
             "NexaCppSwiftFuture{}_{}",
             cpp_identifier(&interface.name),
@@ -5920,17 +6012,17 @@ fn cpp_swift_future_adapter_name(
     )
 }
 
-fn cpp_swift_class_method_adapter_name(interface: &Interface, method: &str) -> String {
+fn cpp_swift_class_method_adapter_name(interface: &BridgeInterface, method: &str) -> String {
     let key = format!("method:{method}");
     cpp_swift_class_adapter_member_name(interface, &key)
 }
 
-fn cpp_swift_property_adapter_name(interface: &Interface, property: &str, setter: bool) -> String {
+fn cpp_swift_property_adapter_name(interface: &BridgeInterface, property: &str, setter: bool) -> String {
     let key = format!("property:{}:{property}", if setter { "set" } else { "get" });
     cpp_swift_class_adapter_member_name(interface, &key)
 }
 
-fn cpp_swift_class_adapter_member_name(interface: &Interface, target_key: &str) -> String {
+fn cpp_swift_class_adapter_member_name(interface: &BridgeInterface, target_key: &str) -> String {
     let mut occupied = std::collections::BTreeSet::from([
         "nexaRetainForSwift".to_owned(),
         "nexaReleaseFromSwift".to_owned(),
@@ -5990,12 +6082,12 @@ fn cpp_swift_class_adapter_member_name(interface: &Interface, target_key: &str) 
     unreachable!("requested C++ Swift adapter member should be generated")
 }
 
-fn cpp_method_return(method: &Method) -> String {
+fn cpp_method_return(method: &BridgeMethod) -> String {
     let base = if let Some(throws) = &method.throws {
         format!(
             "NexaResult<{}, {}>",
             cpp_type(&method.return_type),
-            cpp_type(throws)
+            cpp_identifier(throws)
         )
     } else {
         cpp_type(&method.return_type)
@@ -6007,7 +6099,7 @@ fn cpp_method_return(method: &Method) -> String {
     }
 }
 
-fn cpp_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
+fn cpp_parameters(parameters: &[BridgeParameter]) -> String {
     parameters
         .iter()
         .map(|parameter| {
@@ -6021,55 +6113,57 @@ fn cpp_parameters(parameters: &[nexa_plugin_idl::Parameter]) -> String {
         .join(", ")
 }
 
-fn cpp_type(ty: &TypeRef) -> String {
-    let base = cpp_type_base(ty);
-    if ty.optional {
-        format!("std::optional<{base}>")
-    } else {
-        base
+fn cpp_type(ty: &BridgeType) -> String {
+    match ty {
+        BridgeType::Optional(inner) => format!("std::optional<{}>", cpp_type(inner)),
+        other => cpp_type_base(other),
     }
 }
 
-fn cpp_type_base(ty: &TypeRef) -> String {
-    match ty.name.as_str() {
-        "Void" => "void".to_owned(),
-        "String" => "std::string".to_owned(),
-        "Bool" => "bool".to_owned(),
-        "Int8" => "std::int8_t".to_owned(),
-        "Int16" => "std::int16_t".to_owned(),
-        "Int32" => "std::int32_t".to_owned(),
-        "Int64" => "std::int64_t".to_owned(),
-        "UInt8" => "std::uint8_t".to_owned(),
-        "UInt16" => "std::uint16_t".to_owned(),
-        "UInt32" => "std::uint32_t".to_owned(),
-        "UInt64" => "std::uint64_t".to_owned(),
-        "Float32" => "float".to_owned(),
-        "Float64" => "double".to_owned(),
-        "Bytes" => "std::vector<std::uint8_t>".to_owned(),
-        "Array" => format!("std::vector<{}>", cpp_type(&ty.arguments[0])),
-        "Set" => format!("std::set<{}>", cpp_type(&ty.arguments[0])),
-        "Map" => format!(
+fn cpp_type_base(ty: &BridgeType) -> String {
+    match ty {
+        BridgeType::Scalar(scalar) => match scalar {
+            BridgeScalar::Void => "void",
+            BridgeScalar::String => "std::string",
+            BridgeScalar::Bool => "bool",
+            BridgeScalar::Int8 => "std::int8_t",
+            BridgeScalar::Int16 => "std::int16_t",
+            BridgeScalar::Int32 => "std::int32_t",
+            BridgeScalar::Int64 => "std::int64_t",
+            BridgeScalar::UInt8 => "std::uint8_t",
+            BridgeScalar::UInt16 => "std::uint16_t",
+            BridgeScalar::UInt32 => "std::uint32_t",
+            BridgeScalar::UInt64 => "std::uint64_t",
+            BridgeScalar::Float32 => "float",
+            BridgeScalar::Float64 => "double",
+            BridgeScalar::Bytes => "std::vector<std::uint8_t>",
+        }
+        .to_owned(),
+        BridgeType::Array(element) => format!("std::vector<{}>", cpp_type(element)),
+        BridgeType::Set(element) => format!("std::set<{}>", cpp_type(element)),
+        BridgeType::Map(key, value) => format!(
             "std::map<{}, {}>",
-            cpp_type(&ty.arguments[0]),
-            cpp_type(&ty.arguments[1])
+            cpp_type(key),
+            cpp_type(value)
         ),
-        "Pair" => format!(
+        BridgeType::Pair(first, second) => format!(
             "std::pair<{}, {}>",
-            cpp_type(&ty.arguments[0]),
-            cpp_type(&ty.arguments[1])
+            cpp_type(first),
+            cpp_type(second)
         ),
-        "Triple" => format!(
+        BridgeType::Triple(first, second, third) => format!(
             "std::tuple<{}, {}, {}>",
-            cpp_type(&ty.arguments[0]),
-            cpp_type(&ty.arguments[1]),
-            cpp_type(&ty.arguments[2])
+            cpp_type(first),
+            cpp_type(second),
+            cpp_type(third)
         ),
-        "Result" => format!(
+        BridgeType::Result { success, failure } => format!(
             "NexaResult<{}, {}>",
-            cpp_type(&ty.arguments[0]),
-            cpp_type(&ty.arguments[1])
+            cpp_type(success),
+            cpp_identifier(failure)
         ),
-        name => cpp_identifier(name),
+        BridgeType::Named { name, .. } => cpp_identifier(name),
+        BridgeType::Optional(inner) => cpp_type_base(inner),
     }
 }
 
@@ -6247,36 +6341,41 @@ fn cpp_namespace(plugin_id: &str) -> String {
         .join("::")
 }
 
-fn cpp_byte_buffer_alias_name(idl: &PluginIdl) -> String {
+fn cpp_byte_buffer_alias_name(plan: &BridgePlan) -> String {
     let base = "NexaCppByteBuffer";
-    if !cpp_name_is_declared(idl, base) {
+    if !cpp_name_is_declared(plan, base) {
         return base.to_owned();
     }
     let mut suffix = 1usize;
     loop {
         let candidate = format!("{base}{suffix}");
-        if !cpp_name_is_declared(idl, &candidate) {
+        if !cpp_name_is_declared(plan, &candidate) {
             return candidate;
         }
         suffix += 1;
     }
 }
 
-fn optional_swift_cpp_types(idl: &PluginIdl) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut add = |ty: &TypeRef| {
-        if !ty.optional
-            || !ty.arguments.is_empty()
-            || swift_cpp_base_type(ty).is_none()
-            || ty.name == "Void"
+fn optional_swift_cpp_types(plan: &BridgePlan) -> Vec<BridgeType> {
+    let mut collected = Vec::new();
+    let mut add = |ty: &BridgeType| {
+        // Mirrors the renderer's old collection rule: optional scalars
+        // (other than `Void`) and optional named values get bridge aliases.
+        let BridgeType::Optional(inner) = ty else {
+            return;
+        };
+        if !matches!(
+            inner.as_ref(),
+            BridgeType::Scalar(scalar) if !matches!(scalar, BridgeScalar::Void)
+        ) && !matches!(inner.as_ref(), BridgeType::Named { .. })
         {
             return;
         }
-        if !names.iter().any(|name| name == &ty.name) {
-            names.push(ty.name.clone());
+        if !collected.iter().any(|existing| existing == inner.as_ref()) {
+            collected.push((**inner).clone());
         }
     };
-    for interface in &idl.interfaces {
+    for interface in &plan.interfaces {
         for constructor in &interface.constructors {
             for parameter in &constructor.parameters {
                 add(&parameter.ty);
@@ -6297,55 +6396,59 @@ fn optional_swift_cpp_types(idl: &PluginIdl) -> Vec<String> {
             }
         }
     }
-    names
+    collected
 }
 
-fn cpp_name_is_declared(idl: &PluginIdl, name: &str) -> bool {
-    idl.types.iter().any(|ty| ty.name == name)
-        || idl
+fn cpp_name_is_declared(plan: &BridgePlan, name: &str) -> bool {
+    plan.types.iter().any(|ty| ty.name == name)
+        || plan
             .interfaces
             .iter()
             .any(|interface| interface.name == name)
 }
 
-fn cpp_optional_alias_name(idl: &PluginIdl, value_type: &str) -> String {
+fn cpp_optional_alias_name(plan: &BridgePlan, value_type: &str) -> String {
     let base = format!("NexaCppOptional{}", cpp_identifier(value_type));
-    unique_cpp_type_name(idl, &base)
+    unique_cpp_type_name(plan, &base)
 }
 
-fn cpp_swift_array_alias_name(idl: &PluginIdl, element_type: &str) -> String {
+fn cpp_swift_array_alias_name(plan: &BridgePlan, element_type: &str) -> String {
     let base = format!("NexaCppArray{}", cpp_identifier(element_type));
-    unique_cpp_type_name(idl, &base)
+    unique_cpp_type_name(plan, &base)
 }
 
-fn cpp_swift_array_alias_name_for_type(idl: &PluginIdl, ty: &TypeRef) -> String {
-    let element = ty
-        .arguments
-        .first()
-        .expect("Swift collection adapters require an array element");
-    if element.name != "Array" {
-        return cpp_swift_array_alias_name(idl, &element.name);
+fn cpp_swift_array_alias_name_for_type(plan: &BridgePlan, ty: &BridgeType) -> String {
+    let element: &BridgeType = match ty {
+        BridgeType::Array(element) | BridgeType::Set(element) => element,
+        _ => {
+            debug_assert!(
+                false,
+                "Swift collection adapters require an array element"
+            );
+            return cpp_swift_array_alias_name(plan, bridge_type_name(ty));
+        }
+    };
+    if !matches!(element, BridgeType::Array(_)) {
+        return cpp_swift_array_alias_name(plan, bridge_type_name(element));
     }
-    fn signature(ty: &TypeRef) -> String {
-        if ty.name == "Array" {
-            format!(
-                "Array{}",
-                signature(ty.arguments.first().expect("array type has an element"))
-            )
-        } else {
-            cpp_identifier(&ty.name)
+    fn signature(ty: &BridgeType) -> String {
+        match ty {
+            BridgeType::Array(inner) => {
+                format!("Array{}", signature(inner))
+            }
+            other => cpp_identifier(bridge_type_name(other)),
         }
     }
-    unique_cpp_type_name(idl, &format!("NexaCppArray{}", signature(element)))
+    unique_cpp_type_name(plan, &format!("NexaCppArray{}", signature(element)))
 }
 
-fn cpp_optional_bridge_name(idl: &PluginIdl) -> String {
-    unique_cpp_type_name(idl, "NexaCppOptionalBridge")
+fn cpp_optional_bridge_name(plan: &BridgePlan) -> String {
+    unique_cpp_type_name(plan, "NexaCppOptionalBridge")
 }
 
-fn cpp_swift_error_bridge_name(idl: &PluginIdl, error_name: &str) -> String {
+fn cpp_swift_error_bridge_name(plan: &BridgePlan, error_name: &str) -> String {
     unique_cpp_type_name(
-        idl,
+        plan,
         &format!("NexaCppErrorBridge{}", cpp_identifier(error_name)),
     )
 }
@@ -6354,14 +6457,14 @@ fn swift_cpp_error_converter_name(error_name: &str) -> String {
     format!("nexaCppErrorTo{}", cpp_identifier(error_name))
 }
 
-fn unique_cpp_type_name(idl: &PluginIdl, base: &str) -> String {
-    if !cpp_name_is_declared(idl, base) {
+fn unique_cpp_type_name(plan: &BridgePlan, base: &str) -> String {
+    if !cpp_name_is_declared(plan, base) {
         return base.to_owned();
     }
     let mut suffix = 1usize;
     loop {
         let candidate = format!("{base}{suffix}");
-        if !cpp_name_is_declared(idl, &candidate) {
+        if !cpp_name_is_declared(plan, &candidate) {
             return candidate;
         }
         suffix += 1;

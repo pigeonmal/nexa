@@ -676,12 +676,7 @@ fn throwing_file_calls_preserve_failures_only_inside_recovery_blocks() {
             if matches!(
                 body.as_slice(),
                 [Action::Expression(Expr::TryAwait(call))]
-                    if matches!(call.as_ref(), Expr::NativeCall {
-                        namespace,
-                        name,
-                        is_throwing: true,
-                        ..
-                    } if namespace == "File" && name == "readText")
+                    if matches!(call.as_ref(), Expr::FileReadText { .. })
             )
     ));
 

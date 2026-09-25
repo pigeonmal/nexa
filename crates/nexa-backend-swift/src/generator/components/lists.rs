@@ -1,71 +1,62 @@
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListSource, Module, Node};
+use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListPlan, Module, Node};
 
 use crate::generator::{
     components::render_children, controls::render_actions, expressions::expression, utils::indent,
 };
 
 pub(crate) fn render_virtualized_list(
-    source: &ListSource,
-    axis: ListAxis,
-    item_extent: Option<f32>,
-    section: Option<&str>,
-    index: &str,
-    item: Option<&str>,
-    key: Option<&Expr>,
-    children: &[Node],
-    on_end_reached: Option<&[Action]>,
-    on_scroll: Option<&[Action]>,
-    scroll_position: Option<&str>,
-    sticky_header: Option<&[Node]>,
-    section_header: Option<&[Node]>,
-    refresh: Option<&FastListRefresh>,
+    plan: &ListPlan,
     module: &Module,
     depth: usize,
     out: &mut String,
 ) {
-    if let ListSource::Sections {
-        collection,
-        element_type,
-    } = source
-    {
-        return render_sectioned_list(
+    match plan {
+        ListPlan::Sections {
             collection,
             element_type,
-            item_extent,
-            section.expect("semantic lowering always provides a section binding"),
-            index,
-            item.expect("semantic lowering always provides an item binding"),
-            key,
-            children,
-            section_header,
-            refresh,
-            module,
-            depth,
-            out,
-        );
-    }
-    indent(out, depth);
-    match source {
-        ListSource::Count(count) => {
-            let key = key
+            section,
+            item,
+            common,
+        } => {
+            render_sectioned_list(
+                collection,
+                element_type,
+                common.item_extent,
+                section,
+                &common.index,
+                item,
+                common.key.as_ref(),
+                &common.children,
+                common.section_header.as_deref(),
+                common.refresh.as_ref(),
+                module,
+                depth,
+                out,
+            );
+            return;
+        }
+        ListPlan::Count { count, common } => {
+            let key = common
+                .key
+                .as_ref()
                 .map(|key| {
                     format!(
                         ", rowKey: {{ listPosition in AnyHashable({}) }}",
-                        render_key(key, index, item, None, "listPosition")
+                        render_key(key, &common.index, None, None, "listPosition")
                     )
                 })
                 .unwrap_or_default();
             open_list(
-                axis,
+                common.axis,
                 format!("max(0, Int({}))", expression(count)),
                 &key,
-                item_extent,
-                on_end_reached,
-                on_scroll,
-                scroll_position,
-                sticky_header,
-                refresh,
+                common.item_extent,
+                common.on_end_reached.as_deref(),
+                common.on_scroll.as_deref(),
+                common.scroll_position.as_deref(),
+                common.sticky_header.as_deref(),
+                common.refresh.as_ref(),
                 module,
                 depth,
                 out,
@@ -73,33 +64,42 @@ pub(crate) fn render_virtualized_list(
             indent(out, depth + 1);
             out.push_str(&format!(
                 "let {}: Int32 = Int32(listPosition)\n",
-                state_name(index)
+                state_name(&common.index)
             ));
         }
-        ListSource::Items {
+        ListPlan::Items {
             collection,
             element_type,
+            item,
+            common,
         } => {
-            let item = item.unwrap_or("item");
             let collection = expression(collection);
-            let key = key
+            let key = common
+                .key
+                .as_ref()
                 .map(|key| {
                     format!(
                         ", rowKey: {{ listPosition in AnyHashable({}) }}",
-                        render_key(key, index, Some(item), Some(&collection), "listPosition")
+                        render_key(
+                            key,
+                            &common.index,
+                            Some(item),
+                            Some(&collection),
+                            "listPosition"
+                        )
                     )
                 })
                 .unwrap_or_default();
             open_list(
-                axis,
+                common.axis,
                 format!("{collection}.count"),
                 &key,
-                item_extent,
-                on_end_reached,
-                on_scroll,
-                scroll_position,
-                sticky_header,
-                refresh,
+                common.item_extent,
+                common.on_end_reached.as_deref(),
+                common.on_scroll.as_deref(),
+                common.scroll_position.as_deref(),
+                common.sticky_header.as_deref(),
+                common.refresh.as_ref(),
                 module,
                 depth,
                 out,
@@ -107,7 +107,7 @@ pub(crate) fn render_virtualized_list(
             indent(out, depth + 1);
             out.push_str(&format!(
                 "let {}: Int32 = Int32(clamping: listPosition)\n",
-                state_name(index)
+                state_name(&common.index)
             ));
             indent(out, depth + 1);
             out.push_str(&format!(
@@ -116,9 +116,8 @@ pub(crate) fn render_virtualized_list(
                 element_type.swift()
             ));
         }
-        ListSource::Sections { .. } => unreachable!("sectioned list handled above"),
     }
-    render_children(children, module, depth + 1, out);
+    render_children(plan.children(), module, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');

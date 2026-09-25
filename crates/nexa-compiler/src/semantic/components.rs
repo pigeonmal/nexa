@@ -5,9 +5,9 @@ use nexa_ir::walk::any_node;
 use nexa_ir::{
     AccessibilityRole, Action, BottomBarTab, Capitalization, CollectionMutation, DirectionConfig,
     DirectionStyle, Expr, FastListRefresh, FontWeight, HapticStyle, ImageScale, ImageSource,
-    KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis, ListSource,
-    NativeComponentEventHandler, Node, NumericType, ScreenId, StatusBarConfig, StatusBarStyle,
-    TextStyle, Type, WhenCase,
+    KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis, ListCommon, ListPlan,
+    NativeComponentEventHandler, Node, NumericType, ScreenId, SectionedListCommon, StatusBarConfig,
+    StatusBarStyle, TextStyle, Type, WhenCase,
 };
 use nexa_syntax::ast;
 
@@ -91,6 +91,26 @@ fn platform_matches(platform: ast::PlatformTarget, target: Target) -> bool {
         (platform, target),
         (ast::PlatformTarget::Ios, Target::Swift) | (ast::PlatformTarget::Android, Target::Kotlin)
     )
+}
+
+/// Validated FastList source bindings collected during lowering, before the
+/// row children are lowered. Each variant carries exactly the bindings its
+/// source provides; the final assembly wraps them in a [`ListPlan`].
+enum ListSourceParts {
+    Count {
+        count: Expr,
+    },
+    Items {
+        collection: Expr,
+        element_type: Type,
+        item: String,
+    },
+    Sections {
+        collection: Expr,
+        element_type: Type,
+        section: String,
+        item: String,
+    },
 }
 
 pub(super) fn lower_node(
@@ -771,8 +791,8 @@ pub(super) fn lower_node(
                 lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)?;
             if lowered_children.len() == 1 {
                 let mut child = lowered_children.pop().expect("one lowered refresh child");
-                if let Node::FastList { refresh, .. } = &mut child {
-                    *refresh = Some(FastListRefresh { state, actions });
+                if let Node::FastList { plan } = &mut child {
+                    *plan.refresh_slot() = Some(FastListRefresh { state, actions });
                     return Ok(child);
                 }
                 lowered_children.push(child);
@@ -977,7 +997,7 @@ pub(super) fn lower_node(
                     )
                 })
                 .transpose()?;
-            let (source, section, item, item_type) = match source {
+            let (parts, section, item, item_type) = match source {
                 ast::ListSource::Count(count) => {
                     if item.is_some() || has_section_binding {
                         return Err(CompileError::new(
@@ -995,7 +1015,14 @@ pub(super) fn lower_node(
                             ));
                         }
                     }
-                    (ListSource::Count(count_value), None, None, None)
+                    (
+                        ListSourceParts::Count {
+                            count: count_value,
+                        },
+                        None,
+                        None,
+                        None,
+                    )
                 }
                 ast::ListSource::Items(collection) => {
                     if has_section_binding {
@@ -1030,9 +1057,10 @@ pub(super) fn lower_node(
                         ));
                     }
                     (
-                        ListSource::Items {
+                        ListSourceParts::Items {
                             collection: Expr::State(name, ty.clone()),
                             element_type: (**element_type).clone(),
+                            item: item_name.clone(),
                         },
                         None,
                         Some(item_name),
@@ -1072,9 +1100,11 @@ pub(super) fn lower_node(
                         ));
                     }
                     (
-                        ListSource::Sections {
+                        ListSourceParts::Sections {
                             collection: Expr::State(name, ty.clone()),
                             element_type: (**element_type).clone(),
+                            section: section_name.clone(),
+                            item: item_name.clone(),
                         },
                         Some(section_name.clone()),
                         Some(item_name),
@@ -1214,20 +1244,74 @@ pub(super) fn lower_node(
                 })
                 .transpose()?;
             Ok(Node::FastList {
-                source,
-                axis,
-                item_extent,
-                index,
-                item,
-                key,
-                scroll_position,
-                section,
-                children: lowered_children,
-                on_end_reached,
-                on_scroll,
-                sticky_header,
-                section_header,
-                refresh: None,
+                plan: match parts {
+                    ListSourceParts::Count { count } => ListPlan::Count {
+                        count,
+                        common: ListCommon {
+                            axis,
+                            item_extent,
+                            index,
+                            key,
+                            scroll_position,
+                            children: lowered_children,
+                            on_end_reached,
+                            on_scroll,
+                            sticky_header,
+                            refresh: None,
+                        },
+                    },
+                    ListSourceParts::Items {
+                        collection,
+                        element_type,
+                        item,
+                    } => ListPlan::Items {
+                        collection,
+                        element_type,
+                        item,
+                        common: ListCommon {
+                            axis,
+                            item_extent,
+                            index,
+                            key,
+                            scroll_position,
+                            children: lowered_children,
+                            on_end_reached,
+                            on_scroll,
+                            sticky_header,
+                            refresh: None,
+                        },
+                    },
+                    ListSourceParts::Sections {
+                        collection,
+                        element_type,
+                        section,
+                        item,
+                    } => {
+                        // Lowering rejects scroll observers and sticky headers
+                        // for sectioned lists above, so only the sectioned
+                        // options can be populated here.
+                        debug_assert!(
+                            scroll_position.is_none()
+                                && on_end_reached.is_none()
+                                && on_scroll.is_none()
+                                && sticky_header.is_none()
+                        );
+                        ListPlan::Sections {
+                            collection,
+                            element_type,
+                            section,
+                            item,
+                            common: SectionedListCommon {
+                                item_extent,
+                                index,
+                                key,
+                                children: lowered_children,
+                                section_header,
+                                refresh: None,
+                            },
+                        }
+                    }
+                },
             })
         }
         ast::Node::If {
@@ -2667,15 +2751,23 @@ fn validate_typed_error_recovery(
     let mut typed_errors = HashMap::new();
     let mut has_untyped_throw = false;
     visit_action_expressions(actions, &mut |expression| {
-        let Expr::NativeCall {
-            receiver,
-            namespace,
-            name,
-            is_throwing: true,
-            ..
-        } = expression
-        else {
+        if !expression.is_throwing_call() {
             return;
+        }
+        let (receiver, namespace, name) = match expression {
+            Expr::NativeCall {
+                receiver,
+                namespace,
+                name,
+                ..
+            } => (receiver, namespace, name),
+            // Validated core throwing calls (`Network`, `File`) declare no
+            // error type, so they always require a catch-all `else` — exactly
+            // as when they were unresolvable `NativeCall`s.
+            _ => {
+                has_untyped_throw = true;
+                return;
+            }
         };
         let key = match receiver.as_deref() {
             Some(Expr::State(

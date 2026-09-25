@@ -1,5 +1,8 @@
 use nexa_codegen::names::{function_name, state_name};
-use nexa_ir::{BinaryOp, CollectionTransform, Expr, InterpolatedPart, NumericType, Type};
+use nexa_ir::{
+    BinaryOp, CollectionTransform, Expr, InterpolatedPart, MemberKind, NetworkRequest, NumericType,
+    PermissionOpKind, TuplePosition, Type,
+};
 
 use super::utils::{swift_string, swift_string_content};
 
@@ -98,55 +101,32 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             ),
         },
         Expr::Member {
-            base,
-            name,
-            optional,
-            base_type,
-            ..
+            base, optional, kind, ..
         } => {
-            let tuple_type = match base_type {
-                Type::Optional(inner) => inner.as_ref(),
-                base_type => base_type,
+            let (field, wrap_status_code) = match kind {
+                MemberKind::TupleIndex(TuplePosition::First) => (".0".to_owned(), false),
+                MemberKind::TupleIndex(TuplePosition::Second) => (".1".to_owned(), false),
+                MemberKind::TupleIndex(TuplePosition::Third) => (".2".to_owned(), false),
+                MemberKind::StructField(field) => (
+                    format!(".{}", nexa_codegen::names::struct_field_name(field)),
+                    false,
+                ),
+                MemberKind::PluginField(field) => (format!(".{field}"), false),
+                MemberKind::NetworkStatusCode => (".statusCode".to_owned(), true),
+                MemberKind::NetworkHeaders => (".headers".to_owned(), false),
+                MemberKind::NetworkBody => (".text".to_owned(), false),
             };
-            let field = match (tuple_type, name.as_str()) {
-                (Type::Pair(_, _), "first") | (Type::Triple(_, _, _), "first") => ".0",
-                (Type::Pair(_, _), "second") | (Type::Triple(_, _, _), "second") => ".1",
-                (Type::Triple(_, _, _), "third") => ".2",
-                (Type::Struct { .. }, field) => {
-                    return format!(
-                        "{}{}.{}",
-                        render(base),
-                        if *optional { "?" } else { "" },
-                        nexa_codegen::names::struct_field_name(field)
-                    );
-                }
-                (Type::Plugin { .. }, field) => {
-                    return format!(
-                        "{}{}.{}",
-                        render(base),
-                        if *optional { "?" } else { "" },
-                        field
-                    );
-                }
-                (Type::NetworkResponse, "statusCode") => ".statusCode",
-                (Type::NetworkResponse, "headers") => ".headers",
-                (Type::NetworkResponse, "body") => ".text",
-                _ => unreachable!("semantic analysis validates member access"),
-            };
-            if matches!(tuple_type, Type::NetworkResponse) && name == "statusCode" {
-                return format!(
-                    "Int32({}{}{})",
-                    render(base),
-                    if *optional { "?" } else { "" },
-                    field
-                );
-            }
-            format!(
+            let access = format!(
                 "{}{}{}",
                 render(base),
                 if *optional { "?" } else { "" },
                 field
-            )
+            );
+            if wrap_status_code {
+                format!("Int32({access})")
+            } else {
+                access
+            }
         }
         Expr::Array(items) => format!(
             "[{}]",
@@ -235,13 +215,36 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             arguments,
             ..
         } => native_call(receiver.as_deref(), namespace, name, arguments, locals),
-        Expr::Await(value) => match value.as_ref() {
-            Expr::NativeCall {
-                is_throwing: true, ..
-            } => format!("try await {}", render(value)),
-            Expr::NativeCall { .. } => format!("await {}", render(value)),
-            _ => format!("await {}", render(value)),
-        },
+        Expr::NetworkFetch(request) => render_network_request(request, None, locals),
+        Expr::NetworkDownload {
+            destination,
+            request,
+        } => render_network_request(request, Some(destination), locals),
+        Expr::PathJoin { path, component } => {
+            format!("NexaPath.join({}, {})", render(path), render(component))
+        }
+        Expr::FileExists { path } => format!("NexaFile.exists({})", render(path)),
+        Expr::FileReadText { path } => format!("NexaFile.readText({})", render(path)),
+        Expr::FileWriteText { path, contents } => format!(
+            "NexaFile.writeText({}, to: {})",
+            render(contents),
+            render(path)
+        ),
+        Expr::FileDelete { path } => format!("NexaFile.delete({})", render(path)),
+        Expr::PermissionOp { op, permission } => {
+            let method = match op {
+                PermissionOpKind::Status => "status",
+                PermissionOpKind::Request => "request",
+            };
+            format!("NexaPermissions.{method}({})", render(permission))
+        }
+        Expr::Await(value) => {
+            if value.is_throwing_call() {
+                format!("try await {}", render(value))
+            } else {
+                format!("await {}", render(value))
+            }
+        }
         Expr::TryAwait(value) => format!("try await {}", render(value)),
         Expr::Add(left, right, ty) => {
             let operator = if matches!(ty, NumericType::Float32 | NumericType::Float64) {
@@ -295,77 +298,9 @@ fn native_call(
                 .join(", ")
         );
     }
-    let argument = |name: &str| {
-        arguments
-            .iter()
-            .find(|(candidate, _)| candidate == name)
-            .map(|(_, value)| expression_with_locals(value, locals))
-            .expect("native argument validated by semantic analysis")
-    };
-    let body = arguments
-        .iter()
-        .find(|(candidate, _)| candidate == "body")
-        .map(|(_, value)| match value {
-            Expr::Null(_) => "nil".to_owned(),
-            _ if is_optional_expression(value) => {
-                format!(
-                    "{}.map {{ Data($0.utf8) }}",
-                    expression_with_locals(value, locals)
-                )
-            }
-            _ => format!("Data({}.utf8)", expression_with_locals(value, locals)),
-        })
-        .unwrap_or_else(|| "nil".to_owned());
     match (namespace, name) {
-        ("Network", "fetch") => format!(
-            "NexaNetwork.fetch(url: {}, method: {}, body: {}, headers: {}, timeout: {}, useCache: {}, followRedirects: {}, maxResponseBytes: Int({}), certificatePins: {})",
-            argument("url"),
-            argument("method"),
-            body,
-            argument("headers"),
-            argument("timeout"),
-            argument("useCache"),
-            argument("followRedirects"),
-            argument("maxResponseBytes"),
-            argument("certificatePins"),
-        ),
-        ("Network", "download") => format!(
-            "NexaNetwork.download(url: {}, destinationPath: {}, method: {}, body: {}, headers: {}, timeout: {}, useCache: {}, followRedirects: {}, maxResponseBytes: Int({}), certificatePins: {})",
-            argument("url"),
-            argument("destinationPath"),
-            argument("method"),
-            body,
-            argument("headers"),
-            argument("timeout"),
-            argument("useCache"),
-            argument("followRedirects"),
-            argument("maxResponseBytes"),
-            argument("certificatePins"),
-        ),
         ("Path", path_name) => {
-            if path_name == "join" {
-                format!(
-                    "NexaPath.join({}, {})",
-                    argument("path"),
-                    argument("component")
-                )
-            } else {
-                format!("NexaPath.{}()", path_name)
-            }
-        }
-        ("File", "exists") => format!("NexaFile.exists({})", argument("path")),
-        ("File", "readText") => format!("NexaFile.readText({})", argument("path")),
-        ("File", "writeText") => format!(
-            "NexaFile.writeText({}, to: {})",
-            argument("contents"),
-            argument("path")
-        ),
-        ("File", "delete") => format!("NexaFile.delete({})", argument("path")),
-        ("Permissions", "status") => {
-            format!("NexaPermissions.status({})", argument("permission"))
-        }
-        ("Permissions", "request") => {
-            format!("NexaPermissions.request({})", argument("permission"))
+            format!("NexaPath.{path_name}()")
         }
         _ => format!(
             "{}Plugin.shared.{}({})",
@@ -376,6 +311,41 @@ fn native_call(
                 .map(|(_, value)| expression_with_locals(value, locals))
                 .collect::<Vec<_>>()
                 .join(", ")
+        ),
+    }
+}
+
+/// Renders a validated network request. `destination` is present only for
+/// `Network.download`; the format strings match the previous
+/// argument-lookup rendering exactly.
+fn render_network_request(
+    request: &NetworkRequest,
+    destination: Option<&Expr>,
+    locals: &[String],
+) -> String {
+    let render = |value: &Expr| expression_with_locals(value, locals);
+    let body = match request.body.as_deref() {
+        None => "nil".to_owned(),
+        Some(body) if is_optional_expression(body) => {
+            format!("{}.map {{ Data($0.utf8) }}", render(body))
+        }
+        Some(body) => format!("Data({}.utf8)", render(body)),
+    };
+    let url = render(&request.url);
+    let method = render(&request.method);
+    let headers = render(&request.headers);
+    let timeout = render(&request.timeout);
+    let use_cache = render(&request.use_cache);
+    let follow_redirects = render(&request.follow_redirects);
+    let max_response_bytes = render(&request.max_response_bytes);
+    let certificate_pins = render(&request.certificate_pins);
+    match destination {
+        Some(destination) => format!(
+            "NexaNetwork.download(url: {url}, destinationPath: {}, method: {method}, body: {body}, headers: {headers}, timeout: {timeout}, useCache: {use_cache}, followRedirects: {follow_redirects}, maxResponseBytes: Int({max_response_bytes}), certificatePins: {certificate_pins})",
+            render(destination),
+        ),
+        None => format!(
+            "NexaNetwork.fetch(url: {url}, method: {method}, body: {body}, headers: {headers}, timeout: {timeout}, useCache: {use_cache}, followRedirects: {follow_redirects}, maxResponseBytes: Int({max_response_bytes}), certificatePins: {certificate_pins})"
         ),
     }
 }
@@ -438,10 +408,6 @@ mod tests {
     use super::expression;
     use nexa_ir::{Expr, Type};
 
-    fn path_argument() -> Vec<(String, Expr)> {
-        vec![("path".to_owned(), Expr::String("notes.txt".to_owned()))]
-    }
-
     #[test]
     fn throwing_native_calls_preserve_errors_for_explicit_recovery() {
         let value = Expr::Await(Box::new(Expr::NativeCall {
@@ -459,43 +425,28 @@ mod tests {
 
     #[test]
     fn file_calls_use_the_generated_native_helper_names_and_labels() {
-        let read = Expr::Await(Box::new(Expr::NativeCall {
-            receiver: None,
-            namespace: "File".to_owned(),
-            name: "readText".to_owned(),
-            arguments: path_argument(),
-            return_type: Type::String,
-            is_async: true,
-            is_throwing: false,
+        let path = || Box::new(Expr::String("notes.txt".to_owned()));
+        let read = Expr::Await(Box::new(Expr::FileReadText { path: path() }));
+        let write = Expr::Await(Box::new(Expr::FileWriteText {
+            path: path(),
+            contents: Box::new(Expr::String("saved".to_owned())),
         }));
-        let write = Expr::Await(Box::new(Expr::NativeCall {
-            receiver: None,
-            namespace: "File".to_owned(),
-            name: "writeText".to_owned(),
-            arguments: vec![
-                ("contents".to_owned(), Expr::String("saved".to_owned())),
-                ("path".to_owned(), Expr::String("notes.txt".to_owned())),
-            ],
-            return_type: Type::Bool,
-            is_async: true,
-            is_throwing: false,
-        }));
-        let delete = Expr::Await(Box::new(Expr::NativeCall {
-            receiver: None,
-            namespace: "File".to_owned(),
-            name: "delete".to_owned(),
-            arguments: path_argument(),
-            return_type: Type::Bool,
-            is_async: true,
-            is_throwing: false,
-        }));
+        let delete = Expr::Await(Box::new(Expr::FileDelete { path: path() }));
+        let exists = Expr::Await(Box::new(Expr::FileExists { path: path() }));
 
-        assert_eq!(expression(&read), "await NexaFile.readText(\"notes.txt\")");
+        assert_eq!(
+            expression(&read),
+            "try await NexaFile.readText(\"notes.txt\")"
+        );
         assert_eq!(
             expression(&write),
-            "await NexaFile.writeText(\"saved\", to: \"notes.txt\")"
+            "try await NexaFile.writeText(\"saved\", to: \"notes.txt\")"
         );
-        assert_eq!(expression(&delete), "await NexaFile.delete(\"notes.txt\")");
+        assert_eq!(
+            expression(&delete),
+            "try await NexaFile.delete(\"notes.txt\")"
+        );
+        assert_eq!(expression(&exists), "await NexaFile.exists(\"notes.txt\")");
     }
 
     #[test]
