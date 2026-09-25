@@ -13,6 +13,69 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  license-metadata:
+    name: License metadata consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check license metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF'
+          import json, re, sys
+          from pathlib import Path
+
+          root = Path(".")
+          failures = []
+
+          def check(condition, message):
+              if not condition:
+                  failures.append(message)
+
+          cargo = (root / "Cargo.toml").read_text()
+          members = re.findall(r'"(crates/[^"]+)"', cargo.split("default-members")[0])
+          check('license = "MPL-2.0"' in cargo, "workspace license must be MPL-2.0")
+          check(bool(members), "workspace members must be listed")
+
+          for member in members:
+              manifest = (root / member / "Cargo.toml").read_text()
+              check(
+                  'license.workspace = true' in manifest or 'license = "MPL-2.0"' in manifest,
+                  f"{member}/Cargo.toml must inherit the MPL-2.0 workspace license",
+              )
+              check(
+                  not re.search(r'license\s*=\s*"(?!MPL-2\.0)', manifest),
+                  f"{member}/Cargo.toml declares a non-MPL-2.0 license",
+              )
+
+          license_text = (root / "LICENSE").read_text()
+          check("Mozilla Public License Version 2.0" in license_text, "LICENSE must be MPL-2.0")
+          check("GENERAL PUBLIC LICENSE" not in license_text, "LICENSE must not be GPL text")
+
+          readme = (root / "README.md").read_text()
+          check("license-MPL--2.0" in readme, "README badge must say MPL-2.0")
+          check("Mozilla Public License 2.0" in readme, "README license section must say MPL-2.0")
+          check("license-MIT" not in readme, "README must not claim MIT")
+          check("MIT License" not in readme, "README must not claim MIT")
+          check("GPL" not in readme, "README must not claim GPL")
+          check(
+              f"all {len(members)} crates" in readme,
+              f"README crate count must match the {len(members)} workspace members",
+          )
+
+          package_json = json.loads((root / "editors/vscode/package.json").read_text())
+          check(
+              package_json.get("license") == "MPL-2.0",
+              "editors/vscode/package.json license must be MPL-2.0",
+          )
+
+          if failures:
+              print("\n".join(failures))
+              sys.exit(1)
+          print(f"license metadata consistent (MPL-2.0, {len(members)} crates)")
+          EOF
+
   rust:
     name: Rust check and tests
     runs-on: ubuntu-latest

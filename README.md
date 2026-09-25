@@ -3,7 +3,7 @@
 **Ultra-high-performance Ahead-Of-Time (AOT) transpiler compiling declarative `.nx` apps directly into native Swift (SwiftUI) and Kotlin (Jetpack Compose).**
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)]()
+[![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg)]()
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)]()
 [![Swift](https://img.shields.io/badge/swift-6.0-red.svg)]()
 [![Kotlin](https://img.shields.io/badge/kotlin-2.4-purple.svg)]()
@@ -139,7 +139,7 @@ Explore real-world examples in [`examples/`](examples/):
 To verify the entire compiler workspace:
 
 ```bash
-# 1. Type checking across all 10 crates
+# 1. Type checking across all 13 crates
 cargo check --workspace --all-targets
 
 # 2. Strict linter verification
@@ -153,4 +153,4 @@ cargo test --workspace
 
 ## License
 
-Nexa is open-source software licensed under the MIT License.
+Nexa is open-source software licensed under the Mozilla Public License 2.0. See [LICENSE](LICENSE) for the full text.

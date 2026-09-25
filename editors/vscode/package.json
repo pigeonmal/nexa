@@ -3,6 +3,7 @@
   "displayName": "Nexa Language Support",
   "description": "Language support and Language Server Protocol integration for Nexa (.nx)",
   "version": "0.1.0",
+  "license": "MPL-2.0",
   "publisher": "nexa-lang",
   "engines": {
     "vscode": "^1.75.0"
