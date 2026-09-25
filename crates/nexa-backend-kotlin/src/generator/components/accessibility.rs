@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{AccessibilityRole, Expr, Module, Node};
 
 use crate::generator::{
@@ -41,7 +42,7 @@ pub(crate) fn render_accessibility(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     out.push_str("Box(\n");
@@ -51,19 +52,22 @@ pub(crate) fn render_accessibility(
         (Expr::String(label), [Node::Image { description, .. }]) if description == label
     );
     if !child_has_same_image_label {
-        indent(out, depth + 2);
-        out.push_str(&format!("contentDescription = {}\n", expression(label)));
+        out.line_at(
+            depth + 2,
+            format_args!("contentDescription = {}", expression(label)),
+        );
     }
     if let Some(hint) = hint {
-        indent(out, depth + 2);
-        out.push_str(&format!("stateDescription = {}\n", expression(hint)));
+        out.line_at(
+            depth + 2,
+            format_args!("stateDescription = {}", expression(hint)),
+        );
     }
     if matches!(role, AccessibilityRole::Header) {
         indent(out, depth + 2);
         out.push_str("heading()\n");
     } else if let Some(role_name) = role_name(role) {
-        indent(out, depth + 2);
-        out.push_str(&format!("role = Role.{role_name}\n"));
+        out.line_at(depth + 2, format_args!("role = Role.{role_name}"));
     }
     indent(out, depth + 1);
     out.push_str("},\n");

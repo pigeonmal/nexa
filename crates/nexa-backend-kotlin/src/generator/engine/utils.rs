@@ -1,13 +1,21 @@
+use nexa_codegen::SourceWriter;
+
 pub(crate) fn number(value: f32) -> String {
     value.to_string()
 }
 
+/// The indentation prefix for `depth`, for the `format!` sites that are not
+/// worth reshaping into `SourceWriter::line_at`.
 pub(crate) fn spaces(depth: usize) -> String {
     "    ".repeat(depth)
 }
 
-pub(crate) fn indent(out: &mut String, depth: usize) {
-    out.push_str(&"    ".repeat(depth));
+/// Writes the indentation prefix for `depth`.
+///
+/// Prefer `SourceWriter::line_at` where the indent is immediately followed by a
+/// line; this remains for the sequences that indent, then write fragments.
+pub(crate) fn indent(out: &mut SourceWriter, depth: usize) {
+    out.indent(depth);
 }
 
 pub(crate) fn kotlin_string(value: &str) -> String {

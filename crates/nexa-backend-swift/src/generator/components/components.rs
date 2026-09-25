@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 
 use crate::generator::{
@@ -13,7 +14,7 @@ pub(crate) fn render_node(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     match node {
         Node::StatusBar { .. }
@@ -32,8 +33,7 @@ pub(crate) fn render_node(
             *kind, *spacing, style, children, module, features, depth, out,
         ),
         Node::Text { value, style } => {
-            indent(out, depth);
-            out.push_str(&format!("Text({})", text_expression(value)));
+            out.text_at(depth, format_args!("Text({})", text_expression(value)));
             if let Some(color) = style.color {
                 out.push_str(&format!(
                     "\n{}.foregroundStyle({})",
@@ -218,11 +218,13 @@ pub(crate) fn render_node(
             then_body,
             else_body,
         } => {
-            indent(out, depth);
-            out.push_str(&format!(
-                "if {} {{\n",
-                crate::generator::engine::expressions::expression(condition)
-            ));
+            out.line_at(
+                depth,
+                format_args!(
+                    "if {} {{",
+                    crate::generator::engine::expressions::expression(condition)
+                ),
+            );
             render_children(then_body, module, features, depth + 1, out);
             if let Some(else_body) = else_body {
                 out.push('\n');
@@ -239,17 +241,21 @@ pub(crate) fn render_node(
             cases,
             else_body,
         } => {
-            indent(out, depth);
-            out.push_str(&format!(
-                "switch {} {{\n",
-                crate::generator::engine::expressions::expression(value)
-            ));
+            out.line_at(
+                depth,
+                format_args!(
+                    "switch {} {{",
+                    crate::generator::engine::expressions::expression(value)
+                ),
+            );
             for case in cases {
-                indent(out, depth + 1);
-                out.push_str(&format!(
-                    "case {}:\n",
-                    crate::generator::engine::expressions::expression(&case.value)
-                ));
+                out.line_at(
+                    depth + 1,
+                    format_args!(
+                        "case {}:",
+                        crate::generator::engine::expressions::expression(&case.value)
+                    ),
+                );
                 render_children(&case.body, module, features, depth + 2, out);
                 out.push('\n');
             }
@@ -269,18 +275,22 @@ pub(crate) fn render_node(
             arguments,
             children,
         } => {
-            indent(out, depth);
-            out.push_str(&format!(
-                "{}({})",
-                nexa_codegen::names::component_name(name),
-                arguments
-                    .iter()
-                    .map(
-                        |(_, argument)| crate::generator::engine::expressions::expression(argument)
-                    )
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+            out.text_at(
+                depth,
+                format_args!(
+                    "{}({})",
+                    nexa_codegen::names::component_name(name),
+                    arguments
+                        .iter()
+                        .map(
+                            |(_, argument)| crate::generator::engine::expressions::expression(
+                                argument
+                            )
+                        )
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            );
             if let Some(children) = children {
                 out.push_str(" {\n");
                 render_children(children, module, features, depth + 1, out);
@@ -339,7 +349,7 @@ pub(crate) fn render_children(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     match children {
         [] => {

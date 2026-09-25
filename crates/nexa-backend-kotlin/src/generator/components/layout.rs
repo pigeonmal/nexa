@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Module, Node, ViewStyle};
 
 use crate::generator::{
@@ -101,7 +102,7 @@ pub(crate) fn render_layout(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     let layout = match kind {
         LayoutKind::Column => "Column",
@@ -173,7 +174,7 @@ pub(crate) fn render_layout(
     out.push('}');
 }
 
-fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut String) {
+fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
     if let Some(opacity) = style.opacity {
         out.push_str(&format!("\n{}.alpha({}f)", spaces(depth), number(opacity)));
     }

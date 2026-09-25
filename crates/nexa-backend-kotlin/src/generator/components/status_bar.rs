@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{ColorValue, StatusBarConfig};
 
 use crate::generator::engine::{features::Features, imports::ImportSet};
@@ -15,7 +16,7 @@ pub(crate) fn render(
     config: Option<StatusBarConfig>,
     enabled: bool,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     if !enabled {
         return;

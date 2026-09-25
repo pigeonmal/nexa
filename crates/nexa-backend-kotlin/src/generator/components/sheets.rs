@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{Module, Node};
 
@@ -25,18 +26,16 @@ pub(crate) fn render_bottom_sheet(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
-    indent(out, depth);
-    out.push_str(&format!("if ({}) {{\n", state_name(state)));
+    out.line_at(depth, format_args!("if ({}) {{", state_name(state)));
     indent(out, depth + 1);
     if partial {
         out.push_str("ModalBottomSheet(\n");
-        indent(out, depth + 2);
-        out.push_str(&format!(
-            "onDismissRequest = {{ {} = false }},\n",
-            state_name(state)
-        ));
+        out.line_at(
+            depth + 2,
+            format_args!("onDismissRequest = {{ {} = false }},", state_name(state)),
+        );
         indent(out, depth + 2);
         out.push_str(
             "sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),\n",

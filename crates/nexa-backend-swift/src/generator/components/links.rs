@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{Expr, Module, Node};
 
 use crate::generator::{
@@ -19,14 +20,16 @@ pub(crate) fn render_link(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     if let Expr::String(value) = url {
-        indent(out, depth);
-        out.push_str(&format!(
-            "Link(destination: URL(string: {})!) {{\n",
-            swift_string(value)
-        ));
+        out.line_at(
+            depth,
+            format_args!(
+                "Link(destination: URL(string: {})!) {{",
+                swift_string(value)
+            ),
+        );
         render_children(children, module, features, depth + 1, out);
         out.push('\n');
         indent(out, depth);
@@ -34,11 +37,10 @@ pub(crate) fn render_link(
         return;
     }
 
-    indent(out, depth);
-    out.push_str(&format!(
-        "if let nexaLinkURL = URL(string: {}) {{\n",
-        expression(url)
-    ));
+    out.line_at(
+        depth,
+        format_args!("if let nexaLinkURL = URL(string: {}) {{", expression(url)),
+    );
     indent(out, depth + 1);
     out.push_str("Link(destination: nexaLinkURL) {\n");
     render_children(children, module, features, depth + 2, out);

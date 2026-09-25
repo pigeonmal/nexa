@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::walk::contains_scrollable;
 use nexa_ir::{Action, Module, Node};
@@ -22,12 +23,14 @@ pub(crate) fn render_refresh_control(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     out.push_str("PullToRefreshBox(\n");
-    indent(out, depth + 1);
-    out.push_str(&format!("isRefreshing = {},\n", state_name(state)));
+    out.line_at(
+        depth + 1,
+        format_args!("isRefreshing = {},", state_name(state)),
+    );
     indent(out, depth + 1);
     out.push_str("onRefresh = {\n");
     render_actions(actions, depth + 2, out);

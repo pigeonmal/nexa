@@ -1,12 +1,13 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{LayoutKind, Module, ViewStyle};
 
 mod api;
 mod components;
 mod engine;
 
+use crate::generator::engine::types::kotlin_type;
 pub(super) use api::{network, permissions};
 use components::components as component_renderer;
-use crate::generator::engine::types::kotlin_type;
 pub(super) use components::{
     accessibility, assets, bottom_bar, controls, custom_components, images, input, keyboard,
     layout, links, lists, navigation, refresh, sheets,
@@ -91,7 +92,7 @@ pub(super) fn generate_for_dev_with_project_features(
 
 fn generate_with_analysis(module: &Module, features: &features::Features) -> String {
     let focus_bindings = features.facts.focus_bindings.app.clone();
-    let mut out = String::new();
+    let mut out = SourceWriter::new();
     out.push_str(&engine::imports::render(engine::imports::ImportContext {
         features: &features,
         has_navigation: !module.screens.is_empty(),
@@ -286,7 +287,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
     }
     out.push_str("// nexa-unit:functions\n");
     functions::render(module, &mut out);
-    out
+    out.finish()
 }
 
 #[cfg(test)]

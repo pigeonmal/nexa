@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{Expr, Module, Node};
 
 use crate::generator::{
@@ -25,7 +26,7 @@ pub(crate) fn render_link(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     out.push_str("Box(\n");

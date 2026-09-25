@@ -1,10 +1,11 @@
+use crate::generator::engine::features::Features;
+use crate::generator::engine::imports::ImportSet;
 /// Emits a feature-gated Cronet client and the default path/file APIs.
 ///
 /// Cronet owns connection pooling, HTTP/2, QUIC, Brotli, redirects, and the
 /// disk cache. Coil 3 is wired to the same client, so a remote Image never
 /// silently switches to OkHttp or another networking implementation.
-use crate::generator::engine::features::Features;
-use crate::generator::engine::imports::ImportSet;
+use nexa_codegen::SourceWriter;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     let uses_transport = features.uses_network_transport();
@@ -54,7 +55,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
 }
 
 pub(crate) fn render(
-    out: &mut String,
+    out: &mut SourceWriter,
     include_network: bool,
     include_image_support: bool,
     include_path: bool,
@@ -514,11 +515,13 @@ internal fun nexaImageLoader(): ImageLoader {
 
 #[cfg(test)]
 mod tests {
+    use nexa_codegen::SourceWriter;
+
     use super::render;
 
     #[test]
     fn network_pins_require_64_character_sha256_spki_hex_values() {
-        let mut output = String::new();
+        let mut output = SourceWriter::new();
         render(&mut output, true, false, false, false, false);
 
         assert!(output.contains("value.length == 64"));

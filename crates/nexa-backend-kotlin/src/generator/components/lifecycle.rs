@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{Action, Module};
 
 use crate::generator::{
@@ -26,7 +27,7 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
     );
 }
 
-pub(crate) fn render_on_appear(actions: Option<&[Action]>, depth: usize, out: &mut String) {
+pub(crate) fn render_on_appear(actions: Option<&[Action]>, depth: usize, out: &mut SourceWriter) {
     let Some(actions) = actions else {
         return;
     };
@@ -42,7 +43,11 @@ pub(crate) fn render_on_appear(actions: Option<&[Action]>, depth: usize, out: &m
     out.push_str("}\n");
 }
 
-pub(crate) fn render_on_disappear(actions: Option<&[Action]>, depth: usize, out: &mut String) {
+pub(crate) fn render_on_disappear(
+    actions: Option<&[Action]>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     let Some(actions) = actions else {
         return;
     };
@@ -66,7 +71,7 @@ pub(crate) fn render_on_disappear(actions: Option<&[Action]>, depth: usize, out:
     out.push_str("}\n");
 }
 
-pub(crate) fn render_app(module: &Module, depth: usize, out: &mut String) {
+pub(crate) fn render_app(module: &Module, depth: usize, out: &mut SourceWriter) {
     if module.on_active.is_none() && module.on_inactive.is_none() && module.on_background.is_none()
     {
         return;
@@ -99,7 +104,12 @@ pub(crate) fn render_app(module: &Module, depth: usize, out: &mut String) {
     out.push_str(&format!("{indent}}}\n"));
 }
 
-fn render_lifecycle_case(event: &str, actions: Option<&[Action]>, depth: usize, out: &mut String) {
+fn render_lifecycle_case(
+    event: &str,
+    actions: Option<&[Action]>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     let indent = "    ".repeat(depth);
     out.push_str(&format!("{indent}Lifecycle.Event.{event} -> {{\n"));
     if let Some(actions) = actions {

@@ -1,18 +1,23 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle, walk::walk_ir};
 
 use crate::generator::{
-    engine::types::swift_type,
-    components::render_node, features::Features, layout, render_immutable_state,
-    render_native_object_state,
+    components::render_node, engine::types::swift_type, features::Features, layout,
+    render_immutable_state, render_native_object_state,
 };
 
-pub(crate) fn render(module: &Module, features: &Features, out: &mut String) {
+pub(crate) fn render(module: &Module, features: &Features, out: &mut SourceWriter) {
     for component in &module.components {
         render_component(component, module, features, out);
     }
 }
 
-fn render_component(component: &Component, module: &Module, features: &Features, out: &mut String) {
+fn render_component(
+    component: &Component,
+    module: &Module,
+    features: &Features,
+    out: &mut SourceWriter,
+) {
     let name = nexa_codegen::names::component_name(&component.name);
     let focus_bindings = features
         .facts
@@ -147,7 +152,7 @@ fn render_body(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     match body {
         [node] => render_node(node, module, features, depth, out),

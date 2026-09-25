@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{Action, Capitalization, KeyboardType};
 
@@ -69,55 +70,61 @@ pub(crate) fn render_text_input(
     max_length: Option<i32>,
     actions: &[Action],
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     out.push_str("TextField(\n");
-    indent(out, depth + 1);
-    out.push_str(&format!("value = {},\n", state_name(state)));
-    indent(out, depth + 1);
-    out.push_str(&format!(
-        "onValueChange = {{ value -> {} = {} }},\n",
-        state_name(state),
-        max_length
-            .map(|limit| format!("value.take({limit})"))
-            .unwrap_or_else(|| "value".to_owned())
-    ));
-    indent(out, depth + 1);
-    out.push_str(&format!(
-        "placeholder = {{ Text({}) }},\n",
-        kotlin_string(placeholder)
-    ));
+    out.line_at(depth + 1, format_args!("value = {},", state_name(state)));
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "onValueChange = {{ value -> {} = {} }},",
+            state_name(state),
+            max_length
+                .map(|limit| format!("value.take({limit})"))
+                .unwrap_or_else(|| "value".to_owned())
+        ),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("placeholder = {{ Text({}) }},", kotlin_string(placeholder)),
+    );
     if let Some(focused) = focused {
         indent(out, depth + 1);
         out.push_str("modifier = Modifier\n");
-        indent(out, depth + 2);
-        out.push_str(&format!(
-            ".focusRequester({})\n",
-            focus_requester_name(focused)
-        ));
-        indent(out, depth + 2);
-        out.push_str(&format!(
-            ".onFocusChanged {{ {} = it.isFocused }},\n",
-            state_name(focused)
-        ));
+        out.line_at(
+            depth + 2,
+            format_args!(".focusRequester({})", focus_requester_name(focused)),
+        );
+        out.line_at(
+            depth + 2,
+            format_args!(
+                ".onFocusChanged {{ {} = it.isFocused }},",
+                state_name(focused)
+            ),
+        );
     }
-    indent(out, depth + 1);
-    out.push_str(&format!("singleLine = {},\n", !multiline));
+    out.line_at(depth + 1, format_args!("singleLine = {},", !multiline));
     indent(out, depth + 1);
     out.push_str("keyboardOptions = KeyboardOptions(\n");
-    indent(out, depth + 2);
-    out.push_str(&format!("keyboardType = {},\n", kotlin_keyboard(keyboard)));
+    out.line_at(
+        depth + 2,
+        format_args!("keyboardType = {},", kotlin_keyboard(keyboard)),
+    );
     if let Some(capitalization) = capitalization {
-        indent(out, depth + 2);
-        out.push_str(&format!(
-            "capitalization = {},\n",
-            kotlin_capitalization(capitalization)
-        ));
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "capitalization = {},",
+                kotlin_capitalization(capitalization)
+            ),
+        );
     }
     if let Some(autocorrect) = autocorrect {
-        indent(out, depth + 2);
-        out.push_str(&format!("autoCorrectEnabled = {autocorrect},\n"));
+        out.line_at(
+            depth + 2,
+            format_args!("autoCorrectEnabled = {autocorrect},"),
+        );
     }
     if !actions.is_empty() {
         indent(out, depth + 2);

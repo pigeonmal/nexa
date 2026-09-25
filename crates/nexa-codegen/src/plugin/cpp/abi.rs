@@ -17,6 +17,7 @@ use super::collections::{
 };
 use super::errors::{render_result_type, render_swift_cpp_error_bridges};
 use super::swift::swift_cpp_value_type;
+use crate::SourceWriter;
 use crate::plugin::bridge_plan::{
     self, BridgeEvent, BridgeInterface, BridgeMethod, BridgeNamedType, BridgeParameter, BridgePlan,
     BridgeProperty, BridgeScalar, BridgeType, BridgeTypeKind,
@@ -25,7 +26,8 @@ use crate::plugin::type_visit::{for_each_named_type, for_each_value_type};
 use nexa_plugin_idl::{self, InterfaceKind, Literal};
 
 pub fn render(plan: &BridgePlan, plugin_id: &str) -> String {
-    let mut out = String::from(
+    let mut out = SourceWriter::new();
+    out.push_str(
         "#pragma once\n\n#include <atomic>\n#include <cstdint>\n#include <exception>\n#include <functional>\n#include <future>\n#include <map>\n#include <memory>\n#include <optional>\n#include <set>\n#include <string>\n#include <tuple>\n#include <utility>\n#include <variant>\n#include <vector>\n\n#if __has_include(<swift/bridging>)\n#include <swift/bridging>\n#define NEXA_CXX_SWIFT_SHARED_REFERENCE(...) SWIFT_SHARED_REFERENCE(__VA_ARGS__)\n#define NEXA_CXX_SWIFT_RETURNS_RETAINED SWIFT_RETURNS_RETAINED\n#define NEXA_CXX_SWIFT_NONNULL _Nonnull\n#define NEXA_CXX_SWIFT_NULLABLE _Nullable\n#else\n#define NEXA_CXX_SWIFT_SHARED_REFERENCE(...)\n#define NEXA_CXX_SWIFT_RETURNS_RETAINED\n#define NEXA_CXX_SWIFT_NONNULL\n#define NEXA_CXX_SWIFT_NULLABLE\n#endif\n\n",
     );
     out.push_str(&format!("namespace {} {{\n\n", cpp_namespace(plugin_id)));
@@ -108,7 +110,7 @@ pub fn render(plan: &BridgePlan, plugin_id: &str) -> String {
     out.push_str(
         "\n\n#undef NEXA_CXX_SWIFT_SHARED_REFERENCE\n#undef NEXA_CXX_SWIFT_RETURNS_RETAINED\n#undef NEXA_CXX_SWIFT_NONNULL\n#undef NEXA_CXX_SWIFT_NULLABLE\n",
     );
-    out
+    out.finish()
 }
 
 /// Strips one optional layer, mirroring how the historical renderers
@@ -181,7 +183,7 @@ pub(crate) fn bridge_type_is_generic(ty: &BridgeType) -> bool {
     )
 }
 
-fn render_optional_bridge(out: &mut String, plan: &BridgePlan) {
+fn render_optional_bridge(out: &mut SourceWriter, plan: &BridgePlan) {
     let optional_types = optional_swift_cpp_types(plan);
     if optional_types.is_empty() {
         return;
@@ -224,7 +226,7 @@ fn bridge_value_base_name(ty: &BridgeType) -> &str {
     }
 }
 
-fn render_named_type(out: &mut String, ty: &BridgeNamedType) {
+fn render_named_type(out: &mut SourceWriter, ty: &BridgeNamedType) {
     let name = cpp_identifier(&ty.name);
     match ty.kind {
         BridgeTypeKind::Struct => {
@@ -286,7 +288,7 @@ fn render_named_type(out: &mut String, ty: &BridgeNamedType) {
     }
 }
 
-fn render_contract(out: &mut String, interface: &BridgeInterface, plan: &BridgePlan) {
+fn render_contract(out: &mut SourceWriter, interface: &BridgeInterface, plan: &BridgePlan) {
     let name = cpp_identifier(&interface.name);
     out.push_str(&format!(
         "class {name}Spec {{\npublic:\n    void nexaRetainForSwift() const noexcept {{ swift_references_.fetch_add(1, std::memory_order_relaxed); }}\n    void nexaReleaseFromSwift() const noexcept {{\n        if (swift_references_.fetch_sub(1, std::memory_order_acq_rel) == 1) delete this;\n    }}\n    virtual ~{name}Spec() = default;\n"
@@ -334,7 +336,7 @@ fn render_contract(out: &mut String, interface: &BridgeInterface, plan: &BridgeP
 }
 
 fn render_cpp_swift_event_setter(
-    out: &mut String,
+    out: &mut SourceWriter,
     plan: &BridgePlan,
     interface: &BridgeInterface,
     event: &BridgeEvent,
@@ -369,7 +371,7 @@ fn render_cpp_swift_event_setter(
 }
 
 fn render_cpp_swift_event_copy_adapter(
-    out: &mut String,
+    out: &mut SourceWriter,
     plan: &BridgePlan,
     interface: &BridgeInterface,
     event: &BridgeEvent,
@@ -482,7 +484,7 @@ pub(crate) fn cpp_swift_event_copy_adapter_name(
     )
 }
 
-fn render_getter(out: &mut String, property: &BridgeProperty) {
+fn render_getter(out: &mut SourceWriter, property: &BridgeProperty) {
     out.push_str(&format!(
         "    virtual {} {}() const noexcept = 0;\n",
         cpp_type(&property.ty),
@@ -490,7 +492,7 @@ fn render_getter(out: &mut String, property: &BridgeProperty) {
     ));
 }
 
-fn render_setter(out: &mut String, property: &BridgeProperty) {
+fn render_setter(out: &mut SourceWriter, property: &BridgeProperty) {
     out.push_str(&format!(
         "    virtual void {}({} value) noexcept = 0;\n",
         cpp_setter_name(&property.name),
@@ -498,7 +500,7 @@ fn render_setter(out: &mut String, property: &BridgeProperty) {
     ));
 }
 
-fn render_event_setter(out: &mut String, event: &BridgeEvent) {
+fn render_event_setter(out: &mut SourceWriter, event: &BridgeEvent) {
     let parameters = event
         .parameters
         .iter()
@@ -516,7 +518,7 @@ fn render_event_setter(out: &mut String, event: &BridgeEvent) {
     ));
 }
 
-fn render_factory(out: &mut String, interface: &BridgeInterface) {
+fn render_factory(out: &mut SourceWriter, interface: &BridgeInterface) {
     let constructor = interface.constructors.first();
     let parameters = constructor
         .map(|constructor| cpp_parameters(&constructor.parameters))
@@ -528,7 +530,7 @@ fn render_factory(out: &mut String, interface: &BridgeInterface) {
     ));
 }
 
-fn render_swift_factory(out: &mut String, interface: &BridgeInterface, plan: &BridgePlan) {
+fn render_swift_factory(out: &mut SourceWriter, interface: &BridgeInterface, plan: &BridgePlan) {
     let name = cpp_identifier(&interface.name);
     let constructor = interface.constructors.first();
     let parameters = constructor
@@ -575,7 +577,7 @@ fn render_swift_factory(out: &mut String, interface: &BridgeInterface, plan: &Br
     }
 }
 
-fn render_service(out: &mut String, interface: &BridgeInterface) {
+fn render_service(out: &mut SourceWriter, interface: &BridgeInterface) {
     let name = cpp_identifier(&interface.name);
     out.push_str(&format!("namespace {name} {{\n"));
     for method in &interface.methods {
@@ -592,7 +594,7 @@ fn render_service(out: &mut String, interface: &BridgeInterface) {
     out.push('\n');
 }
 
-fn render_cpp_swift_future_adapters(out: &mut String, plan: &BridgePlan) {
+fn render_cpp_swift_future_adapters(out: &mut SourceWriter, plan: &BridgePlan) {
     for interface in &plan.interfaces {
         if !matches!(
             interface.kind,
@@ -617,7 +619,7 @@ fn render_cpp_swift_future_adapters(out: &mut String, plan: &BridgePlan) {
 }
 
 fn render_cpp_swift_future_adapter(
-    out: &mut String,
+    out: &mut SourceWriter,
     plan: &BridgePlan,
     interface: &BridgeInterface,
     method: &BridgeMethod,

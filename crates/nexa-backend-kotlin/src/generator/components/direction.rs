@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::DirectionConfig;
 
 use crate::generator::engine::imports::{ImportContext, ImportSet};
@@ -17,7 +18,7 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
     );
 }
 
-pub(crate) fn start(config: Option<DirectionConfig>, out: &mut String) -> usize {
+pub(crate) fn start(config: Option<DirectionConfig>, out: &mut SourceWriter) -> usize {
     let Some(config) = config else {
         return 1;
     };
@@ -31,7 +32,7 @@ pub(crate) fn start(config: Option<DirectionConfig>, out: &mut String) -> usize 
     2
 }
 
-pub(crate) fn end(config: Option<DirectionConfig>, out: &mut String) {
+pub(crate) fn end(config: Option<DirectionConfig>, out: &mut SourceWriter) {
     if config.is_some() {
         out.push_str("\n    }");
     }

@@ -17,6 +17,7 @@ use super::swift::{
     swift_cpp_future_adapter_needed, swift_cpp_named_value_type, swift_cpp_value_base_type,
     swift_cpp_value_type,
 };
+use crate::SourceWriter;
 use crate::plugin::bridge_plan::{
     BridgeInterface, BridgeMethod, BridgeParameter, BridgePlan, BridgeProperty, BridgeScalar,
     BridgeType,
@@ -394,7 +395,7 @@ fn swift_cpp_map_key_result(ty: &BridgeType, value: &str) -> String {
     }
 }
 
-pub(crate) fn render_swift_array_aliases(out: &mut String, plan: &BridgePlan) {
+pub(crate) fn render_swift_array_aliases(out: &mut SourceWriter, plan: &BridgePlan) {
     let mut arrays = Vec::new();
     let mut add = |ty: &BridgeType| {
         let array = match ty {
@@ -523,7 +524,11 @@ fn for_each_array_shape(plan: &BridgePlan, visit: &mut impl FnMut(&BridgeType)) 
     });
 }
 
-fn render_swift_array_conversion_adapters(out: &mut String, plan: &BridgePlan, ty: &BridgeType) {
+fn render_swift_array_conversion_adapters(
+    out: &mut SourceWriter,
+    plan: &BridgePlan,
+    ty: &BridgeType,
+) {
     let native_type = cpp_type(ty);
     let facade_type = cpp_swift_array_alias_name_for_type(plan, ty);
     let to_native_name = cpp_swift_array_conversion_name(plan, ty, "ToNative");
@@ -577,7 +582,7 @@ pub(crate) fn cpp_swift_array_conversion_name(
     format!("nexaCppArray{direction}{signature}")
 }
 
-pub(crate) fn render_swift_map_adapters(out: &mut String, plan: &BridgePlan) {
+pub(crate) fn render_swift_map_adapters(out: &mut SourceWriter, plan: &BridgePlan) {
     // Children first: a `Map<K, Map<..>>` entry adapter reads the inner map's
     // entry type, so the inner adapter has to be declared before the outer one.
     let mut maps = Vec::new();
@@ -676,7 +681,7 @@ pub(crate) fn cpp_swift_map_conversion_name(
 }
 
 pub(crate) fn render_swift_service_collection_adapter(
-    out: &mut String,
+    out: &mut SourceWriter,
     plan: &BridgePlan,
     interface: &BridgeInterface,
     method: &BridgeMethod,
@@ -724,7 +729,7 @@ pub(crate) fn render_swift_service_collection_adapter(
 }
 
 pub(crate) fn render_cpp_swift_collection_property_adapter(
-    out: &mut String,
+    out: &mut SourceWriter,
     interface: &BridgeInterface,
     property: &BridgeProperty,
     plan: &BridgePlan,
@@ -770,7 +775,7 @@ pub(crate) fn render_cpp_swift_collection_property_adapter(
 }
 
 pub(crate) fn render_cpp_swift_collection_method_adapter(
-    out: &mut String,
+    out: &mut SourceWriter,
     interface: &BridgeInterface,
     method: &BridgeMethod,
     plan: &BridgePlan,
@@ -910,7 +915,7 @@ pub(crate) fn cpp_swift_collection_argument(
 }
 
 pub(crate) fn render_cpp_swift_collection_result(
-    out: &mut String,
+    out: &mut SourceWriter,
     ty: &BridgeType,
     expression: &str,
     plan: &BridgePlan,

@@ -1,9 +1,10 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{Function, Module};
 
 use super::{expressions, utils::indent};
 use crate::generator::engine::types::swift_type;
 
-pub(crate) fn render(module: &Module, out: &mut String) {
+pub(crate) fn render(module: &Module, out: &mut SourceWriter) {
     for function in &module.functions {
         render_function(function, out);
     }
@@ -12,7 +13,7 @@ pub(crate) fn render(module: &Module, out: &mut String) {
     }
 }
 
-fn render_function(function: &Function, out: &mut String) {
+fn render_function(function: &Function, out: &mut SourceWriter) {
     out.push_str("private func ");
     out.push_str(&nexa_codegen::names::function_name(&function.name));
     out.push('(');
@@ -38,13 +39,15 @@ fn render_function(function: &Function, out: &mut String) {
     out.push_str(&swift_type(&function.return_type));
     out.push_str(" {\n");
     for local in &function.locals {
-        indent(out, 1);
-        out.push_str(&format!(
-            "let {}: {} = {}\n",
-            nexa_codegen::names::state_name(&local.name),
-            swift_type(&local.ty),
-            expressions::expression(&local.initial)
-        ));
+        out.line_at(
+            1,
+            format_args!(
+                "let {}: {} = {}",
+                nexa_codegen::names::state_name(&local.name),
+                swift_type(&local.ty),
+                expressions::expression(&local.initial)
+            ),
+        );
     }
     indent(out, 1);
     out.push_str("return ");

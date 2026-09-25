@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{ImageScale, ImageSource};
 
 use crate::generator::{
@@ -11,7 +12,7 @@ pub(crate) fn render_image(
     scale: ImageScale,
     placeholder: Option<&str>,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     match source {
@@ -43,7 +44,7 @@ pub(crate) fn render_image(
     }
 }
 
-pub(crate) fn append_resizable_image(out: &mut String, scale: ImageScale) {
+pub(crate) fn append_resizable_image(out: &mut SourceWriter, scale: ImageScale) {
     let content_mode = match scale {
         ImageScale::Fit => ".fit",
         ImageScale::Fill => ".fill",

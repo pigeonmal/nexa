@@ -1,7 +1,8 @@
 use crate::generator::engine::types::kotlin_type;
+use nexa_codegen::SourceWriter;
 use nexa_ir::{Module, StructDecl};
 
-pub(crate) fn render(module: &Module, out: &mut String) {
+pub(crate) fn render(module: &Module, out: &mut SourceWriter) {
     for declaration in &module.structs {
         render_struct(declaration, out);
     }
@@ -10,7 +11,7 @@ pub(crate) fn render(module: &Module, out: &mut String) {
     }
 }
 
-fn render_struct(declaration: &StructDecl, out: &mut String) {
+fn render_struct(declaration: &StructDecl, out: &mut SourceWriter) {
     let native_name = nexa_codegen::names::struct_name(&declaration.name);
     if declaration.fields.is_empty() {
         out.push_str(&format!("private class {native_name}\n\n"));

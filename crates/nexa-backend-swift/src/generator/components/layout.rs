@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Module, Node, ViewStyle};
 
 use crate::generator::{
@@ -15,7 +16,7 @@ pub(crate) fn render_layout(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     let layout = match kind {
         LayoutKind::Column => "VStack",
@@ -60,7 +61,7 @@ pub(crate) fn render_layout(
     append_style(out, depth, style);
 }
 
-fn append_style(out: &mut String, depth: usize, style: &ViewStyle) {
+fn append_style(out: &mut SourceWriter, depth: usize, style: &ViewStyle) {
     if let (Some(width), Some(height)) = (style.width, style.height) {
         append_modifier(
             out,
@@ -140,7 +141,7 @@ fn append_style(out: &mut String, depth: usize, style: &ViewStyle) {
     }
 }
 
-fn append_modifier(out: &mut String, depth: usize, modifier: &str) {
+fn append_modifier(out: &mut SourceWriter, depth: usize, modifier: &str) {
     out.push('\n');
     indent(out, depth + 1);
     out.push('.');

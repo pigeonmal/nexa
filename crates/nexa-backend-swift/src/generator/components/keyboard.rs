@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{KeyboardDismissMode, Module, Node};
 
 use crate::generator::features::Features;
@@ -9,7 +10,7 @@ pub(crate) fn render_keyboard_aware(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     out.push_str("ScrollView(.vertical) {\n");

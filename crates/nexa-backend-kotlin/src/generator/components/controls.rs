@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{Action, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node};
 
@@ -48,7 +49,7 @@ pub(crate) fn render_button(
     disabled: Option<&Expr>,
     actions: &[Action],
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     if let Some(loading) = loading {
         indent(out, depth);
@@ -69,8 +70,7 @@ pub(crate) fn render_button(
         }
         out.push_str(") {");
         out.push('\n');
-        indent(out, depth + 1);
-        out.push_str(&format!("if ({}) {{\n", expression(loading)));
+        out.line_at(depth + 1, format_args!("if ({}) {{", expression(loading)));
         indent(out, depth + 2);
         out.push_str("CircularProgressIndicator()\n");
         indent(out, depth + 1);
@@ -103,22 +103,21 @@ pub(crate) fn render_button(
     out.push('}');
 }
 
-fn render_button_content(label: &Expr, icon: Option<&str>, depth: usize, out: &mut String) {
+fn render_button_content(label: &Expr, icon: Option<&str>, depth: usize, out: &mut SourceWriter) {
     if let Some(icon) = icon {
-        indent(out, depth);
-        out.push_str(&format!(
-            "Icon(painter = nexaDrawablePainter({}), contentDescription = null)\n",
-            kotlin_string(icon)
-        ));
+        out.line_at(
+            depth,
+            format_args!(
+                "Icon(painter = nexaDrawablePainter({}), contentDescription = null)",
+                kotlin_string(icon)
+            ),
+        );
     }
-    indent(out, depth);
-    out.push_str(&format!("Text({})\n", expression(label)));
+    out.line_at(depth, format_args!("Text({})", expression(label)));
 }
 
-pub(crate) fn render_switch(state: &str, label: &str, depth: usize, out: &mut String) {
-    indent(out, depth);
-    out.push_str(&format!(
-        "Switch(checked = {}, onCheckedChange = {{ {} = it }}, modifier = Modifier.semantics {{ contentDescription = {} }})",
+pub(crate) fn render_switch(state: &str, label: &str, depth: usize, out: &mut SourceWriter) {
+    out.text_at(depth, format_args!("Switch(checked = {}, onCheckedChange = {{ {} = it }}, modifier = Modifier.semantics {{ contentDescription = {} }})",
         state_name(state),
         state_name(state),
         kotlin_string(label)
@@ -134,7 +133,7 @@ pub(crate) fn render_pressable(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     let modifier = if long_press_actions.is_empty() {
@@ -183,7 +182,7 @@ pub(crate) fn render_pressable(
     out.push('}');
 }
 
-fn render_haptic(style: HapticStyle, depth: usize, out: &mut String) {
+fn render_haptic(style: HapticStyle, depth: usize, out: &mut SourceWriter) {
     indent(out, depth);
     let constant = match style {
         HapticStyle::Light => "KEYBOARD_TAP",
@@ -200,7 +199,8 @@ pub(crate) fn render_event_closure(
     actions: &[Action],
     depth: usize,
 ) -> String {
-    let mut out = String::from("{");
+    let mut out = SourceWriter::new();
+    out.push('{');
     if !parameters.is_empty() {
         out.push(' ');
         out.push_str(
@@ -220,32 +220,35 @@ pub(crate) fn render_event_closure(
         indent(&mut out, depth);
         out.push('}');
     }
-    out
+    out.finish()
 }
 
-pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String) {
+pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceWriter) {
     for action in actions {
         match action {
             Action::Expression(value) => {
-                indent(out, depth);
-                out.push_str(&format!("{}\n", expression(value)));
+                out.line_at(depth, format_args!("{}", expression(value)));
             }
             Action::Assign { name, value } => {
-                indent(out, depth);
-                out.push_str(&format!("{} = {}\n", state_name(name), expression(value)));
+                out.line_at(
+                    depth,
+                    format_args!("{} = {}", state_name(name), expression(value)),
+                );
             }
             Action::NativePropertyAssign {
                 receiver,
                 property,
                 value,
             } => {
-                indent(out, depth);
-                out.push_str(&format!(
-                    "{}.{} = {}\n",
-                    expression(receiver),
-                    property,
-                    expression(value)
-                ));
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "{}.{} = {}",
+                        expression(receiver),
+                        property,
+                        expression(value)
+                    ),
+                );
             }
             Action::NativeEventSubscribe {
                 receiver,
@@ -253,8 +256,10 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
                 parameters,
                 actions,
             } => {
-                indent(out, depth);
-                out.push_str(&format!("{}.{} = {{", expression(receiver), property));
+                out.text_at(
+                    depth,
+                    format_args!("{}.{} = {{", expression(receiver), property),
+                );
                 if !parameters.is_empty() {
                     out.push(' ');
                     out.push_str(
@@ -305,8 +310,7 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
                 then_branch,
                 else_branch,
             } => {
-                indent(out, depth);
-                out.push_str(&format!("if ({}) {{\n", expression(condition)));
+                out.line_at(depth, format_args!("if ({}) {{", expression(condition)));
                 render_actions(then_branch, depth + 1, out);
                 if let Some(else_branch) = else_branch {
                     indent(out, depth);
@@ -321,12 +325,10 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
                 iterable,
                 body,
             } => {
-                indent(out, depth);
-                out.push_str(&format!(
-                    "for ({} in {}) {{\n",
-                    state_name(name),
-                    expression(iterable)
-                ));
+                out.line_at(
+                    depth,
+                    format_args!("for ({} in {}) {{", state_name(name), expression(iterable)),
+                );
                 render_actions(body, depth + 1, out);
                 indent(out, depth);
                 out.push_str("}\n");
@@ -337,20 +339,21 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
                 iterable,
                 body,
             } => {
-                indent(out, depth);
-                out.push_str(&format!(
-                    "for (({}, {}) in {}) {{\n",
-                    state_name(key_name),
-                    state_name(value_name),
-                    expression(iterable)
-                ));
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "for (({}, {}) in {}) {{",
+                        state_name(key_name),
+                        state_name(value_name),
+                        expression(iterable)
+                    ),
+                );
                 render_actions(body, depth + 1, out);
                 indent(out, depth);
                 out.push_str("}\n");
             }
             Action::While { condition, body } => {
-                indent(out, depth);
-                out.push_str(&format!("while ({}) {{\n", expression(condition)));
+                out.line_at(depth, format_args!("while ({}) {{", expression(condition)));
                 render_actions(body, depth + 1, out);
                 indent(out, depth);
                 out.push_str("}\n");
@@ -381,7 +384,7 @@ fn render_kotlin_error_catches(
     catches: &[ErrorCatchArm],
     catch_all: Option<&[Action]>,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     if catches.is_empty() {
@@ -404,12 +407,10 @@ fn render_kotlin_error_catches(
         } else {
             out.push_str(&format!("is {}.{} -> {{\n", arm.error_type, arm.variant));
             for (binding, property, _) in &arm.parameters {
-                indent(out, depth + 3);
-                out.push_str(&format!(
-                    "val {} = error.{}\n",
-                    state_name(binding),
-                    property
-                ));
+                out.line_at(
+                    depth + 3,
+                    format_args!("val {} = error.{}", state_name(binding), property),
+                );
             }
         }
         render_actions(&arm.body, depth + 3, out);
@@ -434,6 +435,7 @@ fn render_kotlin_error_catches(
 
 #[cfg(test)]
 mod tests {
+    use nexa_codegen::SourceWriter;
     use nexa_ir::{Action, Expr, NumericType, Type};
 
     use super::render_actions;
@@ -455,12 +457,12 @@ mod tests {
                 value: Expr::State("position".to_owned(), Type::Numeric(NumericType::Float64)),
             }],
         }];
-        let mut output = String::new();
+        let mut output = SourceWriter::new();
 
         render_actions(&actions, 0, &mut output);
 
         assert_eq!(
-            output,
+            output.as_str(),
             "nexa_player.onProgressChanged = { nexa_position, nexa_duration ->\n    nexa_latest = nexa_position\n}\n"
         );
     }
@@ -485,7 +487,7 @@ mod tests {
                 value: Expr::Bool(true),
             }]),
         }];
-        let mut output = String::new();
+        let mut output = SourceWriter::new();
 
         render_actions(&actions, 0, &mut output);
 
@@ -531,7 +533,7 @@ mod tests {
             ],
             catch_body: None,
         }];
-        let mut output = String::new();
+        let mut output = SourceWriter::new();
 
         render_actions(&actions, 0, &mut output);
 

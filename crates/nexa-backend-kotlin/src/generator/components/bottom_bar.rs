@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{BottomBarTab, Module};
 
@@ -52,7 +53,7 @@ pub(crate) fn render_app_bottom_bar(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     out.push_str("Scaffold(\n");
@@ -61,14 +62,16 @@ pub(crate) fn render_app_bottom_bar(
     indent(out, depth + 2);
     out.push_str("NavigationBar {\n");
     for tab in tabs {
-        indent(out, depth + 3);
-        out.push_str(&format!(
-            "NavigationBarItem(selected = {} == {}, onClick = {{ {} = {} }}, icon = {{",
-            state_name(state),
-            tab.index,
-            state_name(state),
-            tab.index
-        ));
+        out.text_at(
+            depth + 3,
+            format_args!(
+                "NavigationBarItem(selected = {} == {}, onClick = {{ {} = {} }}, icon = {{",
+                state_name(state),
+                tab.index,
+                state_name(state),
+                tab.index
+            ),
+        );
         if let Some(badge) = &tab.badge {
             out.push_str(&format!(
                 " BadgedBox(badge = {{ Badge {{ Text({}) }} }}) {{ ",
@@ -109,8 +112,7 @@ pub(crate) fn render_app_bottom_bar(
     out.push_str(&state_name(state));
     out.push_str(") {\n");
     for tab in tabs {
-        indent(out, depth + 3);
-        out.push_str(&format!("{} -> {{\n", tab.index));
+        out.line_at(depth + 3, format_args!("{} -> {{", tab.index));
         render_children(&tab.children, module, features, depth + 4, out);
         out.push('\n');
         indent(out, depth + 3);

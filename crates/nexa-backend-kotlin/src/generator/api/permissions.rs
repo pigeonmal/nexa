@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use std::collections::HashSet;
 
 use nexa_ir::Permission;
@@ -31,7 +32,7 @@ const ALL_PERMISSIONS: [Permission; 8] = [
 /// Emits only the permission cases reachable from the module.
 /// Dynamic permission values conservatively retain every platform case.
 pub(crate) fn render(
-    out: &mut String,
+    out: &mut SourceWriter,
     include_request: bool,
     used: &HashSet<Permission>,
     dynamic: bool,

@@ -1,10 +1,10 @@
+use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListPlan, Module, Node};
 
 use crate::generator::{
-    engine::types::kotlin_type,
-    components::render_children, controls::render_actions, expressions::expression,
-    features::Features, utils::indent,
+    components::render_children, controls::render_actions, engine::types::kotlin_type,
+    expressions::expression, features::Features, utils::indent,
 };
 
 use crate::generator::engine::imports::ImportSet;
@@ -117,7 +117,7 @@ pub(crate) fn render_virtualized_list(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     let list_id = out.len();
     let pieces = match plan {
@@ -244,16 +244,17 @@ pub(crate) fn render_virtualized_list(
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("({}).coerceAtLeast(0)", expression(count)));
             out.push_str("items(\n");
-            indent(out, list_depth + 2);
-            out.push_str(&format!("count = {count},\n"));
+            out.line_at(list_depth + 2, format_args!("count = {count},"));
             indent(out, list_depth + 2);
             let key = pieces
                 .key
                 .map(|key| render_key(key, pieces.index, pieces.item, None, "itemPosition"))
                 .unwrap_or_else(|| "itemPosition".to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
-            indent(out, list_depth + 1);
-            out.push_str(&format!(") {{ {} ->\n", state_name(pieces.index)));
+            out.line_at(
+                list_depth + 1,
+                format_args!(") {{ {} ->", state_name(pieces.index)),
+            );
         }
         FlatCount::Items {
             collection,
@@ -266,25 +267,34 @@ pub(crate) fn render_virtualized_list(
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("{collection}.size"));
             out.push_str("items(\n");
-            indent(out, list_depth + 2);
-            out.push_str(&format!("count = {count},\n"));
+            out.line_at(list_depth + 2, format_args!("count = {count},"));
             indent(out, list_depth + 2);
             let key = pieces
                 .key
                 .map(|key| {
-                    render_key(key, pieces.index, Some(item), Some(&collection), "itemPosition")
+                    render_key(
+                        key,
+                        pieces.index,
+                        Some(item),
+                        Some(&collection),
+                        "itemPosition",
+                    )
                 })
                 .unwrap_or_else(|| "itemPosition".to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
-            indent(out, list_depth + 1);
-            out.push_str(&format!(") {{ {} ->\n", state_name(pieces.index)));
-            indent(out, list_depth + 2);
-            out.push_str(&format!(
-                "val {}: {} = {collection}[{}]\n",
-                state_name(item),
-                kotlin_type(&element_type),
-                state_name(pieces.index)
-            ));
+            out.line_at(
+                list_depth + 1,
+                format_args!(") {{ {} ->", state_name(pieces.index)),
+            );
+            out.line_at(
+                list_depth + 2,
+                format_args!(
+                    "val {}: {} = {collection}[{}]",
+                    state_name(item),
+                    kotlin_type(&element_type),
+                    state_name(pieces.index)
+                ),
+            );
         }
     }
     render_row_content(
@@ -318,24 +328,23 @@ fn render_sectioned_list(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     let collection = expression(collection);
     let list_depth = render_refresh_open(refresh, depth, out);
     indent(out, list_depth);
     out.push_str("LazyColumn {\n");
-    indent(out, list_depth + 1);
-    out.push_str(&format!(
-        "{collection}.forEachIndexed {{ sectionPosition, sectionItems ->\n"
-    ));
+    out.line_at(
+        list_depth + 1,
+        format_args!("{collection}.forEachIndexed {{ sectionPosition, sectionItems ->"),
+    );
     if let Some(header) = section_header {
         indent(out, list_depth + 2);
         out.push_str("stickyHeader {\n");
-        indent(out, list_depth + 3);
-        out.push_str(&format!(
-            "val {}: Int = sectionPosition\n",
-            state_name(section)
-        ));
+        out.line_at(
+            list_depth + 3,
+            format_args!("val {}: Int = sectionPosition", state_name(section)),
+        );
         render_children(header, module, features, list_depth + 3, out);
         out.push('\n');
         indent(out, list_depth + 2);
@@ -362,19 +371,22 @@ fn render_sectioned_list(
     out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
     indent(out, list_depth + 2);
     out.push_str(") { itemPosition ->\n");
-    indent(out, list_depth + 3);
-    out.push_str(&format!(
-        "val {}: Int = sectionPosition\n",
-        state_name(section)
-    ));
-    indent(out, list_depth + 3);
-    out.push_str(&format!("val {}: Int = itemPosition\n", state_name(index)));
-    indent(out, list_depth + 3);
-    out.push_str(&format!(
-        "val {}: {} = sectionItems[itemPosition]\n",
-        state_name(item),
-        kotlin_type(&element_type)
-    ));
+    out.line_at(
+        list_depth + 3,
+        format_args!("val {}: Int = sectionPosition", state_name(section)),
+    );
+    out.line_at(
+        list_depth + 3,
+        format_args!("val {}: Int = itemPosition", state_name(index)),
+    );
+    out.line_at(
+        list_depth + 3,
+        format_args!(
+            "val {}: {} = sectionItems[itemPosition]",
+            state_name(item),
+            kotlin_type(&element_type)
+        ),
+    );
     render_row_content(
         item_extent,
         ListAxis::Vertical,
@@ -401,7 +413,7 @@ fn render_grid_list(
     features: &Features,
     depth: usize,
     list_id: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     let list_state = (pieces.on_end_reached.is_some()
         || pieces.on_scroll.is_some()
@@ -431,10 +443,10 @@ fn render_grid_list(
         .as_deref()
         .map_or_else(String::new, |state| format!("state = {state}, "));
     let list_depth = render_refresh_open(pieces.refresh, depth, out);
-    indent(out, list_depth);
-    out.push_str(&format!(
-        "LazyVerticalGrid({state_parameter}columns = GridCells.Fixed({columns})) {{\n"
-    ));
+    out.line_at(
+        list_depth,
+        format_args!("LazyVerticalGrid({state_parameter}columns = GridCells.Fixed({columns})) {{"),
+    );
     indent(out, list_depth + 1);
     match &pieces.count {
         FlatCount::Count(count) => {
@@ -443,16 +455,17 @@ fn render_grid_list(
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("({}).coerceAtLeast(0)", expression(count)));
             out.push_str("items(\n");
-            indent(out, list_depth + 2);
-            out.push_str(&format!("count = {count},\n"));
+            out.line_at(list_depth + 2, format_args!("count = {count},"));
             indent(out, list_depth + 2);
             let key = pieces
                 .key
                 .map(|key| render_key(key, pieces.index, pieces.item, None, "itemPosition"))
                 .unwrap_or_else(|| "itemPosition".to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
-            indent(out, list_depth + 1);
-            out.push_str(&format!(") {{ {} ->\n", state_name(pieces.index)));
+            out.line_at(
+                list_depth + 1,
+                format_args!(") {{ {} ->", state_name(pieces.index)),
+            );
         }
         FlatCount::Items {
             collection,
@@ -465,25 +478,34 @@ fn render_grid_list(
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("{collection}.size"));
             out.push_str("items(\n");
-            indent(out, list_depth + 2);
-            out.push_str(&format!("count = {count},\n"));
+            out.line_at(list_depth + 2, format_args!("count = {count},"));
             indent(out, list_depth + 2);
             let key = pieces
                 .key
                 .map(|key| {
-                    render_key(key, pieces.index, Some(item), Some(&collection), "itemPosition")
+                    render_key(
+                        key,
+                        pieces.index,
+                        Some(item),
+                        Some(&collection),
+                        "itemPosition",
+                    )
                 })
                 .unwrap_or_else(|| "itemPosition".to_owned());
             out.push_str(&format!("key = {{ itemPosition -> {key} }},\n"));
-            indent(out, list_depth + 1);
-            out.push_str(&format!(") {{ {} ->\n", state_name(pieces.index)));
-            indent(out, list_depth + 2);
-            out.push_str(&format!(
-                "val {}: {} = {collection}[{}]\n",
-                state_name(item),
-                kotlin_type(&element_type),
-                state_name(pieces.index)
-            ));
+            out.line_at(
+                list_depth + 1,
+                format_args!(") {{ {} ->", state_name(pieces.index)),
+            );
+            out.line_at(
+                list_depth + 2,
+                format_args!(
+                    "val {}: {} = {collection}[{}]",
+                    state_name(item),
+                    kotlin_type(&element_type),
+                    state_name(pieces.index)
+                ),
+            );
         }
     }
     render_row_content(
@@ -503,14 +525,20 @@ fn render_grid_list(
     render_refresh_close(pieces.refresh, depth, out);
 }
 
-fn render_refresh_open(refresh: Option<&FastListRefresh>, depth: usize, out: &mut String) -> usize {
+fn render_refresh_open(
+    refresh: Option<&FastListRefresh>,
+    depth: usize,
+    out: &mut SourceWriter,
+) -> usize {
     let Some(refresh) = refresh else {
         return depth;
     };
     indent(out, depth);
     out.push_str("PullToRefreshBox(\n");
-    indent(out, depth + 1);
-    out.push_str(&format!("isRefreshing = {},\n", state_name(&refresh.state)));
+    out.line_at(
+        depth + 1,
+        format_args!("isRefreshing = {},", state_name(&refresh.state)),
+    );
     indent(out, depth + 1);
     out.push_str("onRefresh = {\n");
     render_actions(&refresh.actions, depth + 2, out);
@@ -521,7 +549,7 @@ fn render_refresh_open(refresh: Option<&FastListRefresh>, depth: usize, out: &mu
     depth + 1
 }
 
-fn render_refresh_close(refresh: Option<&FastListRefresh>, depth: usize, out: &mut String) {
+fn render_refresh_close(refresh: Option<&FastListRefresh>, depth: usize, out: &mut SourceWriter) {
     if refresh.is_some() {
         out.push('\n');
         indent(out, depth);
@@ -539,7 +567,7 @@ fn render_list_observers(
     scroll_position: Option<&str>,
     scroll_actions: Option<&[Action]>,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     let scroll_position = scroll_position.map(state_name);
     let state_initializer = match axis {
@@ -548,8 +576,7 @@ fn render_list_observers(
     };
     if let Some(list_count) = list_count {
         let count_expression = flat_count_expression(count);
-        indent(out, depth);
-        out.push_str(&format!("val {list_count} = {count_expression}\n"));
+        out.line_at(depth, format_args!("val {list_count} = {count_expression}"));
     }
     let state_initializer = if let Some(scroll_position) = scroll_position.as_deref() {
         format!(
@@ -558,25 +585,24 @@ fn render_list_observers(
     } else {
         format!("{state_initializer}()")
     };
-    indent(out, depth);
-    out.push_str(&format!("val {list_state} = {state_initializer}\n"));
+    out.line_at(
+        depth,
+        format_args!("val {list_state} = {state_initializer}"),
+    );
     if let (Some(list_count), Some(marker), Some(actions)) = (list_count, marker, end_actions) {
-        indent(out, depth);
-        out.push_str(&format!(
-            "var {marker} by remember {{ mutableIntStateOf(-1) }}\n"
+        out.line_at(
+            depth,
+            format_args!("var {marker} by remember {{ mutableIntStateOf(-1) }}"),
+        );
+        out.line_at(
+            depth,
+            format_args!("LaunchedEffect({list_state}, {list_count}) {{"),
+        );
+        out.line_at(depth + 1, format_args!("snapshotFlow {{ {list_state}.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }}.distinctUntilChanged().collect {{ lastVisible ->"
         ));
-        indent(out, depth);
-        out.push_str(&format!("LaunchedEffect({list_state}, {list_count}) {{\n"));
-        indent(out, depth + 1);
-        out.push_str(&format!(
-            "snapshotFlow {{ {list_state}.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }}.distinctUntilChanged().collect {{ lastVisible ->\n"
+        out.line_at(depth + 2, format_args!("if ({list_count} > 0 && lastVisible >= {list_count} - 1 && {marker} != {list_count}) {{"
         ));
-        indent(out, depth + 2);
-        out.push_str(&format!(
-            "if ({list_count} > 0 && lastVisible >= {list_count} - 1 && {marker} != {list_count}) {{\n"
-        ));
-        indent(out, depth + 3);
-        out.push_str(&format!("{marker} = {list_count}\n"));
+        out.line_at(depth + 3, format_args!("{marker} = {list_count}"));
         render_actions(actions, depth + 3, out);
         indent(out, depth + 2);
         out.push_str("}\n");
@@ -588,16 +614,13 @@ fn render_list_observers(
     if scroll_position.is_some() || scroll_actions.is_some() {
         let scroll_marker = scroll_actions.map(|_| format!("nexaScrollEvent{list_state}"));
         if let Some(scroll_marker) = scroll_marker.as_deref() {
-            indent(out, depth);
-            out.push_str(&format!(
-                "var {scroll_marker} by remember {{ mutableIntStateOf(-1) }}\n"
-            ));
+            out.line_at(
+                depth,
+                format_args!("var {scroll_marker} by remember {{ mutableIntStateOf(-1) }}"),
+            );
         }
-        indent(out, depth);
-        out.push_str(&format!("LaunchedEffect({list_state}) {{\n"));
-        indent(out, depth + 1);
-        out.push_str(&format!(
-            "snapshotFlow {{ {list_state}.firstVisibleItemIndex }}.distinctUntilChanged().collect {{ firstVisible ->\n"
+        out.line_at(depth, format_args!("LaunchedEffect({list_state}) {{"));
+        out.line_at(depth + 1, format_args!("snapshotFlow {{ {list_state}.firstVisibleItemIndex }}.distinctUntilChanged().collect {{ firstVisible ->"
         ));
         indent(out, depth + 2);
         if let Some(scroll_position) = scroll_position.as_deref() {
@@ -609,8 +632,7 @@ fn render_list_observers(
             (scroll_marker.as_deref(), scroll_actions)
         {
             out.push_str(&format!("if (firstVisible != {scroll_marker}) {{\n"));
-            indent(out, depth + 3);
-            out.push_str(&format!("{scroll_marker} = firstVisible\n"));
+            out.line_at(depth + 3, format_args!("{scroll_marker} = firstVisible"));
             render_actions(scroll_actions, depth + 3, out);
             indent(out, depth + 2);
             out.push_str("}\n");
@@ -620,15 +642,12 @@ fn render_list_observers(
         indent(out, depth);
         out.push_str("}\n");
         if let Some(scroll_position) = scroll_position.as_deref() {
-            indent(out, depth);
-            out.push_str(&format!("LaunchedEffect({scroll_position}) {{\n"));
-            indent(out, depth + 1);
-            out.push_str(&format!(
-                "val target = {scroll_position}.coerceAtLeast(0)\n"
-            ));
-            indent(out, depth + 1);
-            out.push_str(&format!(
-                "if (target != {list_state}.firstVisibleItemIndex) {list_state}.scrollToItem(target)\n"
+            out.line_at(depth, format_args!("LaunchedEffect({scroll_position}) {{"));
+            out.line_at(
+                depth + 1,
+                format_args!("val target = {scroll_position}.coerceAtLeast(0)"),
+            );
+            out.line_at(depth + 1, format_args!("if (target != {list_state}.firstVisibleItemIndex) {list_state}.scrollToItem(target)"
             ));
             indent(out, depth);
             out.push_str("}\n");
@@ -650,7 +669,7 @@ fn render_row_content(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     let Some(item_extent) = item_extent else {
         render_children(children, module, features, depth, out);
@@ -661,8 +680,7 @@ fn render_row_content(
         ListAxis::Horizontal => format!("Modifier.width({extent}.dp).height({extent}.dp)"),
         ListAxis::Vertical | ListAxis::Grid { .. } => format!("Modifier.height({extent}.dp)"),
     };
-    indent(out, depth);
-    out.push_str(&format!("Box(modifier = {modifier}) {{\n"));
+    out.line_at(depth, format_args!("Box(modifier = {modifier}) {{"));
     render_children(children, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);

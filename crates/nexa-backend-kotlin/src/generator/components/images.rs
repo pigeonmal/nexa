@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{ImageScale, ImageSource};
 
 use crate::generator::{
@@ -38,7 +39,7 @@ pub(crate) fn render_image(
     scale: ImageScale,
     placeholder: Option<&str>,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     let content_scale = match scale {

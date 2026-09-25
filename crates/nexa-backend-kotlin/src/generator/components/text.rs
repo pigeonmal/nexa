@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{Expr, TextStyle};
 
 use crate::generator::{
@@ -19,7 +20,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
 }
 
-pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut String) {
+pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut SourceWriter) {
     let text_depth = if style.selectable {
         indent(out, depth);
         out.push_str("SelectionContainer {\n");
@@ -27,8 +28,7 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut St
     } else {
         depth
     };
-    indent(out, text_depth);
-    out.push_str(&format!("Text({}", text_expression(value)));
+    out.text_at(text_depth, format_args!("Text({}", text_expression(value)));
     if let Some(color) = style.color {
         out.push_str(&format!(", color = {}", colors::expression(color)));
     }

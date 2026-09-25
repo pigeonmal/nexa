@@ -1,9 +1,10 @@
+use nexa_codegen::SourceWriter;
 use nexa_codegen::names::{navigation_route_name, state_name};
 use nexa_ir::{Expr, Module, Node, ScreenId, Type};
 
 use crate::generator::{
-    engine::types::kotlin_type,
     components::render_children,
+    engine::types::kotlin_type,
     expressions::text_expression,
     features::Features,
     utils::{indent, kotlin_string},
@@ -51,11 +52,10 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
     );
 }
 
-pub(crate) fn render_back(label: &nexa_ir::Expr, depth: usize, out: &mut String) {
+pub(crate) fn render_back(label: &nexa_ir::Expr, depth: usize, out: &mut SourceWriter) {
     indent(out, depth);
     out.push_str("TextButton(onClick = { navController.popBackStack() }) {\n");
-    indent(out, depth + 1);
-    out.push_str(&format!("Text({})\n", text_expression(label)));
+    out.line_at(depth + 1, format_args!("Text({})", text_expression(label)));
     indent(out, depth);
     out.push('}');
 }
@@ -68,23 +68,25 @@ pub(crate) fn render_link(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     if matches!(guard, Some(Expr::Bool(false))) {
         render_children(children, module, features, depth, out);
         return;
     }
-    indent(out, depth);
-    out.push_str(&format!(
-        "TextButton(onClick = {{ navController.navigate({}) }}{}) {{\n",
-        route_value(module, destination, arguments),
-        guard.map_or(String::new(), |guard| {
-            format!(
-                ", enabled = {}",
-                crate::generator::engine::expressions::expression(guard)
-            )
-        })
-    ));
+    out.line_at(
+        depth,
+        format_args!(
+            "TextButton(onClick = {{ navController.navigate({}) }}{}) {{",
+            route_value(module, destination, arguments),
+            guard.map_or(String::new(), |guard| {
+                format!(
+                    ", enabled = {}",
+                    crate::generator::engine::expressions::expression(guard)
+                )
+            })
+        ),
+    );
     render_children(children, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
@@ -97,7 +99,7 @@ pub(crate) fn render_navigation_stack(
     arguments: &[Expr],
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     out.push_str("val navController = rememberNavController()\n");
@@ -105,11 +107,13 @@ pub(crate) fn render_navigation_stack(
     out.push_str("NavHost(\n");
     indent(out, depth + 1);
     out.push_str("navController = navController,\n");
-    indent(out, depth + 1);
-    out.push_str(&format!(
-        "startDestination = {},\n",
-        route_value(module, root, arguments)
-    ));
+    out.line_at(
+        depth + 1,
+        format_args!(
+            "startDestination = {},",
+            route_value(module, root, arguments)
+        ),
+    );
     indent(out, depth);
     out.push_str(") {\n");
     for screen in &module.screens {
@@ -126,12 +130,14 @@ pub(crate) fn render_navigation_stack(
                 kotlin_string(&route)
             ));
             for parameter in &screen.parameters {
-                indent(out, depth + 2);
-                out.push_str(&format!(
-                    "val {} = {}\n",
-                    state_name(&parameter.name),
-                    route_parameter_expression(parameter)
-                ));
+                out.line_at(
+                    depth + 2,
+                    format_args!(
+                        "val {} = {}",
+                        state_name(&parameter.name),
+                        route_parameter_expression(parameter)
+                    ),
+                );
             }
         }
         for state in &screen.states {
@@ -145,18 +151,18 @@ pub(crate) fn render_navigation_stack(
             .cloned()
             .unwrap_or_default();
         for binding in &focus_bindings {
-            indent(out, depth + 2);
-            out.push_str(&format!(
-                "val {} = remember {{ FocusRequester() }}\n",
-                crate::generator::input::focus_requester_name(binding)
-            ));
+            out.line_at(
+                depth + 2,
+                format_args!(
+                    "val {} = remember {{ FocusRequester() }}",
+                    crate::generator::input::focus_requester_name(binding)
+                ),
+            );
         }
         for binding in &focus_bindings {
             let state = state_name(binding);
             let requester = crate::generator::input::focus_requester_name(binding);
-            indent(out, depth + 2);
-            out.push_str(&format!(
-                "LaunchedEffect({state}) {{ if ({state}) {requester}.requestFocus() else {requester}.freeFocus() }}\n"
+            out.line_at(depth + 2, format_args!("LaunchedEffect({state}) {{ if ({state}) {requester}.requestFocus() else {requester}.freeFocus() }}"
             ));
         }
         render_children(&screen.body, module, features, depth + 2, out);
@@ -194,7 +200,7 @@ pub(crate) fn render_navigation_stack(
     render_deep_link_dispatch(module, depth, out);
 }
 
-fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut String) {
+fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut SourceWriter) {
     indent(out, depth);
     out.push_str("var nexaContext: Context = LocalContext.current\n");
     indent(out, depth);
@@ -216,22 +222,24 @@ fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut String) {
     indent(out, depth + 1);
     out.push_str("when {\n");
     for screen in &module.screens {
-        indent(out, depth + 2);
-        out.push_str(&format!(
-            "segments.size == {} && segments[0].equals({}, ignoreCase = true) -> {{\n",
-            screen.parameters.len() + 1,
-            kotlin_string(&route_slug(&screen.name))
-        ));
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "segments.size == {} && segments[0].equals({}, ignoreCase = true) -> {{",
+                screen.parameters.len() + 1,
+                kotlin_string(&route_slug(&screen.name))
+            ),
+        );
         let mut arguments = Vec::new();
         for (index, parameter) in screen.parameters.iter().enumerate() {
             let name = format!("nexaArgument{index}");
             let raw = format!("segments[{}]", index + 1);
             let parser = match &parameter.ty {
                 Type::String => {
-                    indent(out, depth + 3);
-                    out.push_str(&format!(
-                        "val {name} = {raw}.ifEmpty {{ return@LaunchedEffect }}\n"
-                    ));
+                    out.line_at(
+                        depth + 3,
+                        format_args!("val {name} = {raw}.ifEmpty {{ return@LaunchedEffect }}"),
+                    );
                     arguments.push(name);
                     continue;
                 }
@@ -250,18 +258,17 @@ fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut String) {
                 },
                 _ => unreachable!("screen route arguments are restricted to scalar types"),
             };
-            indent(out, depth + 3);
-            out.push_str(&format!(
-                "val {name} = {raw}.{parser}() ?: return@LaunchedEffect\n"
-            ));
+            out.line_at(
+                depth + 3,
+                format_args!("val {name} = {raw}.{parser}() ?: return@LaunchedEffect"),
+            );
             arguments.push(name);
         }
         let mut route = kotlin_string(&navigation_route_name(screen.id));
         for argument in arguments {
             route.push_str(&format!(" + \"/\" + Uri.encode({argument}.toString())"));
         }
-        indent(out, depth + 3);
-        out.push_str(&format!("navController.navigate({route})\n"));
+        out.line_at(depth + 3, format_args!("navController.navigate({route})"));
         indent(out, depth + 2);
         out.push_str("}\n");
     }
@@ -282,7 +289,7 @@ fn route_slug(name: &str) -> String {
     slug
 }
 
-fn render_screen_state(state: &nexa_ir::State, depth: usize, out: &mut String) {
+fn render_screen_state(state: &nexa_ir::State, depth: usize, out: &mut SourceWriter) {
     let name = state_name(&state.name);
     indent(out, depth);
     if state.mutable {

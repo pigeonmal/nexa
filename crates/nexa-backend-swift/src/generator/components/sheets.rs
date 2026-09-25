@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{Module, Node};
 
@@ -11,13 +12,12 @@ pub(crate) fn render_bottom_sheet(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
-    indent(out, depth);
-    out.push_str(&format!(
-        "EmptyView().sheet(isPresented: ${}) {{\n",
-        state_name(state)
-    ));
+    out.line_at(
+        depth,
+        format_args!("EmptyView().sheet(isPresented: ${}) {{", state_name(state)),
+    );
     render_children(children, module, features, depth + 1, out);
     if partial {
         out.push('\n');

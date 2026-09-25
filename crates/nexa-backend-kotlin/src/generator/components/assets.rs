@@ -1,11 +1,12 @@
+use crate::generator::engine::features::Features;
+use crate::generator::engine::imports::ImportSet;
 /// Emits the small, feature-gated drawable resolver used by generated images.
 ///
 /// Asset names stay source-level strings so projects can provide platform
 /// resources without changing generated Kotlin. Resolution is remembered per
 /// composition and falls back to a transparent painter when an optional asset
 /// is not present, keeping generated projects buildable before assets are added.
-use crate::generator::engine::features::Features;
-use crate::generator::engine::imports::ImportSet;
+use nexa_codegen::SourceWriter;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     let uses_assets = features.uses_asset
@@ -26,7 +27,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
 }
 
-pub(crate) fn render(out: &mut String) {
+pub(crate) fn render(out: &mut SourceWriter) {
     out.push_str(
         r#"
 @Composable

@@ -1,16 +1,22 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::walk::walk_ir;
 use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle};
 
-use crate::generator::{components::render_node, features::Features, layout, state, utils::indent};
 use crate::generator::engine::types::kotlin_type;
+use crate::generator::{components::render_node, features::Features, layout, state, utils::indent};
 
-pub(crate) fn render(module: &Module, features: &Features, out: &mut String) {
+pub(crate) fn render(module: &Module, features: &Features, out: &mut SourceWriter) {
     for component in &module.components {
         render_component(component, module, features, out);
     }
 }
 
-fn render_component(component: &Component, module: &Module, features: &Features, out: &mut String) {
+fn render_component(
+    component: &Component,
+    module: &Module,
+    features: &Features,
+    out: &mut SourceWriter,
+) {
     if component_uses_bottom_sheet(component) {
         out.push_str("\n@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)");
     }
@@ -129,7 +135,7 @@ fn component_uses_sticky_header(component: &Component) -> bool {
     found
 }
 
-fn render_component_states(states: &[nexa_ir::State], depth: usize, out: &mut String) {
+fn render_component_states(states: &[nexa_ir::State], depth: usize, out: &mut SourceWriter) {
     for state in states {
         indent(out, depth);
         let name = nexa_codegen::names::state_name(&state.name);
@@ -169,7 +175,7 @@ fn render_body(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     match body {
         [] => {}

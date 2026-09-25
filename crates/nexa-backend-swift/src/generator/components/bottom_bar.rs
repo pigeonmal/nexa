@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{BottomBarTab, Module};
 
@@ -13,10 +14,12 @@ pub(crate) fn render_app_bottom_bar(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
-    indent(out, depth);
-    out.push_str(&format!("TabView(selection: ${}) {{\n", state_name(state)));
+    out.line_at(
+        depth,
+        format_args!("TabView(selection: ${}) {{", state_name(state)),
+    );
     for (position, tab) in tabs.iter().enumerate() {
         render_children(&tab.children, module, features, depth + 1, out);
         out.push('\n');

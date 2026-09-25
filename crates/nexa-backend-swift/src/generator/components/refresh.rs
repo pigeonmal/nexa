@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::walk::contains_scrollable;
 use nexa_ir::{Action, Module, Node};
 
@@ -11,7 +12,7 @@ pub(crate) fn render_refresh_control(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     if !contains_scrollable(children) {

@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{Action, CollectionMutation, ErrorCatchArm, HapticStyle, Module, Node};
 
@@ -21,7 +22,7 @@ pub(crate) fn render_button(
     disabled: Option<&nexa_ir::Expr>,
     actions: &[Action],
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     if let Some(loading) = loading {
         indent(out, depth);
@@ -35,8 +36,7 @@ pub(crate) fn render_button(
             out.push_str("}) {");
         }
         out.push('\n');
-        indent(out, depth + 1);
-        out.push_str(&format!("if {} {{\n", expression(loading)));
+        out.line_at(depth + 1, format_args!("if {} {{", expression(loading)));
         indent(out, depth + 2);
         out.push_str("ProgressView()\n");
         indent(out, depth + 1);
@@ -88,7 +88,12 @@ pub(crate) fn render_button(
     }
 }
 
-fn render_button_label(label: &nexa_ir::Expr, icon: Option<&str>, depth: usize, out: &mut String) {
+fn render_button_label(
+    label: &nexa_ir::Expr,
+    icon: Option<&str>,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
     indent(out, depth);
     if let Some(icon) = icon {
         out.push_str(&format!(
@@ -101,13 +106,15 @@ fn render_button_label(label: &nexa_ir::Expr, icon: Option<&str>, depth: usize, 
     }
 }
 
-pub(crate) fn render_switch(state: &str, label: &str, depth: usize, out: &mut String) {
-    indent(out, depth);
-    out.push_str(&format!(
-        "Toggle({}, isOn: ${})",
-        swift_string(label),
-        state_name(state)
-    ));
+pub(crate) fn render_switch(state: &str, label: &str, depth: usize, out: &mut SourceWriter) {
+    out.text_at(
+        depth,
+        format_args!(
+            "Toggle({}, isOn: ${})",
+            swift_string(label),
+            state_name(state)
+        ),
+    );
 }
 
 pub(crate) fn render_pressable(
@@ -119,7 +126,7 @@ pub(crate) fn render_pressable(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     out.push_str("Button(action: {");
@@ -164,7 +171,7 @@ pub(crate) fn render_pressable(
     }
 }
 
-fn render_haptic(style: HapticStyle, depth: usize, out: &mut String) {
+fn render_haptic(style: HapticStyle, depth: usize, out: &mut SourceWriter) {
     indent(out, depth);
     let style = match style {
         HapticStyle::Light => "light",
@@ -181,7 +188,8 @@ pub(crate) fn render_event_closure(
     actions: &[Action],
     depth: usize,
 ) -> String {
-    let mut out = String::from("{");
+    let mut out = SourceWriter::new();
+    out.push('{');
     if !parameters.is_empty() {
         out.push(' ');
         out.push_str(
@@ -201,32 +209,35 @@ pub(crate) fn render_event_closure(
         indent(&mut out, depth);
         out.push('}');
     }
-    out
+    out.finish()
 }
 
-pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String) {
+pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceWriter) {
     for action in actions {
         match action {
             Action::Expression(value) => {
-                indent(out, depth);
-                out.push_str(&format!("{}\n", expression(value)));
+                out.line_at(depth, format_args!("{}", expression(value)));
             }
             Action::Assign { name, value } => {
-                indent(out, depth);
-                out.push_str(&format!("{} = {}\n", state_name(name), expression(value)));
+                out.line_at(
+                    depth,
+                    format_args!("{} = {}", state_name(name), expression(value)),
+                );
             }
             Action::NativePropertyAssign {
                 receiver,
                 property,
                 value,
             } => {
-                indent(out, depth);
-                out.push_str(&format!(
-                    "{}.{} = {}\n",
-                    expression(receiver),
-                    property,
-                    expression(value)
-                ));
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "{}.{} = {}",
+                        expression(receiver),
+                        property,
+                        expression(value)
+                    ),
+                );
             }
             Action::NativeEventSubscribe {
                 receiver,
@@ -234,8 +245,10 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
                 parameters,
                 actions,
             } => {
-                indent(out, depth);
-                out.push_str(&format!("{}.{} = {{", expression(receiver), property));
+                out.text_at(
+                    depth,
+                    format_args!("{}.{} = {{", expression(receiver), property),
+                );
                 if !parameters.is_empty() {
                     out.push(' ');
                     out.push_str(
@@ -286,8 +299,7 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
                 then_branch,
                 else_branch,
             } => {
-                indent(out, depth);
-                out.push_str(&format!("if {} {{\n", expression(condition)));
+                out.line_at(depth, format_args!("if {} {{", expression(condition)));
                 render_actions(then_branch, depth + 1, out);
                 if let Some(else_branch) = else_branch {
                     indent(out, depth);
@@ -302,12 +314,10 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
                 iterable,
                 body,
             } => {
-                indent(out, depth);
-                out.push_str(&format!(
-                    "for {} in {} {{\n",
-                    state_name(name),
-                    expression(iterable)
-                ));
+                out.line_at(
+                    depth,
+                    format_args!("for {} in {} {{", state_name(name), expression(iterable)),
+                );
                 render_actions(body, depth + 1, out);
                 indent(out, depth);
                 out.push_str("}\n");
@@ -318,20 +328,21 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut String)
                 iterable,
                 body,
             } => {
-                indent(out, depth);
-                out.push_str(&format!(
-                    "for ({}, {}) in {} {{\n",
-                    state_name(key_name),
-                    state_name(value_name),
-                    expression(iterable)
-                ));
+                out.line_at(
+                    depth,
+                    format_args!(
+                        "for ({}, {}) in {} {{",
+                        state_name(key_name),
+                        state_name(value_name),
+                        expression(iterable)
+                    ),
+                );
                 render_actions(body, depth + 1, out);
                 indent(out, depth);
                 out.push_str("}\n");
             }
             Action::While { condition, body } => {
-                indent(out, depth);
-                out.push_str(&format!("while {} {{\n", expression(condition)));
+                out.line_at(depth, format_args!("while {} {{", expression(condition)));
                 render_actions(body, depth + 1, out);
                 indent(out, depth);
                 out.push_str("}\n");
@@ -362,7 +373,7 @@ fn render_swift_error_catches(
     catches: &[ErrorCatchArm],
     catch_all: Option<&[Action]>,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     let mut groups: Vec<(&str, &str, Vec<&ErrorCatchArm>)> = Vec::new();
     for arm in catches {
@@ -376,8 +387,7 @@ fn render_swift_error_catches(
     }
 
     for (_, error_type, arms) in groups {
-        indent(out, depth);
-        out.push_str(&format!("}} catch let error as {error_type} {{\n"));
+        out.line_at(depth, format_args!("}} catch let error as {error_type} {{"));
         indent(out, depth + 1);
         out.push_str("switch error {\n");
         for arm in arms {
@@ -424,6 +434,7 @@ fn render_swift_error_catches(
 
 #[cfg(test)]
 mod tests {
+    use nexa_codegen::SourceWriter;
     use nexa_ir::{Action, Expr, NumericType, Type};
 
     use super::render_actions;
@@ -445,12 +456,12 @@ mod tests {
                 value: Expr::State("position".to_owned(), Type::Numeric(NumericType::Float64)),
             }],
         }];
-        let mut output = String::new();
+        let mut output = SourceWriter::new();
 
         render_actions(&actions, 0, &mut output);
 
         assert_eq!(
-            output,
+            output.as_str(),
             "nexa_player.onProgressChanged = { nexa_position, nexa_duration in\n    nexa_latest = nexa_position\n}\n"
         );
     }
@@ -475,7 +486,7 @@ mod tests {
                 value: Expr::Bool(true),
             }]),
         }];
-        let mut output = String::new();
+        let mut output = SourceWriter::new();
 
         render_actions(&actions, 0, &mut output);
 
@@ -522,7 +533,7 @@ mod tests {
             ],
             catch_body: None,
         }];
-        let mut output = String::new();
+        let mut output = SourceWriter::new();
 
         render_actions(&actions, 0, &mut output);
 

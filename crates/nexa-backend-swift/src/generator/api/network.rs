@@ -1,10 +1,11 @@
+use crate::generator::engine::features::Features;
+use crate::generator::engine::imports::ImportSet;
 /// Emits the feature-gated native networking, path, and file APIs.
 ///
 /// URLSession owns connection pooling, HTTP caching, redirects, TLS, and
 /// HTTP/2 negotiation. Nexa only adds the typed request options that generated
 /// code needs; it does not introduce a cross-platform request runtime.
-use crate::generator::engine::features::Features;
-use crate::generator::engine::imports::ImportSet;
+use nexa_codegen::SourceWriter;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
@@ -17,7 +18,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
 }
 
 pub(crate) fn render(
-    out: &mut String,
+    out: &mut SourceWriter,
     include_network: bool,
     include_image_support: bool,
     include_path: bool,
@@ -449,11 +450,13 @@ private struct NexaRemoteImage: View {
 
 #[cfg(test)]
 mod tests {
+    use nexa_codegen::SourceWriter;
+
     use super::render;
 
     #[test]
     fn network_pins_hash_the_trusted_chain_spki_instead_of_the_leaf_certificate() {
-        let mut output = String::new();
+        let mut output = SourceWriter::new();
         render(&mut output, true, false, false, false, false);
 
         assert!(output.contains("SecTrustEvaluateWithError(trust, nil)"));

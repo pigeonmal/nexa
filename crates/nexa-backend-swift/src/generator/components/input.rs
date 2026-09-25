@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{Action, Capitalization, KeyboardType};
 
 use nexa_codegen::names::state_name;
@@ -19,7 +20,7 @@ pub(crate) fn render_text_input(
     max_length: Option<i32>,
     actions: &[Action],
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     let control = if secure { "SecureField" } else { "TextField" };
@@ -75,13 +76,15 @@ pub(crate) fn render_text_input(
             "    ".repeat(depth + 1),
             state_name(state)
         ));
-        indent(out, depth + 2);
-        out.push_str(&format!(
-            "if newValue.count > {} {{ {} = String(newValue.prefix(Int({}))) }}\n",
-            max_length,
-            state_name(state),
-            max_length
-        ));
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "if newValue.count > {} {{ {} = String(newValue.prefix(Int({}))) }}",
+                max_length,
+                state_name(state),
+                max_length
+            ),
+        );
         indent(out, depth + 1);
         out.push('}');
     }

@@ -1,12 +1,13 @@
 use crate::generator::engine::features::Features;
 use crate::generator::engine::imports::ImportSet;
+use nexa_codegen::SourceWriter;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_fast_list, "UIKit");
 }
 
 pub(crate) fn render(
-    out: &mut String,
+    out: &mut SourceWriter,
     uses_sticky_header: bool,
     uses_scroll_events: bool,
     uses_vertical_list: bool,

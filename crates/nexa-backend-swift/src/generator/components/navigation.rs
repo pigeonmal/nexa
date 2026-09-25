@@ -1,12 +1,13 @@
+use nexa_codegen::SourceWriter;
 use nexa_codegen::names::navigation_case_name;
 use nexa_ir::{Expr, Module, Node, ScreenId, Type};
 
 use crate::generator::engine::expressions::expression;
 use crate::generator::engine::expressions::text_expression;
+use crate::generator::engine::types::swift_type;
 use crate::generator::{components::render_children, utils::indent};
 use crate::generator::{features::Features, render_immutable_state, render_native_object_state};
 use nexa_ir::State;
-use crate::generator::engine::types::swift_type;
 
 pub(crate) fn render_link(
     destination: ScreenId,
@@ -16,17 +17,19 @@ pub(crate) fn render_link(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     if matches!(guard, Some(Expr::Bool(false))) {
         render_children(children, module, features, depth, out);
         return;
     }
-    indent(out, depth);
-    out.push_str(&format!(
-        "NavigationLink(value: {}) {{\n",
-        route_value(destination, arguments)
-    ));
+    out.line_at(
+        depth,
+        format_args!(
+            "NavigationLink(value: {}) {{",
+            route_value(destination, arguments)
+        ),
+    );
     render_children(children, module, features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
@@ -36,9 +39,8 @@ pub(crate) fn render_link(
     }
 }
 
-pub(crate) fn render_back(label: &nexa_ir::Expr, depth: usize, out: &mut String) {
-    indent(out, depth);
-    out.push_str(&format!("Button({}) {{\n", text_expression(label)));
+pub(crate) fn render_back(label: &nexa_ir::Expr, depth: usize, out: &mut SourceWriter) {
+    out.line_at(depth, format_args!("Button({}) {{", text_expression(label)));
     indent(out, depth + 1);
     out.push_str("nexaDismiss()\n");
     indent(out, depth);
@@ -51,7 +53,7 @@ pub(crate) fn render_navigation_stack(
     arguments: &[Expr],
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     out.push_str("NavigationStack(path: $__nexaNavigationPath) {\n");
@@ -114,7 +116,7 @@ pub(crate) fn render_navigation_stack(
     out.push('}');
 }
 
-fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut String) {
+fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut SourceWriter) {
     indent(out, depth);
     out.push_str("let scheme = url.scheme?.lowercased() ?? \"\"\n");
     indent(out, depth);
@@ -128,13 +130,17 @@ fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut String) {
     indent(out, depth);
     out.push_str("switch route {\n");
     for screen in &module.screens {
-        indent(out, depth + 1);
-        out.push_str(&format!("case \"{}\":\n", route_slug(&screen.name)));
-        indent(out, depth + 2);
-        out.push_str(&format!(
-            "guard segments.count == {} else {{ return }}\n",
-            screen.parameters.len() + 1
-        ));
+        out.line_at(
+            depth + 1,
+            format_args!("case \"{}\":", route_slug(&screen.name)),
+        );
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "guard segments.count == {} else {{ return }}",
+                screen.parameters.len() + 1
+            ),
+        );
         let mut arguments = vec!["UUID()".to_owned()];
         for (index, parameter) in screen.parameters.iter().enumerate() {
             let raw = format!("segments[{}]", index + 1);
@@ -142,18 +148,20 @@ fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut String) {
             match &parameter.ty {
                 Type::String => arguments.push(raw),
                 Type::Bool => {
-                    indent(out, depth + 2);
-                    out.push_str(&format!(
-                        "guard let {name} = Bool({raw}) else {{ return }}\n"
-                    ));
+                    out.line_at(
+                        depth + 2,
+                        format_args!("guard let {name} = Bool({raw}) else {{ return }}"),
+                    );
                     arguments.push(name);
                 }
                 Type::Numeric(_) => {
-                    indent(out, depth + 2);
-                    out.push_str(&format!(
-                        "guard let {name} = {}({raw}) else {{ return }}\n",
-                        swift_type(&parameter.ty)
-                    ));
+                    out.line_at(
+                        depth + 2,
+                        format_args!(
+                            "guard let {name} = {}({raw}) else {{ return }}",
+                            swift_type(&parameter.ty)
+                        ),
+                    );
                     arguments.push(name);
                 }
                 _ => unreachable!("screen route arguments are restricted to scalar types"),
@@ -161,12 +169,14 @@ fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut String) {
         }
         indent(out, depth + 2);
         out.push_str("__nexaNavigationPath = NavigationPath()\n");
-        indent(out, depth + 2);
-        out.push_str(&format!(
-            "__nexaNavigationPath.append(NexaNavigationRoute.{}({}))\n",
-            navigation_case_name(screen.id),
-            arguments.join(", ")
-        ));
+        out.line_at(
+            depth + 2,
+            format_args!(
+                "__nexaNavigationPath.append(NexaNavigationRoute.{}({}))",
+                navigation_case_name(screen.id),
+                arguments.join(", ")
+            ),
+        );
     }
     indent(out, depth + 1);
     out.push_str("default: break\n");
@@ -189,7 +199,7 @@ pub(crate) fn render_screen_view(
     screen: &nexa_ir::Screen,
     module: &Module,
     features: &Features,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     out.push('\n');
     let focus_bindings = features
@@ -207,53 +217,63 @@ pub(crate) fn render_screen_view(
         if !screen_state_is_passed_as_binding(state, &focus_bindings) {
             continue;
         }
-        indent(out, 1);
-        out.push_str(&format!(
-            "@Binding private var {}: {}\n",
-            nexa_codegen::names::state_name(&state.name),
-            swift_type(&state.ty)
-        ));
+        out.line_at(
+            1,
+            format_args!(
+                "@Binding private var {}: {}",
+                nexa_codegen::names::state_name(&state.name),
+                swift_type(&state.ty)
+            ),
+        );
     }
     for state in &module.states {
         if state.is_native_class_constructor_binding()
             && !state.mutable
             && !focus_bindings.contains(&state.name)
         {
-            indent(out, 1);
-            out.push_str(&format!(
-                "private let {}: {}\n",
-                nexa_codegen::names::state_name(&state.name),
-                swift_type(&state.ty)
-            ));
+            out.line_at(
+                1,
+                format_args!(
+                    "private let {}: {}",
+                    nexa_codegen::names::state_name(&state.name),
+                    swift_type(&state.ty)
+                ),
+            );
         }
     }
     for parameter in &screen.parameters {
-        indent(out, 1);
-        out.push_str(&format!(
-            "private let {}: {}\n",
-            nexa_codegen::names::state_name(&parameter.name),
-            swift_type(&parameter.ty)
-        ));
+        out.line_at(
+            1,
+            format_args!(
+                "private let {}: {}",
+                nexa_codegen::names::state_name(&parameter.name),
+                swift_type(&parameter.ty)
+            ),
+        );
     }
     for state in &screen.states {
         if state.is_native_class_constructor_binding() {
             render_native_object_state(state, 1, out);
         } else if state.mutable && !focus_bindings.contains(&state.name) {
-            indent(out, 1);
-            out.push_str(&format!(
-                "@State private var {}: {} = {}\n",
-                nexa_codegen::names::state_name(&state.name),
-                swift_type(&state.ty),
-                expression(&state.initial)
-            ));
+            out.line_at(
+                1,
+                format_args!(
+                    "@State private var {}: {} = {}",
+                    nexa_codegen::names::state_name(&state.name),
+                    swift_type(&state.ty),
+                    expression(&state.initial)
+                ),
+            );
         }
     }
     for binding in &focus_bindings {
-        indent(out, 1);
-        out.push_str(&format!(
-            "@FocusState private var {}: Bool\n",
-            nexa_codegen::names::state_name(binding)
-        ));
+        out.line_at(
+            1,
+            format_args!(
+                "@FocusState private var {}: Bool",
+                nexa_codegen::names::state_name(binding)
+            ),
+        );
     }
     if features.app_uses_adaptive_color {
         indent(out, 1);

@@ -12,11 +12,12 @@ use super::collections::swift_cpp_result_expression;
 use super::jni::values::{android_kotlin_type, android_scalar_value};
 use super::jni::{android_jni_signature, render_jni_return};
 use super::swift::SwiftAdapterContext;
+use crate::SourceWriter;
 use crate::plugin::bridge_plan::{BridgeMethod, BridgePlan, BridgeScalar, BridgeType};
 use crate::plugin::type_visit::referenced_errors;
 
 pub(crate) fn render_jni_typed_error_result(
-    out: &mut String,
+    out: &mut SourceWriter,
     success_type: &BridgeType,
     error_name: &str,
     expression: &str,
@@ -33,7 +34,7 @@ pub(crate) fn render_jni_typed_error_result(
 }
 
 pub(crate) fn render_android_error_factory(
-    out: &mut String,
+    out: &mut SourceWriter,
     plan: &BridgePlan,
     plugin_index: usize,
 ) {
@@ -90,7 +91,7 @@ pub(crate) fn render_android_error_factory(
 }
 
 pub(crate) fn render_android_jni_error_converters(
-    out: &mut String,
+    out: &mut SourceWriter,
     plan: &BridgePlan,
     package: &str,
     plugin_index: usize,
@@ -219,7 +220,7 @@ pub(crate) struct TypedErrorCall<'a> {
 
 /// Renders the `try`/`await` body for a `throws` method.
 pub(crate) fn render_swift_cpp_typed_error_call(
-    out: &mut String,
+    out: &mut SourceWriter,
     call_site: &TypedErrorCall<'_>,
     context: &SwiftAdapterContext<'_>,
     depth: usize,
@@ -281,13 +282,13 @@ pub(crate) fn render_swift_cpp_typed_error_call(
     out.push_str(&format!("{indent}    return {converted}\n"));
 }
 
-pub(crate) fn render_result_type(out: &mut String) {
+pub(crate) fn render_result_type(out: &mut SourceWriter) {
     out.push_str(
         "template <class Success, class Failure>\nclass NexaResult {\npublic:\n    static NexaResult success(Success value) {\n        return NexaResult(Storage{std::in_place_index<0>, std::move(value)});\n    }\n    static NexaResult failure(Failure error) {\n        return NexaResult(Storage{std::in_place_index<1>, std::move(error)});\n    }\n    bool has_value() const noexcept { return storage_.index() == 0; }\n    Success& value() & { return std::get<0>(storage_); }\n    const Success& value() const & { return std::get<0>(storage_); }\n    Failure& error() & { return std::get<1>(storage_); }\n    const Failure& error() const & { return std::get<1>(storage_); }\n    Success nexaSwiftValue() { return std::move(std::get<0>(storage_)); }\n    Failure nexaSwiftError() { return std::move(std::get<1>(storage_)); }\nprivate:\n    using Storage = std::variant<Success, Failure>;\n    explicit NexaResult(Storage storage) : storage_(std::move(storage)) {}\n    Storage storage_;\n};\n\ntemplate <class Failure>\nclass NexaResult<void, Failure> {\npublic:\n    static NexaResult success() { return NexaResult(std::nullopt); }\n    static NexaResult failure(Failure error) {\n        return NexaResult(std::optional<Failure>(std::move(error)));\n    }\n    bool has_value() const noexcept { return !error_.has_value(); }\n    Failure& error() & { return *error_; }\n    const Failure& error() const & { return *error_; }\n    Failure nexaSwiftError() { return std::move(*error_); }\nprivate:\n    explicit NexaResult(std::optional<Failure> error) : error_(std::move(error)) {}\n    std::optional<Failure> error_;\n};\n\n",
     );
 }
 
-pub(crate) fn render_swift_cpp_error_bridges(out: &mut String, plan: &BridgePlan) {
+pub(crate) fn render_swift_cpp_error_bridges(out: &mut SourceWriter, plan: &BridgePlan) {
     for error in referenced_errors(plan) {
         let error_name = error.name.as_str();
         let bridge = cpp_swift_error_bridge_name(plan, error_name);
@@ -308,7 +309,7 @@ pub(crate) fn render_swift_cpp_error_bridges(out: &mut String, plan: &BridgePlan
 }
 
 pub(crate) fn render_swift_cpp_error_converters(
-    out: &mut String,
+    out: &mut SourceWriter,
     context: &SwiftAdapterContext<'_>,
 ) {
     let SwiftAdapterContext {

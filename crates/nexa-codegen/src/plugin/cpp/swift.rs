@@ -20,6 +20,7 @@ use super::collections::{
 use super::errors::{
     TypedErrorCall, render_swift_cpp_error_converters, render_swift_cpp_typed_error_call,
 };
+use crate::SourceWriter;
 use crate::plugin::bridge_plan::{
     BridgeEvent, BridgeInterface, BridgeMethod, BridgeNamedType, BridgeParameter, BridgePlan,
     BridgeType, BridgeTypeKind,
@@ -56,7 +57,8 @@ pub fn render_swift_adapters(plan: &BridgePlan, plugin_id: &str) -> Result<Strin
         byte_buffer_type: &byte_buffer_type,
         optional_bridge: &optional_bridge,
     };
-    let mut out = String::from("import CxxStdlib\nimport Foundation\n\n");
+    let mut out = SourceWriter::new();
+    out.push_str("import CxxStdlib\nimport Foundation\n\n");
     render_swift_cpp_named_value_helpers(&mut out, &ctx);
     if plan
         .interfaces
@@ -199,14 +201,14 @@ pub fn render_swift_adapters(plan: &BridgePlan, plugin_id: &str) -> Result<Strin
     }
 
     if generated {
-        Ok(out)
+        Ok(out.finish())
     } else {
         Ok(String::new())
     }
 }
 
 fn render_swift_cpp_event_adapters(
-    out: &mut String,
+    out: &mut SourceWriter,
     // `context` is the generated Swift event context class name below.
     adapter: &SwiftAdapterContext<'_>,
     plugin_id: &str,
@@ -300,7 +302,7 @@ fn render_swift_cpp_event_adapters(
 }
 
 fn render_swift_cpp_event_property(
-    out: &mut String,
+    out: &mut SourceWriter,
     context: &SwiftAdapterContext<'_>,
     plugin_id: &str,
     interface: &BridgeInterface,
@@ -320,7 +322,11 @@ fn render_swift_cpp_event_property(
     ));
 }
 
-fn render_swift_cpp_dispose(out: &mut String, interface: &BridgeInterface, method: &BridgeMethod) {
+fn render_swift_cpp_dispose(
+    out: &mut SourceWriter,
+    interface: &BridgeInterface,
+    method: &BridgeMethod,
+) {
     out.push_str(&format!("\n    public func {}() -> Void {{\n", method.name));
     for event in &interface.events {
         let backing = swift_cpp_event_backing_name(interface, event);
@@ -572,7 +578,7 @@ pub(crate) fn swift_cpp_argument_value(
 }
 
 fn render_swift_cpp_method(
-    out: &mut String,
+    out: &mut SourceWriter,
     receiver: &str,
     adapter_method: Option<&str>,
     context: &SwiftAdapterContext<'_>,
@@ -667,7 +673,7 @@ fn render_swift_cpp_method(
     out.push_str(&format!("{indent}}}\n"));
 }
 
-fn render_swift_cpp_named_value_helpers(out: &mut String, context: &SwiftAdapterContext<'_>) {
+fn render_swift_cpp_named_value_helpers(out: &mut SourceWriter, context: &SwiftAdapterContext<'_>) {
     let SwiftAdapterContext {
         plan, namespace, ..
     } = context;

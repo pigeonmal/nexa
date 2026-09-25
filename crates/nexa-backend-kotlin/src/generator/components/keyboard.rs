@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{KeyboardDismissMode, Node};
 
 use crate::generator::{
@@ -31,7 +32,7 @@ pub(crate) fn render_keyboard_aware(
     module: &nexa_ir::Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     indent(out, depth);
     out.push_str("Column(modifier = Modifier.imePadding()");

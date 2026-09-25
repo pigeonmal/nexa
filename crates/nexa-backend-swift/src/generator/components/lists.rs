@@ -1,10 +1,10 @@
+use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListPlan, Module, Node};
 
 use crate::generator::{
-    engine::types::swift_type,
-    components::render_children, controls::render_actions, expressions::expression,
-    features::Features, utils::indent,
+    components::render_children, controls::render_actions, engine::types::swift_type,
+    expressions::expression, features::Features, utils::indent,
 };
 
 pub(crate) fn render_virtualized_list(
@@ -12,7 +12,7 @@ pub(crate) fn render_virtualized_list(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     match plan {
         ListPlan::Sections {
@@ -66,11 +66,13 @@ pub(crate) fn render_virtualized_list(
                 depth,
                 out,
             );
-            indent(out, depth + 1);
-            out.push_str(&format!(
-                "let {}: Int32 = Int32(listPosition)\n",
-                state_name(&common.index)
-            ));
+            out.line_at(
+                depth + 1,
+                format_args!(
+                    "let {}: Int32 = Int32(listPosition)",
+                    state_name(&common.index)
+                ),
+            );
         }
         ListPlan::Items {
             collection,
@@ -110,17 +112,21 @@ pub(crate) fn render_virtualized_list(
                 depth,
                 out,
             );
-            indent(out, depth + 1);
-            out.push_str(&format!(
-                "let {}: Int32 = Int32(clamping: listPosition)\n",
-                state_name(&common.index)
-            ));
-            indent(out, depth + 1);
-            out.push_str(&format!(
-                "let {}: {} = {collection}[listPosition]\n",
-                state_name(item),
-                swift_type(&element_type)
-            ));
+            out.line_at(
+                depth + 1,
+                format_args!(
+                    "let {}: Int32 = Int32(clamping: listPosition)",
+                    state_name(&common.index)
+                ),
+            );
+            out.line_at(
+                depth + 1,
+                format_args!(
+                    "let {}: {} = {collection}[listPosition]",
+                    state_name(item),
+                    swift_type(&element_type)
+                ),
+            );
         }
     }
     render_children(plan.children(), module, features, depth + 1, out);
@@ -143,7 +149,7 @@ fn render_sectioned_list(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     let collection = expression(collection);
     indent(out, depth);
@@ -152,13 +158,16 @@ fn render_sectioned_list(
     } else {
         out.push_str("NexaFastSectionedList<_, EmptyView>(\n");
     }
-    indent(out, depth + 1);
-    out.push_str(&format!("sectionCount: {collection}.count,\n"));
-    indent(out, depth + 1);
-    out.push_str(&format!("sectionCounts: {collection}.map(\\.count),\n"));
+    out.line_at(depth + 1, format_args!("sectionCount: {collection}.count,"));
+    out.line_at(
+        depth + 1,
+        format_args!("sectionCounts: {collection}.map(\\.count),"),
+    );
     if let Some(item_extent) = item_extent {
-        indent(out, depth + 1);
-        out.push_str(&format!("rowHeight: {},\n", format_float(item_extent)));
+        out.line_at(
+            depth + 1,
+            format_args!("rowHeight: {},", format_float(item_extent)),
+        );
     }
     if let Some(key) = key {
         indent(out, depth + 1);
@@ -190,11 +199,13 @@ fn render_sectioned_list(
         out.push_str("headerContent: { sectionPosition in\n");
         indent(out, depth + 2);
         out.push_str("VStack(spacing: 0) {\n");
-        indent(out, depth + 3);
-        out.push_str(&format!(
-            "let {}: Int32 = Int32(clamping: sectionPosition)\n",
-            state_name(section)
-        ));
+        out.line_at(
+            depth + 3,
+            format_args!(
+                "let {}: Int32 = Int32(clamping: sectionPosition)",
+                state_name(section)
+            ),
+        );
         render_children(header, module, features, depth + 3, out);
         out.push('\n');
         indent(out, depth + 2);
@@ -204,22 +215,28 @@ fn render_sectioned_list(
     }
     indent(out, depth + 1);
     out.push_str("rowContent: { sectionPosition, itemPosition in\n");
-    indent(out, depth + 2);
-    out.push_str(&format!(
-        "let {}: Int32 = Int32(clamping: sectionPosition)\n",
-        state_name(section)
-    ));
-    indent(out, depth + 2);
-    out.push_str(&format!(
-        "let {}: Int32 = Int32(clamping: itemPosition)\n",
-        state_name(index)
-    ));
-    indent(out, depth + 2);
-    out.push_str(&format!(
-        "let {}: {} = {collection}[sectionPosition][itemPosition]\n",
-        state_name(item),
-        swift_type(&element_type)
-    ));
+    out.line_at(
+        depth + 2,
+        format_args!(
+            "let {}: Int32 = Int32(clamping: sectionPosition)",
+            state_name(section)
+        ),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!(
+            "let {}: Int32 = Int32(clamping: itemPosition)",
+            state_name(index)
+        ),
+    );
+    out.line_at(
+        depth + 2,
+        format_args!(
+            "let {}: {} = {collection}[sectionPosition][itemPosition]",
+            state_name(item),
+            swift_type(&element_type)
+        ),
+    );
     render_children(children, module, features, depth + 2, out);
     out.push('\n');
     indent(out, depth + 1);
@@ -271,7 +288,7 @@ fn open_list(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     if on_end_reached.is_some()
         || on_scroll.is_some()
@@ -287,11 +304,10 @@ fn open_list(
             out.push_str(", scrollPosition: ");
             out.push_str(&state_name(scroll_position));
             out.push_str(", onScrollPositionChanged: { position in\n");
-            indent(out, depth + 1);
-            out.push_str(&format!(
-                "{} = Int32(position)\n",
-                state_name(scroll_position)
-            ));
+            out.line_at(
+                depth + 1,
+                format_args!("{} = Int32(position)", state_name(scroll_position)),
+            );
             indent(out, depth);
             out.push('}');
         }

@@ -24,6 +24,7 @@ use super::errors::{
     render_android_error_factory, render_android_jni_error_converters,
     render_jni_typed_error_result,
 };
+use crate::SourceWriter;
 use crate::plugin::bridge_plan::{
     BridgeConstructor, BridgeEvent, BridgeInterface, BridgeMethod, BridgeParameter, BridgePlan,
     BridgeProperty, BridgeScalar, BridgeType, BridgeTypeKind,
@@ -42,10 +43,10 @@ pub fn render_android_adapters(
     package: &str,
     plugin_index: usize,
 ) -> Result<(String, String), String> {
-    let mut native_declarations = String::new();
-    let mut kotlin_implementations = String::new();
-    let mut kotlin_event_bridges = String::new();
-    let mut jni = String::new();
+    let mut native_declarations = SourceWriter::new();
+    let mut kotlin_implementations = SourceWriter::new();
+    let mut kotlin_event_bridges = SourceWriter::new();
+    let mut jni = SourceWriter::new();
     let class_name = format!("NexaPlugin{plugin_index}_CppBindings");
     let mut service_interfaces = Vec::new();
     let mut service_methods = std::collections::BTreeSet::new();
@@ -197,9 +198,10 @@ pub fn render_android_adapters(
         return Ok((String::new(), String::new()));
     }
 
-    let mut kotlin_output = format!(
+    let mut kotlin_output = SourceWriter::new();
+    kotlin_output.text(format_args!(
         "\ninternal object {class_name} {{\n    init {{ System.loadLibrary(\"nexa_plugins\") }}\n"
-    );
+    ));
     kotlin_output.push_str(&native_declarations);
     kotlin_output.push_str("}\n\n");
 
@@ -234,11 +236,12 @@ pub fn render_android_adapters(
         kotlin_output.push_str(&kotlin_event_bridges);
     }
     kotlin_output.push_str(&kotlin_implementations);
-    let mut jni_output = render_android_jni_prelude(plugin_id);
+    let mut jni_output = SourceWriter::new();
+    jni_output.push_str(&render_android_jni_prelude(plugin_id));
     render_android_jni_error_converters(&mut jni_output, plan, package, plugin_index);
     render_android_jni_named_value_helpers(&mut jni_output, plan, package);
     jni_output.push_str(&jni);
-    Ok((kotlin_output, jni_output))
+    Ok((kotlin_output.finish(), jni_output.finish()))
 }
 
 fn render_android_jni_prelude(plugin_id: &str) -> String {
@@ -613,7 +616,11 @@ jobject toJniMap(JNIEnv* env, const Map& input, KeyConverter&& convertKey, Value
     PRELUDE.replace("__NEXA_CPP_NAMESPACE__", &cpp_namespace(plugin_id))
 }
 
-fn render_kotlin_native_declaration(out: &mut String, method: &BridgeMethod, native_name: &str) {
+fn render_kotlin_native_declaration(
+    out: &mut SourceWriter,
+    method: &BridgeMethod,
+    native_name: &str,
+) {
     let parameters = method
         .parameters
         .iter()
@@ -633,7 +640,7 @@ fn render_kotlin_native_declaration(out: &mut String, method: &BridgeMethod, nat
 }
 
 fn render_kotlin_class_native_declaration(
-    out: &mut String,
+    out: &mut SourceWriter,
     method: &BridgeMethod,
     native_name: &str,
 ) {
@@ -653,7 +660,7 @@ fn render_kotlin_class_native_declaration(
 }
 
 fn render_kotlin_property_native_declarations(
-    out: &mut String,
+    out: &mut SourceWriter,
     property: &BridgeProperty,
     interface: &str,
     getter_name: &str,
@@ -670,18 +677,18 @@ fn render_kotlin_property_native_declarations(
     }
 }
 
-fn render_kotlin_native_dispose_declaration(out: &mut String, native_name: &str) {
+fn render_kotlin_native_dispose_declaration(out: &mut SourceWriter, native_name: &str) {
     out.push_str(&format!("    external fun {native_name}(handle: Long)\n"));
 }
 
-fn render_kotlin_native_event_declaration(out: &mut String, native_name: &str) {
+fn render_kotlin_native_event_declaration(out: &mut SourceWriter, native_name: &str) {
     out.push_str(&format!(
         "    external fun {native_name}(handle: Long, callback: Any?)\n"
     ));
 }
 
 fn render_kotlin_service_adapter(
-    out: &mut String,
+    out: &mut SourceWriter,
     method: &BridgeMethod,
     native_name: &str,
     bindings_class: &str,
@@ -910,7 +917,7 @@ fn kotlin_from_jni_expression(expression: String, ty: &BridgeType) -> String {
 }
 
 fn render_kotlin_cpp_class(
-    out: &mut String,
+    out: &mut SourceWriter,
     interface: &BridgeInterface,
     plugin_index: usize,
     constructor: Option<&BridgeConstructor>,
@@ -1066,7 +1073,7 @@ fn android_cpp_event_backing_name(interface: &BridgeInterface, event: &BridgeEve
 }
 
 fn render_kotlin_event_bridge(
-    out: &mut String,
+    out: &mut SourceWriter,
     interface: &BridgeInterface,
     event: &BridgeEvent,
     plugin_index: usize,
@@ -1131,7 +1138,7 @@ fn android_kotlin_event_callback_type(event: &BridgeEvent) -> String {
 }
 
 fn render_jni_service_method(
-    out: &mut String,
+    out: &mut SourceWriter,
     package: &str,
     class_name: &str,
     interface_name: &str,
@@ -1184,7 +1191,7 @@ fn render_jni_service_method(
 }
 
 fn render_jni_constructor(
-    out: &mut String,
+    out: &mut SourceWriter,
     plugin_id: &str,
     package: &str,
     class_name: &str,
@@ -1226,7 +1233,7 @@ fn render_jni_constructor(
 }
 
 fn render_jni_property(
-    out: &mut String,
+    out: &mut SourceWriter,
     plugin_id: &str,
     package: &str,
     class_name: &str,
@@ -1326,7 +1333,7 @@ fn render_jni_property(
 }
 
 fn render_jni_class_method(
-    out: &mut String,
+    out: &mut SourceWriter,
     plugin_id: &str,
     package: &str,
     class_name: &str,
@@ -1382,7 +1389,7 @@ fn render_jni_class_method(
 }
 
 fn render_jni_dispose(
-    out: &mut String,
+    out: &mut SourceWriter,
     plugin_id: &str,
     package: &str,
     class_name: &str,
@@ -1414,7 +1421,7 @@ fn render_jni_dispose(
 }
 
 fn render_jni_event_setter(
-    out: &mut String,
+    out: &mut SourceWriter,
     plugin_id: &str,
     package: &str,
     class_name: &str,
@@ -1559,13 +1566,13 @@ fn android_jni_callback_descriptor(ty: &BridgeType, package: &str) -> String {
     }
 }
 
-fn render_jni_boundary_start(out: &mut String, return_type: &str) {
+fn render_jni_boundary_start(out: &mut SourceWriter, return_type: &str) {
     out.push_str(&format!(
         "    return withJniExceptions(env, [&]() -> {return_type} {{\n"
     ));
 }
 
-fn render_jni_boundary_end(out: &mut String) {
+fn render_jni_boundary_end(out: &mut SourceWriter) {
     out.push_str("    });\n");
 }
 
@@ -1577,7 +1584,11 @@ fn jni_failure_return(return_type: &str) -> &'static str {
     }
 }
 
-fn render_android_jni_named_value_helpers(out: &mut String, plan: &BridgePlan, package: &str) {
+fn render_android_jni_named_value_helpers(
+    out: &mut SourceWriter,
+    plan: &BridgePlan,
+    package: &str,
+) {
     let types = collect_value_types(plan);
     if types.is_empty() {
         return;
@@ -1758,7 +1769,7 @@ pub(crate) fn android_jni_signature(ty: &BridgeType) -> String {
 }
 
 fn render_jni_argument_conversions(
-    out: &mut String,
+    out: &mut SourceWriter,
     parameters: &[BridgeParameter],
     failure_return: &str,
 ) -> Vec<String> {
@@ -1843,7 +1854,7 @@ fn render_jni_argument_conversions(
 }
 
 fn render_jni_array_argument_conversion(
-    out: &mut String,
+    out: &mut SourceWriter,
     ty: &BridgeType,
     value: &str,
     failure_return: &str,
@@ -1873,7 +1884,7 @@ fn render_jni_array_argument_conversion(
 }
 
 fn render_jni_nested_array_argument_conversion(
-    out: &mut String,
+    out: &mut SourceWriter,
     ty: &BridgeType,
     value: &str,
     failure_return: &str,
@@ -1949,7 +1960,7 @@ fn render_jni_nested_array_argument_conversion(
 }
 
 fn render_jni_array_argument_conversion_flat(
-    out: &mut String,
+    out: &mut SourceWriter,
     ty: &BridgeType,
     value: &str,
     failure_return: &str,
@@ -2024,7 +2035,7 @@ fn render_jni_array_argument_conversion_flat(
 }
 
 fn render_android_jni_map_converter(
-    out: &mut String,
+    out: &mut SourceWriter,
     ty: &BridgeType,
     name: &str,
     to_java: bool,
@@ -2337,7 +2348,7 @@ fn render_android_jni_map_converter(
 }
 
 fn render_jni_map_argument_conversion(
-    out: &mut String,
+    out: &mut SourceWriter,
     ty: &BridgeType,
     value: &str,
     failure_return: &str,
@@ -2377,7 +2388,7 @@ fn render_jni_map_argument_conversion(
 }
 
 fn render_jni_optional_argument_conversion(
-    out: &mut String,
+    out: &mut SourceWriter,
     ty: &BridgeType,
     value: &str,
     failure_return: &str,
@@ -2419,7 +2430,7 @@ fn render_jni_optional_argument_conversion(
     format!("std::move({local})")
 }
 
-pub(crate) fn render_jni_return(out: &mut String, ty: &BridgeType, expression: &str) {
+pub(crate) fn render_jni_return(out: &mut SourceWriter, ty: &BridgeType, expression: &str) {
     // Optional wrappers are transparent to shape dispatch, mirroring how
     // the historical renderer matched on the inner type name.
     let shape = bridge_strip_optional(ty);
@@ -2566,7 +2577,7 @@ pub(crate) fn render_jni_return(out: &mut String, ty: &BridgeType, expression: &
     }
 }
 
-fn render_jni_nested_array_return(out: &mut String, ty: &BridgeType, expression: &str) {
+fn render_jni_nested_array_return(out: &mut SourceWriter, ty: &BridgeType, expression: &str) {
     let element: &BridgeType = match ty {
         BridgeType::Array(element) | BridgeType::Set(element) => element,
         _ => {

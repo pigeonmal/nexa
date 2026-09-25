@@ -1,5 +1,6 @@
 /// Emits the tiny application-context holder shared by generated native APIs.
-pub(crate) fn render(out: &mut String, include_permissions: bool) {
+use nexa_codegen::SourceWriter;
+pub(crate) fn render(out: &mut SourceWriter, include_permissions: bool) {
     out.push_str(
         r#"
 public object NexaRuntime {

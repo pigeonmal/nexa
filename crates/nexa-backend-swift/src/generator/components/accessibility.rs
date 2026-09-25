@@ -1,3 +1,4 @@
+use nexa_codegen::SourceWriter;
 use nexa_ir::{AccessibilityRole, Expr, Module, Node};
 
 use crate::generator::{
@@ -15,7 +16,7 @@ pub(crate) fn render_accessibility(
     module: &Module,
     features: &Features,
     depth: usize,
-    out: &mut String,
+    out: &mut SourceWriter,
 ) {
     render_children(children, module, features, depth, out);
     let child_has_same_image_label = matches!((label, children),
@@ -46,8 +47,10 @@ pub(crate) fn render_accessibility(
     }
     if let Some(trait_name) = trait_name(role) {
         out.push('\n');
-        indent(out, depth + 1);
-        out.push_str(&format!(".accessibilityAddTraits({trait_name})"));
+        out.text_at(
+            depth + 1,
+            format_args!(".accessibilityAddTraits({trait_name})"),
+        );
     }
 }
 
