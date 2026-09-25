@@ -1,4 +1,4 @@
-use nexa_syntax::ast::{Expr, Node, Stmt};
+use nexa_syntax::ast::{ChildBody, Expr, Node, Stmt};
 
 #[test]
 fn parses_plugin_import_alias_before_app_declaration() {
@@ -49,8 +49,12 @@ fn parses_native_property_assignment_in_action() {
     )
     .expect("valid app syntax");
 
-    let Node::Button { actions, .. } = &app.body[0] else {
+    let Node::ComponentInvocation(invocation) = &app.body[0] else {
         panic!("expected a button node");
+    };
+    assert_eq!(invocation.name, "Button");
+    let ChildBody::Actions(actions) = &invocation.children else {
+        panic!("expected button actions");
     };
     assert!(matches!(
         &actions[0],
@@ -83,8 +87,12 @@ fn parses_try_catch_action_blocks() {
     )
     .expect("try/catch action blocks should parse");
 
-    let Node::Button { actions, .. } = &app.body[0] else {
+    let Node::ComponentInvocation(invocation) = &app.body[0] else {
         panic!("expected a button node");
+    };
+    assert_eq!(invocation.name, "Button");
+    let ChildBody::Actions(actions) = &invocation.children else {
+        panic!("expected button actions");
     };
     assert!(
         matches!(actions.as_slice(), [Stmt::TryCatch { body, error_catches, catch_body, .. }]
@@ -120,8 +128,12 @@ fn parses_typed_error_catch_variants_and_payload_bindings() {
     )
     .expect("typed error catch cases should parse");
 
-    let Node::Button { actions, .. } = &app.body[0] else {
+    let Node::ComponentInvocation(invocation) = &app.body[0] else {
         panic!("expected a button node");
+    };
+    assert_eq!(invocation.name, "Button");
+    let ChildBody::Actions(actions) = &invocation.children else {
+        panic!("expected button actions");
     };
     let [
         Stmt::TryCatch {
@@ -155,8 +167,12 @@ fn parses_qualified_service_calls_in_action_blocks() {
         }"#,
     )
     .expect("valid qualified service call");
-    let Node::Button { actions, .. } = &app.body[0] else {
+    let Node::ComponentInvocation(invocation) = &app.body[0] else {
         panic!("expected a button node");
+    };
+    assert_eq!(invocation.name, "Button");
+    let ChildBody::Actions(actions) = &invocation.children else {
+        panic!("expected button actions");
     };
     assert!(matches!(
         &actions[0],
@@ -185,8 +201,12 @@ fn parses_instance_event_handlers_with_and_without_payload_bindings() {
     )
     .expect("valid event handler syntax");
 
-    let Node::OnAppear { actions, .. } = &app.body[0] else {
+    let Node::ComponentInvocation(invocation) = &app.body[0] else {
         panic!("expected an OnAppear node");
+    };
+    assert_eq!(invocation.name, "OnAppear");
+    let ChildBody::Actions(actions) = &invocation.children else {
+        panic!("expected OnAppear actions");
     };
     assert!(matches!(
         &actions[0],

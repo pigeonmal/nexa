@@ -291,167 +291,16 @@ impl TypeSyntax {
 
 #[derive(Clone, Debug)]
 pub enum Node {
-    Layout {
-        kind: LayoutKind,
-        spacing: Option<Expr>,
-        style: LayoutStyle,
-        children: Vec<Node>,
-        span: Span,
-    },
     Platform {
         target: PlatformTarget,
         children: Vec<Node>,
         span: Span,
     },
-    StatusBar {
-        style: Option<Expr>,
-        hidden: Option<Expr>,
-        background: Option<Expr>,
-        span: Span,
-    },
-    Direction {
-        value: Expr,
-        span: Span,
-    },
-    OnAppear {
-        actions: Vec<Stmt>,
-        asynchronous: bool,
-        span: Span,
-    },
-    OnDisappear {
-        actions: Vec<Stmt>,
-        span: Span,
-    },
-    OnActive {
-        actions: Vec<Stmt>,
-        span: Span,
-    },
-    OnInactive {
-        actions: Vec<Stmt>,
-        span: Span,
-    },
-    OnBackground {
-        actions: Vec<Stmt>,
-        span: Span,
-    },
-    Text {
-        value: Expr,
-        color: Option<Expr>,
-        font_size: Option<Expr>,
-        font_weight: Option<Expr>,
-        line_limit: Option<Expr>,
-        line_height: Option<Expr>,
-        letter_spacing: Option<Expr>,
-        selectable: Option<Expr>,
-        span: Span,
-    },
-    Button {
-        label: Expr,
-        icon: Option<Expr>,
-        loading: Option<Expr>,
-        disabled: Option<Expr>,
-        actions: Vec<Stmt>,
-        span: Span,
-    },
-    TextInput {
-        value: Expr,
-        placeholder: Expr,
-        keyboard: Option<Expr>,
-        secure: Option<Expr>,
-        multiline: Option<Expr>,
-        autocorrect: Option<Expr>,
-        capitalization: Option<Expr>,
-        focused: Option<Expr>,
-        max_length: Option<Expr>,
-        actions: Vec<Stmt>,
-        span: Span,
-    },
-    Switch {
-        value: Expr,
-        label: Expr,
-        span: Span,
-    },
-    Image {
-        source: ImageSource,
-        description: Expr,
-        scale: Option<Expr>,
-        placeholder: Option<Expr>,
-        span: Span,
-    },
-    Pressable {
-        disabled: Option<Expr>,
-        haptic: Option<Expr>,
-        children: Vec<Node>,
-        actions: Vec<Stmt>,
-        long_press_actions: Vec<Stmt>,
-        span: Span,
-    },
-    NavigationStack {
-        root: Expr,
-        arguments: Vec<Expr>,
-        span: Span,
-    },
-    NavigationLink {
-        destination: Expr,
-        arguments: Vec<Expr>,
-        guard: Option<Expr>,
-        children: Vec<Node>,
-        span: Span,
-    },
-    NavigationBack {
-        label: Option<Expr>,
-        span: Span,
-    },
-    Link {
-        url: Expr,
-        children: Vec<Node>,
-        span: Span,
-    },
-    Accessibility {
-        label: Expr,
-        hint: Option<Expr>,
-        role: Option<Expr>,
-        children: Vec<Node>,
-        span: Span,
-    },
-    KeyboardAware {
-        dismiss: Option<Expr>,
-        children: Vec<Node>,
-        span: Span,
-    },
-    BottomSheet {
-        is_presented: Expr,
-        partial: Option<Expr>,
-        children: Vec<Node>,
-        span: Span,
-    },
-    RefreshControl {
-        is_refreshing: Expr,
-        children: Vec<Node>,
-        actions: Vec<Stmt>,
-        span: Span,
-    },
-    AppBottomBar {
-        selected: Expr,
-        tabs: Vec<TabDecl>,
-        span: Span,
-    },
-    FastList {
-        source: ListSource,
-        axis: Option<Expr>,
-        item_extent: Option<Expr>,
-        section: Option<Expr>,
-        index: Option<Expr>,
-        item: Option<Expr>,
-        key: Option<ListKey>,
-        scroll_position: Option<Expr>,
-        children: Vec<Node>,
-        on_end_reached: Option<Vec<Stmt>>,
-        on_scroll: Option<Vec<Stmt>>,
-        sticky_header: Option<Vec<Node>>,
-        section_header: Option<Vec<Node>>,
-        span: Span,
-    },
+    /// A built-in component validated against the language catalog
+    /// (`catalog::ComponentSchema`). Semantic lowering converts each
+    /// invocation into the existing typed IR nodes, so generated code stays
+    /// fully specialized with no runtime maps or reflection.
+    ComponentInvocation(ComponentInvocation),
     If {
         condition: Expr,
         then_body: Vec<Node>,
@@ -462,9 +311,6 @@ pub enum Node {
         value: Expr,
         cases: Vec<WhenCase>,
         else_body: Vec<Node>,
-        span: Span,
-    },
-    Content {
         span: Span,
     },
     ComponentCall {
@@ -483,6 +329,63 @@ pub enum Node {
         event_handlers: Vec<NativeComponentEventHandler>,
         span: Span,
     },
+}
+
+/// A single built-in component use: head arguments plus child block plus
+/// trailing dot-modifiers, exactly as validated against its catalog schema.
+#[derive(Clone, Debug)]
+pub struct ComponentInvocation {
+    pub name: String,
+    pub span: Span,
+    /// Leading positional expressions (`Text("label")`, FastList collection).
+    pub positional: Vec<Expr>,
+    /// Named options keyed by source spelling.
+    pub arguments: BTreeMap<String, Expr>,
+    /// Leading keywords accepted by the schema (`OnAppear async`).
+    pub flags: Vec<String>,
+    pub children: ChildBody,
+    pub modifiers: Vec<DotModifier>,
+}
+
+/// The child block a component invocation carries.
+#[derive(Clone, Debug)]
+pub enum ChildBody {
+    /// No trailing block.
+    None,
+    /// A `{ ... }` node block.
+    Nodes(Vec<Node>),
+    /// A trailing action block (`Button { ... }`).
+    Actions(Vec<Stmt>),
+    /// `AppBottomBar` tab declarations.
+    Tabs(Vec<TabDecl>),
+    /// FastList row bindings plus row body.
+    Rows(ListRows),
+}
+
+/// FastList row closure: validated source, bindings, and row body.
+#[derive(Clone, Debug)]
+pub struct ListRows {
+    pub source: ListSource,
+    pub key: Option<ListKey>,
+    pub item: Option<Expr>,
+    pub index: Option<Expr>,
+    pub section: Option<Expr>,
+    pub children: Vec<Node>,
+}
+
+/// One trailing `.name { ... }` modifier on an invocation.
+#[derive(Clone, Debug)]
+pub struct DotModifier {
+    pub name: String,
+    pub span: Span,
+    pub body: ModifierBody,
+}
+
+/// A dot-modifier payload: action statements or child nodes.
+#[derive(Clone, Debug)]
+pub enum ModifierBody {
+    Actions(Vec<Stmt>),
+    Nodes(Vec<Node>),
 }
 
 #[derive(Clone, Debug)]
@@ -523,6 +426,9 @@ pub struct TabDecl {
     pub span: Span,
 }
 
+/// A layout style bundle assembled by semantic lowering from an invocation's
+/// named options. The parser no longer builds this; it stays here as the
+/// syntactic shape `styles::lower_style` consumes.
 #[derive(Clone, Debug, Default)]
 pub struct LayoutStyle {
     pub alignment: Option<Expr>,
@@ -541,23 +447,29 @@ pub struct LayoutStyle {
     pub animation: Option<Expr>,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum LayoutKind {
-    Column,
-    Row,
-    Stack,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlatformTarget {
     Ios,
     Android,
 }
 
+/// An image source assembled by semantic lowering from an invocation's
+/// `asset:`/`url:` options (exactly one is enforced by the catalog schema).
 #[derive(Clone, Debug)]
 pub enum ImageSource {
     Asset(Expr),
     Url(Expr),
+}
+
+/// Split a navigation target into its screen expression and call arguments.
+/// `Home` stays a bare name; `Home(id: 1)` splits into `Home` plus `[1]`.
+/// Semantic lowering applies this to `root:`/`destination:` values so the
+/// parser remains purely syntactic.
+pub fn split_navigation_target(target: Expr) -> (Expr, Vec<Expr>) {
+    match target {
+        Expr::Call(name, arguments, span) => (Expr::Name(name, span), arguments),
+        target => (target, Vec::new()),
+    }
 }
 
 #[derive(Clone, Debug)]

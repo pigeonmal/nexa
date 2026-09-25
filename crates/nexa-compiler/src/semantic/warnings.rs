@@ -268,6 +268,337 @@ fn analyze_scope<'a, I, J, K>(
     }
 }
 
+/// Usage walk for one built-in invocation. Argument selectivity mirrors the
+/// previous per-variant walker exactly: only expressions that can reference
+/// state bindings are walked (layout spacing but not style maps, button
+/// labels but not icons, image URLs but not asset names, and so on).
+fn walk_invocation(
+    inv: &ast::ComponentInvocation,
+    names: &HashSet<String>,
+    used: &mut HashSet<String>,
+    target: Target,
+    file: Option<&str>,
+    warnings: &mut Vec<CompileWarning>,
+) {
+    fn walk_child_nodes(
+        children: &[ast::Node],
+        names: &HashSet<String>,
+        used: &mut HashSet<String>,
+        target: Target,
+        file: Option<&str>,
+        warnings: &mut Vec<CompileWarning>,
+    ) {
+        for child in children {
+            walk_node(child, names, used, target, file, warnings);
+        }
+    }
+    let modifier_actions = |name: &str| {
+        inv.modifiers.iter().find_map(|modifier| {
+            (modifier.name == name)
+                .then_some(&modifier.body)
+                .and_then(|body| match body {
+                    ast::ModifierBody::Actions(actions) => Some(actions),
+                    _ => None,
+                })
+        })
+    };
+    let modifier_nodes = |name: &str| {
+        inv.modifiers.iter().find_map(|modifier| {
+            (modifier.name == name)
+                .then_some(&modifier.body)
+                .and_then(|body| match body {
+                    ast::ModifierBody::Nodes(nodes) => Some(nodes),
+                    _ => None,
+                })
+        })
+    };
+    match inv.name.as_str() {
+        "Column" | "Row" | "Stack" => {
+            if let Some(spacing) = inv.arguments.get("spacing") {
+                walk_expression(spacing, names, used);
+            }
+            if let ast::ChildBody::Nodes(children) = &inv.children {
+                walk_child_nodes(children, names, used, target, file, warnings);
+            }
+        }
+        "Text" => {
+            if let Some(value) = inv.positional.first() {
+                walk_expression(value, names, used);
+            }
+        }
+        "StatusBar" | "Direction" | "NavigationBack" | "Content" => {}
+        "OnAppear" | "OnDisappear" | "OnActive" | "OnInactive" | "OnBackground" => {
+            if let ast::ChildBody::Actions(actions) = &inv.children {
+                walk_actions(actions, names, used, target, file, warnings);
+            }
+        }
+        "Button" => {
+            if let Some(label) = inv.positional.first() {
+                walk_expression(label, names, used);
+            }
+            if let Some(loading) = inv.arguments.get("loading") {
+                walk_expression(loading, names, used);
+            }
+            if let Some(disabled) = inv.arguments.get("disabled") {
+                walk_expression(disabled, names, used);
+            }
+            if let ast::ChildBody::Actions(actions) = &inv.children {
+                walk_actions(actions, names, used, target, file, warnings);
+            }
+        }
+        "TextInput" => {
+            if let Some(value) = inv.arguments.get("value") {
+                walk_expression(value, names, used);
+            }
+            if let Some(focused) = inv.arguments.get("focused") {
+                walk_expression(focused, names, used);
+            }
+            if let ast::ChildBody::Actions(actions) = &inv.children {
+                walk_actions(actions, names, used, target, file, warnings);
+            }
+        }
+        "Switch" => {
+            if let Some(value) = inv.arguments.get("value") {
+                walk_expression(value, names, used);
+            }
+        }
+        "Image" => {
+            if let Some(url) = inv.arguments.get("url") {
+                walk_expression(url, names, used);
+            }
+        }
+        "Pressable" => {
+            if let Some(disabled) = inv.arguments.get("disabled") {
+                walk_expression(disabled, names, used);
+            }
+            if let ast::ChildBody::Nodes(children) = &inv.children {
+                walk_child_nodes(children, names, used, target, file, warnings);
+            }
+            if let Some(actions) = modifier_actions("onPress") {
+                walk_actions(actions, names, used, target, file, warnings);
+            }
+            if let Some(actions) = modifier_actions("onLongPress") {
+                walk_actions(actions, names, used, target, file, warnings);
+            }
+        }
+        "NavigationStack" => {
+            if let Some(root) = inv.arguments.get("root") {
+                let (_, arguments) = ast::split_navigation_target(root.clone());
+                for argument in &arguments {
+                    walk_expression(argument, names, used);
+                }
+            }
+        }
+        "NavigationLink" => {
+            if let Some(destination) = inv.arguments.get("destination") {
+                let (_, arguments) = ast::split_navigation_target(destination.clone());
+                for argument in &arguments {
+                    walk_expression(argument, names, used);
+                }
+            }
+            if let Some(guard) = inv.arguments.get("when") {
+                walk_expression(guard, names, used);
+            }
+            if let ast::ChildBody::Nodes(children) = &inv.children {
+                walk_child_nodes(children, names, used, target, file, warnings);
+            }
+        }
+        "KeyboardAware" => {
+            if let ast::ChildBody::Nodes(children) = &inv.children {
+                walk_child_nodes(children, names, used, target, file, warnings);
+            }
+        }
+        "Link" => {
+            if let Some(url) = inv.arguments.get("url") {
+                walk_expression(url, names, used);
+            }
+            if let ast::ChildBody::Nodes(children) = &inv.children {
+                walk_child_nodes(children, names, used, target, file, warnings);
+            }
+        }
+        "Accessibility" => {
+            if let Some(label) = inv.arguments.get("label") {
+                walk_expression(label, names, used);
+            }
+            if let ast::ChildBody::Nodes(children) = &inv.children {
+                walk_child_nodes(children, names, used, target, file, warnings);
+            }
+        }
+        "BottomSheet" => {
+            if let Some(is_presented) = inv.arguments.get("isPresented") {
+                walk_expression(is_presented, names, used);
+            }
+            if let ast::ChildBody::Nodes(children) = &inv.children {
+                walk_child_nodes(children, names, used, target, file, warnings);
+            }
+        }
+        "RefreshControl" => {
+            if let Some(is_refreshing) = inv.arguments.get("isRefreshing") {
+                walk_expression(is_refreshing, names, used);
+            }
+            if let ast::ChildBody::Nodes(children) = &inv.children {
+                walk_child_nodes(children, names, used, target, file, warnings);
+            }
+            if let Some(actions) = modifier_actions("onRefresh") {
+                walk_actions(actions, names, used, target, file, warnings);
+            }
+        }
+        "AppBottomBar" => {
+            if let Some(selected) = inv.arguments.get("selected") {
+                walk_expression(selected, names, used);
+            }
+            if let ast::ChildBody::Tabs(tabs) = &inv.children {
+                for tab in tabs {
+                    walk_child_nodes(&tab.children, names, used, target, file, warnings);
+                }
+            }
+        }
+        "FastList" => {
+            let ast::ChildBody::Rows(rows) = &inv.children else {
+                return;
+            };
+            match &rows.source {
+                ast::ListSource::Count(count) | ast::ListSource::Items(count) => {
+                    walk_expression(count, names, used)
+                }
+                ast::ListSource::Sections(sections) => walk_expression(sections, names, used),
+            }
+            if let Some(section) = rows.section.as_ref() {
+                walk_expression(section, names, used);
+            }
+            if let Some(item_extent) = inv.arguments.get("rowHeight") {
+                walk_expression(item_extent, names, used);
+            }
+            if let Some(scroll_position) = inv.arguments.get("scrollPosition") {
+                walk_expression(scroll_position, names, used);
+            }
+            if let Some(actions) = modifier_actions("onEndReached") {
+                walk_actions(actions, names, used, target, file, warnings);
+            }
+            if let Some(actions) = modifier_actions("onScroll") {
+                walk_actions(actions, names, used, target, file, warnings);
+            }
+            if let Some(sticky_header) = modifier_nodes("stickyHeader") {
+                for child in sticky_header {
+                    walk_node(child, names, used, target, file, warnings);
+                }
+            }
+            let mut row_names = names.clone();
+            let is_sections = source_is_sections(&rows.source);
+            let section_name = rows
+                .section
+                .as_ref()
+                .and_then(|section| match section {
+                    ast::Expr::Name(name, _) => Some(name.as_str()),
+                    _ => None,
+                })
+                .unwrap_or("section");
+            if is_sections && section_name != "_" {
+                row_names.insert(section_name.to_owned());
+            }
+            let index_name = rows
+                .index
+                .as_ref()
+                .and_then(|index| match index {
+                    ast::Expr::Name(name, _) => Some(name.as_str()),
+                    _ => None,
+                })
+                .unwrap_or("index");
+            if index_name != "_" {
+                row_names.insert(index_name.to_owned());
+            }
+            let item_name = rows.item.as_ref().and_then(|item| match item {
+                ast::Expr::Name(name, _) => Some(name.as_str()),
+                _ => None,
+            });
+            if let Some(item_name) = item_name.filter(|name| *name != "_") {
+                row_names.insert(item_name.to_owned());
+            }
+            if index_name != "_" && !nodes_reference_name(&rows.children, index_name, target) {
+                push_warning(
+                    warnings,
+                    inv.span,
+                    format!(
+                        "unused FastList index binding `{index_name}`{}",
+                        target_suffix(target)
+                    ),
+                    file,
+                );
+            }
+            if let Some(item_name) = item_name
+                && rows.key.is_none()
+                && !nodes_reference_name(&rows.children, item_name, target)
+            {
+                push_warning(
+                    warnings,
+                    inv.span,
+                    format!(
+                        "unused FastList item binding `{item_name}`{}",
+                        target_suffix(target)
+                    ),
+                    file,
+                );
+            }
+            if section_name != "_"
+                && is_sections
+                && !nodes_reference_name(&rows.children, section_name, target)
+                && !modifier_nodes("sectionHeader")
+                    .is_some_and(|header| nodes_reference_name(header, section_name, target))
+            {
+                push_warning(
+                    warnings,
+                    inv.span,
+                    format!(
+                        "unused FastList section binding `{section_name}`{}",
+                        target_suffix(target)
+                    ),
+                    file,
+                );
+            }
+            if let Some(section_header) = modifier_nodes("sectionHeader") {
+                for child in section_header {
+                    walk_node(child, &row_names, used, target, file, warnings);
+                }
+            }
+            for child in &rows.children {
+                walk_node(child, &row_names, used, target, file, warnings);
+            }
+        }
+        _ => {
+            for value in inv.positional.iter().chain(inv.arguments.values()) {
+                walk_expression(value, names, used);
+            }
+            match &inv.children {
+                ast::ChildBody::Nodes(children) => {
+                    walk_child_nodes(children, names, used, target, file, warnings)
+                }
+                ast::ChildBody::Actions(actions) => {
+                    walk_actions(actions, names, used, target, file, warnings)
+                }
+                ast::ChildBody::Tabs(tabs) => {
+                    for tab in tabs {
+                        walk_child_nodes(&tab.children, names, used, target, file, warnings);
+                    }
+                }
+                ast::ChildBody::Rows(rows) => {
+                    walk_child_nodes(&rows.children, names, used, target, file, warnings)
+                }
+                ast::ChildBody::None => {}
+            }
+            for modifier in &inv.modifiers {
+                match &modifier.body {
+                    ast::ModifierBody::Actions(actions) => {
+                        walk_actions(actions, names, used, target, file, warnings)
+                    }
+                    ast::ModifierBody::Nodes(nodes) => {
+                        walk_child_nodes(nodes, names, used, target, file, warnings)
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn walk_node(
     node: &ast::Node,
     names: &HashSet<String>,
@@ -277,16 +608,6 @@ fn walk_node(
     warnings: &mut Vec<CompileWarning>,
 ) {
     match node {
-        ast::Node::Layout {
-            spacing, children, ..
-        } => {
-            if let Some(spacing) = spacing {
-                walk_expression(spacing, names, used);
-            }
-            for child in children {
-                walk_node(child, names, used, target, file, warnings);
-            }
-        }
         ast::Node::Platform {
             target: platform,
             children,
@@ -298,262 +619,8 @@ fn walk_node(
                 }
             }
         }
-        ast::Node::Text { value, .. } => walk_expression(value, names, used),
-        ast::Node::StatusBar { .. }
-        | ast::Node::Direction { .. }
-        | ast::Node::NavigationBack { .. } => {}
-        ast::Node::OnAppear { actions, .. } => {
-            walk_actions(actions, names, used, target, file, warnings);
-        }
-        ast::Node::OnDisappear { actions, .. } => {
-            walk_actions(actions, names, used, target, file, warnings);
-        }
-        ast::Node::OnActive { actions, .. }
-        | ast::Node::OnInactive { actions, .. }
-        | ast::Node::OnBackground { actions, .. } => {
-            walk_actions(actions, names, used, target, file, warnings);
-        }
-        ast::Node::Button {
-            label,
-            loading,
-            disabled,
-            actions,
-            ..
-        } => {
-            walk_expression(label, names, used);
-            if let Some(loading) = loading {
-                walk_expression(loading, names, used);
-            }
-            if let Some(disabled) = disabled {
-                walk_expression(disabled, names, used);
-            }
-            walk_actions(actions, names, used, target, file, warnings);
-        }
-        ast::Node::TextInput {
-            value,
-            focused,
-            actions,
-            ..
-        } => {
-            walk_expression(value, names, used);
-            if let Some(focused) = focused {
-                walk_expression(focused, names, used);
-            }
-            walk_actions(actions, names, used, target, file, warnings);
-        }
-        ast::Node::Switch { value, .. } => walk_expression(value, names, used),
-        ast::Node::Image { source, .. } => {
-            if let ast::ImageSource::Url(url) = source {
-                walk_expression(url, names, used);
-            }
-        }
-        ast::Node::Pressable {
-            disabled,
-            children,
-            actions,
-            long_press_actions,
-            ..
-        } => {
-            if let Some(disabled) = disabled {
-                walk_expression(disabled, names, used);
-            }
-            for child in children {
-                walk_node(child, names, used, target, file, warnings);
-            }
-            walk_actions(actions, names, used, target, file, warnings);
-            walk_actions(long_press_actions, names, used, target, file, warnings);
-        }
-        ast::Node::NavigationStack { arguments, .. } => {
-            for argument in arguments {
-                walk_expression(argument, names, used);
-            }
-        }
-        ast::Node::NavigationLink {
-            arguments,
-            guard,
-            children,
-            ..
-        } => {
-            for argument in arguments {
-                walk_expression(argument, names, used);
-            }
-            if let Some(guard) = guard {
-                walk_expression(guard, names, used);
-            }
-            for child in children {
-                walk_node(child, names, used, target, file, warnings);
-            }
-        }
-        ast::Node::KeyboardAware { children, .. } => {
-            for child in children {
-                walk_node(child, names, used, target, file, warnings);
-            }
-        }
-        ast::Node::Link { url, children, .. } => {
-            walk_expression(url, names, used);
-            for child in children {
-                walk_node(child, names, used, target, file, warnings);
-            }
-        }
-        ast::Node::Accessibility {
-            label, children, ..
-        } => {
-            walk_expression(label, names, used);
-            for child in children {
-                walk_node(child, names, used, target, file, warnings);
-            }
-        }
-        ast::Node::BottomSheet {
-            is_presented,
-            children,
-            ..
-        } => {
-            walk_expression(is_presented, names, used);
-            for child in children {
-                walk_node(child, names, used, target, file, warnings);
-            }
-        }
-        ast::Node::RefreshControl {
-            is_refreshing,
-            children,
-            actions,
-            ..
-        } => {
-            walk_expression(is_refreshing, names, used);
-            for child in children {
-                walk_node(child, names, used, target, file, warnings);
-            }
-            walk_actions(actions, names, used, target, file, warnings);
-        }
-        ast::Node::AppBottomBar { selected, tabs, .. } => {
-            walk_expression(selected, names, used);
-            for tab in tabs {
-                for child in &tab.children {
-                    walk_node(child, names, used, target, file, warnings);
-                }
-            }
-        }
-        ast::Node::FastList {
-            source,
-            axis: _,
-            section,
-            item_extent,
-            index,
-            item,
-            key,
-            scroll_position,
-            children,
-            on_end_reached,
-            on_scroll,
-            sticky_header,
-            section_header,
-            span,
-        } => {
-            match source {
-                ast::ListSource::Count(count) | ast::ListSource::Items(count) => {
-                    walk_expression(count, names, used)
-                }
-                ast::ListSource::Sections(sections) => walk_expression(sections, names, used),
-            }
-            if let Some(section) = section {
-                walk_expression(section, names, used);
-            }
-            if let Some(item_extent) = item_extent {
-                walk_expression(item_extent, names, used);
-            }
-            if let Some(scroll_position) = scroll_position {
-                walk_expression(scroll_position, names, used);
-            }
-            if let Some(actions) = on_end_reached {
-                walk_actions(actions, names, used, target, file, warnings);
-            }
-            if let Some(actions) = on_scroll {
-                walk_actions(actions, names, used, target, file, warnings);
-            }
-            if let Some(sticky_header) = sticky_header {
-                for child in sticky_header {
-                    walk_node(child, names, used, target, file, warnings);
-                }
-            }
-            let mut row_names = names.clone();
-            let is_sections = source_is_sections(source);
-            let section_name = section
-                .as_ref()
-                .and_then(|section| match section {
-                    ast::Expr::Name(name, _) => Some(name.as_str()),
-                    _ => None,
-                })
-                .unwrap_or("section");
-            if is_sections && section_name != "_" {
-                row_names.insert(section_name.to_owned());
-            }
-            let index_name = index
-                .as_ref()
-                .and_then(|index| match index {
-                    ast::Expr::Name(name, _) => Some(name.as_str()),
-                    _ => None,
-                })
-                .unwrap_or("index");
-            if index_name != "_" {
-                row_names.insert(index_name.to_owned());
-            }
-            let item_name = item.as_ref().and_then(|item| match item {
-                ast::Expr::Name(name, _) => Some(name.as_str()),
-                _ => None,
-            });
-            if let Some(item_name) = item_name.filter(|name| *name != "_") {
-                row_names.insert(item_name.to_owned());
-            }
-            if index_name != "_" && !nodes_reference_name(children, index_name, target) {
-                push_warning(
-                    warnings,
-                    *span,
-                    format!(
-                        "unused FastList index binding `{index_name}`{}",
-                        target_suffix(target)
-                    ),
-                    file,
-                );
-            }
-            if let Some(item_name) = item_name
-                && key.is_none()
-                && !nodes_reference_name(children, item_name, target)
-            {
-                push_warning(
-                    warnings,
-                    *span,
-                    format!(
-                        "unused FastList item binding `{item_name}`{}",
-                        target_suffix(target)
-                    ),
-                    file,
-                );
-            }
-            if section_name != "_"
-                && is_sections
-                && !nodes_reference_name(children, section_name, target)
-                && !section_header
-                    .as_deref()
-                    .is_some_and(|header| nodes_reference_name(header, section_name, target))
-            {
-                push_warning(
-                    warnings,
-                    *span,
-                    format!(
-                        "unused FastList section binding `{section_name}`{}",
-                        target_suffix(target)
-                    ),
-                    file,
-                );
-            }
-            if let Some(section_header) = section_header {
-                for child in section_header {
-                    walk_node(child, &row_names, used, target, file, warnings);
-                }
-            }
-            for child in children {
-                walk_node(child, &row_names, used, target, file, warnings);
-            }
+        ast::Node::ComponentInvocation(inv) => {
+            walk_invocation(inv, names, used, target, file, warnings);
         }
         ast::Node::If {
             condition,
@@ -621,7 +688,6 @@ fn walk_node(
                 }
             }
         }
-        ast::Node::Content { .. } => {}
     }
 }
 

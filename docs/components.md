@@ -262,6 +262,24 @@ app NavigationExample {
 
 ---
 
+### `Link`
+Opens a URL in the system browser.
+
+```nexa
+app LinkExample {
+    body {
+        Column {
+            Link(url: "https://example.com") {
+                Text("Visit example.com")
+            }
+        }
+    }
+}
+```
+- **Properties**: `url: String` (must include a valid absolute scheme).
+
+---
+
 ### `BottomSheet`
 Modal presentation sheet appearing from the bottom of the screen.
 

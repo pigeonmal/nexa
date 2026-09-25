@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::walk::any_node;
@@ -9,7 +9,7 @@ use nexa_ir::{
     NativeComponentEventHandler, Node, NumericType, ScreenId, SectionedListCommon, StatusBarConfig,
     StatusBarStyle, TextStyle, Type, WhenCase,
 };
-use nexa_syntax::ast;
+use nexa_syntax::{ast, catalog};
 
 use super::{
     custom_components::ComponentSignatures,
@@ -66,8 +66,12 @@ pub(super) fn lower_nodes(
                 }
             }
             node => {
-                let allow_navigation =
-                    allow_navigation_stack && matches!(node, ast::Node::NavigationStack { .. });
+                let allow_navigation = allow_navigation_stack
+                    && if let ast::Node::ComponentInvocation(invocation) = &node {
+                        invocation.name == "NavigationStack"
+                    } else {
+                        false
+                    };
                 lowered.push(lower_node(
                     node,
                     symbols,
@@ -90,6 +94,99 @@ fn platform_matches(platform: ast::PlatformTarget, target: Target) -> bool {
     matches!(
         (platform, target),
         (ast::PlatformTarget::Ios, Target::Swift) | (ast::PlatformTarget::Android, Target::Kotlin)
+    )
+}
+
+/// Look up the catalog schema for a parsed invocation. The parser only
+/// produces invocations for catalogued names, so this never fails on parser
+/// output; it keeps lowering total over programmatically built syntax trees.
+fn invocation_schema(
+    inv: &ast::ComponentInvocation,
+) -> Result<&'static catalog::ComponentSchema, CompileError> {
+    catalog::component_schema(&inv.name)
+        .ok_or_else(|| CompileError::new(inv.span, format!("unknown component `{}`", inv.name)))
+}
+
+/// Remove a required named option, reporting the catalog's missing-option
+/// diagnostic when absent.
+fn take_required_arg(
+    args: &mut BTreeMap<String, ast::Expr>,
+    component: &str,
+    name: &str,
+    span: Span,
+) -> Result<ast::Expr, CompileError> {
+    match args.remove(name) {
+        Some(value) => Ok(value),
+        None => Err(CompileError::new(
+            span,
+            catalog::component_schema(component)
+                .and_then(|schema| {
+                    schema
+                        .arguments
+                        .iter()
+                        .find(|arg| arg.name == name)
+                        .map(|arg| catalog::required_message(schema, arg))
+                })
+                .unwrap_or_else(|| format!("{component} requires `{name}`")),
+        )),
+    }
+}
+
+/// Take the leading positional expression of a `Single` invocation.
+fn take_positional(
+    positional: &mut Vec<ast::Expr>,
+    span: Span,
+    component: &str,
+) -> Result<ast::Expr, CompileError> {
+    if positional.is_empty() {
+        return Err(CompileError::new(
+            span,
+            format!("{component} requires a primary value expression"),
+        ));
+    }
+    Ok(positional.remove(0))
+}
+
+/// Remove one trailing dot-modifier body by name.
+fn take_modifier(modifiers: &mut Vec<ast::DotModifier>, name: &str) -> Option<ast::ModifierBody> {
+    modifiers
+        .iter()
+        .position(|modifier| modifier.name == name)
+        .map(|index| modifiers.remove(index).body)
+}
+
+/// Take an optional action-block modifier body.
+fn take_modifier_actions(
+    modifiers: &mut Vec<ast::DotModifier>,
+    span: Span,
+    name: &str,
+) -> Result<Option<Vec<ast::Stmt>>, CompileError> {
+    match take_modifier(modifiers, name) {
+        Some(ast::ModifierBody::Actions(actions)) => Ok(Some(actions)),
+        Some(_) => Err(child_mismatch(span)),
+        None => Ok(None),
+    }
+}
+
+/// Take an optional node-block modifier body.
+fn take_modifier_nodes(
+    modifiers: &mut Vec<ast::DotModifier>,
+    span: Span,
+    name: &str,
+) -> Result<Option<Vec<ast::Node>>, CompileError> {
+    match take_modifier(modifiers, name) {
+        Some(ast::ModifierBody::Nodes(nodes)) => Ok(Some(nodes)),
+        Some(_) => Err(child_mismatch(span)),
+        None => Ok(None),
+    }
+}
+
+/// Defensive mismatch error for child-block shapes the parser never produces
+/// for a given schema; keeps lowering total without panicking.
+fn child_mismatch(span: Span) -> CompileError {
+    CompileError::new(
+        span,
+        "malformed component invocation: unexpected child-block shape",
     )
 }
 
@@ -129,76 +226,139 @@ pub(super) fn lower_node(
         ast::Node::Platform { .. } => {
             unreachable!("platform blocks are expanded by lower_nodes")
         }
-        ast::Node::Content { .. } => Ok(Node::Content),
-        ast::Node::StatusBar {
-            style,
-            hidden,
-            background,
-            ..
-        } => Ok(Node::StatusBar {
-            config: lower_status_bar(style, hidden, background)?,
-        }),
-        ast::Node::Direction { value, .. } => Ok(Node::Direction {
-            config: lower_direction(value)?,
-        }),
-        ast::Node::OnAppear {
-            actions,
-            asynchronous,
-            ..
-        } => Ok(Node::OnAppear {
-            actions: lower_actions_with_aliases(
-                actions,
-                symbols,
-                functions,
+        ast::Node::ComponentInvocation(inv) if inv.name == "Content" => Ok(Node::Content),
+        ast::Node::ComponentInvocation(inv) if inv.name == "StatusBar" => {
+            let mut args = inv.arguments;
+            let style = args.remove("style");
+            let hidden = args.remove("hidden");
+            let background = args.remove("background");
+            Ok(Node::StatusBar {
+                config: lower_status_bar(style, hidden, background)?,
+            })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "Direction" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let value = take_required_arg(&mut args, &inv.name, "value", span)?;
+            Ok(Node::Direction {
+                config: lower_direction(value)?,
+            })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "OnAppear" => {
+            let span = inv.span;
+            let asynchronous = inv.flags.iter().any(|flag| flag == "async");
+            let actions = match inv.children {
+                ast::ChildBody::Actions(actions) => actions,
+                _ => return Err(child_mismatch(span)),
+            };
+            Ok(Node::OnAppear {
+                actions: lower_actions_with_aliases(
+                    actions,
+                    symbols,
+                    functions,
+                    asynchronous,
+                    native_aliases,
+                )?,
                 asynchronous,
-                native_aliases,
-            )?,
-            asynchronous,
-        }),
-        ast::Node::OnDisappear { actions, .. } => Ok(Node::OnDisappear {
-            actions: lower_actions_with_aliases(
-                actions,
-                symbols,
-                functions,
-                false,
-                native_aliases,
-            )?,
-        }),
-        ast::Node::OnActive { actions, .. } => Ok(Node::OnActive {
-            actions: lower_actions_with_aliases(
-                actions,
-                symbols,
-                functions,
-                false,
-                native_aliases,
-            )?,
-        }),
-        ast::Node::OnInactive { actions, .. } => Ok(Node::OnInactive {
-            actions: lower_actions_with_aliases(
-                actions,
-                symbols,
-                functions,
-                false,
-                native_aliases,
-            )?,
-        }),
-        ast::Node::OnBackground { actions, .. } => Ok(Node::OnBackground {
-            actions: lower_actions_with_aliases(
-                actions,
-                symbols,
-                functions,
-                false,
-                native_aliases,
-            )?,
-        }),
-        ast::Node::Layout {
-            kind,
-            spacing,
-            style,
-            children,
-            span,
-        } => {
-            if matches!(kind, ast::LayoutKind::Stack) && spacing.is_some() {
+            })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "OnDisappear" => {
+            let span = inv.span;
+            let actions = match inv.children {
+                ast::ChildBody::Actions(actions) => actions,
+                _ => return Err(child_mismatch(span)),
+            };
+            Ok(Node::OnDisappear {
+                actions: lower_actions_with_aliases(
+                    actions,
+                    symbols,
+                    functions,
+                    false,
+                    native_aliases,
+                )?,
+            })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "OnActive" => {
+            let span = inv.span;
+            let actions = match inv.children {
+                ast::ChildBody::Actions(actions) => actions,
+                _ => return Err(child_mismatch(span)),
+            };
+            Ok(Node::OnActive {
+                actions: lower_actions_with_aliases(
+                    actions,
+                    symbols,
+                    functions,
+                    false,
+                    native_aliases,
+                )?,
+            })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "OnInactive" => {
+            let span = inv.span;
+            let actions = match inv.children {
+                ast::ChildBody::Actions(actions) => actions,
+                _ => return Err(child_mismatch(span)),
+            };
+            Ok(Node::OnInactive {
+                actions: lower_actions_with_aliases(
+                    actions,
+                    symbols,
+                    functions,
+                    false,
+                    native_aliases,
+                )?,
+            })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "OnBackground" => {
+            let span = inv.span;
+            let actions = match inv.children {
+                ast::ChildBody::Actions(actions) => actions,
+                _ => return Err(child_mismatch(span)),
+            };
+            Ok(Node::OnBackground {
+                actions: lower_actions_with_aliases(
+                    actions,
+                    symbols,
+                    functions,
+                    false,
+                    native_aliases,
+                )?,
+            })
+        }
+        ast::Node::ComponentInvocation(inv)
+            if inv.name == "Column" || inv.name == "Row" || inv.name == "Stack" =>
+        {
+            let span = inv.span;
+            let stacked = inv.name == "Stack";
+            let kind = match inv.name.as_str() {
+                "Column" => LayoutKind::Column,
+                "Row" => LayoutKind::Row,
+                _ => LayoutKind::Stack,
+            };
+            let mut args = inv.arguments;
+            let spacing = args.remove("spacing");
+            let style = ast::LayoutStyle {
+                alignment: args.remove("alignment"),
+                padding: args.remove("padding"),
+                width: args.remove("width"),
+                height: args.remove("height"),
+                min_width: args.remove("minWidth"),
+                max_width: args.remove("maxWidth"),
+                min_height: args.remove("minHeight"),
+                max_height: args.remove("maxHeight"),
+                background: args.remove("background"),
+                corner_radius: args.remove("cornerRadius"),
+                border_color: args.remove("borderColor"),
+                border_width: args.remove("borderWidth"),
+                opacity: args.remove("opacity"),
+                animation: args.remove("animation"),
+            };
+            let children = match inv.children {
+                ast::ChildBody::Nodes(children) => children,
+                _ => return Err(child_mismatch(span)),
+            };
+            if stacked && spacing.is_some() {
                 return Err(CompileError::new(
                     spacing.as_ref().map(ast::Expr::span).unwrap_or(span),
                     "Stack does not accept `spacing`; use alignment or explicit child layout instead",
@@ -224,11 +384,6 @@ pub(super) fn lower_node(
                 allow_navigation_back,
                 target,
             )?;
-            let kind = match kind {
-                ast::LayoutKind::Column => LayoutKind::Column,
-                ast::LayoutKind::Row => LayoutKind::Row,
-                ast::LayoutKind::Stack => LayoutKind::Stack,
-            };
             Ok(Node::Layout {
                 kind,
                 spacing,
@@ -236,17 +391,17 @@ pub(super) fn lower_node(
                 children: lowered,
             })
         }
-        ast::Node::Text {
-            value,
-            color,
-            font_size,
-            font_weight,
-            line_limit,
-            line_height,
-            letter_spacing,
-            selectable,
-            ..
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "Text" => {
+            let mut positional = inv.positional;
+            let value = take_positional(&mut positional, inv.span, "Text")?;
+            let mut args = inv.arguments;
+            let color = args.remove("color");
+            let font_size = args.remove("fontSize");
+            let font_weight = args.remove("fontWeight");
+            let line_limit = args.remove("lineLimit");
+            let line_height = args.remove("lineHeight");
+            let letter_spacing = args.remove("letterSpacing");
+            let selectable = args.remove("selectable");
             let value = lower_expr(&value, None, symbols, functions, false)?;
             let color = optional_color(color, "text color", themes)?;
             let font_size = optional_dimension(
@@ -273,14 +428,18 @@ pub(super) fn lower_node(
                 },
             })
         }
-        ast::Node::Button {
-            label,
-            icon,
-            loading,
-            disabled,
-            actions,
-            span,
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "Button" => {
+            let span = inv.span;
+            let mut positional = inv.positional;
+            let label = take_positional(&mut positional, span, "Button")?;
+            let options = inv.arguments;
+            let icon = options.get("icon").cloned();
+            let loading = options.get("loading").cloned();
+            let disabled = options.get("disabled").cloned();
+            let actions = match inv.children {
+                ast::ChildBody::Actions(actions) => actions,
+                _ => return Err(child_mismatch(span)),
+            };
             let label = lower_expr(&label, Some(&Type::String), symbols, functions, false)?;
             if !matches!(
                 label,
@@ -307,19 +466,22 @@ pub(super) fn lower_node(
                 actions: lowered,
             })
         }
-        ast::Node::TextInput {
-            value,
-            placeholder,
-            keyboard,
-            secure,
-            multiline,
-            autocorrect,
-            capitalization,
-            focused,
-            max_length,
-            actions,
-            span,
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "TextInput" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let value = take_required_arg(&mut args, &inv.name, "value", span)?;
+            let placeholder = take_required_arg(&mut args, &inv.name, "placeholder", span)?;
+            let keyboard = args.remove("keyboard");
+            let secure = args.remove("secure");
+            let multiline = args.remove("multiline");
+            let autocorrect = args.remove("autocorrect");
+            let capitalization = args.remove("capitalization");
+            let focused = args.remove("focused");
+            let max_length = args.remove("maxLength");
+            let actions = match inv.children {
+                ast::ChildBody::Actions(actions) => actions,
+                _ => return Err(child_mismatch(span)),
+            };
             let state = require_mutable_binding(&value, &Type::String, symbols, span, "TextInput")?;
             let placeholder = require_string_literal(&placeholder, "TextInput placeholder")?;
             let keyboard = match keyboard {
@@ -409,18 +571,31 @@ pub(super) fn lower_node(
                 )?,
             })
         }
-        ast::Node::Switch { value, label, span } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "Switch" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let value = take_required_arg(&mut args, &inv.name, "value", span)?;
+            let label = take_required_arg(&mut args, &inv.name, "label", span)?;
             let state = require_mutable_binding(&value, &Type::Bool, symbols, span, "Switch")?;
             let label = require_string_literal(&label, "Switch label")?;
             Ok(Node::Switch { state, label })
         }
-        ast::Node::Image {
-            source,
-            description,
-            scale,
-            placeholder,
-            span,
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "Image" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let source = match (args.remove("asset"), args.remove("url")) {
+                (Some(asset), None) => ast::ImageSource::Asset(asset),
+                (None, Some(url)) => ast::ImageSource::Url(url),
+                _ => {
+                    return Err(CompileError::new(
+                        span,
+                        "Image requires exactly one of `asset` or `url`",
+                    ));
+                }
+            };
+            let description = take_required_arg(&mut args, &inv.name, "description", span)?;
+            let scale = args.remove("scale");
+            let placeholder = args.remove("placeholder");
             let source = match source {
                 ast::ImageSource::Asset(asset) => {
                     let asset = require_string_literal(&asset, "Image asset")?;
@@ -484,14 +659,31 @@ pub(super) fn lower_node(
                 placeholder,
             })
         }
-        ast::Node::Pressable {
-            disabled,
-            haptic,
-            children,
-            actions,
-            long_press_actions,
-            ..
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "Pressable" => {
+            let span = inv.span;
+            let schema = invocation_schema(&inv)?;
+            let mut args = inv.arguments;
+            let disabled = args.remove("disabled");
+            let haptic = args.remove("haptic");
+            let children = match inv.children {
+                ast::ChildBody::Nodes(children) => children,
+                _ => return Err(child_mismatch(span)),
+            };
+            let mut modifiers = inv.modifiers;
+            let actions = match take_modifier(&mut modifiers, "onPress") {
+                Some(ast::ModifierBody::Actions(actions)) => actions,
+                _ => {
+                    return Err(CompileError::new(
+                        span,
+                        catalog::required_modifier_message(schema, "onPress"),
+                    ));
+                }
+            };
+            let long_press_actions = match take_modifier(&mut modifiers, "onLongPress") {
+                Some(ast::ModifierBody::Actions(actions)) => actions,
+                Some(_) => return Err(child_mismatch(span)),
+                None => Vec::new(),
+            };
             let disabled = disabled
                 .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions, false))
                 .transpose()?
@@ -526,11 +718,11 @@ pub(super) fn lower_node(
                 long_press_actions,
             })
         }
-        ast::Node::NavigationStack {
-            root,
-            arguments,
-            span,
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "NavigationStack" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let root = take_required_arg(&mut args, &inv.name, "root", span)?;
+            let (root, arguments) = ast::split_navigation_target(root);
             if !allow_navigation_stack {
                 return Err(CompileError::new(
                     span,
@@ -550,7 +742,10 @@ pub(super) fn lower_node(
                 arguments: root.1,
             })
         }
-        ast::Node::NavigationBack { label, span } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "NavigationBack" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let label = args.remove("label");
             if !allow_navigation_back {
                 return Err(CompileError::new(
                     span,
@@ -563,13 +758,16 @@ pub(super) fn lower_node(
                 .unwrap_or_else(|| Expr::String("Back".to_owned()));
             Ok(Node::NavigationBack { label })
         }
-        ast::Node::NavigationLink {
-            destination,
-            arguments,
-            guard,
-            children,
-            span,
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "NavigationLink" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let destination = take_required_arg(&mut args, &inv.name, "destination", span)?;
+            let guard = args.remove("when");
+            let (destination, arguments) = ast::split_navigation_target(destination);
+            let children = match inv.children {
+                ast::ChildBody::Nodes(children) => children,
+                _ => return Err(child_mismatch(span)),
+            };
             let destination = lower_screen_target(
                 &destination,
                 arguments,
@@ -607,11 +805,14 @@ pub(super) fn lower_node(
                 children: lowered_children,
             })
         }
-        ast::Node::Link {
-            url,
-            children,
-            span,
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "Link" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let url = take_required_arg(&mut args, &inv.name, "url", span)?;
+            let children = match inv.children {
+                ast::ChildBody::Nodes(children) => children,
+                _ => return Err(child_mismatch(span)),
+            };
             let lowered_url = lower_expr(&url, Some(&Type::String), symbols, functions, false)?;
             if let ast::Expr::String(value, _) = &url {
                 if !is_link_url(value) {
@@ -638,13 +839,16 @@ pub(super) fn lower_node(
                 children,
             })
         }
-        ast::Node::Accessibility {
-            label,
-            hint,
-            role,
-            children,
-            span,
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "Accessibility" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let label = take_required_arg(&mut args, &inv.name, "label", span)?;
+            let hint = args.remove("hint");
+            let role = args.remove("role");
+            let children = match inv.children {
+                ast::ChildBody::Nodes(children) => children,
+                _ => return Err(child_mismatch(span)),
+            };
             let lowered_label = lower_expr(&label, Some(&Type::String), symbols, functions, false)?;
             if let ast::Expr::String(value, _) = &label {
                 if value.is_empty() {
@@ -716,9 +920,13 @@ pub(super) fn lower_node(
                 children,
             })
         }
-        ast::Node::KeyboardAware {
-            dismiss, children, ..
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "KeyboardAware" => {
+            let mut args = inv.arguments;
+            let dismiss = args.remove("dismiss");
+            let children = match inv.children {
+                ast::ChildBody::Nodes(children) => children,
+                _ => return Err(child_mismatch(inv.span)),
+            };
             let lowered_children = lower_nodes(
                 children,
                 symbols,
@@ -736,12 +944,15 @@ pub(super) fn lower_node(
                 children: lowered_children,
             })
         }
-        ast::Node::BottomSheet {
-            is_presented,
-            partial,
-            children,
-            span,
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "BottomSheet" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let is_presented = take_required_arg(&mut args, &inv.name, "isPresented", span)?;
+            let partial = args.remove("partial");
+            let children = match inv.children {
+                ast::ChildBody::Nodes(children) => children,
+                _ => return Err(child_mismatch(span)),
+            };
             let state =
                 require_mutable_binding(&is_presented, &Type::Bool, symbols, span, "BottomSheet")?;
             let lowered_children = lower_nodes(
@@ -762,12 +973,25 @@ pub(super) fn lower_node(
                 children: lowered_children,
             })
         }
-        ast::Node::RefreshControl {
-            is_refreshing,
-            children,
-            actions,
-            span,
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "RefreshControl" => {
+            let span = inv.span;
+            let schema = invocation_schema(&inv)?;
+            let mut args = inv.arguments;
+            let is_refreshing = take_required_arg(&mut args, &inv.name, "isRefreshing", span)?;
+            let children = match inv.children {
+                ast::ChildBody::Nodes(children) => children,
+                _ => return Err(child_mismatch(span)),
+            };
+            let mut modifiers = inv.modifiers;
+            let actions = match take_modifier(&mut modifiers, "onRefresh") {
+                Some(ast::ModifierBody::Actions(actions)) => actions,
+                _ => {
+                    return Err(CompileError::new(
+                        span,
+                        catalog::required_modifier_message(schema, "onRefresh"),
+                    ));
+                }
+            };
             let state = require_mutable_binding(
                 &is_refreshing,
                 &Type::Bool,
@@ -803,11 +1027,14 @@ pub(super) fn lower_node(
                 actions,
             })
         }
-        ast::Node::AppBottomBar {
-            selected,
-            tabs,
-            span,
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "AppBottomBar" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let selected = take_required_arg(&mut args, &inv.name, "selected", span)?;
+            let tabs = match inv.children {
+                ast::ChildBody::Tabs(tabs) => tabs,
+                _ => return Err(child_mismatch(span)),
+            };
             let state = require_mutable_binding(
                 &selected,
                 &Type::Numeric(NumericType::Int32),
@@ -875,22 +1102,29 @@ pub(super) fn lower_node(
                 tabs: lowered_tabs,
             })
         }
-        ast::Node::FastList {
-            source,
-            axis,
-            item_extent,
-            section,
-            index,
-            item,
-            key,
-            scroll_position,
-            children,
-            on_end_reached,
-            on_scroll,
-            sticky_header,
-            section_header,
-            span,
-        } => {
+        ast::Node::ComponentInvocation(inv) if inv.name == "FastList" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let rows = match inv.children {
+                ast::ChildBody::Rows(rows) => rows,
+                _ => return Err(child_mismatch(span)),
+            };
+            let ast::ListRows {
+                source,
+                key,
+                item,
+                index,
+                section,
+                children,
+            } = rows;
+            let axis = args.remove("axis");
+            let item_extent = args.remove("rowHeight");
+            let scroll_position = args.remove("scrollPosition");
+            let mut modifiers = inv.modifiers;
+            let on_end_reached = take_modifier_actions(&mut modifiers, span, "onEndReached")?;
+            let on_scroll = take_modifier_actions(&mut modifiers, span, "onScroll")?;
+            let sticky_header = take_modifier_nodes(&mut modifiers, span, "stickyHeader")?;
+            let section_header = take_modifier_nodes(&mut modifiers, span, "sectionHeader")?;
             let sections_source = matches!(&source, ast::ListSource::Sections(_));
             let axis = match axis {
                 None => ListAxis::Vertical,
@@ -1016,9 +1250,7 @@ pub(super) fn lower_node(
                         }
                     }
                     (
-                        ListSourceParts::Count {
-                            count: count_value,
-                        },
+                        ListSourceParts::Count { count: count_value },
                         None,
                         None,
                         None,
@@ -1314,6 +1546,10 @@ pub(super) fn lower_node(
                 },
             })
         }
+        ast::Node::ComponentInvocation(inv) => Err(CompileError::new(
+            inv.span,
+            format!("unknown component `{}`", inv.name),
+        )),
         ast::Node::If {
             condition,
             then_body,

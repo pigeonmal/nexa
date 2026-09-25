@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
-    BinaryOp, CollectionTransform, Expr, InterpolatedPart, MemberKind, NumericType,
-    TuplePosition, Type,
+    BinaryOp, CollectionTransform, Expr, InterpolatedPart, MemberKind, NumericType, TuplePosition,
+    Type,
 };
 use nexa_plugin_idl::TypeRef;
 use nexa_syntax::ast;
@@ -1190,9 +1190,7 @@ pub(super) fn lower_expr(
                 (Type::Pair(_, _), "second") | (Type::Triple(_, _, _), "second") => {
                     MemberKind::TupleIndex(TuplePosition::Second)
                 }
-                (Type::Triple(_, _, _), "third") => {
-                    MemberKind::TupleIndex(TuplePosition::Third)
-                }
+                (Type::Triple(_, _, _), "third") => MemberKind::TupleIndex(TuplePosition::Third),
                 (Type::Struct { .. }, field) => MemberKind::StructField(field.to_owned()),
                 (Type::Plugin { .. }, field) => MemberKind::PluginField(field.to_owned()),
                 (Type::NetworkResponse, "statusCode") => MemberKind::NetworkStatusCode,
@@ -1201,10 +1199,7 @@ pub(super) fn lower_expr(
                 _ => {
                     return Err(CompileError::new(
                         *span,
-                        format!(
-                            "`{}` has no member `{name}`",
-                            type_name(&member_base_type)
-                        ),
+                        format!("`{}` has no member `{name}`", type_name(&member_base_type)),
                     ));
                 }
             };
@@ -1804,9 +1799,7 @@ fn native_plan(
             .iter()
             .find(|(candidate, _)| candidate == name)
             .map(|(_, value)| value.clone())
-            .ok_or_else(|| {
-                CompileError::new(span, format!("`{qualified_name}` requires `{name}`"))
-            })
+            .ok_or_else(|| CompileError::new(span, format!("`{qualified_name}` requires `{name}`")))
     };
     let network_request = || {
         let body = match take("body")? {

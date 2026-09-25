@@ -414,44 +414,16 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
                 }
             }
         }
-        ast::Node::Layout { children, .. }
-        | ast::Node::Platform { children, .. }
-        | ast::Node::Pressable { children, .. }
-        | ast::Node::NavigationLink { children, .. }
-        | ast::Node::Link { children, .. }
-        | ast::Node::Accessibility { children, .. }
-        | ast::Node::KeyboardAware { children, .. }
-        | ast::Node::BottomSheet { children, .. }
-        | ast::Node::RefreshControl { children, .. } => {
-            for child in children {
-                collect_component_calls(child, calls);
-            }
-        }
-        ast::Node::FastList {
-            children,
-            sticky_header,
-            section_header,
-            ..
-        } => {
-            for child in children {
-                collect_component_calls(child, calls);
-            }
-            if let Some(sticky_header) = sticky_header {
-                for child in sticky_header {
-                    collect_component_calls(child, calls);
-                }
-            }
-            if let Some(section_header) = section_header {
-                for child in section_header {
+        ast::Node::ComponentInvocation(inv) => {
+            for group in invocation_child_nodes(inv) {
+                for child in group {
                     collect_component_calls(child, calls);
                 }
             }
         }
-        ast::Node::AppBottomBar { tabs, .. } => {
-            for tab in tabs {
-                for child in &tab.children {
-                    collect_component_calls(child, calls);
-                }
+        ast::Node::Platform { children, .. } => {
+            for child in children {
+                collect_component_calls(child, calls);
             }
         }
         ast::Node::If {
@@ -475,22 +447,30 @@ fn collect_component_calls(node: &ast::Node, calls: &mut Vec<String>) {
                 collect_component_calls(child, calls);
             }
         }
-        ast::Node::Text { .. }
-        | ast::Node::Button { .. }
-        | ast::Node::StatusBar { .. }
-        | ast::Node::TextInput { .. }
-        | ast::Node::Switch { .. }
-        | ast::Node::Image { .. }
-        | ast::Node::NavigationStack { .. }
-        | ast::Node::NavigationBack { .. }
-        | ast::Node::Content { .. }
-        | ast::Node::Direction { .. }
-        | ast::Node::OnAppear { .. }
-        | ast::Node::OnDisappear { .. }
-        | ast::Node::OnActive { .. }
-        | ast::Node::OnInactive { .. }
-        | ast::Node::OnBackground { .. } => {}
     }
+}
+
+/// Child-node groups of a built-in invocation: child block plus node-block
+/// modifiers. Action bodies hold statements only and are skipped, exactly as
+/// the previous per-variant walkers did.
+fn invocation_child_nodes(inv: &ast::ComponentInvocation) -> Vec<&Vec<ast::Node>> {
+    let mut groups = Vec::new();
+    match &inv.children {
+        ast::ChildBody::Nodes(children) => groups.push(children),
+        ast::ChildBody::Tabs(tabs) => {
+            for tab in tabs {
+                groups.push(&tab.children);
+            }
+        }
+        ast::ChildBody::Rows(rows) => groups.push(&rows.children),
+        ast::ChildBody::None | ast::ChildBody::Actions(_) => {}
+    }
+    for modifier in &inv.modifiers {
+        if let ast::ModifierBody::Nodes(nodes) = &modifier.body {
+            groups.push(nodes);
+        }
+    }
+    groups
 }
 
 fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
@@ -593,40 +573,17 @@ fn in_file(error: CompileError, file: Option<&str>) -> CompileError {
 
 fn contains_content_slot(node: &ast::Node) -> bool {
     match node {
-        ast::Node::Content { .. } => true,
+        ast::Node::ComponentInvocation(inv) if inv.name == "Content" => true,
         ast::Node::ComponentCall { children, .. } => children
             .as_ref()
             .is_some_and(|children| children.iter().any(contains_content_slot)),
         ast::Node::NativeComponentCall { children, .. } => children
             .as_ref()
             .is_some_and(|children| children.iter().any(contains_content_slot)),
-        ast::Node::Layout { children, .. }
-        | ast::Node::Platform { children, .. }
-        | ast::Node::Pressable { children, .. }
-        | ast::Node::NavigationLink { children, .. }
-        | ast::Node::Link { children, .. }
-        | ast::Node::Accessibility { children, .. }
-        | ast::Node::KeyboardAware { children, .. }
-        | ast::Node::BottomSheet { children, .. }
-        | ast::Node::RefreshControl { children, .. } => children.iter().any(contains_content_slot),
-        ast::Node::FastList {
-            children,
-            sticky_header,
-            section_header,
-            ..
-        } => {
-            children.iter().any(contains_content_slot)
-                || sticky_header
-                    .as_deref()
-                    .is_some_and(|header| header.iter().any(contains_content_slot))
-                || section_header
-                    .as_deref()
-                    .is_some_and(|header| header.iter().any(contains_content_slot))
-        }
-        ast::Node::AppBottomBar { tabs, .. } => tabs
+        ast::Node::ComponentInvocation(inv) => invocation_child_nodes(inv)
             .iter()
-            .flat_map(|tab| &tab.children)
-            .any(contains_content_slot),
+            .any(|group| group.iter().any(contains_content_slot)),
+        ast::Node::Platform { children, .. } => children.iter().any(contains_content_slot),
         ast::Node::If {
             then_body,
             else_body,
@@ -644,20 +601,6 @@ fn contains_content_slot(node: &ast::Node) -> bool {
             .flat_map(|case| &case.body)
             .chain(else_body)
             .any(contains_content_slot),
-        ast::Node::Text { .. }
-        | ast::Node::Button { .. }
-        | ast::Node::StatusBar { .. }
-        | ast::Node::TextInput { .. }
-        | ast::Node::Switch { .. }
-        | ast::Node::Image { .. }
-        | ast::Node::NavigationStack { .. }
-        | ast::Node::NavigationBack { .. }
-        | ast::Node::Direction { .. }
-        | ast::Node::OnAppear { .. }
-        | ast::Node::OnDisappear { .. }
-        | ast::Node::OnActive { .. }
-        | ast::Node::OnInactive { .. }
-        | ast::Node::OnBackground { .. } => false,
     }
 }
 
@@ -717,12 +660,13 @@ mod tests {
                 span,
             }],
             states: Vec::new(),
-            body: vec![ast::Node::Button {
-                label: ast::Expr::String("Dispose".to_owned(), span),
-                icon: None,
-                loading: None,
-                disabled: None,
-                actions: vec![ast::Stmt::Expression {
+            body: vec![ast::Node::ComponentInvocation(ast::ComponentInvocation {
+                name: "Button".to_owned(),
+                span,
+                positional: vec![ast::Expr::String("Dispose".to_owned(), span)],
+                arguments: BTreeMap::new(),
+                flags: Vec::new(),
+                children: ast::ChildBody::Actions(vec![ast::Stmt::Expression {
                     expression: ast::Expr::MethodCall {
                         base: Box::new(ast::Expr::Name("player".to_owned(), span)),
                         name: "dispose".to_owned(),
@@ -731,9 +675,9 @@ mod tests {
                         span,
                     },
                     span,
-                }],
-                span,
-            }],
+                }]),
+                modifiers: Vec::new(),
+            })],
             span,
             source_file: None,
         };
@@ -761,20 +705,7 @@ mod tests {
 }
 
 fn is_builtin_component(name: &str) -> bool {
-    matches!(
-        name,
-        "Column"
-            | "Row"
-            | "Text"
-            | "Button"
-            | "TextInput"
-            | "Switch"
-            | "Image"
-            | "Pressable"
-            | "NavigationStack"
-            | "NavigationLink"
-            | "KeyboardAware"
-            | "FastList"
-            | "Content"
-    )
+    // Single source of truth: every catalogued built-in (primary name or
+    // alias) is reserved and cannot be redeclared as a custom component.
+    nexa_syntax::catalog::is_component(name)
 }

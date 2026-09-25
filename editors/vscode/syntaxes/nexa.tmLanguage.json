@@ -53,11 +53,11 @@
       "patterns": [
         {
           "name": "keyword.control.nexa",
-          "match": "\\b(if|else|for|in|while|return|try|catch|case|break|continue|await)\\b"
+          "match": "\\b(await|break|case|catch|continue|else|for|if|in|return|try|while)\\b"
         },
         {
           "name": "keyword.declaration.nexa",
-          "match": "\\b(app|component|struct|enum|state|let|fn|async|screen|theme|body|import|plugin|config|permissions)\\b"
+          "match": "\\b(app|async|component|enum|fn|let|plugin|screen|state|struct)\\b"
         },
         {
           "name": "constant.language.boolean.nexa",
@@ -73,7 +73,7 @@
       "patterns": [
         {
           "name": "entity.name.type.primitive.nexa",
-          "match": "\\b(String|Int32|Int64|Float|Double|Bool|Void|List|Map|Result)\\b"
+          "match": "\\b(Array|Bool|Bytes|Err|Float32|Float64|Int16|Int32|Int64|Int8|Map|Ok|Pair|Result|Set|String|Triple|UInt16|UInt32|UInt64|UInt8|Void)\\b"
         }
       ]
     },
@@ -81,7 +81,7 @@
       "patterns": [
         {
           "name": "support.class.component.nexa",
-          "match": "\\b(Text|Button|TextField|SecureField|Image|Icon|Toggle|Slider|Column|Row|Stack|ScrollView|Card|Divider|Spacer|ProgressView|LazyList|SectionedList|ModalSheet|AppBottomBar|Tab|OnAppear|OnDisappear)\\b"
+          "match": "\\b(Accessibility|AppBottomBar|BottomSheet|Button|Column|Content|Direction|FastList|Image|KeyboardAware|Link|NavigationBack|NavigationLink|NavigationStack|OnActive|OnAppear|OnBackground|OnDisappear|OnInactive|Pressable|RefreshControl|Row|Stack|StatusBar|Switch|Tab|Text|TextInput)\\b"
         }
       ]
     },

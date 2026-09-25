@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     ast::*,
+    catalog::{self, ChildModel, ParensModel, PositionalModel},
     lexer::{self, Kind, Token},
 };
 use nexa_diagnostics::{CompileError, Span};
@@ -1207,569 +1208,52 @@ impl Parser {
             }
             self.cursor = saved;
         }
-        match name.as_str() {
-            "platform" => {
-                let (target, target_span) = self.ident()?;
-                let target = match target.as_str() {
-                    "ios" => PlatformTarget::Ios,
-                    "android" => PlatformTarget::Android,
-                    _ => {
-                        return Err(CompileError::new(
-                            target_span,
-                            "unknown platform; expected `ios` or `android`",
-                        ));
-                    }
-                };
-                Ok(Node::Platform {
-                    target,
-                    children: self.block_nodes()?,
-                    span,
-                })
-            }
-            "StatusBar" => {
-                let mut args = self.named_args(&["style", "hidden", "background"])?;
-                Ok(Node::StatusBar {
-                    style: args.remove("style"),
-                    hidden: args.remove("hidden"),
-                    background: args.remove("background"),
-                    span,
-                })
-            }
-            "Direction" => {
-                let mut args = self.named_args(&["value"])?;
-                let value = self.required_arg(
-                    &mut args,
-                    "value",
-                    "Direction requires `value: LTR` or `value: RTL`",
-                )?;
-                Ok(Node::Direction { value, span })
-            }
-            "OnAppear" => {
-                let asynchronous = if self.word_is("async") {
-                    self.advance();
-                    true
-                } else {
-                    false
-                };
-                Ok(Node::OnAppear {
-                    actions: self.block_stmts()?,
-                    asynchronous,
-                    span,
-                })
-            }
-            "OnDisappear" => Ok(Node::OnDisappear {
-                actions: self.block_stmts()?,
+        if name == "platform" {
+            let (target, target_span) = self.ident()?;
+            let target = match target.as_str() {
+                "ios" => PlatformTarget::Ios,
+                "android" => PlatformTarget::Android,
+                _ => {
+                    return Err(CompileError::new(
+                        target_span,
+                        "unknown platform; expected `ios` or `android`",
+                    ));
+                }
+            };
+            return Ok(Node::Platform {
+                target,
+                children: self.block_nodes()?,
                 span,
-            }),
-            "OnActive" => Ok(Node::OnActive {
-                actions: self.block_stmts()?,
+            });
+        }
+        if let Some(schema) = catalog::component_schema(&name) {
+            return self.component_invocation(name, span, schema);
+        }
+        if self.check(&Kind::LParen) {
+            let arguments = self.named_args_any()?;
+            let children = self
+                .check(&Kind::LBrace)
+                .then(|| self.block_nodes())
+                .transpose()?;
+            return Ok(Node::ComponentCall {
+                name,
+                arguments,
+                children,
                 span,
-            }),
-            "OnInactive" => Ok(Node::OnInactive {
-                actions: self.block_stmts()?,
-                span,
-            }),
-            "OnBackground" => Ok(Node::OnBackground {
-                actions: self.block_stmts()?,
-                span,
-            }),
-            "Column" | "Row" | "Stack" => {
-                let kind = match name.as_str() {
-                    "Column" => LayoutKind::Column,
-                    "Row" => LayoutKind::Row,
-                    _ => LayoutKind::Stack,
-                };
-                let mut args = if self.check(&Kind::LParen) {
-                    self.named_args(&[
-                        "spacing",
-                        "alignment",
-                        "padding",
-                        "width",
-                        "height",
-                        "minWidth",
-                        "maxWidth",
-                        "minHeight",
-                        "maxHeight",
-                        "background",
-                        "cornerRadius",
-                        "borderColor",
-                        "borderWidth",
-                        "opacity",
-                        "animation",
-                    ])?
-                } else {
-                    BTreeMap::new()
-                };
-                let spacing = args.remove("spacing");
-                let style = LayoutStyle {
-                    alignment: args.remove("alignment"),
-                    padding: args.remove("padding"),
-                    width: args.remove("width"),
-                    height: args.remove("height"),
-                    min_width: args.remove("minWidth"),
-                    max_width: args.remove("maxWidth"),
-                    min_height: args.remove("minHeight"),
-                    max_height: args.remove("maxHeight"),
-                    background: args.remove("background"),
-                    corner_radius: args.remove("cornerRadius"),
-                    border_color: args.remove("borderColor"),
-                    border_width: args.remove("borderWidth"),
-                    opacity: args.remove("opacity"),
-                    animation: args.remove("animation"),
-                };
-                let children = self.block_nodes()?;
-                Ok(Node::Layout {
-                    kind,
-                    spacing,
-                    style,
-                    children,
-                    span,
-                })
-            }
-            "Text" => {
-                self.expect(Kind::LParen, "expected `(` after Text")?;
-                let value = self.expr()?;
-                let mut args = if self.take(&Kind::Comma) {
-                    self.named_args_contents(&[
-                        "color",
-                        "fontSize",
-                        "fontWeight",
-                        "lineLimit",
-                        "lineHeight",
-                        "letterSpacing",
-                        "selectable",
-                    ])?
-                } else {
-                    BTreeMap::new()
-                };
-                self.expect(Kind::RParen, "expected `)` after Text options")?;
-                Ok(Node::Text {
-                    value,
-                    color: args.remove("color"),
-                    font_size: args.remove("fontSize"),
-                    font_weight: args.remove("fontWeight"),
-                    line_limit: args.remove("lineLimit"),
-                    line_height: args.remove("lineHeight"),
-                    letter_spacing: args.remove("letterSpacing"),
-                    selectable: args.remove("selectable"),
-                    span,
-                })
-            }
-            "Button" => {
-                self.expect(Kind::LParen, "expected `(` after Button")?;
-                let label = self.expr()?;
-                let options = if self.take(&Kind::Comma) {
-                    self.named_args_contents(&["icon", "loading", "disabled"])?
-                } else {
-                    BTreeMap::new()
-                };
-                self.expect(Kind::RParen, "expected `)` after Button options")?;
-                let actions = if self.check(&Kind::LBrace) {
-                    self.block_stmts()?
-                } else {
-                    Vec::new()
-                };
-                Ok(Node::Button {
-                    label,
-                    icon: options.get("icon").cloned(),
-                    loading: options.get("loading").cloned(),
-                    disabled: options.get("disabled").cloned(),
-                    actions,
-                    span,
-                })
-            }
-            "TextInput" => {
-                let mut args = self.named_args(&[
-                    "value",
-                    "placeholder",
-                    "keyboard",
-                    "secure",
-                    "multiline",
-                    "autocorrect",
-                    "capitalization",
-                    "focused",
-                    "maxLength",
-                ])?;
-                let value = self.required_arg(&mut args, "value", "TextInput requires `value`")?;
-                let placeholder = self.required_arg(
-                    &mut args,
-                    "placeholder",
-                    "TextInput requires `placeholder`",
-                )?;
-                let actions = if self.check(&Kind::LBrace) {
-                    self.block_stmts()?
-                } else {
-                    Vec::new()
-                };
-                Ok(Node::TextInput {
-                    value,
-                    placeholder,
-                    keyboard: args.remove("keyboard"),
-                    secure: args.remove("secure"),
-                    multiline: args.remove("multiline"),
-                    autocorrect: args.remove("autocorrect"),
-                    capitalization: args.remove("capitalization"),
-                    focused: args.remove("focused"),
-                    max_length: args.remove("maxLength"),
-                    actions,
-                    span,
-                })
-            }
-            "Switch" => {
-                let mut args = self.named_args(&["value", "label"])?;
-                let value = self.required_arg(&mut args, "value", "Switch requires `value`")?;
-                let label = self.required_arg(&mut args, "label", "Switch requires `label`")?;
-                Ok(Node::Switch { value, label, span })
-            }
-            "Image" => {
-                let mut args =
-                    self.named_args(&["asset", "url", "description", "scale", "placeholder"])?;
-                let asset = args.remove("asset");
-                let url = args.remove("url");
-                let source = match (asset, url) {
-                    (Some(asset), None) => ImageSource::Asset(asset),
-                    (None, Some(url)) => ImageSource::Url(url),
-                    (None, None) => {
-                        return self.error_here("Image requires exactly one of `asset` or `url`");
-                    }
-                    (Some(_), Some(_)) => {
-                        return Err(CompileError::new(
-                            span,
-                            "Image accepts either `asset` or `url`, not both",
-                        ));
-                    }
-                };
-                let description =
-                    self.required_arg(&mut args, "description", "Image requires `description`")?;
-                Ok(Node::Image {
-                    source,
-                    description,
-                    scale: args.remove("scale"),
-                    placeholder: args.remove("placeholder"),
-                    span,
-                })
-            }
-            "Pressable" => {
-                let mut args = self.named_args(&["disabled", "haptic"])?;
-                let disabled = args.remove("disabled");
-                let haptic = args.remove("haptic");
-                let children = self.block_nodes()?;
-                let mut actions = None;
-                let mut long_press_actions = None;
-                while self.take(&Kind::Dot) {
-                    let (modifier, modifier_span) = self.ident()?;
-                    match modifier.as_str() {
-                        "onPress" => {
-                            if actions.is_some() {
-                                return Err(CompileError::new(
-                                    modifier_span,
-                                    "Pressable accepts only one `.onPress` modifier",
-                                ));
-                            }
-                            actions = Some(self.block_stmts()?);
-                        }
-                        "onLongPress" => {
-                            if long_press_actions.is_some() {
-                                return Err(CompileError::new(
-                                    modifier_span,
-                                    "Pressable accepts only one `.onLongPress` modifier",
-                                ));
-                            }
-                            long_press_actions = Some(self.block_stmts()?);
-                        }
-                        _ => {
-                            return Err(CompileError::new(
-                                modifier_span,
-                                format!(
-                                    "unknown Pressable modifier `.{modifier}`; expected `.onPress` or `.onLongPress`"
-                                ),
-                            ));
-                        }
-                    }
-                }
-                if self.check(&Kind::LBrace)
-                    || self.word_is("onPress")
-                    || self.word_is("onLongPress")
-                {
-                    return self.error_here(
-                        "Pressable actions must use `.onPress { ... }` or `.onLongPress { ... }`",
-                    );
-                }
-                let actions = actions.ok_or_else(|| {
-                    CompileError::new(
-                        span,
-                        "Pressable requires an `.onPress { ... }` action block",
-                    )
-                })?;
-                Ok(Node::Pressable {
-                    disabled,
-                    haptic,
-                    children,
-                    actions,
-                    long_press_actions: long_press_actions.unwrap_or_default(),
-                    span,
-                })
-            }
-            "NavigationStack" => {
-                let mut args = self.named_args(&["root"])?;
-                let root = self.required_arg(
-                    &mut args,
-                    "root",
-                    "NavigationStack requires a declared screen as `root`",
-                )?;
-                let (root, arguments) = split_navigation_target(root);
-                Ok(Node::NavigationStack {
-                    root,
-                    arguments,
-                    span,
-                })
-            }
-            "NavigationLink" => {
-                let mut args = self.named_args(&["destination", "when"])?;
-                let destination = self.required_arg(
-                    &mut args,
-                    "destination",
-                    "NavigationLink requires a declared screen as `destination`",
-                )?;
-                let guard = args.remove("when");
-                let (destination, arguments) = split_navigation_target(destination);
-                let children = self.block_nodes()?;
-                Ok(Node::NavigationLink {
-                    destination,
-                    arguments,
-                    guard,
-                    children,
-                    span,
-                })
-            }
-            "NavigationBack" => {
-                let mut args = self.named_args(&["label"])?;
-                Ok(Node::NavigationBack {
-                    label: args.remove("label"),
-                    span,
-                })
-            }
-            "Link" => {
-                let mut args = self.named_args(&["url"])?;
-                let url = self.required_arg(&mut args, "url", "Link requires `url`")?;
-                let children = self.block_nodes()?;
-                Ok(Node::Link {
-                    url,
-                    children,
-                    span,
-                })
-            }
-            "Accessibility" => {
-                let mut args = self.named_args(&["label", "hint", "role"])?;
-                let label =
-                    self.required_arg(&mut args, "label", "Accessibility requires `label`")?;
-                let hint = args.remove("hint");
-                let role = args.remove("role");
-                let children = self.block_nodes()?;
-                Ok(Node::Accessibility {
-                    label,
-                    hint,
-                    role,
-                    children,
-                    span,
-                })
-            }
-            "KeyboardAware" => {
-                let mut args = if self.check(&Kind::LParen) {
-                    self.named_args(&["dismiss"])?
-                } else {
-                    BTreeMap::new()
-                };
-                let children = self.block_nodes()?;
-                Ok(Node::KeyboardAware {
-                    dismiss: args.remove("dismiss"),
-                    children,
-                    span,
-                })
-            }
-            "BottomSheet" => {
-                let mut args = self.named_args(&["isPresented", "partial"])?;
-                let is_presented = self.required_arg(
-                    &mut args,
-                    "isPresented",
-                    "BottomSheet requires `isPresented`",
-                )?;
-                let children = self.block_nodes()?;
-                Ok(Node::BottomSheet {
-                    is_presented,
-                    partial: args.remove("partial"),
-                    children,
-                    span,
-                })
-            }
-            "RefreshControl" => {
-                let mut args = self.named_args(&["isRefreshing"])?;
-                let is_refreshing = self.required_arg(
-                    &mut args,
-                    "isRefreshing",
-                    "RefreshControl requires `isRefreshing`",
-                )?;
-                let children = self.block_nodes()?;
-                let mut actions = None;
-                while self.take(&Kind::Dot) {
-                    let (modifier, modifier_span) = self.ident()?;
-                    if modifier != "onRefresh" {
-                        return Err(CompileError::new(
-                            modifier_span,
-                            format!(
-                                "unknown RefreshControl modifier `.{modifier}`; expected `.onRefresh`"
-                            ),
-                        ));
-                    }
-                    if actions.is_some() {
-                        return Err(CompileError::new(
-                            modifier_span,
-                            "RefreshControl accepts only one `.onRefresh` modifier",
-                        ));
-                    }
-                    actions = Some(self.block_stmts()?);
-                }
-                if self.word_is("onRefresh") {
-                    return self.error_here("RefreshControl actions must use `.onRefresh { ... }`");
-                }
-                let Some(actions) = actions else {
-                    return self.error_here(
-                        "RefreshControl requires an `.onRefresh { ... }` action block",
-                    );
-                };
-                Ok(Node::RefreshControl {
-                    is_refreshing,
-                    children,
-                    actions,
-                    span,
-                })
-            }
-            "AppBottomBar" => {
-                let mut args = self.named_args(&["selected"])?;
-                let selected =
-                    self.required_arg(&mut args, "selected", "AppBottomBar requires `selected`")?;
-                let tabs = self.tab_declarations()?;
-                Ok(Node::AppBottomBar {
-                    selected,
-                    tabs,
-                    span,
-                })
-            }
-            "FastList" => {
-                let (source, mut args, key) = self.list_source_and_args(span)?;
-                let axis = args.remove("axis");
-                let item_extent = args.remove("rowHeight");
-                let scroll_position = args.remove("scrollPosition");
-                let (item, index, section, children) = self.list_row_block(&source, span)?;
-                let mut on_end_reached = None;
-                let mut on_scroll = None;
-                let mut sticky_header = None;
-                let mut section_header = None;
-                while self.take(&Kind::Dot) {
-                    let (modifier, modifier_span) = self.ident()?;
-                    match modifier.as_str() {
-                        "onEndReached" => {
-                            if on_end_reached.is_some() {
-                                return Err(CompileError::new(
-                                    modifier_span,
-                                    "FastList accepts only one `.onEndReached` modifier",
-                                ));
-                            }
-                            on_end_reached = Some(self.block_stmts()?);
-                        }
-                        "onScroll" => {
-                            if on_scroll.is_some() {
-                                return Err(CompileError::new(
-                                    modifier_span,
-                                    "FastList accepts only one `.onScroll` modifier",
-                                ));
-                            }
-                            on_scroll = Some(self.block_stmts()?);
-                        }
-                        "stickyHeader" => {
-                            if sticky_header.is_some() {
-                                return Err(CompileError::new(
-                                    modifier_span,
-                                    "FastList accepts only one `.stickyHeader` modifier",
-                                ));
-                            }
-                            sticky_header = Some(self.block_nodes()?);
-                        }
-                        "sectionHeader" => {
-                            if section_header.is_some() {
-                                return Err(CompileError::new(
-                                    modifier_span,
-                                    "FastList accepts only one `.sectionHeader` modifier",
-                                ));
-                            }
-                            section_header = Some(self.block_nodes()?);
-                        }
-                        _ => {
-                            return Err(CompileError::new(
-                                modifier_span,
-                                format!(
-                                    "unknown FastList modifier `.{modifier}`; expected `.onEndReached`, `.onScroll`, `.stickyHeader`, or `.sectionHeader`"
-                                ),
-                            ));
-                        }
-                    }
-                }
-                if ["onEndReached", "onScroll", "stickyHeader", "sectionHeader"]
-                    .iter()
-                    .any(|modifier| self.word_is(modifier))
-                {
-                    return self.error_here(
-                        "FastList modifiers must use dot syntax, for example `.onEndReached { ... }`",
-                    );
-                }
-                Ok(Node::FastList {
-                    source,
-                    axis,
-                    item_extent,
-                    section,
-                    index,
-                    item,
-                    key,
-                    scroll_position,
-                    children,
-                    on_end_reached,
-                    on_scroll,
-                    sticky_header,
-                    section_header,
-                    span,
-                })
-            }
-            "Content" => {
-                self.expect(Kind::LParen, "expected `(` after Content")?;
-                self.expect(Kind::RParen, "Content does not accept arguments")?;
-                Ok(Node::Content { span })
-            }
-            _ if self.check(&Kind::LParen) => {
-                let arguments = self.named_args_any()?;
-                let children = self
-                    .check(&Kind::LBrace)
-                    .then(|| self.block_nodes())
-                    .transpose()?;
-                Ok(Node::ComponentCall {
-                    name,
-                    arguments,
-                    children,
-                    span,
-                })
-            }
-            _ if self.check(&Kind::LBrace) => Ok(Node::ComponentCall {
+            });
+        }
+        if self.check(&Kind::LBrace) {
+            return Ok(Node::ComponentCall {
                 name,
                 arguments: BTreeMap::new(),
                 children: Some(self.block_nodes()?),
                 span,
-            }),
-            _ => Err(CompileError::new(
-                span,
-                format!(
-                    "unknown component `{name}`; custom components must use `Name(...)` syntax"
-                ),
-            )),
+            });
         }
+        Err(CompileError::new(
+            span,
+            format!("unknown component `{name}`; custom components must use `Name(...)` syntax"),
+        ))
     }
 
     fn named_args(&mut self, allowed: &[&str]) -> Result<BTreeMap<String, Expr>, CompileError> {
@@ -1779,26 +1263,181 @@ impl Parser {
         Ok(args)
     }
 
+    /// Parse one built-in component invocation against its catalog schema:
+    /// flags, parenthesized head, child block, and trailing dot-modifiers.
+    /// The result is a generic syntactic invocation; semantic lowering
+    /// converts it into the existing typed IR nodes.
+    fn component_invocation(
+        &mut self,
+        name: String,
+        span: Span,
+        schema: &'static catalog::ComponentSchema,
+    ) -> Result<Node, CompileError> {
+        let mut flags = Vec::new();
+        for flag in schema.flags {
+            if self.word_is(flag) {
+                self.advance();
+                flags.push((*flag).to_owned());
+            }
+        }
+        let mut positional = Vec::new();
+        let mut arguments = BTreeMap::new();
+        let mut list_source: Option<(ListSource, Option<ListKey>)> = None;
+        match schema.positional {
+            PositionalModel::None => match schema.parens {
+                ParensModel::None => {}
+                ParensModel::Optional => {
+                    if self.check(&Kind::LParen) {
+                        arguments = self.named_args(&catalog::schema_option_names(schema))?;
+                    }
+                }
+                ParensModel::Required => {
+                    arguments = self.named_args(&catalog::schema_option_names(schema))?;
+                }
+                ParensModel::Empty => {
+                    self.expect(Kind::LParen, &format!("expected `(` after {}", schema.name))?;
+                    self.expect(
+                        Kind::RParen,
+                        &format!("{} does not accept arguments", schema.name),
+                    )?;
+                }
+            },
+            PositionalModel::Single => {
+                self.expect(Kind::LParen, &format!("expected `(` after {}", schema.name))?;
+                positional.push(self.expr()?);
+                if self.take(&Kind::Comma) {
+                    arguments = self.named_args_contents(&catalog::schema_option_names(schema))?;
+                }
+                self.expect(
+                    Kind::RParen,
+                    &format!("expected `)` after {} options", schema.name),
+                )?;
+            }
+            PositionalModel::ListSource => {
+                let (source, args, key) = self.list_source_and_args(span, schema)?;
+                arguments = args;
+                list_source = Some((source, key));
+            }
+        }
+        for group in schema.exclusive {
+            let present = group
+                .options
+                .iter()
+                .filter(|option| arguments.contains_key(**option))
+                .count();
+            if present == 0 {
+                return self.error_here(group.missing_message);
+            }
+            if present > 1 {
+                return Err(CompileError::new(span, group.both_message));
+            }
+        }
+        for arg in schema.arguments.iter().filter(|arg| arg.required) {
+            if !arguments.contains_key(arg.name) {
+                return Err(CompileError::new(
+                    self.peek().span,
+                    catalog::required_message(schema, arg),
+                ));
+            }
+        }
+        let children = match schema.children {
+            ChildModel::None => ChildBody::None,
+            ChildModel::Nodes => ChildBody::Nodes(self.block_nodes()?),
+            ChildModel::OptionalActions => {
+                if self.check(&Kind::LBrace) {
+                    ChildBody::Actions(self.block_stmts()?)
+                } else {
+                    ChildBody::Actions(Vec::new())
+                }
+            }
+            ChildModel::RequiredActions => ChildBody::Actions(self.block_stmts()?),
+            ChildModel::Tabs => ChildBody::Tabs(self.tab_declarations()?),
+            ChildModel::ListRows => {
+                let (source, key) =
+                    list_source.expect("ListSource positional model parses a list source");
+                let (item, index, section, children) = self.list_row_block(&source, span)?;
+                ChildBody::Rows(ListRows {
+                    source,
+                    key,
+                    item,
+                    index,
+                    section,
+                    children,
+                })
+            }
+        };
+        let mut modifiers = Vec::new();
+        while self.take(&Kind::Dot) {
+            let (modifier, modifier_span) = self.ident()?;
+            let Some(spec) = schema.modifiers.iter().find(|spec| spec.name == modifier) else {
+                return Err(CompileError::new(
+                    modifier_span,
+                    catalog::unknown_modifier_message(schema, &modifier),
+                ));
+            };
+            if modifiers
+                .iter()
+                .any(|existing: &DotModifier| existing.name == modifier)
+            {
+                return Err(CompileError::new(
+                    modifier_span,
+                    catalog::duplicate_modifier_message(schema, &modifier),
+                ));
+            }
+            let body = match spec.body {
+                catalog::ModifierBody::Actions => ModifierBody::Actions(self.block_stmts()?),
+                catalog::ModifierBody::Nodes => ModifierBody::Nodes(self.block_nodes()?),
+            };
+            modifiers.push(DotModifier {
+                name: modifier,
+                span: modifier_span,
+                body,
+            });
+        }
+        if let Some(message) = schema.trailing_message {
+            if self.check(&Kind::LBrace)
+                || schema.modifiers.iter().any(|spec| self.word_is(spec.name))
+            {
+                return self.error_here(message);
+            }
+        }
+        for spec in schema.modifiers.iter().filter(|spec| spec.required) {
+            if !modifiers.iter().any(|modifier| modifier.name == spec.name) {
+                return Err(CompileError::new(
+                    span,
+                    catalog::required_modifier_message(schema, spec.name),
+                ));
+            }
+        }
+        Ok(Node::ComponentInvocation(ComponentInvocation {
+            name,
+            span,
+            positional,
+            arguments,
+            flags,
+            children,
+            modifiers,
+        }))
+    }
+
     fn list_source_and_args(
         &mut self,
         span: Span,
+        schema: &'static catalog::ComponentSchema,
     ) -> Result<(ListSource, BTreeMap<String, Expr>, Option<ListKey>), CompileError> {
         self.expect(Kind::LParen, "expected `(` after FastList")?;
+        // Allowed words come from the catalog schema plus the catalogued
+        // source keys; the source-exclusivity diagnostics below stay
+        // handwritten because they describe grammar structure, not names.
+        let mut named_form: Vec<&str> = catalog::FASTLIST_SOURCE_KEYS.to_vec();
+        named_form.extend(catalog::schema_option_names(schema));
+        named_form.push(catalog::FASTLIST_KEY_OPTION);
+        let mut option_form: Vec<&str> = catalog::schema_option_names(schema);
+        option_form.push(catalog::FASTLIST_KEY_OPTION);
         let (source, args, key) = if self.next_is_named_argument() {
             let mut args = BTreeMap::new();
             let mut key = None;
-            self.list_named_arguments(
-                &mut args,
-                &mut key,
-                &[
-                    "count",
-                    "sections",
-                    "axis",
-                    "rowHeight",
-                    "scrollPosition",
-                    "key",
-                ],
-            )?;
+            self.list_named_arguments(&mut args, &mut key, &named_form)?;
             let count = args.remove("count");
             let sections = args.remove("sections");
             let source = match (count, sections) {
@@ -1822,11 +1461,7 @@ impl Parser {
             let mut args = BTreeMap::new();
             let mut key = None;
             if self.take(&Kind::Comma) {
-                self.list_named_arguments(
-                    &mut args,
-                    &mut key,
-                    &["axis", "rowHeight", "scrollPosition", "key"],
-                )?;
+                self.list_named_arguments(&mut args, &mut key, &option_form)?;
             }
             (ListSource::Items(collection), args, key)
         };
@@ -3078,13 +2713,6 @@ impl Parser {
     }
     fn error_here<T>(&self, message: impl Into<String>) -> Result<T, CompileError> {
         Err(CompileError::new(self.peek().span, message))
-    }
-}
-
-fn split_navigation_target(target: Expr) -> (Expr, Vec<Expr>) {
-    match target {
-        Expr::Call(name, arguments, span) => (Expr::Name(name, span), arguments),
-        target => (target, Vec::new()),
     }
 }
 

@@ -1441,7 +1441,10 @@ fn lower_functions(
 fn has_navigation_root(nodes: &[ast::Node], target: Target) -> bool {
     let mut active = Vec::new();
     collect_active_nodes(nodes, target, &mut active);
-    matches!(active.as_slice(), [ast::Node::NavigationStack { .. }])
+    matches!(
+        active.as_slice(),
+        [ast::Node::ComponentInvocation(inv)] if inv.name == "NavigationStack"
+    )
 }
 
 fn collect_screen_signatures(
@@ -1497,13 +1500,17 @@ fn collect_active_nodes<'a>(
                 collect_active_nodes(children, target, active);
             }
             ast::Node::Platform { .. } => {}
-            ast::Node::StatusBar { .. } => {}
-            ast::Node::Direction { .. } => {}
-            ast::Node::OnAppear { .. } => {}
-            ast::Node::OnDisappear { .. } => {}
-            ast::Node::OnActive { .. } => {}
-            ast::Node::OnInactive { .. } => {}
-            ast::Node::OnBackground { .. } => {}
+            ast::Node::ComponentInvocation(inv)
+                if matches!(
+                    inv.name.as_str(),
+                    "StatusBar"
+                        | "Direction"
+                        | "OnAppear"
+                        | "OnDisappear"
+                        | "OnActive"
+                        | "OnInactive"
+                        | "OnBackground"
+                ) => {}
             node => active.push(node),
         }
     }

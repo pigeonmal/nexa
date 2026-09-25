@@ -89,8 +89,17 @@ fn is_ident_char(ch: char) -> bool {
 
 fn hover_documentation(token: &str) -> Option<String> {
     if let Some(entry) = catalog::component(token) {
+        let reference = catalog::component_schema(token)
+            .map(|schema| format!("\n\nReference: {}", schema.doc))
+            .unwrap_or_default();
         return Some(format!(
-            "### `{}`\n\n{}\n\n```nx\n{}\n```",
+            "### `{}`\n\n{}\n\n```nx\n{}\n```{reference}",
+            entry.name, entry.summary, entry.snippet
+        ));
+    }
+    if let Some(entry) = catalog::dot_modifier(token) {
+        return Some(format!(
+            "### `.{}`\n\n{}\n\n```nx\n{}\n```",
             entry.name, entry.summary, entry.snippet
         ));
     }
@@ -126,6 +135,15 @@ mod tests {
     }
 
     #[test]
+    fn hover_documents_dot_modifiers_and_doc_reference() {
+        let source = "app Demo {\n    body {\n        Pressable() { Text(\"x\") }.onPress { }\n    }\n}\n";
+        let doc = hover_at(source, 2, 38).expect("hover over onPress");
+        assert!(doc.contains("`.onPress`"));
+        let component = hover_at(source, 2, 10).expect("hover over Pressable");
+        assert!(component.contains("Reference: components.md#pressable"));
+    }
+
+    #[test]
     fn hover_counts_columns_in_utf16_code_units() {
         // "é" is 2 bytes but 1 UTF-16 unit: `Text` starts at byte 9 but
         // column 8. Byte-based math would land on the space and miss it.
@@ -148,7 +166,14 @@ mod tests {
         // `Text` follows non-ASCII text on the same line: it starts at byte
         // 14 but UTF-16 column 13 and is 4 units wide.
         let source = "state café = Text\n";
-        let hover = get_hover(source, Position { line: 0, character: 14 }).expect("hover");
+        let hover = get_hover(
+            source,
+            Position {
+                line: 0,
+                character: 14,
+            },
+        )
+        .expect("hover");
         let range = hover.range.expect("range");
         assert_eq!((range.start.line, range.start.character), (0, 13));
         assert_eq!((range.end.line, range.end.character), (0, 17));
