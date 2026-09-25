@@ -110,7 +110,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
             || module.on_background.is_some(),
     }));
     out.push_str("// nexa-unit:types\n");
-    if module_uses_result(module) {
+    if features.uses_result {
         out.push_str(
             r#"public sealed class NexaResult<out T, out E> {
     public data class Success<out T>(val value: T) : NexaResult<T, Nothing>()
@@ -286,39 +286,6 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
     out.push_str("// nexa-unit:functions\n");
     functions::render(module, &mut out);
     out
-}
-
-fn type_has_result(ty: &nexa_ir::Type) -> bool {
-    match ty {
-        nexa_ir::Type::Result(_, _) => true,
-        nexa_ir::Type::Optional(inner)
-        | nexa_ir::Type::Array(inner)
-        | nexa_ir::Type::Set(inner) => type_has_result(inner),
-        nexa_ir::Type::Map(k, v) | nexa_ir::Type::Pair(k, v) => {
-            type_has_result(k) || type_has_result(v)
-        }
-        nexa_ir::Type::Triple(a, b, c) => {
-            type_has_result(a) || type_has_result(b) || type_has_result(c)
-        }
-        nexa_ir::Type::Struct { fields, .. } => fields.iter().any(|(_, f)| type_has_result(f)),
-        _ => false,
-    }
-}
-
-fn module_uses_result(module: &Module) -> bool {
-    module.functions.iter().any(|f| {
-        type_has_result(&f.return_type)
-            || f.parameters.iter().any(|p| type_has_result(&p.ty))
-            || f.locals.iter().any(|l| type_has_result(&l.ty))
-    }) || module.states.iter().any(|s| type_has_result(&s.ty))
-        || module
-            .structs
-            .iter()
-            .any(|s| s.fields.iter().any(|field| type_has_result(&field.ty)))
-        || module.components.iter().any(|c| {
-            c.parameters.iter().any(|p| type_has_result(&p.ty))
-                || c.states.iter().any(|s| type_has_result(&s.ty))
-        })
 }
 
 #[cfg(test)]
@@ -600,5 +567,78 @@ mod tests {
         assert!(kotlin.contains("NexaResult<Int, NexaAppError>"));
         assert!(kotlin.contains("NexaResult.Success(42)"));
         assert!(kotlin.contains("nexa_fn_fetchCode().getOrThrow()"));
+    }
+
+    #[test]
+    fn screen_result_state_emits_shared_result_definition() {
+        // A screen-local `Result` state renders `NexaResult<…>` in the screen
+        // composable, so the shared sealed class must be emitted even though
+        // no function, app state, struct, or component mentions `Result`.
+        let err_type = Type::Enum("AppError".to_owned());
+        let result_ty = Type::Result(
+            Box::new(Type::Numeric(NumericType::Int32)),
+            Box::new(err_type.clone()),
+        );
+        let module = Module {
+            app_name: "ScreenResultApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: vec![nexa_ir::EnumDecl {
+                name: "AppError".to_owned(),
+                cases: vec!["NotFound".to_owned()],
+            }],
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: vec![Screen {
+                id: ScreenId(0),
+                name: "Main".to_owned(),
+                parameters: Vec::new(),
+                states: vec![State {
+                    name: "loadResult".to_owned(),
+                    ty: result_ty,
+                    initial: Expr::ResultOk {
+                        value: Box::new(Expr::Number {
+                            raw: "0".to_owned(),
+                            ty: NumericType::Int32,
+                        }),
+                        value_type: Type::Numeric(NumericType::Int32),
+                        error_type: err_type,
+                    },
+                    mutable: false,
+                }],
+                body: vec![Node::Text {
+                    value: Expr::String("Hello".to_owned()),
+                    style: TextStyle::default(),
+                }],
+                status_bar: None,
+                on_appear: None,
+                on_appear_async: false,
+                on_disappear: None,
+            }],
+            components: Vec::new(),
+            body: vec![Node::NavigationStack {
+                root: ScreenId(0),
+                arguments: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        let state_name = nexa_codegen::names::state_name("loadResult");
+        assert!(
+            kotlin.contains("public sealed class NexaResult<out T, out E> {"),
+            "screen-local Result state must pull in the shared definition"
+        );
+        assert!(kotlin.contains(&format!(
+            "val {state_name}: NexaResult<Int, NexaAppError> = NexaResult.Success(0)"
+        )));
     }
 }

@@ -127,6 +127,7 @@ pub(crate) struct Features {
     pub(crate) uses_mutable_float_state: bool,
     pub(crate) uses_mutable_double_state: bool,
     pub(crate) uses_mutable_generic_state: bool,
+    pub(crate) uses_result: bool,
     component_theme: HashSet<String>,
     components_using_navigation: HashSet<String>,
     components_using_link: HashSet<String>,
@@ -363,6 +364,7 @@ impl Features {
         features.uses_path_api = capabilities.uses_path_api;
         features.uses_file_api = capabilities.uses_file_api;
         features.uses_file_async = capabilities.uses_file_async;
+        features.uses_result = capabilities.uses_result;
         features.uses_navigation_uri = module
             .screens
             .iter()
