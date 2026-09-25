@@ -147,6 +147,76 @@ fn lsp_provides_hover_documentation() {
 }
 
 #[test]
+fn lsp_rejects_unsupported_component_names() {
+    // Names with no parser production parse as custom component calls and
+    // must fail full compilation. Completions and hover never offer them
+    // (see the catalog tests); this proves offering them would be an error.
+    for name in [
+        "TextField",
+        "FastSectionedList",
+        "Spacer",
+        "Divider",
+        "VStack",
+        "HStack",
+        "ZStack",
+    ] {
+        let source = format!("app P {{\n    body {{\n        {name}()\n    }}\n}}\n");
+        let diagnostics = nexa_lsp::check_source(&source);
+        assert!(
+            !diagnostics.is_empty(),
+            "{name} should not compile cleanly"
+        );
+    }
+    // The supported spelling compiles cleanly.
+    let diagnostics = nexa_lsp::check_source(
+        "app P {\n    state name: String = \"\"\n    body {\n        TextInput(value: name, placeholder: \"Name\")\n    }\n}\n",
+    );
+    assert!(diagnostics.is_empty());
+}
+
+#[test]
+fn lsp_completion_response_matches_the_catalog() {
+    let mut server = LspServer::new();
+    server.open_or_change_document(
+        "file:///catalog.nx".to_string(),
+        "app P {\n    body {\n        \n    }\n}\n".to_string(),
+    );
+    let request = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(5)),
+        method: "textDocument/completion".to_string(),
+        params: Some(json!({
+            "textDocument": { "uri": "file:///catalog.nx" },
+            "position": { "line": 2, "character": 8 }
+        })),
+    };
+
+    let (response, _) = server.handle_request(request);
+    let result = response.expect("response should be returned").result.expect("result");
+    let completions = result.as_array().expect("completions is an array");
+    let labels: Vec<&str> = completions
+        .iter()
+        .filter_map(|c| c.get("label").and_then(|l| l.as_str()))
+        .collect();
+
+    for supported in ["Column", "TextInput", "FastList", "Pressable"] {
+        assert!(labels.contains(&supported), "{supported} should be offered");
+    }
+    assert!(!labels.contains(&"onPress"), "dot modifiers need member position");
+    for rejected in [
+        "TextField",
+        "FastSectionedList",
+        "Spacer",
+        "Divider",
+        "VStack",
+        "HStack",
+        "ZStack",
+    ] {
+        assert!(!labels.contains(&rejected), "{rejected} must not be offered");
+    }
+}
+
+#[test]
 fn lsp_extracts_document_symbols_hierarchy() {
     let mut server = LspServer::new();
     let source = r#"

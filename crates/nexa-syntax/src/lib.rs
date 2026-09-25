@@ -8,6 +8,7 @@
 pub mod ast;
 mod lexer;
 mod parser;
+pub mod catalog;
 
 use nexa_diagnostics::CompileError;
 

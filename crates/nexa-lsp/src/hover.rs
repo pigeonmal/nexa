@@ -1,95 +1,165 @@
-use crate::protocol::{Hover, MarkupContent, Position};
+use nexa_syntax::catalog;
+
+use crate::line_index::LineIndex;
+use crate::protocol::{Hover, MarkupContent, Position, Range};
 
 /// Returns hover documentation for the token under the cursor.
+///
+/// The cursor column is interpreted as UTF-16 code units per the LSP
+/// contract, converted to a byte offset through [`LineIndex`] so non-ASCII
+/// text selects the correct token and never slices at a non-character
+/// boundary. Documentation comes from the shared language catalog, so hover
+/// can only describe names the parser accepts.
 pub fn get_hover(source: &str, position: Position) -> Option<Hover> {
-    let word = extract_word_at_position(source, position)?;
-    let doc = hover_documentation(&word)?;
-
+    let index = LineIndex::new(source);
+    let (word, range) = word_at_position(source, &index, position)?;
+    let value = hover_documentation(&word)?;
     Some(Hover {
         contents: MarkupContent {
             kind: "markdown".to_string(),
-            value: doc,
+            value,
         },
-        range: None,
+        range: Some(range),
     })
 }
 
-fn extract_word_at_position(source: &str, position: Position) -> Option<String> {
-    let line = source.lines().nth(position.line as usize)?;
-    let char_idx = position.character as usize;
-    if char_idx > line.len() {
+/// Extracts the identifier under the cursor and its LSP range.
+fn word_at_position(
+    source: &str,
+    index: &LineIndex,
+    position: Position,
+) -> Option<(String, Range)> {
+    let cursor = index.to_offset(source, position)?;
+    let line_start = source[..cursor.min(source.len())]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let line_end = source[line_start..]
+        .find('\n')
+        .map(|index| line_start + index)
+        .unwrap_or(source.len());
+    let line = &source[line_start..line_end];
+    let relative = cursor - line_start;
+    if relative > line.len() {
         return None;
     }
 
-    let bytes = line.as_bytes();
-    let mut start = char_idx;
-    while start > 0 && is_ident_char(bytes[start - 1] as char) {
-        start -= 1;
+    let mut start = relative;
+    while start > 0 {
+        let ch = line[..start].chars().next_back()?;
+        if !is_ident_char(ch) {
+            break;
+        }
+        start -= ch.len_utf8();
     }
-
-    let mut end = char_idx;
-    while end < bytes.len() && is_ident_char(bytes[end] as char) {
-        end += 1;
+    let mut end = relative;
+    // A cursor between characters belongs to the token on either side; when
+    // it splits a word character pair the forward scan finds the token.
+    while end < line.len() {
+        let Some(ch) = line[end..].chars().next() else {
+            break;
+        };
+        if !is_ident_char(ch) {
+            break;
+        }
+        end += ch.len_utf8();
     }
-
     if start == end {
-        None
-    } else {
-        Some(line[start..end].to_string())
+        return None;
     }
+    let mut word = line[start..end].to_string();
+    // An optional-chaining `?` suffix is not part of the documented name.
+    while word.ends_with('?') {
+        word.pop();
+        end -= 1;
+    }
+    if word.is_empty() {
+        return None;
+    }
+    let range = Range {
+        start: index.to_position(source, line_start + start),
+        end: index.to_position(source, line_start + end),
+    };
+    Some((word, range))
 }
 
-fn is_ident_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_' || c == '?'
+fn is_ident_char(ch: char) -> bool {
+    ch.is_alphanumeric() || ch == '_'
 }
 
 fn hover_documentation(token: &str) -> Option<String> {
-    match token {
-        "Column" | "VStack" => Some(
-            "### `Column`\n\nVertical stack container that lays out children in a single column.\n\n```nx\nColumn(spacing: 8) {\n    Text(\"Top\")\n    Text(\"Bottom\")\n}\n```\n\n**Native Mapping:**\n- iOS: `SwiftUI.VStack`\n- Android: `androidx.compose.foundation.layout.Column`".to_string(),
-        ),
-        "Row" | "HStack" => Some(
-            "### `Row`\n\nHorizontal stack container that lays out children in a single row.\n\n```nx\nRow(spacing: 8) {\n    Text(\"Left\")\n    Text(\"Right\")\n}\n```\n\n**Native Mapping:**\n- iOS: `SwiftUI.HStack`\n- Android: `androidx.compose.foundation.layout.Row`".to_string(),
-        ),
-        "Stack" | "ZStack" => Some(
-            "### `Stack`\n\nOverlay stack container that overlays its child views on top of each other.\n\n```nx\nStack {\n    Image(\"background\")\n    Text(\"Overlay Text\")\n}\n```\n\n**Native Mapping:**\n- iOS: `SwiftUI.ZStack`\n- Android: `androidx.compose.foundation.layout.Box`".to_string(),
-        ),
-        "FastList" => Some(
-            "### `FastList`\n\nUltra-high-performance virtualized list view. Emits specialized view types without `AnyView` type erasure on iOS and unboxed state flows on Android.\n\n```nx\nFastList(items) { item ->\n    Text(item.title)\n}\n```".to_string(),
-        ),
-        "Text" => Some(
-            "### `Text`\n\nRenders a read-only text string.\n\n```nx\nText(\"Hello, Nexa!\")\n    .fontSize(18)\n    .fontWeight(bold)\n```".to_string(),
-        ),
-        "Button" => Some(
-            "### `Button`\n\nStandard clickable push button with declarative action closure.\n\n```nx\nButton(\"Submit\") {\n    count = count + 1\n}\n```".to_string(),
-        ),
-        "TextField" => Some(
-            "### `TextField`\n\nEditable single-line text input bound to reactive state.\n\n```nx\nTextField(text: username, placeholder: \"Enter username\")\n```".to_string(),
-        ),
-        "Result" => Some(
-            "### `Result<T, E>`\n\nZero-overhead error handling type representing either success (`Ok(T)`) or failure (`Err(E)`).\n\nUse the postfix `?` operator to propagate errors upwards seamlessly.\n\n```nx\nfn load_user() -> Result<User, AppError> {\n    let user = fetch_user()?;\n    return Ok(user);\n}\n```".to_string(),
-        ),
-        "Ok" => Some(
-            "### `Ok(value)`\n\nConstructs a successful `Result<T, E>` variant containing `value`.".to_string(),
-        ),
-        "Err" => Some(
-            "### `Err(error)`\n\nConstructs an error `Result<T, E>` variant containing `error`.".to_string(),
-        ),
-        "state" => Some(
-            "### `state` Keyword\n\nDeclares reactive mutable view state. When changed, only affected view leaves recompose.\n\n```nx\nstate count = 0\nstate is_loading: Bool = false\n```".to_string(),
-        ),
-        "app" => Some(
-            "### `app` Keyword\n\nDeclares the root application entry point.\n\n```nx\napp MyApp {\n    body {\n        Text(\"Welcome\")\n    }\n}\n```".to_string(),
-        ),
-        "screen" => Some(
-            "### `screen` Keyword\n\nDeclares a navigable screen route with independent state and navigation bar options.".to_string(),
-        ),
-        "component" => Some(
-            "### `component` Keyword\n\nDeclares a reusable custom UI component with typed input parameters and content slots.".to_string(),
-        ),
-        "plugin" => Some(
-            "### `plugin` Keyword\n\nImports a typed native plugin or pure Nexa package contract.\n\n```nx\nplugin \"./plugins/video\" as Video\n```".to_string(),
-        ),
-        _ => None,
+    if let Some(entry) = catalog::component(token) {
+        return Some(format!(
+            "### `{}`\n\n{}\n\n```nx\n{}\n```",
+            entry.name, entry.summary, entry.snippet
+        ));
+    }
+    if let Some(entry) = catalog::keyword(token) {
+        return Some(format!("### `{}` keyword\n\n{}", entry.name, entry.summary));
+    }
+    if let Some(entry) = catalog::builtin_type(token) {
+        return Some(format!("### `{}`\n\n{}", entry.name, entry.summary));
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_hover;
+    use crate::protocol::Position;
+
+    fn hover_at(source: &str, line: u32, character: u32) -> Option<String> {
+        get_hover(source, Position { line, character }).map(|hover| hover.contents.value)
+    }
+
+    #[test]
+    fn hover_documents_catalog_components() {
+        let source = "app Demo {\n    body {\n        FastList(count: 3) { index in Text(\"x\") }\n    }\n}\n";
+        let doc = hover_at(source, 2, 10).expect("hover over FastList");
+        assert!(doc.contains("FastList"));
+    }
+
+    #[test]
+    fn hover_rejects_unsupported_names() {
+        let source = "app Demo {\n    body {\n        TextField()\n    }\n}\n";
+        assert!(hover_at(source, 2, 10).is_none());
+    }
+
+    #[test]
+    fn hover_counts_columns_in_utf16_code_units() {
+        // "é" is 2 bytes but 1 UTF-16 unit: `Text` starts at byte 9 but
+        // column 8. Byte-based math would land on the space and miss it.
+        let source = "// café Text\n";
+        let doc = hover_at(source, 0, 8).expect("hover over Text");
+        assert!(doc.contains("### `Text`"));
+    }
+
+    #[test]
+    fn hover_selects_token_after_emoji_on_earlier_text() {
+        // Line 0 holds an emoji (2 UTF-16 units, 4 bytes). Line 1 is ASCII;
+        // hovering "Text" must resolve through the line table, not byte math.
+        let source = "state icon = \"😀\"\n        Text(\"hi\")\n";
+        let doc = hover_at(source, 1, 10).expect("hover over Text");
+        assert!(doc.contains("### `Text`"));
+    }
+
+    #[test]
+    fn hover_returns_the_token_range_in_utf16() {
+        // `Text` follows non-ASCII text on the same line: it starts at byte
+        // 14 but UTF-16 column 13 and is 4 units wide.
+        let source = "state café = Text\n";
+        let hover = get_hover(source, Position { line: 0, character: 14 }).expect("hover");
+        let range = hover.range.expect("range");
+        assert_eq!((range.start.line, range.start.character), (0, 13));
+        assert_eq!((range.end.line, range.end.character), (0, 17));
+    }
+
+    #[test]
+    fn hover_mid_token_and_boundaries_do_not_panic() {
+        let source = "héllo wörld\n";
+        for character in 0..12 {
+            let _ = hover_at(source, 0, character);
+        }
+        assert!(hover_at(source, 9, 0).is_none());
     }
 }

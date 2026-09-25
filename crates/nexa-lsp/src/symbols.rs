@@ -1,4 +1,4 @@
-use crate::diagnostics::span_to_range;
+use crate::line_index::span_to_range;
 use crate::protocol::{DocumentSymbol, SymbolKind};
 
 /// Extracts hierarchical document symbols for the outline view.
@@ -11,7 +11,7 @@ pub fn get_document_symbols(source: &str) -> Vec<DocumentSymbol> {
 
     // 1. Top-level components
     for comp in &program.components {
-        let range = span_to_range(&comp.span);
+        let range = span_to_range(&comp.span, source);
         symbols.push(DocumentSymbol {
             name: comp.name.clone(),
             detail: Some("component".to_string()),
@@ -24,7 +24,7 @@ pub fn get_document_symbols(source: &str) -> Vec<DocumentSymbol> {
 
     // 2. Top-level structs
     for st in &program.structs {
-        let range = span_to_range(&st.span);
+        let range = span_to_range(&st.span, source);
         symbols.push(DocumentSymbol {
             name: st.name.clone(),
             detail: Some("struct".to_string()),
@@ -37,7 +37,7 @@ pub fn get_document_symbols(source: &str) -> Vec<DocumentSymbol> {
 
     // 3. Top-level functions
     for func in &program.functions {
-        let range = span_to_range(&func.span);
+        let range = span_to_range(&func.span, source);
         symbols.push(DocumentSymbol {
             name: func.name.clone(),
             detail: Some(format!("fn {}", func.name)),
@@ -53,7 +53,7 @@ pub fn get_document_symbols(source: &str) -> Vec<DocumentSymbol> {
         let mut app_children = Vec::new();
 
         for state in &app.states {
-            let range = span_to_range(&state.span);
+            let range = span_to_range(&state.span, source);
             app_children.push(DocumentSymbol {
                 name: state.name.clone(),
                 detail: Some("state".to_string()),
@@ -65,7 +65,7 @@ pub fn get_document_symbols(source: &str) -> Vec<DocumentSymbol> {
         }
 
         for func in &app.functions {
-            let range = span_to_range(&func.span);
+            let range = span_to_range(&func.span, source);
             app_children.push(DocumentSymbol {
                 name: func.name.clone(),
                 detail: Some(format!("fn {}", func.name)),
@@ -77,10 +77,10 @@ pub fn get_document_symbols(source: &str) -> Vec<DocumentSymbol> {
         }
 
         for en in &app.enums {
-            let range = span_to_range(&en.span);
+            let range = span_to_range(&en.span, source);
             let mut enum_children = Vec::new();
             for case in &en.cases {
-                let c_range = span_to_range(&case.span);
+                let c_range = span_to_range(&case.span, source);
                 enum_children.push(DocumentSymbol {
                     name: case.name.clone(),
                     detail: Some("case".to_string()),
@@ -105,7 +105,7 @@ pub fn get_document_symbols(source: &str) -> Vec<DocumentSymbol> {
         }
 
         for st in &app.structs {
-            let range = span_to_range(&st.span);
+            let range = span_to_range(&st.span, source);
             app_children.push(DocumentSymbol {
                 name: st.name.clone(),
                 detail: Some("struct".to_string()),
@@ -117,7 +117,7 @@ pub fn get_document_symbols(source: &str) -> Vec<DocumentSymbol> {
         }
 
         for screen in &app.screens {
-            let range = span_to_range(&screen.span);
+            let range = span_to_range(&screen.span, source);
             app_children.push(DocumentSymbol {
                 name: screen.name.clone(),
                 detail: Some("screen".to_string()),
@@ -128,7 +128,7 @@ pub fn get_document_symbols(source: &str) -> Vec<DocumentSymbol> {
             });
         }
 
-        let app_range = span_to_range(&app.span);
+        let app_range = span_to_range(&app.span, source);
         symbols.push(DocumentSymbol {
             name: app.name.clone(),
             detail: Some("app".to_string()),
