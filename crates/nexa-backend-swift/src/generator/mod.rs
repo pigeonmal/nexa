@@ -1,4 +1,4 @@
-use nexa_codegen::SourceWriter;
+use nexa_codegen::{GeneratedSources, SourceUnit, SourceUnits, SourceWriter};
 use nexa_ir::{LayoutKind, Module, State, ViewStyle};
 
 mod api;
@@ -14,191 +14,236 @@ pub(super) use components::{
 };
 pub(super) use engine::{colors, expressions, features, functions, imports, structs, utils};
 
+/// Generates the release source as one concatenated string.
+///
+/// Prefer [`generate_units`]: the CLI writes each unit as its own file, and
+/// this form exists for callers that only inspect the text.
 pub(super) fn generate(module: &Module) -> String {
+    join_units(generate_units(module).into_files(&[], ""))
+}
+
+/// Generates the release source as separate compile units.
+///
+/// Returns the pieces rather than finished files so the caller can merge extra
+/// imports -- plugin bindings add imports that every file must see -- before
+/// the files are assembled.
+pub(super) fn generate_units(module: &Module) -> GeneratedSources {
     let features = features::Features::analyze(module);
     generate_with_analysis(module, features)
 }
 
-fn generate_with_analysis(module: &Module, features: features::Features) -> String {
+fn generate_with_analysis(module: &Module, features: features::Features) -> GeneratedSources {
     let app_focus_bindings = features.facts.focus_bindings.app.clone();
     let mut all_focus_bindings = app_focus_bindings.clone();
     for bindings in features.facts.focus_bindings.screens.values() {
         all_focus_bindings.extend(bindings.iter().cloned());
     }
     let uses_fast_list = features.uses_fast_list;
-    let mut out = SourceWriter::new();
-    out.push_str(&imports::render(&features));
+    // Each unit becomes its own file, so every file needs the full import
+    // block and the shared native-object storage helper.
+    let mut preamble = String::new();
     if module_has_native_object_state(module) {
-        out.push_str(
+        preamble.push_str(
             "@MainActor\nprivate final class NexaNativeObjectStorage<Value>: ObservableObject {\n    @Published var value: Value\n\n    init(makeValue: () -> Value) {\n        value = makeValue()\n    }\n}\n\n",
         );
     }
-    out.push_str("// nexa-unit:types\n");
-    for declaration in &module.enums {
-        out.push_str(&format!(
-            "private enum {}: String, Error {{\n",
-            nexa_codegen::names::enum_name(&declaration.name)
-        ));
-        for case in &declaration.cases {
-            out.push_str(&format!("    case {case}\n"));
-        }
-        out.push_str("}\n\n");
-    }
-    structs::render(module, &mut out);
-    if !module.screens.is_empty() {
-        out.push_str("private enum NexaNavigationRoute: Hashable {\n");
-        for screen in &module.screens {
-            let case_name = nexa_codegen::names::navigation_case_name(screen.id);
-            let mut payload_types = vec!["UUID".to_owned()];
-            payload_types.extend(
-                screen
-                    .parameters
-                    .iter()
-                    .map(|parameter| swift_type(&parameter.ty)),
-            );
+    let mut units = SourceUnits::new("swift");
+    units.set_imports(&imports::render(&features));
+    units.set_preamble(&preamble);
+    units.write("types", |mut out| {
+        for declaration in &module.enums {
             out.push_str(&format!(
-                "    case {case_name}({})\n",
-                payload_types.join(", ")
+                "private enum {}: String, Error {{\n",
+                nexa_codegen::names::enum_name(&declaration.name)
+            ));
+            for case in &declaration.cases {
+                out.push_str(&format!("    case {case}\n"));
+            }
+            out.push_str("}\n\n");
+        }
+        structs::render(module, &mut out);
+        if !module.screens.is_empty() {
+            out.push_str("private enum NexaNavigationRoute: Hashable {\n");
+            for screen in &module.screens {
+                let case_name = nexa_codegen::names::navigation_case_name(screen.id);
+                let mut payload_types = vec!["UUID".to_owned()];
+                payload_types.extend(
+                    screen
+                        .parameters
+                        .iter()
+                        .map(|parameter| swift_type(&parameter.ty)),
+                );
+                out.push_str(&format!(
+                    "    case {case_name}({})\n",
+                    payload_types.join(", ")
+                ));
+            }
+            out.push_str("}\n\n");
+        }
+    });
+
+    units.write("app", |mut out| {
+        out.push_str(&format!(
+            "public struct {}: View {{\n",
+            nexa_codegen::names::screen_name(&module.app_name)
+        ));
+        if !module.screens.is_empty() {
+            out.push_str("    private static let __nexaRootScreenIdentity = UUID()\n");
+            out.push_str("    @State private var __nexaNavigationPath = NavigationPath()\n");
+        }
+        for state in &module.states {
+            if state.is_native_class_constructor_binding() {
+                render_native_object_state(state, 1, &mut out);
+                continue;
+            }
+            if (!state.mutable && !state.is_native_class_instance_binding())
+                || all_focus_bindings.contains(&state.name)
+            {
+                continue;
+            }
+            let name = nexa_codegen::names::state_name(&state.name);
+            out.push_str(&format!(
+                "    @State private var {name}: {} = {}\n",
+                swift_type(&state.ty),
+                expressions::expression(&state.initial)
             ));
         }
-        out.push_str("}\n\n");
-    }
-    out.push_str("\n// nexa-unit:app\n");
-    out.push_str(&format!(
-        "public struct {}: View {{\n",
-        nexa_codegen::names::screen_name(&module.app_name)
-    ));
-    if !module.screens.is_empty() {
-        out.push_str("    private static let __nexaRootScreenIdentity = UUID()\n");
-        out.push_str("    @State private var __nexaNavigationPath = NavigationPath()\n");
-    }
-    for state in &module.states {
-        if state.is_native_class_constructor_binding() {
-            render_native_object_state(state, 1, &mut out);
-            continue;
+        for binding in &app_focus_bindings {
+            out.push_str(&format!(
+                "    @FocusState private var {}: Bool\n",
+                nexa_codegen::names::state_name(binding),
+            ));
         }
-        if (!state.mutable && !state.is_native_class_instance_binding())
-            || all_focus_bindings.contains(&state.name)
+        if !module.states.is_empty() || !app_focus_bindings.is_empty() {
+            out.push('\n');
+        }
+        if features.app_uses_adaptive_color {
+            out.push_str("    @Environment(\\.colorScheme) private var nexaColorScheme\n");
+        }
+        if features.app_uses_size_class {
+            out.push_str(
+                "    @Environment(\\.horizontalSizeClass) private var nexaHorizontalSizeClass\n",
+            );
+            out.push_str(
+                "    @Environment(\\.verticalSizeClass) private var nexaVerticalSizeClass\n",
+            );
+        }
+        if module.on_active.is_some()
+            || module.on_inactive.is_some()
+            || module.on_background.is_some()
         {
-            continue;
+            out.push_str("    @Environment(\\.scenePhase) private var nexaScenePhase\n");
         }
-        let name = nexa_codegen::names::state_name(&state.name);
-        out.push_str(&format!(
-            "    @State private var {name}: {} = {}\n",
-            swift_type(&state.ty),
-            expressions::expression(&state.initial)
-        ));
-    }
-    for binding in &app_focus_bindings {
-        out.push_str(&format!(
-            "    @FocusState private var {}: Bool\n",
-            nexa_codegen::names::state_name(binding),
-        ));
-    }
-    if !module.states.is_empty() || !app_focus_bindings.is_empty() {
-        out.push('\n');
-    }
-    if features.app_uses_adaptive_color {
-        out.push_str("    @Environment(\\.colorScheme) private var nexaColorScheme\n");
-    }
-    if features.app_uses_size_class {
-        out.push_str(
-            "    @Environment(\\.horizontalSizeClass) private var nexaHorizontalSizeClass\n",
-        );
-        out.push_str("    @Environment(\\.verticalSizeClass) private var nexaVerticalSizeClass\n");
-    }
-    if module.on_active.is_some() || module.on_inactive.is_some() || module.on_background.is_some()
-    {
-        out.push_str("    @Environment(\\.scenePhase) private var nexaScenePhase\n");
-    }
-    if features.uses_navigation_back {
-        out.push_str("    @Environment(\\.dismiss) private var nexaDismiss\n");
-    }
-    if features.app_uses_adaptive_color
-        || features.app_uses_size_class
-        || features.uses_navigation_back
-        || module.on_active.is_some()
-        || module.on_inactive.is_some()
-        || module.on_background.is_some()
-    {
-        out.push('\n');
-    }
-    out.push_str("    public init() {}\n\n    public var body: some View {\n");
-    if module.screens.is_empty() {
-        render_immutable_state(&module.states, 2, &mut out);
-    }
-    if module.body.len() == 1 {
-        component_renderer::render_node(&module.body[0], module, &features, 2, &mut out);
-    } else {
-        layout::render_layout(
-            LayoutKind::Column,
-            0.0,
-            &ViewStyle::default(),
-            &module.body,
-            module,
-            &features,
+        if features.uses_navigation_back {
+            out.push_str("    @Environment(\\.dismiss) private var nexaDismiss\n");
+        }
+        if features.app_uses_adaptive_color
+            || features.app_uses_size_class
+            || features.uses_navigation_back
+            || module.on_active.is_some()
+            || module.on_inactive.is_some()
+            || module.on_background.is_some()
+        {
+            out.push('\n');
+        }
+        out.push_str("    public init() {}\n\n    public var body: some View {\n");
+        if module.screens.is_empty() {
+            render_immutable_state(&module.states, 2, &mut out);
+        }
+        if module.body.len() == 1 {
+            component_renderer::render_node(&module.body[0], module, &features, 2, &mut out);
+        } else {
+            layout::render_layout(
+                LayoutKind::Column,
+                0.0,
+                &ViewStyle::default(),
+                &module.body,
+                module,
+                &features,
+                2,
+                &mut out,
+            );
+        }
+        render_direction_modifier(module.direction, 2, &mut out);
+        render_on_appear_modifier(
+            module.on_appear.as_deref(),
+            module.on_appear_async,
             2,
             &mut out,
         );
-    }
-    render_direction_modifier(module.direction, 2, &mut out);
-    render_on_appear_modifier(
-        module.on_appear.as_deref(),
-        module.on_appear_async,
-        2,
-        &mut out,
-    );
-    render_on_disappear_modifier(module.on_disappear.as_deref(), 2, &mut out);
-    render_scene_phase_modifier(module, 2, &mut out);
-    render_status_bar_modifiers(module.status_bar, 2, &mut out);
-    out.push_str("\n    }\n");
-    if !module.screens.is_empty() {
-        for screen in &module.screens {
-            navigation::render_screen_view(screen, module, &features, &mut out);
+        render_on_disappear_modifier(module.on_disappear.as_deref(), 2, &mut out);
+        render_scene_phase_modifier(module, 2, &mut out);
+        render_status_bar_modifiers(module.status_bar, 2, &mut out);
+        out.push_str("\n    }\n");
+        if !module.screens.is_empty() {
+            for screen in &module.screens {
+                navigation::render_screen_view(screen, module, &features, &mut out);
+            }
         }
-    }
-    out.push_str("}\n");
-    out.push_str("\n// nexa-unit:components\n");
-    custom_components::render(module, &features, &mut out);
+        out.push_str("}\n");
+    });
+
+    units.write("components", |out| {
+        custom_components::render(module, &features, out);
+    });
     if uses_fast_list {
-        out.push_str("\n// nexa-unit:list-runtime\n");
-        list_runtime::render(
-            &mut out,
-            features.uses_sticky_header,
-            features.uses_scroll_events,
-            features.uses_vertical_list,
-            features.uses_horizontal_list,
-            features.uses_grid_list,
-            features.uses_sectioned_list,
-        );
+        units.write("list-runtime", |out| {
+            list_runtime::render(
+                out,
+                features.uses_sticky_header,
+                features.uses_scroll_events,
+                features.uses_vertical_list,
+                features.uses_horizontal_list,
+                features.uses_grid_list,
+                features.uses_sectioned_list,
+            );
+        });
     }
     if features.uses_native_library {
-        out.push_str("\n// nexa-unit:native-library\n");
-        network::render(
-            &mut out,
-            features.uses_network_api,
-            features.uses_remote_image,
-            features.uses_path_api,
-            features.uses_file_api,
-            features.uses_file_async,
-        );
+        units.write("native-library", |out| {
+            network::render(
+                out,
+                features.uses_network_api,
+                features.uses_remote_image,
+                features.uses_path_api,
+                features.uses_file_api,
+                features.uses_file_async,
+            );
+        });
     }
     if features.uses_permissions {
-        out.push_str("\n// nexa-unit:permissions\n");
-        permissions::render(
-            &mut out,
-            features.uses_permission_request,
-            &features.used_permissions,
-            features.dynamic_permission,
-            features.expose_permissions_to_dev_runtime,
-        );
+        units.write("permissions", |out| {
+            permissions::render(
+                out,
+                features.uses_permission_request,
+                &features.used_permissions,
+                features.dynamic_permission,
+                features.expose_permissions_to_dev_runtime,
+            );
+        });
     }
-    out.push_str("\n// nexa-unit:functions\n");
-    functions::render(module, &mut out);
-    out.finish()
+    units.write("functions", |out| {
+        functions::render(module, out);
+    });
+    units.finish()
 }
 
+/// Concatenates units into a single source string.
+fn join_units(units: Vec<SourceUnit>) -> String {
+    let mut source = String::new();
+    for unit in units {
+        source.push_str(&unit.contents);
+    }
+    source
+}
+
+/// Generates the development host source as one concatenated string.
 pub(super) fn generate_for_dev(module: &Module) -> String {
+    join_units(generate_for_dev_units(module).into_files(&[], ""))
+}
+
+/// Generates the development host source as separate compile units.
+pub(super) fn generate_for_dev_units(module: &Module) -> GeneratedSources {
     let mut features = features::Features::analyze(module);
     // Calls to Nexa's async native APIs can appear after the dev host has been
     // built. Keep the same URLSession adapter as release output in that host.
@@ -645,8 +690,10 @@ mod tests {
 
         let swift = generate(&module);
         let state_name = nexa_codegen::names::state_name("player");
+        // Top-level `private` is lowered because each unit compiles as its own
+        // file, so the screen declaration is internal here.
         let screen_declaration = swift
-            .find("private struct NexaScreen0: View")
+            .find("struct NexaScreen0: View")
             .expect("screen state must be owned by a destination view");
         let app_source = &swift[..screen_declaration];
         let screen_source = &swift[screen_declaration..];
@@ -787,7 +834,7 @@ mod tests {
         };
 
         let swift = generate(&module);
-        assert!(swift.contains("private enum NexaAppError: String, Error {"));
+        assert!(swift.contains("enum NexaAppError: String, Error {"));
         assert!(swift.contains("Result<Int32, NexaAppError>"));
         assert!(swift.contains(".success(42)"));
         assert!(swift.contains("try nexa_fn_fetchCode().get()"));

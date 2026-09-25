@@ -1,4 +1,4 @@
-use nexa_codegen::SourceWriter;
+use nexa_codegen::{GeneratedSources, SourceUnits};
 use nexa_ir::{LayoutKind, Module, ViewStyle};
 
 mod api;
@@ -37,23 +37,32 @@ fn project_features_from_analysis(
     }
 }
 
+/// Generates the release source as one concatenated string.
 pub(super) fn generate(module: &Module) -> String {
     let features = features::Features::analyze(module);
-    generate_with_analysis(module, &features)
+    join_units(generate_units(module, &features).into_files(&[], ""))
 }
 
-pub(super) fn generate_with_project_features(
+/// Generates the release source as separate compile units.
+///
+/// Returns the pieces rather than finished files so the caller can place the
+/// `package` declaration and plugin imports ahead of the import block.
+pub(super) fn generate_units(module: &Module, features: &features::Features) -> GeneratedSources {
+    generate_with_analysis(module, features)
+}
+
+pub(super) fn generate_units_with_project_features(
     module: &Module,
-) -> (String, crate::KotlinProjectFeatures) {
+) -> (GeneratedSources, crate::KotlinProjectFeatures) {
     let features = features::Features::analyze(module);
     let project_features = project_features_from_analysis(module, &features);
-    let generated = generate_with_analysis(module, &features);
+    let generated = generate_units(module, &features);
     (generated, project_features)
 }
 
-pub(super) fn generate_for_dev_with_project_features(
+pub(super) fn generate_for_dev_units_with_project_features(
     module: &Module,
-) -> (String, crate::KotlinProjectFeatures) {
+) -> (GeneratedSources, crate::KotlinProjectFeatures) {
     let mut features = features::Features::analyze(module);
     // DevRuntime accepts hot-reloaded trees with remote images even when the
     // initial source has none, so the development host always carries the same
@@ -86,14 +95,22 @@ pub(super) fn generate_for_dev_with_project_features(
     features.expose_permissions_to_dev_runtime = true;
     features.uses_native_library = true;
     let project_features = project_features_from_analysis(module, &features);
-    let generated = generate_with_analysis(module, &features);
+    let generated = generate_units(module, &features);
     (generated, project_features)
 }
 
-fn generate_with_analysis(module: &Module, features: &features::Features) -> String {
+/// Concatenates units into a single source string.
+fn join_units(units: Vec<nexa_codegen::SourceUnit>) -> String {
+    let mut source = String::new();
+    for unit in units {
+        source.push_str(&unit.contents);
+    }
+    source
+}
+
+fn generate_with_analysis(module: &Module, features: &features::Features) -> GeneratedSources {
     let focus_bindings = features.facts.focus_bindings.app.clone();
-    let mut out = SourceWriter::new();
-    out.push_str(&engine::imports::render(engine::imports::ImportContext {
+    let imports = engine::imports::render(engine::imports::ImportContext {
         features: &features,
         has_navigation: !module.screens.is_empty(),
         has_direction: module.direction.is_some(),
@@ -110,184 +127,196 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
         has_lifecycle_events: module.on_active.is_some()
             || module.on_inactive.is_some()
             || module.on_background.is_some(),
-    }));
-    out.push_str("// nexa-unit:types\n");
-    if features.uses_result {
-        out.push_str(
-            r#"public sealed class NexaResult<out T, out E> {
-    public data class Success<out T>(val value: T) : NexaResult<T, Nothing>()
-    public data class Failure<out E>(val error: E) : NexaResult<Nothing, E>()
+    });
+    let mut units = SourceUnits::new("kt");
+    units.set_imports(&imports);
+    units.write("types", |mut out| {
+        if features.uses_result {
+            out.push_str(
+                r#"public sealed class NexaResult<out T, out E> {
+            public data class Success<out T>(val value: T) : NexaResult<T, Nothing>()
+            public data class Failure<out E>(val error: E) : NexaResult<Nothing, E>()
 
-    public val isSuccess: Boolean get() = this is Success
-    public val isFailure: Boolean get() = this is Failure
+            public val isSuccess: Boolean get() = this is Success
+            public val isFailure: Boolean get() = this is Failure
 
-    public fun getOrNull(): T? = when (this) {
-        is Success -> value
-        is Failure -> null
-    }
-
-    public fun errorOrNull(): E? = when (this) {
-        is Success -> null
-        is Failure -> error
-    }
-
-    public fun getOrThrow(): T = when (this) {
-        is Success -> value
-        is Failure -> throw RuntimeException("Unhandled NexaResult error: $error")
-    }
-}
-
-"#,
-        );
-    }
-    for declaration in &module.enums {
-        out.push_str(&format!(
-            "private enum class {} {{ {} }}\n\n",
-            nexa_codegen::names::enum_name(&declaration.name),
-            declaration.cases.join(", ")
-        ));
-    }
-    structs::render(module, &mut out);
-    out.push_str("// nexa-unit:app\n");
-    if features.uses_bottom_sheet {
-        out.push_str("@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)\n");
-    }
-    if features.app_uses_keyboard_interactive {
-        out.push_str("@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)\n");
-    }
-    if features.uses_sticky_header {
-        out.push_str("@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)\n");
-    }
-    out.push_str(&format!(
-        "@Composable\nfun {}() {{\n",
-        nexa_codegen::names::screen_name(&module.app_name)
-    ));
-    if features.uses_adaptive_color {
-        out.push_str("    val nexaIsDarkTheme = isSystemInDarkTheme()\n");
-    }
-    components::status_bar::render(module.status_bar, features.uses_status_bar, 1, &mut out);
-    if features.app_uses_link {
-        out.push_str("    val nexaLinkContext = LocalContext.current\n");
-    }
-    if features.uses_permission_request {
-        out.push_str(
-            "    val nexaPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->\n        NexaRuntime.dispatchPermissionResult(result)\n    }\n    NexaRuntime.bindPermissionLauncher(nexaPermissionLauncher)\n",
-        );
-    }
-    if features.uses_network_api || features.uses_path_api || features.uses_permissions {
-        out.push_str("    NexaRuntime.bind(LocalContext.current)\n");
-    }
-    if features.app_uses_haptic {
-        out.push_str("    val nexaHapticView = LocalView.current\n");
-    }
-    for state in &module.states {
-        let name = nexa_codegen::names::state_name(&state.name);
-        if state.mutable {
-            if state::is_mutable_collection(state) {
-                out.push_str(&format!(
-                    "    val {name} = remember {{ {} }}\n",
-                    state::kotlin_state_initializer(state)
-                ));
-            } else {
-                out.push_str(&format!(
-                    "    var {name} by remember {{ {} }}\n",
-                    state::kotlin_state_initializer(state)
-                ));
+            public fun getOrNull(): T? = when (this) {
+                is Success -> value
+                is Failure -> null
             }
-        } else if state.is_native_class_instance_binding() {
+
+            public fun errorOrNull(): E? = when (this) {
+                is Success -> null
+                is Failure -> error
+            }
+
+            public fun getOrThrow(): T = when (this) {
+                is Success -> value
+                is Failure -> throw RuntimeException("Unhandled NexaResult error: $error")
+            }
+        }
+
+        "#,
+            );
+        }
+        for declaration in &module.enums {
             out.push_str(&format!(
-                "    val {name}: {} = remember {{ {} }}\n",
-                kotlin_type(&state.ty),
-                expressions::expression(&state.initial)
-            ));
-        } else {
-            out.push_str(&format!(
-                "    val {name}: {} = {}\n",
-                kotlin_type(&state.ty),
-                expressions::expression(&state.initial)
+                "private enum class {} {{ {} }}\n\n",
+                nexa_codegen::names::enum_name(&declaration.name),
+                declaration.cases.join(", ")
             ));
         }
-    }
-    if !focus_bindings.is_empty() {
-        for binding in &focus_bindings {
+        structs::render(module, &mut out);
+    });
+
+    units.write("app", |mut out| {
+            if features.uses_bottom_sheet {
+                out.push_str("@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)\n");
+            }
+            if features.app_uses_keyboard_interactive {
+                out.push_str("@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)\n");
+            }
+            if features.uses_sticky_header {
+                out.push_str("@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)\n");
+            }
             out.push_str(&format!(
-                "    val {} = remember {{ FocusRequester() }}\n",
-                input::focus_requester_name(binding)
+                "@Composable\nfun {}() {{\n",
+                nexa_codegen::names::screen_name(&module.app_name)
             ));
-        }
-        for binding in &focus_bindings {
-            let state_name = nexa_codegen::names::state_name(binding);
-            let requester_name = input::focus_requester_name(binding);
-            out.push_str(&format!(
-                "    LaunchedEffect({state_name}) {{\n        if ({state_name}) {requester_name}.requestFocus() else {requester_name}.freeFocus()\n    }}\n"
-            ));
-        }
-    }
-    if !module.states.is_empty() {
-        out.push('\n');
-    }
-    let body_depth = components::direction::start(module.direction, &mut out);
-    components::lifecycle::render_on_appear(module.on_appear.as_deref(), body_depth, &mut out);
-    components::lifecycle::render_on_disappear(
-        module.on_disappear.as_deref(),
-        body_depth,
-        &mut out,
-    );
-    components::lifecycle::render_app(module, body_depth, &mut out);
-    if module.body.len() == 1 {
-        component_renderer::render_node(&module.body[0], module, &features, body_depth, &mut out);
-    } else {
-        layout::render_layout(
-            LayoutKind::Column,
-            0.0,
-            &ViewStyle::default(),
-            &module.body,
-            module,
-            &features,
-            body_depth,
-            &mut out,
-        );
-    }
-    components::direction::end(module.direction, &mut out);
-    out.push_str("\n}\n");
-    out.push_str("// nexa-unit:components\n");
-    custom_components::render(module, &features, &mut out);
+            if features.uses_adaptive_color {
+                out.push_str("    val nexaIsDarkTheme = isSystemInDarkTheme()\n");
+            }
+            components::status_bar::render(module.status_bar, features.uses_status_bar, 1, &mut out);
+            if features.app_uses_link {
+                out.push_str("    val nexaLinkContext = LocalContext.current\n");
+            }
+            if features.uses_permission_request {
+                out.push_str(
+                    "    val nexaPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->\n        NexaRuntime.dispatchPermissionResult(result)\n    }\n    NexaRuntime.bindPermissionLauncher(nexaPermissionLauncher)\n",
+                );
+            }
+            if features.uses_network_api || features.uses_path_api || features.uses_permissions {
+                out.push_str("    NexaRuntime.bind(LocalContext.current)\n");
+            }
+            if features.app_uses_haptic {
+                out.push_str("    val nexaHapticView = LocalView.current\n");
+            }
+            for state in &module.states {
+                let name = nexa_codegen::names::state_name(&state.name);
+                if state.mutable {
+                    if state::is_mutable_collection(state) {
+                        out.push_str(&format!(
+                            "    val {name} = remember {{ {} }}\n",
+                            state::kotlin_state_initializer(state)
+                        ));
+                    } else {
+                        out.push_str(&format!(
+                            "    var {name} by remember {{ {} }}\n",
+                            state::kotlin_state_initializer(state)
+                        ));
+                    }
+                } else if state.is_native_class_instance_binding() {
+                    out.push_str(&format!(
+                        "    val {name}: {} = remember {{ {} }}\n",
+                        kotlin_type(&state.ty),
+                        expressions::expression(&state.initial)
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "    val {name}: {} = {}\n",
+                        kotlin_type(&state.ty),
+                        expressions::expression(&state.initial)
+                    ));
+                }
+            }
+            if !focus_bindings.is_empty() {
+                for binding in &focus_bindings {
+                    out.push_str(&format!(
+                        "    val {} = remember {{ FocusRequester() }}\n",
+                        input::focus_requester_name(binding)
+                    ));
+                }
+                for binding in &focus_bindings {
+                    let state_name = nexa_codegen::names::state_name(binding);
+                    let requester_name = input::focus_requester_name(binding);
+                    out.push_str(&format!(
+                        "    LaunchedEffect({state_name}) {{\n        if ({state_name}) {requester_name}.requestFocus() else {requester_name}.freeFocus()\n    }}\n"
+                    ));
+                }
+            }
+            if !module.states.is_empty() {
+                out.push('\n');
+            }
+            let body_depth = components::direction::start(module.direction, &mut out);
+            components::lifecycle::render_on_appear(module.on_appear.as_deref(), body_depth, &mut out);
+            components::lifecycle::render_on_disappear(
+                module.on_disappear.as_deref(),
+                body_depth,
+                &mut out,
+            );
+            components::lifecycle::render_app(module, body_depth, &mut out);
+            if module.body.len() == 1 {
+                component_renderer::render_node(&module.body[0], module, &features, body_depth, &mut out);
+            } else {
+                layout::render_layout(
+                    LayoutKind::Column,
+                    0.0,
+                    &ViewStyle::default(),
+                    &module.body,
+                    module,
+                    &features,
+                    body_depth,
+                    &mut out,
+                );
+            }
+            components::direction::end(module.direction, &mut out);
+            out.push_str("\n}\n");
+    });
+
+    units.write("components", |out| {
+        custom_components::render(module, &features, out);
+    });
     if features.uses_network_api || features.uses_path_api || features.uses_permissions {
-        out.push_str("// nexa-unit:runtime\n");
-        runtime::render(&mut out, features.uses_permission_request);
+        units.write("runtime", |out| {
+            runtime::render(out, features.uses_permission_request);
+        });
     }
     if features.uses_native_library {
-        out.push_str("// nexa-unit:native-library\n");
-        network::render(
-            &mut out,
-            features.uses_network_api,
-            features.uses_remote_image,
-            features.uses_path_api,
-            features.uses_file_api,
-            features.uses_file_async,
-        );
+        units.write("native-library", |out| {
+            network::render(
+                out,
+                features.uses_network_api,
+                features.uses_remote_image,
+                features.uses_path_api,
+                features.uses_file_api,
+                features.uses_file_async,
+            );
+        });
     }
     if features.uses_asset
         || features.uses_tab_icon
         || features.uses_button_icon
         || features.uses_placeholder
     {
-        out.push_str("// nexa-unit:assets\n");
-        assets::render(&mut out);
+        units.write("assets", |out| {
+            assets::render(out);
+        });
     }
     if features.uses_permissions {
-        out.push_str("// nexa-unit:permissions\n");
-        permissions::render(
-            &mut out,
-            features.uses_permission_request,
-            &features.used_permissions,
-            features.dynamic_permission,
-            features.expose_permissions_to_dev_runtime,
-        );
+        units.write("permissions", |out| {
+            permissions::render(
+                out,
+                features.uses_permission_request,
+                &features.used_permissions,
+                features.dynamic_permission,
+                features.expose_permissions_to_dev_runtime,
+            );
+        });
     }
-    out.push_str("// nexa-unit:functions\n");
-    functions::render(module, &mut out);
-    out.finish()
+    units.write("functions", |out| {
+        functions::render(module, out);
+    });
+    units.finish()
 }
 
 #[cfg(test)]

@@ -119,6 +119,9 @@ pub(crate) fn render_virtualized_list(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    // Uniqueness seed for this list's generated state holders. It only has to
+    // be distinct within the file being written, and the writer's length is
+    // monotonic, so a buffer offset is a stable seed that needs no extra state.
     let list_id = out.len();
     let pieces = match plan {
         ListPlan::Sections {

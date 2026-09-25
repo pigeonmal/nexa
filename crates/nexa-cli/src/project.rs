@@ -13,7 +13,6 @@ use std::{
 
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
-use nexa_codegen::Backend;
 use nexa_compiler::{CompileWarning, Target};
 use nexa_ir::Module;
 
@@ -495,69 +494,6 @@ fn collect_source_units(
 /// declarations become module-internal so a component can call a generated
 /// helper from another unit without a runtime indirection; member visibility
 /// remains unchanged.
-fn split_generated_units(source: &str, extension: &str) -> Vec<(String, String)> {
-    let mut header = Vec::new();
-    let mut units: Vec<(String, Vec<String>)> = Vec::new();
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if let Some(name) = trimmed.strip_prefix("// nexa-unit:") {
-            units.push((name.to_owned(), Vec::new()));
-        } else if let Some((_, lines)) = units.last_mut() {
-            lines.push(line.to_owned());
-        } else {
-            header.push(line.to_owned());
-        }
-    }
-    if units.is_empty() {
-        return vec![(
-            format!("NexaGenerated.{extension}"),
-            ensure_internal_top_level(source),
-        )];
-    }
-    let header = header.join("\n");
-    let mut result = Vec::new();
-    for (name, lines) in units {
-        if lines.iter().all(|line| line.trim().is_empty()) {
-            continue;
-        }
-        let mut contents = String::new();
-        if !header.trim().is_empty() {
-            contents.push_str(&header);
-            contents.push_str("\n\n");
-        }
-        contents.push_str(&ensure_internal_top_level(&lines.join("\n")));
-        contents.push('\n');
-        let file_name = if name == "app" {
-            format!("NexaGenerated.{extension}")
-        } else {
-            format!("NexaGenerated_{}.{}", name.replace('-', "_"), extension)
-        };
-        result.push((file_name, contents));
-    }
-    if let Some(app_index) = result
-        .iter()
-        .position(|(file_name, _)| file_name == &format!("NexaGenerated.{extension}"))
-    {
-        let app = result.remove(app_index);
-        result.insert(0, app);
-    }
-    result
-}
-
-fn ensure_internal_top_level(source: &str) -> String {
-    source
-        .lines()
-        .map(|line| {
-            if line.starts_with("private ") {
-                line.replacen("private ", "", 1)
-            } else {
-                line.to_owned()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 fn remove_stale_generated_units(
     directory: &Path,
     current: &[String],
@@ -596,8 +532,7 @@ fn generate_ios(
     let directory = root.join("ios").join(app_name);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let screen = nexa_codegen::names::screen_name(&module.app_name);
-    let source = ios_generated_source(module, plugins, config, dev_session.is_some())?;
-    let source_units = split_generated_units(&source, "swift");
+    let source_units = ios_source_units(module, plugins, config, dev_session.is_some())?;
     copy_config_icons(root, app_name, config)?;
     let ios_icon = config.ios_icon.as_ref().or(config.icon_source.as_ref());
     let has_project_images = assets::copy_ios_project_images(source_root, root, app_name)?;
@@ -612,9 +547,9 @@ fn generate_ios(
     let has_plugin_resources = plugins::copy_ios_plugin_resources(root, app_name, plugins)?;
     let mut generated_names = source_units
         .iter()
-        .map(|(name, contents)| {
-            write_if_changed(&directory.join(name), contents)?;
-            Ok(name.clone())
+        .map(|unit| {
+            write_if_changed(&directory.join(&unit.name), &unit.contents)?;
+            Ok(unit.name.clone())
         })
         .collect::<Result<Vec<_>, String>>()?;
     if dev_session.is_some() {
@@ -706,10 +641,10 @@ fn generate_android(
     let source_dir = root.join("android/app/src/main/java").join(&package_path);
     fs::create_dir_all(&source_dir)
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
-    let (generated, mut project_features) = if dev_session.is_some() {
-        KotlinBackend.generate_for_dev_with_project_features(module)
+    let (sources, mut project_features) = if dev_session.is_some() {
+        KotlinBackend.generate_for_dev_units_with_project_features(module)
     } else {
-        KotlinBackend.generate_with_project_features(module)
+        KotlinBackend.generate_units_with_project_features(module)
     };
     // The debug runtime contains a generic Navigation Compose host even when
     // the app's own tree does not currently declare navigation.
@@ -740,26 +675,33 @@ fn generate_android(
     } else {
         ""
     };
+    // Every generated file needs the package declaration, and plugin bindings
+    // add an import between the package line and the generator's own imports.
+    // The header is assembled here rather than by rewriting a concatenated
+    // string, so the unit files are written exactly as computed.
     let plugin_imports = plugin_packages
         .iter()
         .map(|plugin_package| format!("import {plugin_package}.*"))
         .collect::<Vec<_>>();
-    let imports = if plugin_imports.is_empty() {
-        String::new()
-    } else {
-        format!("{}\n\n", plugin_imports.join("\n"))
-    };
-    let generated_source = format!(
-        "package {package}\n\n{imports}{generated}{}",
-        plugins::render_kotlin_plugin_config(plugins, config)
+    let mut header_lines = vec![format!("package {package}"), String::new()];
+    if !plugin_imports.is_empty() {
+        header_lines.extend(plugin_imports.iter().cloned());
+        header_lines.push(String::new());
+    }
+    // `header_with` keeps the generator's own import block spacing, including
+    // the blank line it ends with.
+    header_lines.push(sources.header_with(&[]));
+    let header = header_lines.join("\n");
+    let generated_units = sources.into_files_with_header(
+        &header,
+        &plugins::render_kotlin_plugin_config(plugins, config),
     );
-    let generated_units = split_generated_units(&generated_source, "kt");
     let generated_names = generated_units
         .iter()
-        .map(|(name, _)| name.clone())
+        .map(|unit| unit.name.clone())
         .collect::<Vec<_>>();
-    for (name, contents) in generated_units {
-        write_if_changed(&source_dir.join(name), &contents)?;
+    for unit in &generated_units {
+        write_if_changed(&source_dir.join(&unit.name), &unit.contents)?;
     }
     remove_stale_generated_units(&source_dir, &generated_names, "kt")?;
     if dev_session.is_some() {
@@ -954,40 +896,29 @@ fn copy_directory_contents(source: &Path, destination: &Path) -> Result<(), Stri
     Ok(())
 }
 
-fn ios_generated_source(
+/// Renders the iOS compile units for a host project.
+///
+/// Plugin bindings add an import that every generated file must see, and a
+/// configuration enum that belongs at the end of the output. Both are applied
+/// to the unit list directly, rather than by rewriting a concatenated string
+/// and splitting it again.
+fn ios_source_units(
     module: &Module,
     plugins: &[plugin_package::PluginPackage],
     config: &ProjectConfig,
     dev_runtime: bool,
-) -> Result<String, String> {
-    let generated = if dev_runtime {
-        SwiftBackend.generate_for_dev(module)
+) -> Result<Vec<nexa_codegen::SourceUnit>, String> {
+    let sources = if dev_runtime {
+        SwiftBackend.generate_for_dev_units(module)
     } else {
-        SwiftBackend.generate(module)
+        SwiftBackend.generate_units(module)
     };
     if module.plugins.is_empty() {
-        return Ok(generated);
-    }
-    let mut imports = vec!["import Foundation".to_owned()];
-    let mut declarations = Vec::new();
-    for line in generated.lines() {
-        if line.trim_start().starts_with("import ") {
-            imports.push(line.to_owned());
-        } else {
-            declarations.push(line.to_owned());
-        }
+        return Ok(sources.into_files(&[], ""));
     }
     let plugin_config = plugins::render_swift_plugin_config(plugins, config);
-    if !plugin_config.is_empty() {
-        declarations.push(plugin_config);
-    }
-    imports.sort();
-    imports.dedup();
-    let mut source = imports.join("\n");
-    source.push_str("\n\n");
-    source.push_str(&declarations.join("\n"));
-    source.push('\n');
-    Ok(source)
+    // Plugin bindings add an import every generated file must see.
+    Ok(sources.into_files(&["import Foundation"], &plugin_config))
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {
