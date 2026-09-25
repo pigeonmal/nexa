@@ -1,3 +1,4 @@
+use crate::generator::engine::types::kotlin_type;
 use nexa_ir::{Module, StructDecl};
 
 pub(crate) fn render(module: &Module, out: &mut String) {
@@ -23,7 +24,7 @@ fn render_struct(declaration: &StructDecl, out: &mut String) {
         out.push_str(&format!(
             "val {}: {}",
             nexa_codegen::names::struct_field_name(&field.name),
-            field.ty.kotlin()
+            kotlin_type(&field.ty)
         ));
     }
     out.push_str(")\n\n");

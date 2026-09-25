@@ -20,6 +20,7 @@ use nexa_ir::Module;
 use crate::{cache, config, config::ProjectConfig};
 
 mod assets;
+mod plugin_package;
 mod plugins;
 mod templates;
 
@@ -259,7 +260,9 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         .zip(compilations)
         .map(|(target, compilation)| {
             warnings.extend(compilation.warnings);
-            (target, compilation.module)
+            let packages =
+                plugin_package::packages_for_module(&compilation.plugins, &compilation.module);
+            (target, compilation.module, packages)
         })
         .collect::<Vec<_>>();
     let warnings = deduplicate_warnings(warnings);
@@ -295,7 +298,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     fs::create_dir_all(&output).map_err(|error| format!("{}: {error}", output.display()))?;
 
     let mut generated_targets = Vec::new();
-    for (compile_target, module) in compiled {
+    for (compile_target, module, packages) in compiled {
         match compile_target {
             Target::Swift => {
                 generate_ios(
@@ -303,6 +306,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
                     project_root,
                     &app_name,
                     &module,
+                    &packages,
                     &project_config,
                     dev_session.as_ref(),
                 )?;
@@ -314,6 +318,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
                     project_root,
                     &app_name,
                     &module,
+                    &packages,
                     &project_config,
                     dev_session.as_ref(),
                 )?;
@@ -584,13 +589,14 @@ fn generate_ios(
     source_root: &Path,
     app_name: &str,
     module: &Module,
+    plugins: &[plugin_package::PluginPackage],
     config: &ProjectConfig,
     dev_session: Option<&DevSessionConfig>,
 ) -> Result<(), String> {
     let directory = root.join("ios").join(app_name);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let screen = nexa_codegen::names::screen_name(&module.app_name);
-    let source = ios_generated_source(module, config, dev_session.is_some())?;
+    let source = ios_generated_source(module, plugins, config, dev_session.is_some())?;
     let source_units = split_generated_units(&source, "swift");
     copy_config_icons(root, app_name, config)?;
     let ios_icon = config.ios_icon.as_ref().or(config.icon_source.as_ref());
@@ -600,10 +606,10 @@ fn generate_ios(
         || ios_icon
             .is_some_and(|path| path.is_dir() || path.extension().is_some_and(|ext| ext != "icon"))
         || config.splash_source.is_some();
-    let plugin_sources = plugins::copy_ios_plugin_sources(root, app_name, module)?;
-    let cpp_sources = plugins::copy_ios_plugin_cpp_sources(root, app_name, module)?;
-    let xcframeworks = plugins::copy_ios_plugin_artifacts(root, app_name, module)?;
-    let has_plugin_resources = plugins::copy_ios_plugin_resources(root, app_name, module)?;
+    let plugin_sources = plugins::copy_ios_plugin_sources(root, app_name, plugins)?;
+    let cpp_sources = plugins::copy_ios_plugin_cpp_sources(root, app_name, plugins)?;
+    let xcframeworks = plugins::copy_ios_plugin_artifacts(root, app_name, plugins)?;
+    let has_plugin_resources = plugins::copy_ios_plugin_resources(root, app_name, plugins)?;
     let mut generated_names = source_units
         .iter()
         .map(|(name, contents)| {
@@ -650,12 +656,12 @@ fn generate_ios(
         &templates::ios_info_plist_with_dev_runtime(
             app_name,
             config,
-            &module.plugins,
+            plugins,
             dev_session.is_some(),
         )?,
     )?;
     let entitlements_path = directory.join("Nexa.entitlements");
-    if let Some(entitlements) = templates::ios_entitlements(config, &module.plugins)? {
+    if let Some(entitlements) = templates::ios_entitlements(config, plugins)? {
         write_if_changed(&entitlements_path, &entitlements)?;
     } else if entitlements_path.is_file() {
         fs::remove_file(&entitlements_path)
@@ -673,7 +679,7 @@ fn generate_ios(
             &plugin_sources,
             &cpp_sources,
             &xcframeworks,
-            &module.plugins,
+            plugins,
             config,
         )?,
     )?;
@@ -691,6 +697,7 @@ fn generate_android(
     source_root: &Path,
     app_name: &str,
     module: &Module,
+    plugins: &[plugin_package::PluginPackage],
     config: &ProjectConfig,
     dev_session: Option<&DevSessionConfig>,
 ) -> Result<(), String> {
@@ -708,11 +715,11 @@ fn generate_android(
     // the app's own tree does not currently declare navigation.
     project_features.uses_navigation |= dev_session.is_some();
     let (plugin_packages, plugin_uses_coroutines) =
-        plugins::copy_android_plugin_sources(root, module, &package, config)?;
+        plugins::copy_android_plugin_sources(root, plugins, &package, config)?;
     project_features.uses_coroutines |= plugin_uses_coroutines;
-    plugins::copy_android_plugin_cpp_sources(root, module, &package)?;
-    let local_aars = plugins::copy_android_plugin_artifacts(root, module)?;
-    plugins::copy_android_plugin_resources(root, module)?;
+    plugins::copy_android_plugin_cpp_sources(root, plugins, &package)?;
+    let local_aars = plugins::copy_android_plugin_artifacts(root, plugins)?;
+    plugins::copy_android_plugin_resources(root, plugins)?;
     copy_config_icons(root, app_name, config)?;
     plugins::copy_plugin_assets(root, app_name, module)?;
     assets::copy_android_project_images(source_root, root)?;
@@ -744,7 +751,7 @@ fn generate_android(
     };
     let generated_source = format!(
         "package {package}\n\n{imports}{generated}{}",
-        plugins::render_kotlin_plugin_config(module, config)
+        plugins::render_kotlin_plugin_config(plugins, config)
     );
     let generated_units = split_generated_units(&generated_source, "kt");
     let generated_names = generated_units
@@ -794,7 +801,7 @@ fn generate_android(
             &package,
             project_features.uses_network,
             config,
-            &module.plugins,
+            plugins,
         ),
     )?;
     let debug_manifest = root.join("android/app/src/debug/AndroidManifest.xml");
@@ -809,7 +816,7 @@ fn generate_android(
     }
     write_if_changed(
         &root.join("android/settings.gradle.kts"),
-        &templates::android_settings(app_name, &module.plugins),
+        &templates::android_settings(app_name, plugins),
     )?;
     write_if_changed(
         &root.join("android/build.gradle.kts"),
@@ -842,7 +849,7 @@ fn generate_android(
         &templates::android_app_gradle_with_dev_runtime(
             &package,
             project_features,
-            &module.plugins,
+            plugins,
             &local_aars,
             config,
             dev_session.is_some(),
@@ -850,7 +857,7 @@ fn generate_android(
     )?;
     write_if_changed(
         &root.join("android/app/proguard-rules.pro"),
-        &plugins::android_plugin_proguard_rules(module, &package)?,
+        &plugins::android_plugin_proguard_rules(plugins, &package)?,
     )?;
     Ok(())
 }
@@ -949,6 +956,7 @@ fn copy_directory_contents(source: &Path, destination: &Path) -> Result<(), Stri
 
 fn ios_generated_source(
     module: &Module,
+    plugins: &[plugin_package::PluginPackage],
     config: &ProjectConfig,
     dev_runtime: bool,
 ) -> Result<String, String> {
@@ -969,7 +977,7 @@ fn ios_generated_source(
             declarations.push(line.to_owned());
         }
     }
-    let plugin_config = plugins::render_swift_plugin_config(module, config);
+    let plugin_config = plugins::render_swift_plugin_config(plugins, config);
     if !plugin_config.is_empty() {
         declarations.push(plugin_config);
     }

@@ -3,18 +3,22 @@
 mod config;
 use config::ProjectConfig;
 
+#[allow(dead_code)]
+#[path = "../src/project/plugin_package.rs"]
+mod plugin_package;
+
 mod plugins {
     pub(super) fn cpp_header_include_roots(
-        _plugin: &nexa_ir::Plugin,
+        _plugin: &crate::plugin_package::PluginPackage,
         _plugin_index: usize,
     ) -> Result<Vec<String>, String> {
         Ok(Vec::new())
     }
 
-    pub(super) fn minimum_cpp_standard(plugins: &[nexa_ir::Plugin]) -> u8 {
+    pub(super) fn minimum_cpp_standard(plugins: &[crate::plugin_package::PluginPackage]) -> u8 {
         plugins
             .iter()
-            .filter_map(|plugin| plugin.cpp_standard)
+            .filter_map(|plugin| plugin.artifacts.cpp_standard)
             .max()
             .unwrap_or(20)
     }
@@ -155,7 +159,7 @@ mod template_generation {
         plugin_sources: &[String],
         cpp_sources: &[String],
         xcframeworks: &[String],
-        plugins: &[nexa_ir::Plugin],
+        plugins: &[crate::plugin_package::PluginPackage],
     ) -> Result<String, String> {
         let config = ProjectConfig::from_defaults(&[], app_name)?;
         ios_project_file_with_config(
@@ -174,7 +178,7 @@ mod template_generation {
     fn android_app_gradle(
         package: &str,
         features: nexa_backend_kotlin::KotlinProjectFeatures,
-        plugins: &[nexa_ir::Plugin],
+        plugins: &[crate::plugin_package::PluginPackage],
         local_aars: &[String],
     ) -> Result<String, String> {
         let config = ProjectConfig::from_defaults(&[], package)?;
@@ -184,36 +188,16 @@ mod template_generation {
     fn ios_info_plist(
         app_name: &str,
         config: &ProjectConfig,
-        plugins: &[nexa_ir::Plugin],
+        plugins: &[crate::plugin_package::PluginPackage],
     ) -> Result<String, String> {
         ios_info_plist_with_dev_runtime(app_name, config, plugins, false)
     }
 
-    fn plugin(namespace: &str) -> nexa_ir::Plugin {
-        nexa_ir::Plugin {
+    fn plugin(namespace: &str) -> crate::plugin_package::PluginPackage {
+        crate::plugin_package::PluginPackage {
             namespace: namespace.to_owned(),
             idl_path: String::new(),
-            ios_sources: Vec::new(),
-            android_sources: Vec::new(),
-            cpp_sources: Vec::new(),
-            cpp_headers: Vec::new(),
-            cpp_standard: None,
-            ios_min_version: None,
-            android_min_sdk: None,
-            ios_frameworks: Vec::new(),
-            ios_xcframeworks: Vec::new(),
-            ios_resources: Vec::new(),
-            ios_privacy_manifest: None,
-            swift_packages: Vec::new(),
-            maven_dependencies: Vec::new(),
-            android_aars: Vec::new(),
-            android_resources: Vec::new(),
-            android_proguard_rules: Vec::new(),
-            android_maven_repositories: Vec::new(),
-            ios_usage_descriptions: Vec::new(),
-            ios_entitlements: Vec::new(),
-            ios_linker_flags: Vec::new(),
-            android_permissions: Vec::new(),
+            artifacts: Default::default(),
         }
     }
 
@@ -294,15 +278,15 @@ mod template_generation {
             "Frameworks/NexaPlugin1_AudioSDK.xcframework".to_owned(),
         ];
         let mut media_plugin = plugin("Media");
-        media_plugin.ios_frameworks = vec!["AVFoundation".to_owned(), "CoreMedia".to_owned()];
-        media_plugin.swift_packages.push(nexa_ir::SwiftPackage {
+        media_plugin.artifacts.ios_frameworks = vec!["AVFoundation".to_owned(), "CoreMedia".to_owned()];
+        media_plugin.artifacts.swift_packages.push(nexa_plugin_idl::manifest::SwiftPackage {
             url: "https://example.com/media.git".to_owned(),
             from: "2.3.0".to_owned(),
             products: vec!["MediaKit".to_owned(), "MediaUI".to_owned()],
         });
         let mut maps_plugin = plugin("Maps");
-        maps_plugin.ios_frameworks = vec!["MapKit".to_owned()];
-        maps_plugin.swift_packages.push(nexa_ir::SwiftPackage {
+        maps_plugin.artifacts.ios_frameworks = vec!["MapKit".to_owned()];
+        maps_plugin.artifacts.swift_packages.push(nexa_plugin_idl::manifest::SwiftPackage {
             url: "https://example.com/maps.git".to_owned(),
             from: "1.0.0".to_owned(),
             products: vec!["MapsKit".to_owned()],
@@ -524,7 +508,7 @@ mod template_generation {
     #[test]
     fn android_rejects_plugin_minimum_above_target_sdk() {
         let mut plugin = plugin("NewPlatformApi");
-        plugin.android_min_sdk = Some(37);
+        plugin.artifacts.android_min_sdk = Some(37);
         let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
 
         let error = android_app_gradle_with_dev_runtime(
@@ -544,30 +528,30 @@ mod template_generation {
     #[test]
     fn emits_native_dependency_metadata_into_both_projects() {
         let mut media_plugin = plugin("Media");
-        media_plugin.ios_min_version = Some("18.2".to_owned());
-        media_plugin.android_min_sdk = Some(29);
-        media_plugin.ios_frameworks = vec!["AVFoundation".to_owned()];
-        media_plugin.ios_xcframeworks = vec!["/plugins/video/ios/VideoSDK.xcframework".to_owned()];
-        media_plugin.ios_linker_flags = vec![
+        media_plugin.artifacts.ios_min_version = Some("18.2".to_owned());
+        media_plugin.artifacts.android_min_sdk = Some(29);
+        media_plugin.artifacts.ios_frameworks = vec!["AVFoundation".to_owned()];
+        media_plugin.artifacts.ios_xcframeworks = vec!["/plugins/video/ios/VideoSDK.xcframework".to_owned()];
+        media_plugin.artifacts.ios_linker_flags = vec![
             "-ObjC".to_owned(),
             "-force_load".to_owned(),
             "$(PROJECT_DIR)/Vendor SDK/lib.a".to_owned(),
         ];
-        media_plugin.swift_packages.push(nexa_ir::SwiftPackage {
+        media_plugin.artifacts.swift_packages.push(nexa_plugin_idl::manifest::SwiftPackage {
             url: "https://example.com/media.git".to_owned(),
             from: "2.3.0".to_owned(),
             products: vec!["MediaKit".to_owned()],
         });
         media_plugin
-            .maven_dependencies
+            .artifacts.maven_dependencies
             .push("com.example:media:2.3.0".to_owned());
-        media_plugin.android_aars = vec!["/plugins/video/android/libs/media.aar".to_owned()];
-        media_plugin.android_maven_repositories =
+        media_plugin.artifacts.android_aars = vec!["/plugins/video/android/libs/media.aar".to_owned()];
+        media_plugin.artifacts.android_maven_repositories =
             vec!["https://maven.example.com/releases".to_owned()];
         let mut second_plugin = plugin("Recorder");
-        second_plugin.ios_frameworks = vec!["AVFoundation".to_owned()];
-        second_plugin.ios_linker_flags = vec!["-lz".to_owned()];
-        second_plugin.android_maven_repositories =
+        second_plugin.artifacts.ios_frameworks = vec!["AVFoundation".to_owned()];
+        second_plugin.artifacts.ios_linker_flags = vec!["-lz".to_owned()];
+        second_plugin.artifacts.android_maven_repositories =
             vec!["https://maven.example.com/releases".to_owned()];
         let plugins = [media_plugin, second_plugin];
 
@@ -645,11 +629,11 @@ mod template_generation {
     fn generated_hosts_compile_declared_cpp_implementation_sources() {
         let cpp_sources = vec!["Plugin0/cpp/Sources/Decoder.cpp".to_owned()];
         let mut cpp_plugin = plugin("Video");
-        cpp_plugin.cpp_sources = vec!["/plugins/video/cpp/Sources/**".to_owned()];
-        cpp_plugin.cpp_standard = Some(23);
+        cpp_plugin.artifacts.cpp_sources = vec!["/plugins/video/cpp/Sources/**".to_owned()];
+        cpp_plugin.artifacts.cpp_standard = Some(23);
         let mut lower_standard_plugin = plugin("Audio");
-        lower_standard_plugin.cpp_sources = vec!["/plugins/audio/cpp/Sources/**".to_owned()];
-        lower_standard_plugin.cpp_standard = Some(17);
+        lower_standard_plugin.artifacts.cpp_sources = vec!["/plugins/audio/cpp/Sources/**".to_owned()];
+        lower_standard_plugin.artifacts.cpp_standard = Some(17);
         let ios = ios_project_file(
             "Demo",
             false,
@@ -667,7 +651,7 @@ mod template_generation {
         assert!(ios.contains("HEADER_SEARCH_PATHS"));
 
         let mut default_standard_plugin = plugin("DefaultStandard");
-        default_standard_plugin.cpp_sources = vec!["/plugins/default/cpp/Sources/**".to_owned()];
+        default_standard_plugin.artifacts.cpp_sources = vec!["/plugins/default/cpp/Sources/**".to_owned()];
         let default_ios = ios_project_file(
             "Demo",
             false,
@@ -695,9 +679,9 @@ mod template_generation {
     #[test]
     fn rejects_conflicting_versions_across_plugins() {
         let mut first = plugin("First");
-        first.maven_dependencies = vec!["com.example:media:1.0.0".to_owned()];
+        first.artifacts.maven_dependencies = vec!["com.example:media:1.0.0".to_owned()];
         let mut second = plugin("Second");
-        second.maven_dependencies = vec!["com.example:media:2.0.0".to_owned()];
+        second.artifacts.maven_dependencies = vec!["com.example:media:2.0.0".to_owned()];
         let error = android_app_gradle(
             "com.example.demo",
             nexa_backend_kotlin::KotlinProjectFeatures::default(),
@@ -711,11 +695,11 @@ mod template_generation {
     #[test]
     fn plugin_platform_permissions_reach_generated_manifests() {
         let mut plugin = plugin("Video");
-        plugin.ios_usage_descriptions.push((
+        plugin.artifacts.ios_usage_descriptions.push((
             "NSCameraUsageDescription".to_owned(),
             "Record video clips.".to_owned(),
         ));
-        plugin.android_permissions = vec![
+        plugin.artifacts.android_permissions = vec![
             "android.permission.CAMERA".to_owned(),
             "android.permission.RECORD_AUDIO".to_owned(),
         ];
@@ -848,21 +832,21 @@ mod template_generation {
     #[test]
     fn plugin_entitlements_merge_into_plist_and_code_signing_settings() {
         let mut plugin = plugin("SecureStorage");
-        plugin.ios_entitlements = vec![
+        plugin.artifacts.ios_entitlements = vec![
             (
                 "aps-environment".to_owned(),
-                nexa_ir::PluginEntitlementValue::String("development".to_owned()),
+                nexa_plugin_idl::manifest::EntitlementValue::String("development".to_owned()),
             ),
             (
                 "com.apple.developer.associated-domains".to_owned(),
-                nexa_ir::PluginEntitlementValue::Strings(vec![
+                nexa_plugin_idl::manifest::EntitlementValue::Strings(vec![
                     "applinks:example.com".to_owned(),
                     "webcredentials:example.com".to_owned(),
                 ]),
             ),
             (
                 "com.apple.developer.networking.wifi-info".to_owned(),
-                nexa_ir::PluginEntitlementValue::Bool(true),
+                nexa_plugin_idl::manifest::EntitlementValue::Bool(true),
             ),
         ];
 
@@ -931,14 +915,14 @@ mod template_generation {
     #[test]
     fn rejects_conflicting_plugin_entitlements() {
         let mut first = plugin("First");
-        first.ios_entitlements.push((
+        first.artifacts.ios_entitlements.push((
             "aps-environment".to_owned(),
-            nexa_ir::PluginEntitlementValue::String("development".to_owned()),
+            nexa_plugin_idl::manifest::EntitlementValue::String("development".to_owned()),
         ));
         let mut second = plugin("Second");
-        second.ios_entitlements.push((
+        second.artifacts.ios_entitlements.push((
             "aps-environment".to_owned(),
-            nexa_ir::PluginEntitlementValue::String("production".to_owned()),
+            nexa_plugin_idl::manifest::EntitlementValue::String("production".to_owned()),
         ));
 
         let config = ProjectConfig::from_defaults(&[], "Demo").expect("default app config");
@@ -952,12 +936,12 @@ mod template_generation {
     #[test]
     fn rejects_conflicting_ios_plugin_purpose_strings() {
         let mut first = plugin("First");
-        first.ios_usage_descriptions.push((
+        first.artifacts.ios_usage_descriptions.push((
             "NSCameraUsageDescription".to_owned(),
             "Record video.".to_owned(),
         ));
         let mut second = plugin("Second");
-        second.ios_usage_descriptions.push((
+        second.artifacts.ios_usage_descriptions.push((
             "NSCameraUsageDescription".to_owned(),
             "Scan documents.".to_owned(),
         ));

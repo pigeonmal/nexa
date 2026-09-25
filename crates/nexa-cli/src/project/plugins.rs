@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use super::plugin_package::PluginPackage;
 use nexa_ir::Module;
 #[cfg(test)]
 use nexa_plugin_idl::manifest::PluginManifest;
@@ -142,14 +143,14 @@ fn declared_cpp_files(
     Ok(files)
 }
 
-fn plugin_cpp_files(plugin: &nexa_ir::Plugin, headers: bool) -> Result<Vec<PathBuf>, String> {
+fn plugin_cpp_files(plugin: &PluginPackage, headers: bool) -> Result<Vec<PathBuf>, String> {
     let package_root = Path::new(&plugin.idl_path)
         .parent()
         .ok_or_else(|| format!("invalid plugin IDL path `{}`", plugin.idl_path))?;
     let patterns = if headers {
-        &plugin.cpp_headers
+        &plugin.artifacts.cpp_headers
     } else {
-        &plugin.cpp_sources
+        &plugin.artifacts.cpp_sources
     };
     let extensions: &[&str] = if headers {
         &["h", "hh", "hpp", "hxx"]
@@ -193,7 +194,7 @@ fn validate_native_artifacts(
 pub(super) fn copy_ios_plugin_artifacts(
     root: &Path,
     app_name: &str,
-    module: &Module,
+    plugins: &[PluginPackage],
 ) -> Result<Vec<String>, String> {
     let framework_root = root.join("ios").join(app_name).join("Frameworks");
     let marker = root
@@ -201,9 +202,9 @@ pub(super) fn copy_ios_plugin_artifacts(
         .join(app_name)
         .join(".nexa-plugin-frameworks");
     let mut generated = Vec::new();
-    for (plugin_index, plugin) in module.plugins.iter().enumerate() {
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
         let package_root = plugin_package_root(plugin)?;
-        for (artifact_index, artifact) in plugin.ios_xcframeworks.iter().enumerate() {
+        for (artifact_index, artifact) in plugin.artifacts.ios_xcframeworks.iter().enumerate() {
             let source = validate_plugin_artifact(&package_root, artifact, "xcframework", true)?;
             let base_name = source
                 .file_stem()
@@ -231,14 +232,14 @@ pub(super) fn copy_ios_plugin_artifacts(
 
 pub(super) fn copy_android_plugin_artifacts(
     root: &Path,
-    module: &Module,
+    plugins: &[PluginPackage],
 ) -> Result<Vec<String>, String> {
     let library_root = root.join("android/app/libs");
     let marker = root.join("android/app/.nexa-plugin-aars");
     let mut generated = Vec::new();
-    for (plugin_index, plugin) in module.plugins.iter().enumerate() {
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
         let package_root = plugin_package_root(plugin)?;
-        for (artifact_index, artifact) in plugin.android_aars.iter().enumerate() {
+        for (artifact_index, artifact) in plugin.artifacts.android_aars.iter().enumerate() {
             let source = validate_plugin_artifact(&package_root, artifact, "aar", false)?;
             let base_name = source
                 .file_stem()
@@ -264,7 +265,7 @@ pub(super) fn copy_android_plugin_artifacts(
 pub(super) fn copy_ios_plugin_resources(
     root: &Path,
     app_name: &str,
-    module: &Module,
+    plugins: &[PluginPackage],
 ) -> Result<bool, String> {
     let resource_root = root.join("ios").join(app_name).join("NexaPluginResources");
     if resource_root.is_dir() {
@@ -272,14 +273,14 @@ pub(super) fn copy_ios_plugin_resources(
             .map_err(|error| format!("{}: {error}", resource_root.display()))?;
     }
     let mut has_resources = false;
-    for (plugin_index, plugin) in module.plugins.iter().enumerate() {
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
         let package_root = plugin_package_root(plugin)?;
-        for resource in &plugin.ios_resources {
+        for resource in &plugin.artifacts.ios_resources {
             let source = validate_plugin_file(&package_root, resource, "iOS platform resource")?;
             copy_plugin_resource(&source, &package_root, &resource_root, plugin_index)?;
             has_resources = true;
         }
-        if let Some(privacy_manifest) = &plugin.ios_privacy_manifest {
+        if let Some(privacy_manifest) = &plugin.artifacts.ios_privacy_manifest {
             let source =
                 validate_plugin_artifact(&package_root, privacy_manifest, "xcprivacy", false)?;
             if source.file_name().and_then(|value| value.to_str()) != Some("PrivacyInfo.xcprivacy")
@@ -311,15 +312,18 @@ pub(super) fn copy_ios_plugin_resources(
     Ok(has_resources)
 }
 
-pub(super) fn copy_android_plugin_resources(root: &Path, module: &Module) -> Result<(), String> {
+pub(super) fn copy_android_plugin_resources(
+    root: &Path,
+    plugins: &[PluginPackage],
+) -> Result<(), String> {
     let resource_root = root.join("android/app/src/main/assets/nexa/plugins");
     if resource_root.is_dir() {
         fs::remove_dir_all(&resource_root)
             .map_err(|error| format!("{}: {error}", resource_root.display()))?;
     }
-    for (plugin_index, plugin) in module.plugins.iter().enumerate() {
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
         let package_root = plugin_package_root(plugin)?;
-        for resource in &plugin.android_resources {
+        for resource in &plugin.artifacts.android_resources {
             let source =
                 validate_plugin_file(&package_root, resource, "Android platform resource")?;
             copy_plugin_resource(&source, &package_root, &resource_root, plugin_index)?;
@@ -329,15 +333,15 @@ pub(super) fn copy_android_plugin_resources(root: &Path, module: &Module) -> Res
 }
 
 pub(super) fn android_plugin_proguard_rules(
-    module: &Module,
+    plugins: &[PluginPackage],
     app_package: &str,
 ) -> Result<String, String> {
     let mut output = String::from(
         "# Nexa generated bindings use direct calls and do not require broad keep rules.\n",
     );
-    for (plugin_index, plugin) in module.plugins.iter().enumerate() {
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
         let package_root = plugin_package_root(plugin)?;
-        if !plugin.cpp_sources.is_empty() {
+        if !plugin.artifacts.cpp_sources.is_empty() {
             let package = android_plugin_package(plugin, app_package)?;
             output.push_str(&format!(
                 "\n# Keep JNI lookup names for C++ plugin `{}` ({plugin_index}).\n-keep class {package}.NexaPlugin{plugin_index}_CppBindings {{ *; }}\n",
@@ -391,7 +395,7 @@ pub(super) fn android_plugin_proguard_rules(
                 }
             }
         }
-        for rule in &plugin.android_proguard_rules {
+        for rule in &plugin.artifacts.android_proguard_rules {
             let source = validate_plugin_artifact(&package_root, rule, "pro", false)?;
             let contents = fs::read_to_string(&source)
                 .map_err(|error| format!("{}: {error}", source.display()))?;
@@ -487,7 +491,7 @@ fn copy_plugin_resource(
     Ok(())
 }
 
-fn plugin_package_root(plugin: &nexa_ir::Plugin) -> Result<PathBuf, String> {
+fn plugin_package_root(plugin: &PluginPackage) -> Result<PathBuf, String> {
     let idl_path = Path::new(&plugin.idl_path);
     let package_root = idl_path
         .parent()
@@ -685,7 +689,7 @@ fn plugin_platform_sources(
 
 pub(super) fn copy_android_plugin_sources(
     root: &Path,
-    module: &Module,
+    plugins: &[PluginPackage],
     app_package: &str,
     config: &ProjectConfig,
 ) -> Result<(Vec<String>, bool), String> {
@@ -696,12 +700,11 @@ pub(super) fn copy_android_plugin_sources(
     let mut uses_coroutines = false;
     let has_plugin_config = config.plugins().any(|plugin| {
         !plugin.options.is_empty()
-            && module
-                .plugins
+            && plugins
                 .iter()
                 .any(|used| used.namespace == plugin.namespace)
     });
-    for (plugin_index, plugin) in module.plugins.iter().enumerate() {
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
         let mut plugin_packages = std::collections::BTreeSet::new();
         let mut has_kotlin_sources = false;
         for (path, source_root) in native_plugin_sources(plugin, "android/src/main/kotlin", "kt")? {
@@ -727,7 +730,9 @@ pub(super) fn copy_android_plugin_sources(
         }
         let package = match plugin_packages.iter().next().cloned() {
             Some(package) => package,
-            None if !has_kotlin_sources && !plugin.cpp_sources.is_empty() => app_package.to_owned(),
+            None if !has_kotlin_sources && !plugin.artifacts.cpp_sources.is_empty() => {
+                app_package.to_owned()
+            }
             None => {
                 return Err(format!(
                     "native Kotlin plugin `{}` must declare a package in its source files",
@@ -742,7 +747,7 @@ pub(super) fn copy_android_plugin_sources(
             ));
         }
         let contract = nexa_plugin_idl::parse_file(Path::new(&plugin.idl_path))?;
-        uses_coroutines |= !plugin.cpp_sources.is_empty()
+        uses_coroutines |= !plugin.artifacts.cpp_sources.is_empty()
             && contract
                 .interfaces
                 .iter()
@@ -753,7 +758,7 @@ pub(super) fn copy_android_plugin_sources(
             .join(package.replace('.', "/"))
             .join(&binding_name);
         let mut bindings = crate::plugin::render_kotlin_bindings(&contract, &package)?;
-        if !plugin.cpp_sources.is_empty() {
+        if !plugin.artifacts.cpp_sources.is_empty() {
             let package_root = Path::new(&plugin.idl_path)
                 .parent()
                 .ok_or_else(|| format!("invalid plugin IDL path `{}`", plugin.idl_path))?;
@@ -933,12 +938,12 @@ pub(super) fn copy_plugin_assets(
 pub(super) fn copy_ios_plugin_sources(
     root: &Path,
     app_name: &str,
-    module: &Module,
+    plugins: &[PluginPackage],
 ) -> Result<Vec<String>, String> {
     let destination = root.join("ios").join(app_name).join("NexaPlugins");
     let marker = root.join("ios").join(app_name).join(".nexa-plugin-sources");
     let mut names = Vec::new();
-    for (plugin_index, plugin) in module.plugins.iter().enumerate() {
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
         for (source, _) in native_plugin_sources(plugin, "ios/Sources", "swift")? {
             let name = source
                 .file_name()
@@ -961,7 +966,7 @@ pub(super) fn copy_ios_plugin_sources(
             &crate::plugin::render_swift_bindings(&contract)?,
         )?;
         names.push(binding_name);
-        if !plugin.cpp_sources.is_empty() {
+        if !plugin.artifacts.cpp_sources.is_empty() {
             let package_root = Path::new(&plugin.idl_path)
                 .parent()
                 .ok_or_else(|| format!("invalid plugin IDL path `{}`", plugin.idl_path))?;
@@ -1004,20 +1009,19 @@ pub(super) fn copy_ios_plugin_sources(
 pub(super) fn copy_ios_plugin_cpp_sources(
     root: &Path,
     app_name: &str,
-    module: &Module,
+    plugins: &[PluginPackage],
 ) -> Result<Vec<String>, String> {
     let app_directory = root.join("ios").join(app_name);
     let copied = copy_plugin_cpp_sources(
         app_directory.join("NexaPluginCpp"),
         root.join("ios").join(app_name).join(".nexa-plugin-cpp"),
-        module,
+        plugins,
     )?;
 
-    let includes = module
-        .plugins
+    let includes = plugins
         .iter()
         .enumerate()
-        .filter(|(_, plugin)| !plugin.cpp_sources.is_empty())
+        .filter(|(_, plugin)| !plugin.artifacts.cpp_sources.is_empty())
         .map(|(plugin_index, _)| {
             format!("#include \"NexaPluginCpp/Plugin{plugin_index}/NexaPluginBindings.hpp\"\n")
         })
@@ -1039,16 +1043,16 @@ pub(super) fn copy_ios_plugin_cpp_sources(
 /// a deterministic library target when at least one implementation is used.
 pub(super) fn copy_android_plugin_cpp_sources(
     root: &Path,
-    module: &Module,
+    plugins: &[PluginPackage],
     app_package: &str,
 ) -> Result<Vec<String>, String> {
     let destination = root.join("android/app/src/main/cpp");
     let marker = root.join("android/app/.nexa-plugin-cpp");
-    let mut sources = copy_plugin_cpp_sources(destination.clone(), marker, module)?;
+    let mut sources = copy_plugin_cpp_sources(destination.clone(), marker, plugins)?;
     let jni_marker = root.join("android/app/.nexa-plugin-cpp-jni");
     let mut generated_jni = Vec::new();
-    for (plugin_index, plugin) in module.plugins.iter().enumerate() {
-        if plugin.cpp_sources.is_empty() {
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
+        if plugin.artifacts.cpp_sources.is_empty() {
             continue;
         }
         let package_root = Path::new(&plugin.idl_path)
@@ -1103,7 +1107,7 @@ pub(super) fn copy_android_plugin_cpp_sources(
         return Ok(sources);
     }
 
-    let cpp_standard = minimum_cpp_standard(&module.plugins);
+    let cpp_standard = minimum_cpp_standard(plugins);
     let mut output = format!(
         "cmake_minimum_required(VERSION 3.22.1)\nproject(nexa_plugins LANGUAGES CXX)\n\nset(CMAKE_CXX_STANDARD {cpp_standard})\nset(CMAKE_CXX_STANDARD_REQUIRED ON)\nset(CMAKE_CXX_EXTENSIONS OFF)\n\nadd_library(nexa_plugins SHARED\n"
     );
@@ -1111,8 +1115,8 @@ pub(super) fn copy_android_plugin_cpp_sources(
         output.push_str(&format!("    \"${{CMAKE_CURRENT_SOURCE_DIR}}/{source}\"\n"));
     }
     output.push_str(")\n\nfind_library(android_log log)\ntarget_link_libraries(nexa_plugins PRIVATE ${android_log})\n");
-    for (index, plugin) in module.plugins.iter().enumerate() {
-        if plugin.cpp_sources.is_empty() {
+    for (index, plugin) in plugins.iter().enumerate() {
+        if plugin.artifacts.cpp_sources.is_empty() {
             continue;
         }
         let plugin_root = format!("${{CMAKE_CURRENT_SOURCE_DIR}}/Plugin{index}");
@@ -1128,10 +1132,7 @@ pub(super) fn copy_android_plugin_cpp_sources(
     Ok(sources)
 }
 
-fn android_plugin_package(
-    plugin: &nexa_ir::Plugin,
-    default_package: &str,
-) -> Result<String, String> {
+fn android_plugin_package(plugin: &PluginPackage, default_package: &str) -> Result<String, String> {
     let mut packages = std::collections::BTreeSet::new();
     let mut has_sources = false;
     for (path, _) in native_plugin_sources(plugin, "android/src/main/kotlin", "kt")? {
@@ -1158,11 +1159,11 @@ fn android_plugin_package(
     }
 }
 
-pub(super) fn minimum_cpp_standard(plugins: &[nexa_ir::Plugin]) -> u8 {
+pub(super) fn minimum_cpp_standard(plugins: &[PluginPackage]) -> u8 {
     plugins
         .iter()
-        .filter(|plugin| !plugin.cpp_sources.is_empty())
-        .filter_map(|plugin| plugin.cpp_standard)
+        .filter(|plugin| !plugin.artifacts.cpp_sources.is_empty())
+        .filter_map(|plugin| plugin.artifacts.cpp_standard)
         .max()
         .unwrap_or(20)
 }
@@ -1170,12 +1171,12 @@ pub(super) fn minimum_cpp_standard(plugins: &[nexa_ir::Plugin]) -> u8 {
 fn copy_plugin_cpp_sources(
     destination: PathBuf,
     marker: PathBuf,
-    module: &Module,
+    plugins: &[PluginPackage],
 ) -> Result<Vec<String>, String> {
     let mut generated = Vec::new();
     let mut sources = Vec::new();
-    for (plugin_index, plugin) in module.plugins.iter().enumerate() {
-        if plugin.cpp_sources.is_empty() {
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
+        if plugin.artifacts.cpp_sources.is_empty() {
             continue;
         }
         let plugin_destination = destination.join(format!("Plugin{plugin_index}"));
@@ -1252,7 +1253,7 @@ fn copy_if_changed(source: &Path, destination: &Path) -> Result<(), String> {
     fs::write(destination, contents).map_err(|error| format!("{}: {error}", destination.display()))
 }
 
-fn cpp_package_relative_path(plugin: &nexa_ir::Plugin, source: &Path) -> Result<PathBuf, String> {
+fn cpp_package_relative_path(plugin: &PluginPackage, source: &Path) -> Result<PathBuf, String> {
     let package_root = Path::new(&plugin.idl_path)
         .parent()
         .ok_or_else(|| format!("invalid plugin IDL path `{}`", plugin.idl_path))?;
@@ -1277,11 +1278,11 @@ fn is_cpp_source(path: &Path) -> bool {
 }
 
 pub(super) fn cpp_header_include_roots(
-    plugin: &nexa_ir::Plugin,
+    plugin: &PluginPackage,
     plugin_index: usize,
 ) -> Result<Vec<String>, String> {
     let mut roots = std::collections::BTreeSet::new();
-    for pattern in &plugin.cpp_headers {
+    for pattern in &plugin.artifacts.cpp_headers {
         let path = Path::new(pattern);
         let components = path.components().collect::<Vec<_>>();
         let wildcard = components.iter().position(|component| {
@@ -1331,13 +1332,15 @@ fn kotlin_package(contents: &str) -> Option<String> {
     })
 }
 
-pub(super) fn render_swift_plugin_config(module: &Module, config: &ProjectConfig) -> String {
+pub(super) fn render_swift_plugin_config(
+    plugins: &[PluginPackage],
+    config: &ProjectConfig,
+) -> String {
     let plugins = config
         .plugins()
         .filter(|plugin| {
             !plugin.options.is_empty()
-                && module
-                    .plugins
+                && plugins
                     .iter()
                     .any(|used| used.namespace == plugin.namespace)
         })
@@ -1362,13 +1365,15 @@ pub(super) fn render_swift_plugin_config(module: &Module, config: &ProjectConfig
     output
 }
 
-pub(super) fn render_kotlin_plugin_config(module: &Module, config: &ProjectConfig) -> String {
+pub(super) fn render_kotlin_plugin_config(
+    plugins: &[PluginPackage],
+    config: &ProjectConfig,
+) -> String {
     let plugins = config
         .plugins()
         .filter(|plugin| {
             !plugin.options.is_empty()
-                && module
-                    .plugins
+                && plugins
                     .iter()
                     .any(|used| used.namespace == plugin.namespace)
         })
@@ -1509,7 +1514,7 @@ fn kotlin_plugin_config_import(contents: &str, app_package: &str) -> String {
 }
 
 pub(super) fn native_plugin_sources(
-    plugin: &nexa_ir::Plugin,
+    plugin: &PluginPackage,
     relative_root: &str,
     extension: &str,
 ) -> Result<Vec<(PathBuf, PathBuf)>, String> {
@@ -1519,9 +1524,9 @@ pub(super) fn native_plugin_sources(
     let canonical_plugin_root = fs::canonicalize(plugin_root)
         .map_err(|error| format!("{}: {error}", plugin_root.display()))?;
     let patterns = if relative_root.starts_with("ios/") {
-        &plugin.ios_sources
+        &plugin.artifacts.ios_sources
     } else {
-        &plugin.android_sources
+        &plugin.artifacts.android_sources
     };
     let fallback = plugin_root.join(relative_root);
     let patterns = if patterns.is_empty() {
@@ -1827,6 +1832,7 @@ mod tests {
         copy_ios_plugin_cpp_sources, copy_ios_plugin_resources, copy_plugin_assets,
         native_plugin_sources, validate_manifest_sources, wildcard_matches,
     };
+    use crate::project::plugin_package::{PluginArtifacts, PluginPackage};
 
     struct TempProject(PathBuf);
 
@@ -1932,34 +1938,46 @@ mod tests {
             .expect("declared local artifacts should be valid");
 
         let idl = fs::canonicalize(idl).expect("plugin IDL path should canonicalize");
-        let module = nexa_ir::Module {
+        let _module = nexa_ir::Module {
             app_name: "Demo".to_owned(),
             plugins: vec![nexa_ir::Plugin {
                 namespace: "Video".to_owned(),
                 idl_path: idl.display().to_string(),
-                ios_sources: Vec::new(),
-                android_sources: Vec::new(),
-                cpp_sources: Vec::new(),
-                cpp_headers: Vec::new(),
-                cpp_standard: None,
-                ios_min_version: None,
-                android_min_sdk: None,
-                ios_frameworks: Vec::new(),
+            }],
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let mut packages = vec![PluginPackage {
+            namespace: "Video".to_owned(),
+            idl_path: idl.display().to_string(),
+            artifacts: PluginArtifacts {
                 ios_xcframeworks: vec![
                     fs::canonicalize(&xcframework)
                         .expect("XCFramework path should canonicalize")
                         .display()
                         .to_string(),
                 ],
-                ios_resources: Vec::new(),
                 ios_privacy_manifest: Some(
                     fs::canonicalize(&privacy_manifest)
                         .expect("privacy manifest path should canonicalize")
                         .display()
                         .to_string(),
                 ),
-                swift_packages: Vec::new(),
-                maven_dependencies: Vec::new(),
                 android_aars: [&aar, &second_aar]
                     .into_iter()
                     .map(|path| {
@@ -1981,31 +1999,11 @@ mod tests {
                         .display()
                         .to_string(),
                 ],
-                android_maven_repositories: Vec::new(),
-                ios_usage_descriptions: Vec::new(),
-                ios_entitlements: Vec::new(),
-                ios_linker_flags: Vec::new(),
-                android_permissions: Vec::new(),
-            }],
-            plugin_assets: Vec::new(),
-            enums: Vec::new(),
-            structs: Vec::new(),
-            functions: Vec::new(),
-            states: Vec::new(),
-            screens: Vec::new(),
-            components: Vec::new(),
-            body: Vec::new(),
-            status_bar: None,
-            direction: None,
-            on_appear: None,
-            on_appear_async: false,
-            on_disappear: None,
-            on_active: None,
-            on_inactive: None,
-            on_background: None,
-        };
+                ..Default::default()
+            },
+        }];
 
-        let ios = copy_ios_plugin_artifacts(&temporary.0, "Demo", &module)
+        let ios = copy_ios_plugin_artifacts(&temporary.0, "Demo", &packages)
             .expect("XCFramework should be copied to the iOS host");
         assert_eq!(ios, vec!["Frameworks/NexaPlugin0_0_videosdk.xcframework"]);
         assert_eq!(
@@ -2018,7 +2016,7 @@ mod tests {
             "framework metadata"
         );
 
-        let android = copy_android_plugin_artifacts(&temporary.0, &module)
+        let android = copy_android_plugin_artifacts(&temporary.0, &packages)
             .expect("AAR should be copied to the Android host");
         assert_eq!(
             android,
@@ -2026,11 +2024,10 @@ mod tests {
         );
         let cpp_source_pattern = package.join("cpp/Sources/**").display().to_string();
         let cpp_header_pattern = package.join("cpp/include/**").display().to_string();
-        let mut module = module;
-        module.plugins[0].cpp_sources = vec![cpp_source_pattern];
-        module.plugins[0].cpp_headers = vec![cpp_header_pattern];
-        module.plugins[0].cpp_standard = Some(23);
-        let ios_cpp = copy_ios_plugin_cpp_sources(&temporary.0, "Demo", &module)
+        packages[0].artifacts.cpp_sources = vec![cpp_source_pattern];
+        packages[0].artifacts.cpp_headers = vec![cpp_header_pattern];
+        packages[0].artifacts.cpp_standard = Some(23);
+        let ios_cpp = copy_ios_plugin_cpp_sources(&temporary.0, "Demo", &packages)
             .expect("declared C++ sources and generated contract should be staged for iOS");
         assert_eq!(ios_cpp, vec!["Plugin0/cpp/Sources/Decoder.cpp"]);
         assert!(
@@ -2050,7 +2047,7 @@ mod tests {
                 .expect("generated Swift bridging header should be readable"),
             "#include \"NexaPluginCpp/Plugin0/NexaPluginBindings.hpp\"\n"
         );
-        let android_cpp = copy_android_plugin_cpp_sources(&temporary.0, &module, "dev.nexa.demo")
+        let android_cpp = copy_android_plugin_cpp_sources(&temporary.0, &packages, "dev.nexa.demo")
             .expect("C++ sources should be staged with an Android CMake target");
         assert_eq!(
             android_cpp,
@@ -2084,14 +2081,14 @@ mod tests {
             b"second AAR payload"
         );
 
-        module.plugins[0].ios_resources = vec![
+        packages[0].artifacts.ios_resources = vec![
             fs::canonicalize(&ios_resource)
                 .expect("iOS resource path should canonicalize")
                 .display()
                 .to_string(),
         ];
         assert!(
-            copy_ios_plugin_resources(&temporary.0, "Demo", &module)
+            copy_ios_plugin_resources(&temporary.0, "Demo", &packages)
                 .expect("iOS resources should be packaged")
         );
         assert_eq!(
@@ -2109,7 +2106,7 @@ mod tests {
                 .join("ios/Demo/NexaPluginResources/NexaPlugin0.bundle/PrivacyInfo.xcprivacy")
                 .is_file()
         );
-        copy_android_plugin_resources(&temporary.0, &module)
+        copy_android_plugin_resources(&temporary.0, &packages)
             .expect("Android resources should be packaged");
         assert_eq!(
             fs::read(temporary.0.join(
@@ -2119,7 +2116,7 @@ mod tests {
             b"Android resource payload"
         );
         assert!(
-            android_plugin_proguard_rules(&module, "com.example.host")
+            android_plugin_proguard_rules(&packages, "com.example.host")
                 .expect("ProGuard rules should be assembled")
                 .contains("-keep class com.example.sdk.** { *; }")
         );
@@ -2137,30 +2134,32 @@ mod tests {
         fs::write(external.join("Secret.swift"), "// secret").expect("secret file written");
         std::os::unix::fs::symlink(&external, sources.join("SymlinkDir")).expect("symlink created");
 
-        let plugin = nexa_ir::Plugin {
-            idl_path: package.join("native.nxid").display().to_string(),
+        let plugin = PluginPackage {
             namespace: "demo".to_string(),
-            ios_sources: vec![],
-            android_sources: vec![],
-            cpp_sources: vec![],
-            cpp_headers: vec![],
-            cpp_standard: None,
-            ios_min_version: None,
-            android_min_sdk: None,
-            ios_frameworks: vec![],
-            ios_xcframeworks: vec![],
-            ios_resources: vec![],
-            ios_privacy_manifest: None,
-            swift_packages: vec![],
-            maven_dependencies: vec![],
-            android_aars: vec![],
-            android_resources: vec![],
-            android_proguard_rules: vec![],
-            android_maven_repositories: vec![],
-            ios_usage_descriptions: vec![],
-            ios_entitlements: vec![],
-            ios_linker_flags: vec![],
-            android_permissions: vec![],
+            idl_path: package.join("native.nxid").display().to_string(),
+            artifacts: PluginArtifacts {
+                ios_sources: vec![],
+                android_sources: vec![],
+                cpp_sources: vec![],
+                cpp_headers: vec![],
+                cpp_standard: None,
+                ios_min_version: None,
+                android_min_sdk: None,
+                ios_frameworks: vec![],
+                ios_xcframeworks: vec![],
+                ios_resources: vec![],
+                ios_privacy_manifest: None,
+                swift_packages: vec![],
+                maven_dependencies: vec![],
+                android_aars: vec![],
+                android_resources: vec![],
+                android_proguard_rules: vec![],
+                android_maven_repositories: vec![],
+                ios_usage_descriptions: vec![],
+                ios_entitlements: vec![],
+                ios_linker_flags: vec![],
+                android_permissions: vec![],
+            },
         };
         fs::write(package.join("native.nxid"), "namespace demo {}").expect("idl written");
 
@@ -2182,30 +2181,32 @@ mod tests {
         fs::write(&outside, "// outside").expect("outside file written");
         fs::write(package.join("native.nxid"), "namespace demo {}").expect("idl written");
 
-        let plugin = nexa_ir::Plugin {
-            idl_path: package.join("native.nxid").display().to_string(),
+        let plugin = PluginPackage {
             namespace: "demo".to_string(),
-            ios_sources: vec![outside.display().to_string()],
-            android_sources: vec![],
-            cpp_sources: vec![],
-            cpp_headers: vec![],
-            cpp_standard: None,
-            ios_min_version: None,
-            android_min_sdk: None,
-            ios_frameworks: vec![],
-            ios_xcframeworks: vec![],
-            ios_resources: vec![],
-            ios_privacy_manifest: None,
-            swift_packages: vec![],
-            maven_dependencies: vec![],
-            android_aars: vec![],
-            android_resources: vec![],
-            android_proguard_rules: vec![],
-            android_maven_repositories: vec![],
-            ios_usage_descriptions: vec![],
-            ios_entitlements: vec![],
-            ios_linker_flags: vec![],
-            android_permissions: vec![],
+            idl_path: package.join("native.nxid").display().to_string(),
+            artifacts: PluginArtifacts {
+                ios_sources: vec![outside.display().to_string()],
+                android_sources: vec![],
+                cpp_sources: vec![],
+                cpp_headers: vec![],
+                cpp_standard: None,
+                ios_min_version: None,
+                android_min_sdk: None,
+                ios_frameworks: vec![],
+                ios_xcframeworks: vec![],
+                ios_resources: vec![],
+                ios_privacy_manifest: None,
+                swift_packages: vec![],
+                maven_dependencies: vec![],
+                android_aars: vec![],
+                android_resources: vec![],
+                android_proguard_rules: vec![],
+                android_maven_repositories: vec![],
+                ios_usage_descriptions: vec![],
+                ios_entitlements: vec![],
+                ios_linker_flags: vec![],
+                android_permissions: vec![],
+            },
         };
 
         let result = native_plugin_sources(&plugin, "ios/Sources", "swift");

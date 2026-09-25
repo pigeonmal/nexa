@@ -4,6 +4,7 @@ use super::expressions::expression;
 
 use crate::generator::engine::features::Features;
 use crate::generator::engine::imports::ImportSet;
+use crate::generator::engine::types::kotlin_type;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
@@ -78,7 +79,7 @@ pub(crate) fn kotlin_state_initializer(state: &nexa_ir::State) -> String {
         }
         _ => format!(
             "mutableStateOf<{}>({})",
-            state.ty.kotlin(),
+            kotlin_type(&state.ty),
             expression(&state.initial)
         ),
     }
@@ -88,12 +89,12 @@ fn array_initializer(initial: &nexa_ir::Expr, element: &Type) -> String {
     match initial {
         nexa_ir::Expr::Array(items) => format!(
             "mutableStateListOf<{}>({})",
-            element.kotlin(),
+            kotlin_type(&element),
             items.iter().map(expression).collect::<Vec<_>>().join(", ")
         ),
         _ => format!(
             "mutableStateListOf<{}>().also {{ it.addAll({}) }}",
-            element.kotlin(),
+            kotlin_type(&element),
             expression(initial)
         ),
     }
@@ -103,12 +104,12 @@ fn set_initializer(initial: &nexa_ir::Expr, element: &Type) -> String {
     match initial {
         nexa_ir::Expr::Set(items) | nexa_ir::Expr::Array(items) => format!(
             "mutableStateSetOf<{}>({})",
-            element.kotlin(),
+            kotlin_type(&element),
             items.iter().map(expression).collect::<Vec<_>>().join(", ")
         ),
         _ => format!(
             "mutableStateSetOf<{}>().also {{ it.addAll({}) }}",
-            element.kotlin(),
+            kotlin_type(&element),
             expression(initial)
         ),
     }
@@ -118,8 +119,8 @@ fn map_initializer(initial: &nexa_ir::Expr, key: &Type, value: &Type) -> String 
     match initial {
         nexa_ir::Expr::Map(entries) => format!(
             "mutableStateMapOf<{}, {}>({})",
-            key.kotlin(),
-            value.kotlin(),
+            kotlin_type(&key),
+            kotlin_type(&value),
             entries
                 .iter()
                 .map(|(key, value)| format!("{} to {}", expression(key), expression(value)))
@@ -128,8 +129,8 @@ fn map_initializer(initial: &nexa_ir::Expr, key: &Type, value: &Type) -> String 
         ),
         _ => format!(
             "mutableStateMapOf<{}, {}>().also {{ it.putAll({}) }}",
-            key.kotlin(),
-            value.kotlin(),
+            kotlin_type(&key),
+            kotlin_type(&value),
             expression(initial)
         ),
     }

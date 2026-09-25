@@ -2,6 +2,7 @@ use nexa_codegen::names::{navigation_route_name, state_name};
 use nexa_ir::{Expr, Module, Node, ScreenId, Type};
 
 use crate::generator::{
+    engine::types::kotlin_type,
     components::render_children,
     expressions::text_expression,
     features::Features,
@@ -299,13 +300,13 @@ fn render_screen_state(state: &nexa_ir::State, depth: usize, out: &mut String) {
     } else if state.is_native_class_instance_binding() {
         out.push_str(&format!(
             "val {name}: {} = remember {{ {} }}\n",
-            state.ty.kotlin(),
+            kotlin_type(&state.ty),
             crate::generator::expressions::expression(&state.initial)
         ));
     } else {
         out.push_str(&format!(
             "val {name}: {} = {}\n",
-            state.ty.kotlin(),
+            kotlin_type(&state.ty),
             crate::generator::expressions::expression(&state.initial)
         ));
     }

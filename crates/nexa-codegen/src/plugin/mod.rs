@@ -3,6 +3,8 @@
 pub mod bindings;
 pub mod bindings_cpp;
 pub mod bridge_plan;
+pub mod cpp;
+pub mod type_visit;
 
 use nexa_plugin_idl::PluginIdl;
 
@@ -33,10 +35,7 @@ pub fn render_cpp(contract: &PluginIdl, plugin_id: &str) -> Result<String, Strin
 
 /// Emits Swift-to-C++ bridging adapters.
 pub fn render_swift_adapters(contract: &PluginIdl, plugin_id: &str) -> Result<String, String> {
-    bindings_cpp::render_swift_adapters(
-        &BridgePlan::validate_swift_cpp(contract)?,
-        plugin_id,
-    )
+    bindings_cpp::render_swift_adapters(&BridgePlan::validate_swift_cpp(contract)?, plugin_id)
 }
 
 /// Emits Android JNI C++ adapters and Kotlin JNI external function bindings.

@@ -1,6 +1,7 @@
 use nexa_ir::{Function, Module};
 
 use super::{expressions, utils::indent};
+use crate::generator::engine::types::swift_type;
 
 pub(crate) fn render(module: &Module, out: &mut String) {
     for function in &module.functions {
@@ -23,7 +24,7 @@ fn render_function(function: &Function, out: &mut String) {
                 format!(
                     "_ {}: {}",
                     nexa_codegen::names::state_name(&parameter.name),
-                    parameter.ty.swift()
+                    swift_type(&parameter.ty)
                 )
             })
             .collect::<Vec<_>>()
@@ -34,14 +35,14 @@ fn render_function(function: &Function, out: &mut String) {
     } else {
         out.push_str(") -> ");
     }
-    out.push_str(&function.return_type.swift());
+    out.push_str(&swift_type(&function.return_type));
     out.push_str(" {\n");
     for local in &function.locals {
         indent(out, 1);
         out.push_str(&format!(
             "let {}: {} = {}\n",
             nexa_codegen::names::state_name(&local.name),
-            local.ty.swift(),
+            swift_type(&local.ty),
             expressions::expression(&local.initial)
         ));
     }

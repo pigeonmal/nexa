@@ -6,6 +6,7 @@ mod engine;
 
 pub(super) use api::{network, permissions};
 use components::components as component_renderer;
+use crate::generator::engine::types::swift_type;
 pub(super) use components::{
     accessibility, bottom_bar, controls, custom_components, images, input, keyboard, layout, links,
     list_runtime, lists, navigation, refresh, sheets,
@@ -51,7 +52,7 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Stri
                 screen
                     .parameters
                     .iter()
-                    .map(|parameter| parameter.ty.swift()),
+                    .map(|parameter| swift_type(&parameter.ty)),
             );
             out.push_str(&format!(
                 "    case {case_name}({})\n",
@@ -82,7 +83,7 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Stri
         let name = nexa_codegen::names::state_name(&state.name);
         out.push_str(&format!(
             "    @State private var {name}: {} = {}\n",
-            state.ty.swift(),
+            swift_type(&state.ty),
             expressions::expression(&state.initial)
         ));
     }
@@ -373,7 +374,7 @@ pub(super) fn render_immutable_state(states: &[State], depth: usize, out: &mut S
         out.push_str(&format!(
             "let {}: {} = {}\n",
             nexa_codegen::names::state_name(&state.name),
-            state.ty.swift(),
+            swift_type(&state.ty),
             expressions::expression(&state.initial)
         ));
     }
@@ -416,7 +417,7 @@ pub(super) fn render_native_object_state(state: &State, depth: usize, out: &mut 
         expressions::expression(&state.initial)
     ));
     utils::indent(out, depth);
-    out.push_str(&format!("private var {name}: {} {{\n", state.ty.swift()));
+    out.push_str(&format!("private var {name}: {} {{\n", swift_type(&state.ty)));
     utils::indent(out, depth + 1);
     out.push_str(&format!("get {{ {storage}.value }}\n"));
     if state.mutable {

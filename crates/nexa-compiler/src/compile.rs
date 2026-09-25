@@ -13,6 +13,10 @@ pub enum Target {
 pub struct Compilation {
     pub module: Module,
     pub warnings: Vec<CompileWarning>,
+    /// Manifest-resolved plugin declarations in source order. Scaffolding
+    /// derives its `PluginPackage` model from these; the IR keeps only
+    /// plugin identity (see `nexa_ir::Plugin`).
+    pub plugins: Vec<nexa_syntax::ast::PluginDecl>,
 }
 
 /// Runs lexing, parsing, semantic analysis, and lowering to the common IR.
@@ -38,6 +42,11 @@ pub fn compile_with_warnings_for_target(
 
 fn compile_with_target(source: &str, target: Target) -> Result<Compilation, CompileError> {
     let app = nexa_syntax::parse(source)?;
+    let plugins = app.plugins.clone();
     let (module, warnings) = semantic::lower_with_warnings(app, target)?;
-    Ok(Compilation { module, warnings })
+    Ok(Compilation {
+        module,
+        warnings,
+        plugins,
+    })
 }

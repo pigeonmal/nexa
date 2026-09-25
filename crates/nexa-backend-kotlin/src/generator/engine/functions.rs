@@ -1,6 +1,7 @@
 use nexa_ir::{Function, Module};
 
 use super::{expressions, utils::indent};
+use crate::generator::engine::types::kotlin_type;
 
 pub(crate) fn render(module: &Module, out: &mut String) {
     for function in &module.functions {
@@ -27,21 +28,21 @@ fn render_function(function: &Function, out: &mut String) {
                 format!(
                     "{}: {}",
                     nexa_codegen::names::state_name(&parameter.name),
-                    parameter.ty.kotlin()
+                    kotlin_type(&parameter.ty)
                 )
             })
             .collect::<Vec<_>>()
             .join(", "),
     );
     out.push_str("): ");
-    out.push_str(&function.return_type.kotlin());
+    out.push_str(&kotlin_type(&function.return_type));
     out.push_str(" {\n");
     for local in &function.locals {
         indent(out, 1);
         out.push_str(&format!(
             "val {}: {} = {}\n",
             nexa_codegen::names::state_name(&local.name),
-            local.ty.kotlin(),
+            kotlin_type(&local.ty),
             expressions::expression(&local.initial)
         ));
     }

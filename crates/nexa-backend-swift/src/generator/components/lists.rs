@@ -2,6 +2,7 @@ use nexa_codegen::names::state_name;
 use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListPlan, Module, Node};
 
 use crate::generator::{
+    engine::types::swift_type,
     components::render_children, controls::render_actions, expressions::expression,
     features::Features, utils::indent,
 };
@@ -118,7 +119,7 @@ pub(crate) fn render_virtualized_list(
             out.push_str(&format!(
                 "let {}: {} = {collection}[listPosition]\n",
                 state_name(item),
-                element_type.swift()
+                swift_type(&element_type)
             ));
         }
     }
@@ -217,7 +218,7 @@ fn render_sectioned_list(
     out.push_str(&format!(
         "let {}: {} = {collection}[sectionPosition][itemPosition]\n",
         state_name(item),
-        element_type.swift()
+        swift_type(&element_type)
     ));
     render_children(children, module, features, depth + 2, out);
     out.push('\n');

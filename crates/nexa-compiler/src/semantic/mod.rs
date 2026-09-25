@@ -412,52 +412,6 @@ pub fn lower_with_warnings(
         .map(|plugin| nexa_ir::Plugin {
             namespace: plugin.namespace.clone(),
             idl_path: plugin.path.clone(),
-            ios_sources: plugin.ios_sources.clone(),
-            android_sources: plugin.android_sources.clone(),
-            cpp_sources: plugin.cpp_sources.clone(),
-            cpp_headers: plugin.cpp_headers.clone(),
-            cpp_standard: plugin.cpp_standard,
-            ios_min_version: plugin.ios_min_version.clone(),
-            android_min_sdk: plugin.android_min_sdk,
-            ios_frameworks: plugin.ios_frameworks.clone(),
-            ios_xcframeworks: plugin.ios_xcframeworks.clone(),
-            ios_resources: plugin.ios_resources.clone(),
-            ios_privacy_manifest: plugin.ios_privacy_manifest.clone(),
-            swift_packages: plugin
-                .swift_packages
-                .iter()
-                .map(|dependency| nexa_ir::SwiftPackage {
-                    url: dependency.url.clone(),
-                    from: dependency.from.clone(),
-                    products: dependency.products.clone(),
-                })
-                .collect(),
-            maven_dependencies: plugin.maven_dependencies.clone(),
-            android_aars: plugin.android_aars.clone(),
-            android_resources: plugin.android_resources.clone(),
-            android_proguard_rules: plugin.android_proguard_rules.clone(),
-            android_maven_repositories: plugin.android_maven_repositories.clone(),
-            ios_usage_descriptions: plugin.ios_usage_descriptions.clone(),
-            ios_entitlements: plugin
-                .ios_entitlements
-                .iter()
-                .map(|(key, value)| {
-                    let value = match value {
-                        nexa_syntax::ast::PluginEntitlementValue::String(value) => {
-                            nexa_ir::PluginEntitlementValue::String(value.clone())
-                        }
-                        nexa_syntax::ast::PluginEntitlementValue::Bool(value) => {
-                            nexa_ir::PluginEntitlementValue::Bool(*value)
-                        }
-                        nexa_syntax::ast::PluginEntitlementValue::Strings(values) => {
-                            nexa_ir::PluginEntitlementValue::Strings(values.clone())
-                        }
-                    };
-                    (key.clone(), value)
-                })
-                .collect(),
-            ios_linker_flags: plugin.ios_linker_flags.clone(),
-            android_permissions: plugin.android_permissions.clone(),
         })
         .collect();
     let plugin_assets = app

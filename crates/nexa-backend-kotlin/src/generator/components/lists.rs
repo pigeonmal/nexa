@@ -2,6 +2,7 @@ use nexa_codegen::names::state_name;
 use nexa_ir::{Action, Expr, FastListRefresh, ListAxis, ListPlan, Module, Node};
 
 use crate::generator::{
+    engine::types::kotlin_type,
     components::render_children, controls::render_actions, expressions::expression,
     features::Features, utils::indent,
 };
@@ -281,7 +282,7 @@ pub(crate) fn render_virtualized_list(
             out.push_str(&format!(
                 "val {}: {} = {collection}[{}]\n",
                 state_name(item),
-                element_type.kotlin(),
+                kotlin_type(&element_type),
                 state_name(pieces.index)
             ));
         }
@@ -372,7 +373,7 @@ fn render_sectioned_list(
     out.push_str(&format!(
         "val {}: {} = sectionItems[itemPosition]\n",
         state_name(item),
-        element_type.kotlin()
+        kotlin_type(&element_type)
     ));
     render_row_content(
         item_extent,
@@ -480,7 +481,7 @@ fn render_grid_list(
             out.push_str(&format!(
                 "val {}: {} = {collection}[{}]\n",
                 state_name(item),
-                element_type.kotlin(),
+                kotlin_type(&element_type),
                 state_name(pieces.index)
             ));
         }

@@ -5,6 +5,7 @@ use nexa_ir::{
 };
 
 use super::utils::{swift_string, swift_string_content};
+use crate::generator::engine::types::swift_type;
 
 pub(crate) fn expression(expr: &Expr) -> String {
     expression_with_locals(expr, &[])
@@ -101,7 +102,10 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             ),
         },
         Expr::Member {
-            base, optional, kind, ..
+            base,
+            optional,
+            kind,
+            ..
         } => {
             let (field, wrap_status_code) = match kind {
                 MemberKind::TupleIndex(TuplePosition::First) => (".0".to_owned(), false),
@@ -159,7 +163,7 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             ..
         } => {
             let callee = if *is_constructor {
-                return_type.swift()
+                swift_type(&return_type)
             } else {
                 function_name(name)
             };

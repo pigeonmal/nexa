@@ -6,6 +6,7 @@ mod engine;
 
 pub(super) use api::{network, permissions};
 use components::components as component_renderer;
+use crate::generator::engine::types::kotlin_type;
 pub(super) use components::{
     accessibility, assets, bottom_bar, controls, custom_components, images, input, keyboard,
     layout, links, lists, navigation, refresh, sheets,
@@ -195,13 +196,13 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Str
         } else if state.is_native_class_instance_binding() {
             out.push_str(&format!(
                 "    val {name}: {} = remember {{ {} }}\n",
-                state.ty.kotlin(),
+                kotlin_type(&state.ty),
                 expressions::expression(&state.initial)
             ));
         } else {
             out.push_str(&format!(
                 "    val {name}: {} = {}\n",
-                state.ty.kotlin(),
+                kotlin_type(&state.ty),
                 expressions::expression(&state.initial)
             ));
         }

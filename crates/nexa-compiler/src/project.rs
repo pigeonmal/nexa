@@ -130,6 +130,7 @@ impl IncrementalProjectCompiler {
                 app.components = loaded.components.clone();
                 app.structs = loaded.structs.clone();
                 app.functions.extend(loaded.functions.clone());
+                let plugins = app.plugins.clone();
                 let (module, mut warnings) = semantic::lower_with_warnings(app, target)
                     .map_err(|error| error.with_file(entry_path.display().to_string()))?;
                 for warning in &mut warnings {
@@ -137,7 +138,11 @@ impl IncrementalProjectCompiler {
                         warning.file = Some(entry_path.display().to_string());
                     }
                 }
-                Ok(crate::Compilation { module, warnings })
+                Ok(crate::Compilation {
+                    module,
+                    warnings,
+                    plugins,
+                })
             })
             .collect()
     }

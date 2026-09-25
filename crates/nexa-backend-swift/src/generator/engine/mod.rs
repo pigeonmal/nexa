@@ -6,4 +6,5 @@ pub(crate) mod features;
 pub(crate) mod functions;
 pub(crate) mod imports;
 pub(crate) mod structs;
+pub(crate) mod types;
 pub(crate) mod utils;

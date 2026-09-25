@@ -1,6 +1,7 @@
 use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle, walk::walk_ir};
 
 use crate::generator::{
+    engine::types::swift_type,
     components::render_node, features::Features, layout, render_immutable_state,
     render_native_object_state,
 };
@@ -39,7 +40,7 @@ fn render_component(component: &Component, module: &Module, features: &Features,
         out.push_str(&format!(
             "    private let {}: {}\n",
             nexa_codegen::names::state_name(&parameter.name),
-            parameter.ty.swift()
+            swift_type(&parameter.ty)
         ));
     }
     if has_content_slot {
@@ -54,7 +55,7 @@ fn render_component(component: &Component, module: &Module, features: &Features,
             out.push_str(&format!(
                 "    @State private var {}: {} = {}\n",
                 nexa_codegen::names::state_name(&state.name),
-                state.ty.swift(),
+                swift_type(&state.ty),
                 crate::generator::engine::expressions::expression(&state.initial)
             ));
         }
@@ -93,7 +94,7 @@ fn render_component(component: &Component, module: &Module, features: &Features,
             format!(
                 "_ {}: {}",
                 nexa_codegen::names::state_name(&parameter.name),
-                parameter.ty.swift()
+                swift_type(&parameter.ty)
             )
         })
         .collect::<Vec<_>>();

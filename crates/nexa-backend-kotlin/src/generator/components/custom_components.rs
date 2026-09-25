@@ -2,6 +2,7 @@ use nexa_ir::walk::walk_ir;
 use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle};
 
 use crate::generator::{components::render_node, features::Features, layout, state, utils::indent};
+use crate::generator::engine::types::kotlin_type;
 
 pub(crate) fn render(module: &Module, features: &Features, out: &mut String) {
     for component in &module.components {
@@ -31,7 +32,7 @@ fn render_component(component: &Component, module: &Module, features: &Features,
                 format!(
                     "{}: {}",
                     nexa_codegen::names::state_name(&parameter.name),
-                    parameter.ty.kotlin()
+                    kotlin_type(&parameter.ty)
                 )
             })
             .collect::<Vec<_>>()
@@ -147,13 +148,13 @@ fn render_component_states(states: &[nexa_ir::State], depth: usize, out: &mut St
         } else if state.is_native_class_instance_binding() {
             out.push_str(&format!(
                 "val {name}: {} = remember {{ {} }}\n",
-                state.ty.kotlin(),
+                kotlin_type(&state.ty),
                 crate::generator::engine::expressions::expression(&state.initial)
             ));
         } else {
             out.push_str(&format!(
                 "val {name}: {} = {}\n",
-                state.ty.kotlin(),
+                kotlin_type(&state.ty),
                 crate::generator::engine::expressions::expression(&state.initial)
             ));
         }

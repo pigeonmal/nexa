@@ -3,8 +3,10 @@
 use std::path::Path;
 
 use nexa_ir::Permission;
+use nexa_plugin_idl::manifest::{EntitlementValue, SwiftPackage};
 
 use super::ProjectConfig;
+use super::plugin_package::PluginPackage;
 
 pub(super) fn root_readme(app_name: &str, targets: &[&str]) -> String {
     let mut readme = format!(
@@ -23,7 +25,7 @@ pub(super) fn root_readme(app_name: &str, targets: &[&str]) -> String {
 pub(super) fn ios_info_plist_with_dev_runtime(
     app_name: &str,
     config: &ProjectConfig,
-    plugins: &[nexa_ir::Plugin],
+    plugins: &[PluginPackage],
     dev_runtime: bool,
 ) -> Result<String, String> {
     let mut usage_descriptions = std::collections::BTreeMap::<String, String>::new();
@@ -44,7 +46,7 @@ pub(super) fn ios_info_plist_with_dev_runtime(
         }
     }
     for plugin in plugins {
-        for (key, message) in &plugin.ios_usage_descriptions {
+        for (key, message) in &plugin.artifacts.ios_usage_descriptions {
             if let Some(existing) = usage_descriptions.get(key)
                 && existing != message
             {
@@ -108,12 +110,12 @@ pub(super) fn ios_launch_storyboard() -> String {
 
 pub(super) fn ios_entitlements(
     config: &ProjectConfig,
-    plugins: &[nexa_ir::Plugin],
+    plugins: &[PluginPackage],
 ) -> Result<Option<String>, String> {
-    let mut values = std::collections::BTreeMap::<String, nexa_ir::PluginEntitlementValue>::new();
+    let mut values = std::collections::BTreeMap::<String, EntitlementValue>::new();
     let mut owners = std::collections::HashMap::<String, &str>::new();
     for plugin in plugins {
-        for (key, value) in &plugin.ios_entitlements {
+        for (key, value) in &plugin.artifacts.ios_entitlements {
             if let Some(existing) = values.get(key)
                 && existing != value
             {
@@ -136,7 +138,7 @@ pub(super) fn ios_entitlements(
     if !associated_domains.is_empty() {
         let key = "com.apple.developer.associated-domains";
         match values.get_mut(key) {
-            Some(nexa_ir::PluginEntitlementValue::Strings(existing)) => {
+            Some(EntitlementValue::Strings(existing)) => {
                 for domain in associated_domains {
                     if !existing.contains(&domain) {
                         existing.push(domain);
@@ -151,7 +153,7 @@ pub(super) fn ios_entitlements(
             None => {
                 values.insert(
                     key.to_owned(),
-                    nexa_ir::PluginEntitlementValue::Strings(associated_domains),
+                    EntitlementValue::Strings(associated_domains),
                 );
             }
         }
@@ -164,12 +166,12 @@ pub(super) fn ios_entitlements(
         .iter()
         .map(|(key, value)| {
             let value = match value {
-                nexa_ir::PluginEntitlementValue::String(value) => {
+                EntitlementValue::String(value) => {
                     format!("<string>{}</string>", xml_escape(value))
                 }
-                nexa_ir::PluginEntitlementValue::Bool(true) => "<true/>".to_owned(),
-                nexa_ir::PluginEntitlementValue::Bool(false) => "<false/>".to_owned(),
-                nexa_ir::PluginEntitlementValue::Strings(values) => format!(
+                EntitlementValue::Bool(true) => "<true/>".to_owned(),
+                EntitlementValue::Bool(false) => "<false/>".to_owned(),
+                EntitlementValue::Strings(values) => format!(
                     "<array>{}</array>",
                     values
                         .iter()
@@ -185,11 +187,11 @@ pub(super) fn ios_entitlements(
     )))
 }
 
-fn merge_swift_packages(plugins: &[nexa_ir::Plugin]) -> Result<Vec<nexa_ir::SwiftPackage>, String> {
-    let mut packages: Vec<nexa_ir::SwiftPackage> = Vec::new();
+fn merge_swift_packages(plugins: &[PluginPackage]) -> Result<Vec<SwiftPackage>, String> {
+    let mut packages: Vec<SwiftPackage> = Vec::new();
     let mut product_owners = std::collections::HashMap::<String, String>::new();
     for plugin in plugins {
-        for package in &plugin.swift_packages {
+        for package in &plugin.artifacts.swift_packages {
             if let Some(existing) = packages.iter_mut().find(|value| value.url == package.url) {
                 if existing.from != package.from {
                     return Err(format!(
@@ -273,9 +275,7 @@ impl PbxIdAllocator {
                     let _ = owner;
                     attempt += 1;
                     if attempt > 1024 {
-                        return Err(format!(
-                            "PBX object ID collision while allocating `{key}`"
-                        ));
+                        return Err(format!("PBX object ID collision while allocating `{key}`"));
                     }
                 }
             }
@@ -353,7 +353,7 @@ fn render_settings(settings: &std::collections::BTreeMap<String, String>) -> Str
         .join(" ")
 }
 
-fn minimum_ios_version(configured: &str, plugins: &[nexa_ir::Plugin]) -> Result<String, String> {
+fn minimum_ios_version(configured: &str, plugins: &[PluginPackage]) -> Result<String, String> {
     let mut minimum = configured
         .split('.')
         .map(str::parse::<u32>)
@@ -361,7 +361,7 @@ fn minimum_ios_version(configured: &str, plugins: &[nexa_ir::Plugin]) -> Result<
         .map_err(|_| format!("invalid iOS minimum version `{configured}`"))?;
     for version in plugins
         .iter()
-        .filter_map(|plugin| plugin.ios_min_version.as_deref())
+        .filter_map(|plugin| plugin.artifacts.ios_min_version.as_deref())
     {
         let parts = version
             .split('.')
@@ -385,7 +385,10 @@ fn minimum_ios_version(configured: &str, plugins: &[nexa_ir::Plugin]) -> Result<
             minimum = parts;
         }
     }
-    if plugins.iter().any(|plugin| !plugin.cpp_sources.is_empty()) {
+    if plugins
+        .iter()
+        .any(|plugin| !plugin.artifacts.cpp_sources.is_empty())
+    {
         let cpp_interop_minimum = [16, 4];
         let width = minimum.len().max(cpp_interop_minimum.len());
         let greater = (0..width)
@@ -408,12 +411,12 @@ fn minimum_ios_version(configured: &str, plugins: &[nexa_ir::Plugin]) -> Result<
     Ok(formatted.join("."))
 }
 
-fn merge_maven_dependencies(plugins: &[nexa_ir::Plugin]) -> Result<Vec<String>, String> {
+fn merge_maven_dependencies(plugins: &[PluginPackage]) -> Result<Vec<String>, String> {
     let mut dependencies = Vec::new();
     let mut versions = std::collections::HashMap::<String, String>::new();
     for dependency in plugins
         .iter()
-        .flat_map(|plugin| plugin.maven_dependencies.iter())
+        .flat_map(|plugin| plugin.artifacts.maven_dependencies.iter())
     {
         let parts = dependency.split(':').collect::<Vec<_>>();
         if parts.len() != 3 {
@@ -447,7 +450,7 @@ pub(super) fn ios_project_file_with_config(
     plugin_sources: &[String],
     cpp_sources: &[String],
     xcframeworks: &[String],
-    plugins: &[nexa_ir::Plugin],
+    plugins: &[PluginPackage],
     config: &ProjectConfig,
 ) -> Result<String, String> {
     let packages = merge_swift_packages(plugins)?;
@@ -607,15 +610,9 @@ pub(super) fn ios_project_file_with_config(
 
     // Build settings, typed as maps and rendered once.
     let mut project_release = std::collections::BTreeMap::new();
-    project_release.insert(
-        "ALWAYS_SEARCH_USER_PATHS".to_owned(),
-        "NO".to_owned(),
-    );
+    project_release.insert("ALWAYS_SEARCH_USER_PATHS".to_owned(), "NO".to_owned());
     project_release.insert("SWIFT_VERSION".to_owned(), "6.0".to_owned());
-    project_release.insert(
-        "SWIFT_OPTIMIZATION_LEVEL".to_owned(),
-        "\"-O\"".to_owned(),
-    );
+    project_release.insert("SWIFT_OPTIMIZATION_LEVEL".to_owned(), "\"-O\"".to_owned());
     project_release.insert(
         "SWIFT_COMPILATION_MODE".to_owned(),
         "wholemodule".to_owned(),
@@ -627,10 +624,7 @@ pub(super) fn ios_project_file_with_config(
         minimum_version.clone(),
     );
     let mut project_debug = std::collections::BTreeMap::new();
-    project_debug.insert(
-        "ALWAYS_SEARCH_USER_PATHS".to_owned(),
-        "NO".to_owned(),
-    );
+    project_debug.insert("ALWAYS_SEARCH_USER_PATHS".to_owned(), "NO".to_owned());
     project_debug.insert("SWIFT_VERSION".to_owned(), "6.0".to_owned());
     project_debug.insert(
         "SWIFT_OPTIMIZATION_LEVEL".to_owned(),
@@ -647,7 +641,7 @@ pub(super) fn ios_project_file_with_config(
     }
     if plugins
         .iter()
-        .any(|plugin| !plugin.ios_entitlements.is_empty())
+        .any(|plugin| !plugin.artifacts.ios_entitlements.is_empty())
         || config
             .deep_links
             .iter()
@@ -666,10 +660,7 @@ pub(super) fn ios_project_file_with_config(
         target_extra.push_str(&format!(" OTHER_LDFLAGS = ( \"$(inherited)\", {flags} );"));
     }
     let mut target_release = std::collections::BTreeMap::new();
-    target_release.insert(
-        "ALWAYS_SEARCH_USER_PATHS".to_owned(),
-        "NO".to_owned(),
-    );
+    target_release.insert("ALWAYS_SEARCH_USER_PATHS".to_owned(), "NO".to_owned());
     target_release.insert(
         "PRODUCT_BUNDLE_IDENTIFIER".to_owned(),
         config.ios_bundle_identifier.clone(),
@@ -684,10 +675,7 @@ pub(super) fn ios_project_file_with_config(
         "\"iphoneos iphonesimulator\"".to_owned(),
     );
     target_release.insert("SWIFT_VERSION".to_owned(), "6.0".to_owned());
-    target_release.insert(
-        "SWIFT_OPTIMIZATION_LEVEL".to_owned(),
-        "\"-O\"".to_owned(),
-    );
+    target_release.insert("SWIFT_OPTIMIZATION_LEVEL".to_owned(), "\"-O\"".to_owned());
     target_release.insert(
         "SWIFT_COMPILATION_MODE".to_owned(),
         "wholemodule".to_owned(),
@@ -698,15 +686,9 @@ pub(super) fn ios_project_file_with_config(
         "IPHONEOS_DEPLOYMENT_TARGET".to_owned(),
         minimum_version.clone(),
     );
-    target_release.insert(
-        "TARGETED_DEVICE_FAMILY".to_owned(),
-        "\"1,2\"".to_owned(),
-    );
+    target_release.insert("TARGETED_DEVICE_FAMILY".to_owned(), "\"1,2\"".to_owned());
     let mut target_debug = std::collections::BTreeMap::new();
-    target_debug.insert(
-        "ALWAYS_SEARCH_USER_PATHS".to_owned(),
-        "NO".to_owned(),
-    );
+    target_debug.insert("ALWAYS_SEARCH_USER_PATHS".to_owned(), "NO".to_owned());
     target_debug.insert(
         "PRODUCT_BUNDLE_IDENTIFIER".to_owned(),
         config.ios_bundle_identifier.clone(),
@@ -729,10 +711,7 @@ pub(super) fn ios_project_file_with_config(
         "IPHONEOS_DEPLOYMENT_TARGET".to_owned(),
         minimum_version.clone(),
     );
-    target_debug.insert(
-        "TARGETED_DEVICE_FAMILY".to_owned(),
-        "\"1,2\"".to_owned(),
-    );
+    target_debug.insert("TARGETED_DEVICE_FAMILY".to_owned(), "\"1,2\"".to_owned());
 
     if !cpp_sources.is_empty() {
         let mut include_paths = cpp_sources
@@ -741,7 +720,7 @@ pub(super) fn ios_project_file_with_config(
             .map(|component| component.as_os_str().to_string_lossy().into_owned())
             .collect::<std::collections::BTreeSet<_>>();
         for (index, plugin) in plugins.iter().enumerate() {
-            if plugin.cpp_sources.is_empty() {
+            if plugin.artifacts.cpp_sources.is_empty() {
                 continue;
             }
             include_paths.extend(super::plugins::cpp_header_include_roots(plugin, index)?);
@@ -771,10 +750,7 @@ pub(super) fn ios_project_file_with_config(
                 "CLANG_CXX_LANGUAGE_STANDARD".to_owned(),
                 format!("\"c++{cpp_standard}\""),
             );
-            settings.insert(
-                "SWIFT_OBJC_INTEROP_MODE".to_owned(),
-                "objcxx".to_owned(),
-            );
+            settings.insert("SWIFT_OBJC_INTEROP_MODE".to_owned(), "objcxx".to_owned());
             settings.insert("SWIFT_OBJC_BRIDGING_HEADER".to_owned(), bridging.clone());
             settings.insert(
                 "HEADER_SEARCH_PATHS".to_owned(),
@@ -944,14 +920,12 @@ pub(super) fn ios_project_file_with_config(
         let mut build_ids = package_build_ids.iter();
         for (package, reference_id) in packages.iter().zip(package_reference_ids.iter()) {
             for product in &package.products {
-                let product_id = product_ids
-                    .next()
-                    .cloned()
-                    .unwrap_or_else(|| PbxIdAllocator::stable_id(&format!("package:{}:{product}", package.url)));
-                let build_id = build_ids
-                    .next()
-                    .cloned()
-                    .unwrap_or_else(|| PbxIdAllocator::stable_id(&format!("build:product:{}:{product}", package.url)));
+                let product_id = product_ids.next().cloned().unwrap_or_else(|| {
+                    PbxIdAllocator::stable_id(&format!("package:{}:{product}", package.url))
+                });
+                let build_id = build_ids.next().cloned().unwrap_or_else(|| {
+                    PbxIdAllocator::stable_id(&format!("build:product:{}:{product}", package.url))
+                });
                 pbx.insert(
                     product_id.clone(),
                     format!("isa = XCSwiftPackageProductDependency; package = {reference_id}; productName = \"{product}\";"),
@@ -1092,11 +1066,11 @@ pub(super) fn ios_project_file_with_config(
     Ok(pbx.render())
 }
 
-fn merge_ios_frameworks(plugins: &[nexa_ir::Plugin]) -> Vec<String> {
+fn merge_ios_frameworks(plugins: &[PluginPackage]) -> Vec<String> {
     let mut frameworks = Vec::new();
     for framework in plugins
         .iter()
-        .flat_map(|plugin| plugin.ios_frameworks.iter())
+        .flat_map(|plugin| plugin.artifacts.ios_frameworks.iter())
     {
         if !frameworks.contains(framework) {
             frameworks.push(framework.clone());
@@ -1105,10 +1079,10 @@ fn merge_ios_frameworks(plugins: &[nexa_ir::Plugin]) -> Vec<String> {
     frameworks
 }
 
-fn merge_ios_linker_flags(plugins: &[nexa_ir::Plugin]) -> Vec<String> {
+fn merge_ios_linker_flags(plugins: &[PluginPackage]) -> Vec<String> {
     plugins
         .iter()
-        .flat_map(|plugin| plugin.ios_linker_flags.iter().cloned())
+        .flat_map(|plugin| plugin.artifacts.ios_linker_flags.iter().cloned())
         .collect()
 }
 
@@ -1148,11 +1122,11 @@ pub(super) fn ios_scheme(app_name: &str) -> String {
     )
 }
 
-pub(super) fn android_settings(app_name: &str, plugins: &[nexa_ir::Plugin]) -> String {
+pub(super) fn android_settings(app_name: &str, plugins: &[PluginPackage]) -> String {
     let mut repositories: Vec<&str> = Vec::new();
     for repository in plugins
         .iter()
-        .flat_map(|plugin| plugin.android_maven_repositories.iter())
+        .flat_map(|plugin| plugin.artifacts.android_maven_repositories.iter())
     {
         if !repositories.contains(&repository.as_str()) {
             repositories.push(repository.as_str());
@@ -1188,7 +1162,7 @@ pub(super) fn android_manifest(
     package: &str,
     remote: bool,
     config: &ProjectConfig,
-    plugins: &[nexa_ir::Plugin],
+    plugins: &[PluginPackage],
 ) -> String {
     let mut permissions = std::collections::BTreeSet::new();
     if remote {
@@ -1227,7 +1201,7 @@ pub(super) fn android_manifest(
     permissions.extend(
         plugins
             .iter()
-            .flat_map(|plugin| plugin.android_permissions.iter().cloned()),
+            .flat_map(|plugin| plugin.artifacts.android_permissions.iter().cloned()),
     );
     let declared = permissions
         .iter()
@@ -1278,7 +1252,7 @@ pub(super) fn android_manifest(
 pub(super) fn android_app_gradle_with_dev_runtime(
     package: &str,
     features: nexa_backend_kotlin::KotlinProjectFeatures,
-    plugins: &[nexa_ir::Plugin],
+    plugins: &[PluginPackage],
     local_aars: &[String],
     config: &ProjectConfig,
     dev_runtime: bool,
@@ -1286,7 +1260,7 @@ pub(super) fn android_app_gradle_with_dev_runtime(
     let maven_dependencies = merge_maven_dependencies(plugins)?;
     let minimum_sdk = plugins
         .iter()
-        .filter_map(|plugin| plugin.android_min_sdk)
+        .filter_map(|plugin| plugin.artifacts.android_min_sdk)
         .max()
         .unwrap_or(config.android_min_sdk)
         .max(config.android_min_sdk);
@@ -1296,7 +1270,10 @@ pub(super) fn android_app_gradle_with_dev_runtime(
             config.android_target_sdk
         ));
     }
-    let cpp_native_build = if plugins.iter().any(|plugin| !plugin.cpp_sources.is_empty()) {
+    let cpp_native_build = if plugins
+        .iter()
+        .any(|plugin| !plugin.artifacts.cpp_sources.is_empty())
+    {
         "\n    externalNativeBuild { cmake { path = file(\"src/main/cpp/CMakeLists.txt\"); version = \"3.22.1\" } }"
     } else {
         ""

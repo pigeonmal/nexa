@@ -26,54 +26,15 @@ pub struct Module {
     pub on_background: Option<Vec<Action>>,
 }
 
+/// A native plugin referenced by the module: identity plus a pointer to its
+/// IDL contract. Packaging and project facts (sources, frameworks, resources,
+/// permissions, manifests) live in the CLI's `PluginPackage` model, not in
+/// semantic IR: lowering only needs to know *which* plugins exist, while
+/// scaffolding decides *what* to copy, link, and declare from their manifests.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Plugin {
     pub namespace: String,
     pub idl_path: String,
-    /// Absolute source roots/globs declared by `plugin.config.nx`.
-    pub ios_sources: Vec<String>,
-    pub android_sources: Vec<String>,
-    /// Absolute optional C++ implementation source/header globs.
-    pub cpp_sources: Vec<String>,
-    pub cpp_headers: Vec<String>,
-    /// Minimum C++ language standard required by this plugin's native sources.
-    pub cpp_standard: Option<u8>,
-    pub ios_min_version: Option<String>,
-    pub android_min_sdk: Option<u32>,
-    pub ios_frameworks: Vec<String>,
-    /// Absolute paths to local XCFramework bundles declared by plugins.
-    pub ios_xcframeworks: Vec<String>,
-    /// Absolute paths to plugin-owned resources included in the iOS app bundle.
-    pub ios_resources: Vec<String>,
-    /// Absolute path to the plugin's `PrivacyInfo.xcprivacy` manifest.
-    pub ios_privacy_manifest: Option<String>,
-    pub swift_packages: Vec<SwiftPackage>,
-    pub maven_dependencies: Vec<String>,
-    /// Absolute paths to local Android AAR artifacts declared by plugins.
-    pub android_aars: Vec<String>,
-    /// Absolute paths to plugin-owned resources packaged as Android assets.
-    pub android_resources: Vec<String>,
-    /// Absolute paths to Android R8/ProGuard rules supplied by the plugin.
-    pub android_proguard_rules: Vec<String>,
-    pub android_maven_repositories: Vec<String>,
-    pub ios_usage_descriptions: Vec<(String, String)>,
-    pub ios_entitlements: Vec<(String, PluginEntitlementValue)>,
-    pub ios_linker_flags: Vec<String>,
-    pub android_permissions: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PluginEntitlementValue {
-    String(String),
-    Bool(bool),
-    Strings(Vec<String>),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SwiftPackage {
-    pub url: String,
-    pub from: String,
-    pub products: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1030,87 +991,6 @@ pub enum CollectionMutation {
     MapRemove,
 }
 
-impl NumericType {
-    pub fn swift(self) -> &'static str {
-        match self {
-            Self::Int8 => "Int8",
-            Self::Int16 => "Int16",
-            Self::Int32 => "Int32",
-            Self::Int64 => "Int64",
-            Self::UInt8 => "UInt8",
-            Self::UInt16 => "UInt16",
-            Self::UInt32 => "UInt32",
-            Self::UInt64 => "UInt64",
-            Self::Float32 => "Float",
-            Self::Float64 => "Double",
-        }
-    }
-    pub fn kotlin(self) -> &'static str {
-        match self {
-            Self::Int8 => "Byte",
-            Self::Int16 => "Short",
-            Self::Int32 => "Int",
-            Self::Int64 => "Long",
-            Self::UInt8 => "UByte",
-            Self::UInt16 => "UShort",
-            Self::UInt32 => "UInt",
-            Self::UInt64 => "ULong",
-            Self::Float32 => "Float",
-            Self::Float64 => "Double",
-        }
-    }
-}
-
-impl Type {
-    pub fn swift(&self) -> String {
-        match self {
-            Self::Void => "Void".to_owned(),
-            Self::String => "String".to_owned(),
-            Self::Bool => "Bool".to_owned(),
-            Self::Numeric(n) => n.swift().to_owned(),
-            Self::Optional(inner) => format!("{}?", inner.swift()),
-            Self::Result(val, err) => format!("Result<{}, {}>", val.swift(), err.swift()),
-            Self::Array(element) => format!("[{}]", element.swift()),
-            Self::Set(element) => format!("Set<{}>", element.swift()),
-            Self::Map(key, value) => format!("[{}: {}]", key.swift(), value.swift()),
-            Self::Pair(first, second) => format!("({}, {})", first.swift(), second.swift()),
-            Self::Triple(first, second, third) => {
-                format!("({}, {}, {})", first.swift(), second.swift(), third.swift())
-            }
-            Self::Enum(name) => native_enum_name(name),
-            Self::Plugin { name, .. } => name.clone(),
-            Self::NetworkResponse => "NexaNetworkResponse".to_owned(),
-            Self::Struct { name, .. } => native_struct_name(name),
-        }
-    }
-    pub fn kotlin(&self) -> String {
-        match self {
-            Self::Void => "Unit".to_owned(),
-            Self::String => "String".to_owned(),
-            Self::Bool => "Boolean".to_owned(),
-            Self::Numeric(n) => n.kotlin().to_owned(),
-            Self::Optional(inner) => format!("{}?", inner.kotlin()),
-            Self::Result(val, err) => format!("NexaResult<{}, {}>", val.kotlin(), err.kotlin()),
-            Self::Array(element) => format!("List<{}>", element.kotlin()),
-            Self::Set(element) => format!("Set<{}>", element.kotlin()),
-            Self::Map(key, value) => format!("Map<{}, {}>", key.kotlin(), value.kotlin()),
-            Self::Pair(first, second) => {
-                format!("Pair<{}, {}>", first.kotlin(), second.kotlin())
-            }
-            Self::Triple(first, second, third) => format!(
-                "Triple<{}, {}, {}>",
-                first.kotlin(),
-                second.kotlin(),
-                third.kotlin()
-            ),
-            Self::Enum(name) => native_enum_name(name),
-            Self::Plugin { name, .. } => name.clone(),
-            Self::NetworkResponse => "NexaNetworkResponse".to_owned(),
-            Self::Struct { name, .. } => native_struct_name(name),
-        }
-    }
-}
-
 impl Expr {
     /// Whether this expression is a call that can throw at runtime and must
     /// be awaited with error propagation (`try await` in Swift). This is the
@@ -1127,41 +1007,6 @@ impl Expr {
             _ => false,
         }
     }
-}
-
-fn native_enum_name(name: &str) -> String {
-    let mut result = String::from("Nexa");
-    let mut uppercase = true;
-    for character in name.chars() {
-        if character == '_' {
-            uppercase = true;
-        } else if uppercase {
-            result.extend(character.to_uppercase());
-            uppercase = false;
-        } else {
-            result.push(character);
-        }
-    }
-    result
-}
-
-fn native_struct_name(name: &str) -> String {
-    let mut result = String::from("Nexa");
-    let mut uppercase = true;
-    for character in name.chars() {
-        if character == '_' {
-            uppercase = true;
-        } else if uppercase {
-            result.extend(character.to_uppercase());
-            uppercase = false;
-        } else {
-            result.push(character);
-        }
-    }
-    if result == "Nexa" {
-        result.push_str("Struct");
-    }
-    result
 }
 
 #[cfg(test)]

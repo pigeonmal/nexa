@@ -2,23 +2,6 @@
   "schema_version": 1,
   "source": "../nexa-ir/src/lib.rs",
   "ir_variants": {
-    "PluginEntitlementValue": [
-      {
-        "name": "String",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Bool",
-        "ios": "covered",
-        "android": "covered"
-      },
-      {
-        "name": "Strings",
-        "ios": "covered",
-        "android": "covered"
-      }
-    ],
     "Permission": [
       {
         "name": "Camera",

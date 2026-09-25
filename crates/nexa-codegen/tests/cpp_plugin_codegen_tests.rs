@@ -960,3 +960,44 @@ fn android_cpp_adapters_reject_unsafe_shapes_and_bridge_flat_primitive_arrays() 
         assert!(error.contains("unsupported type `Map`"), "{error}");
     }
 }
+
+#[test]
+fn android_cpp_adapters_bridge_mutable_named_properties() {
+    // A mutable native-class property of a declared struct or enum passes
+    // Android validation, so the JNI setter must render the same named-value
+    // reader the method-argument path uses instead of panicking on a missing
+    // scalar spelling.
+    let idl = nexa_plugin_idl::parse(
+        r#"
+            enum MediaMode { idle playing }
+            struct MediaStats {
+                frameCount: Int32
+                mode: MediaMode
+            }
+            native class Recorder {
+                init()
+                property stats: MediaStats
+                property mode: MediaMode
+                property gain: Float64
+                fn dispose()
+            }
+            "#,
+    )
+    .expect("mutable named-property Android contract should parse");
+    let (kotlin, jni) = render_android_adapters(
+        &BridgePlan::validate_android(&idl).expect("android contract should validate"),
+        "dev.example.media",
+        "Recorder",
+        "dev.example.app",
+        0,
+    )
+    .expect("Android should bridge mutable named properties");
+
+    assert!(kotlin.contains("external fun set_Recorder_stats(handle: Long, value: MediaStats)"));
+    assert!(kotlin.contains("external fun set_Recorder_mode(handle: Long, value: MediaMode)"));
+    // Named setters read the incoming `jobject` through the shared helper.
+    assert!(jni.contains("nexaFromJniMediaStats(env, static_cast<jobject>(value))"));
+    assert!(jni.contains("nexaFromJniMediaMode(env, static_cast<jobject>(value))"));
+    // Scalar properties keep their existing spelling.
+    assert!(jni.contains("static_cast<double>(value)"));
+}

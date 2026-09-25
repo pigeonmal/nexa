@@ -6,6 +6,7 @@ use nexa_ir::{
 
 use super::utils::{kotlin_string, kotlin_string_content};
 use super::{features::Features, imports::ImportSet};
+use crate::generator::engine::types::kotlin_type;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
@@ -101,9 +102,7 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 MemberKind::TupleIndex(TuplePosition::First) => "first".to_owned(),
                 MemberKind::TupleIndex(TuplePosition::Second) => "second".to_owned(),
                 MemberKind::TupleIndex(TuplePosition::Third) => "third".to_owned(),
-                MemberKind::StructField(name) => {
-                    nexa_codegen::names::struct_field_name(name)
-                }
+                MemberKind::StructField(name) => nexa_codegen::names::struct_field_name(name),
                 MemberKind::PluginField(name) => name.clone(),
                 MemberKind::NetworkStatusCode => "statusCode".to_owned(),
                 MemberKind::NetworkHeaders => "headers".to_owned(),
@@ -149,7 +148,7 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             ..
         } => {
             let callee = if *is_constructor {
-                return_type.kotlin()
+                kotlin_type(&return_type)
             } else {
                 function_name(name)
             };
@@ -199,11 +198,9 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         }
         Expr::FileExists { path } => format!("NexaFile.exists({})", render(path)),
         Expr::FileReadText { path } => format!("NexaFile.readText({})", render(path)),
-        Expr::FileWriteText { path, contents } => format!(
-            "NexaFile.writeText({}, {})",
-            render(contents),
-            render(path)
-        ),
+        Expr::FileWriteText { path, contents } => {
+            format!("NexaFile.writeText({}, {})", render(contents), render(path))
+        }
         Expr::FileDelete { path } => format!("NexaFile.delete({})", render(path)),
         Expr::PermissionOp { op, permission } => {
             let method = match op {

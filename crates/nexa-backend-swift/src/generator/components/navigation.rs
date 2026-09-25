@@ -6,6 +6,7 @@ use crate::generator::engine::expressions::text_expression;
 use crate::generator::{components::render_children, utils::indent};
 use crate::generator::{features::Features, render_immutable_state, render_native_object_state};
 use nexa_ir::State;
+use crate::generator::engine::types::swift_type;
 
 pub(crate) fn render_link(
     destination: ScreenId,
@@ -151,7 +152,7 @@ fn render_deep_link_dispatch(module: &Module, depth: usize, out: &mut String) {
                     indent(out, depth + 2);
                     out.push_str(&format!(
                         "guard let {name} = {}({raw}) else {{ return }}\n",
-                        parameter.ty.swift()
+                        swift_type(&parameter.ty)
                     ));
                     arguments.push(name);
                 }
@@ -210,7 +211,7 @@ pub(crate) fn render_screen_view(
         out.push_str(&format!(
             "@Binding private var {}: {}\n",
             nexa_codegen::names::state_name(&state.name),
-            state.ty.swift()
+            swift_type(&state.ty)
         ));
     }
     for state in &module.states {
@@ -222,7 +223,7 @@ pub(crate) fn render_screen_view(
             out.push_str(&format!(
                 "private let {}: {}\n",
                 nexa_codegen::names::state_name(&state.name),
-                state.ty.swift()
+                swift_type(&state.ty)
             ));
         }
     }
@@ -231,7 +232,7 @@ pub(crate) fn render_screen_view(
         out.push_str(&format!(
             "private let {}: {}\n",
             nexa_codegen::names::state_name(&parameter.name),
-            parameter.ty.swift()
+            swift_type(&parameter.ty)
         ));
     }
     for state in &screen.states {
@@ -242,7 +243,7 @@ pub(crate) fn render_screen_view(
             out.push_str(&format!(
                 "@State private var {}: {} = {}\n",
                 nexa_codegen::names::state_name(&state.name),
-                state.ty.swift(),
+                swift_type(&state.ty),
                 expression(&state.initial)
             ));
         }
@@ -274,7 +275,7 @@ pub(crate) fn render_screen_view(
         format!(
             "_ {}: {}",
             nexa_codegen::names::state_name(&parameter.name),
-            parameter.ty.swift()
+            swift_type(&parameter.ty)
         )
     }));
     init_parameters.extend(module.states.iter().filter_map(|state| {
@@ -282,7 +283,7 @@ pub(crate) fn render_screen_view(
             Some(format!(
                 "{}: Binding<{}>",
                 nexa_codegen::names::state_name(&state.name),
-                state.ty.swift()
+                swift_type(&state.ty)
             ))
         } else if state.is_native_class_constructor_binding()
             && !state.mutable
@@ -291,7 +292,7 @@ pub(crate) fn render_screen_view(
             Some(format!(
                 "{}: {}",
                 nexa_codegen::names::state_name(&state.name),
-                state.ty.swift()
+                swift_type(&state.ty)
             ))
         } else {
             None

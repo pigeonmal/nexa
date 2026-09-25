@@ -1328,7 +1328,7 @@ pub(super) fn lower_expr(
                         *span,
                         format!(
                             "the `?` operator can only be applied to `Result` values, found `{}`",
-                            other.swift()
+                            type_name(&other)
                         ),
                     ));
                 }

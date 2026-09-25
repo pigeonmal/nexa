@@ -8,4 +8,5 @@ pub(crate) mod imports;
 pub(crate) mod runtime;
 pub(crate) mod state;
 pub(crate) mod structs;
+pub(crate) mod types;
 pub(crate) mod utils;
