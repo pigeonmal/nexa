@@ -54,19 +54,21 @@ pub fn apply_removals(root: &Path, plan: &ProjectPlan) -> Result<(), String> {
 /// Writes the plan's binary files.
 pub fn write_binaries(root: &Path, plan: &ProjectPlan) -> Result<(), String> {
     for file in plan.binaries() {
-        let path = root.join(&file.path);
-        if path.is_file() && std::fs::read(&path).ok().as_deref() == Some(file.contents.as_slice())
-        {
-            continue;
-        }
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| format!("{}: {error}", parent.display()))?;
-        }
-        std::fs::write(&path, &file.contents)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
+        write_bytes_if_changed(&root.join(&file.path), &file.contents)?;
     }
     Ok(())
+}
+
+/// Writes bytes to `path` only when they differ from what is on disk.
+fn write_bytes_if_changed(path: &Path, contents: &[u8]) -> Result<(), String> {
+    if path.is_file() && std::fs::read(path).ok().as_deref() == Some(contents) {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("{}: {error}", parent.display()))?;
+    }
+    std::fs::write(path, contents).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 /// Sets the executable bit on the paths the plan marks executable.
@@ -85,21 +87,24 @@ pub fn mark_executable(root: &Path, plan: &ProjectPlan) -> Result<(), String> {
 }
 
 /// Performs the plan's file and directory copies.
+///
+/// Copies are byte-for-byte: a plugin resource may be an image or a data blob,
+/// so going through `String` would corrupt it.
 pub fn perform_copies(root: &Path, plan: &ProjectPlan) -> Result<(), String> {
     for copy in plan.copies() {
         let destination = root.join(&copy.destination);
         if copy.directory {
             copy_directory(&copy.source, &destination)?;
         } else {
-            write_if_changed(&destination, &read_file(&copy.source)?)?;
+            write_bytes_if_changed(&destination, &read_bytes(&copy.source)?)?;
         }
     }
     Ok(())
 }
 
 /// Reads a copy source, reporting the path when it cannot be read.
-fn read_file(source: &Path) -> Result<String, String> {
-    std::fs::read_to_string(source).map_err(|error| format!("{}: {error}", source.display()))
+fn read_bytes(source: &Path) -> Result<Vec<u8>, String> {
+    std::fs::read(source).map_err(|error| format!("{}: {error}", source.display()))
 }
 
 /// Copies a directory's contents, creating the destination as needed.
@@ -113,7 +118,7 @@ fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
         if from.is_dir() {
             copy_directory(&from, &to)?;
         } else {
-            write_if_changed(&to, &read_file(&from)?)?;
+            write_bytes_if_changed(&to, &read_bytes(&from)?)?;
         }
     }
     Ok(())
@@ -153,7 +158,7 @@ pub fn remove_stale_units(
         let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
             continue;
         };
-        if name.starts_with(&prefix)
+        if name.starts_with(prefix)
             && path.extension().and_then(|value| value.to_str()) == Some(extension)
             && !keep.iter().any(|current| current == name)
         {
@@ -326,6 +331,25 @@ mod tests {
         assert_eq!(temp.read("ios/Demo/A.swift"), "// from a plugin\n");
         assert_eq!(temp.read("ios/Demo/assets/icon.dat"), "x");
         assert_eq!(temp.read("ios/Demo/assets/nested/deep.dat"), "y");
+    }
+
+    #[test]
+    fn copies_are_byte_exact() {
+        // Plugin resources may be images or data blobs, so a copy must not go
+        // through `String`.
+        let temp = TempDir::new("binary-copy");
+        let payload: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0xFF, 0x0A, 0x0D];
+        std::fs::create_dir_all(temp.0.join("pkg")).expect("package");
+        std::fs::write(temp.0.join("pkg/icon.dat"), &payload).expect("seed");
+
+        let plan = ProjectPlan::ios("Demo").with_copy(crate::project::plan::CopyAction::file(
+            temp.0.join("pkg/icon.dat"),
+            "ios/Demo/NexaPluginResources/Plugin0/icon.dat",
+        ));
+        write_plan(&temp.0, &plan).expect("copy runs");
+        let copied = std::fs::read(temp.0.join("ios/Demo/NexaPluginResources/Plugin0/icon.dat"))
+            .expect("copied resource");
+        assert_eq!(copied, payload, "a copied resource must be byte-identical");
     }
 
     #[test]

@@ -545,8 +545,6 @@ struct PreparedIos {
     source_units: Vec<nexa_codegen::SourceUnit>,
     /// Whether the app bundle carries images, icons, or a splash screen.
     has_assets: bool,
-    /// Whether any plugin contributes bundle resources.
-    has_plugin_resources: bool,
     /// Swift files staged from plugin packages, relative to the app directory.
     plugin_sources: Vec<String>,
     /// C++ sources staged for the bridging header.
@@ -557,6 +555,8 @@ struct PreparedIos {
     /// build no longer produces.
     artifacts: Vec<plan::CopyAction>,
     removed_artifacts: Vec<String>,
+    /// Plugin resources staged for the app bundle.
+    resources: plugins::StagedResources,
 }
 
 /// Performs the iOS filesystem copies and gathers the facts they produce.
@@ -588,11 +588,10 @@ fn prepare_ios(
         .iter()
         .map(|artifact| artifact.name.clone())
         .collect::<Vec<_>>();
-    let has_plugin_resources = plugins::copy_ios_plugin_resources(root, app_name, plugins)?;
+    let resources = plugins::stage_ios_plugin_resources(root, app_name, plugins)?;
     Ok(PreparedIos {
         source_units,
         has_assets,
-        has_plugin_resources,
         plugin_sources,
         cpp_sources,
         xcframeworks: xcframeworks.clone(),
@@ -605,6 +604,7 @@ fn prepare_ios(
             .filter(|name| !xcframeworks.iter().any(|current| current == *name))
             .map(|name| format!("ios/{app_name}/{name}"))
             .collect(),
+        resources,
     })
 }
 
@@ -641,6 +641,44 @@ fn ios_plan(
     for stale in &prepared.removed_artifacts {
         plan = plan.with_removal(stale.clone());
     }
+    // Plugin resources are staged relative to the resource root so the marker
+    // survives the app being renamed; the plan prefixes them on the way in.
+    let resource_directory = plugins::ios_resource_directory(app_name);
+    for resource in &prepared.resources.copies {
+        plan = plan.with_copy(resource.copy.clone());
+    }
+    for file in &prepared.resources.generated {
+        plan = plan.with_file(
+            format!("{resource_directory}/{}", file.relative),
+            file.contents.clone(),
+        );
+    }
+    let staged_now: Vec<&str> = prepared
+        .resources
+        .copies
+        .iter()
+        .map(|resource| resource.relative.as_str())
+        .chain(
+            prepared
+                .resources
+                .generated
+                .iter()
+                .map(|file| file.relative.as_str()),
+        )
+        .collect();
+    for stale in &prepared.resources.previous {
+        if !staged_now.contains(&stale.as_str()) {
+            plan = plan.with_removal(format!("{resource_directory}/{stale}"));
+        }
+    }
+    if prepared.resources.present {
+        plan = plan.with_file(
+            format!("{resource_directory}/.nexa-plugin-resources"),
+            format!("{}\n", staged_now.join("\n")),
+        );
+    } else {
+        plan = plan.with_removal(format!("{resource_directory}/.nexa-plugin-resources"));
+    }
     // The marker records what this build staged, so the next run can tell what
     // to remove. It is a planned file like any other, which keeps staging free
     // of writes and stale removal inside the plan.
@@ -668,7 +706,7 @@ fn ios_plan(
             templates::ios_project_file_with_config(
                 app_name,
                 prepared.has_assets,
-                prepared.has_plugin_resources,
+                prepared.resources.present,
                 &generated_names,
                 &prepared.plugin_sources,
                 &prepared.cpp_sources,
@@ -734,7 +772,7 @@ fn generate_android(
     project_features.uses_coroutines |= plugin_uses_coroutines;
     plugins::copy_android_plugin_cpp_sources(root, plugins, &package)?;
     let local_aars = plugins::copy_android_plugin_artifacts(root, plugins)?;
-    plugins::copy_android_plugin_resources(root, plugins)?;
+    let resources = plugins::stage_android_plugin_resources(root, plugins)?;
     copy_config_icons(root, app_name, config)?;
     plugins::copy_plugin_assets(root, app_name, module)?;
     assets::copy_android_project_images(source_root, root)?;
@@ -775,6 +813,7 @@ fn generate_android(
         dev_session,
         project_features,
         &local_aars,
+        &resources,
     )?;
     writers::write_plan(root, &plan)?;
     let mut keep = generated_names;
@@ -797,6 +836,7 @@ fn android_plan(
     dev_session: Option<&DevSessionConfig>,
     project_features: nexa_backend_kotlin::KotlinProjectFeatures,
     local_aars: &[String],
+    resources: &plugins::StagedResources,
 ) -> Result<ProjectPlan, String> {
     let dev_runtime = dev_session.is_some();
     let source_directory = format!("android/app/src/main/java/{package_path}");
@@ -873,6 +913,36 @@ fn android_plan(
             "android/app/proguard-rules.pro",
             plugins::android_plugin_proguard_rules(plugins, package)?,
         );
+    // Plugin resources are staged relative to the asset directory so the
+    // marker survives the application id changing.
+    let resource_directory = plugins::ANDROID_RESOURCES;
+    for resource in &resources.copies {
+        plan = plan.with_copy(resource.copy.clone());
+    }
+    for file in &resources.generated {
+        plan = plan.with_file(
+            format!("{resource_directory}/{}", file.relative),
+            file.contents.clone(),
+        );
+    }
+    let staged_now: Vec<&str> = resources
+        .copies
+        .iter()
+        .map(|resource| resource.relative.as_str())
+        .collect();
+    for stale in &resources.previous {
+        if !staged_now.contains(&stale.as_str()) {
+            plan = plan.with_removal(format!("{resource_directory}/{stale}"));
+        }
+    }
+    if resources.present {
+        plan = plan.with_file(
+            format!("{resource_directory}/.nexa-plugin-resources"),
+            format!("{}\n", staged_now.join("\n")),
+        );
+    } else {
+        plan = plan.with_removal(format!("{resource_directory}/.nexa-plugin-resources"));
+    }
     if dev_runtime {
         plan = plan.with_file(
             format!("{source_directory}/NexaDevRuntime.kt"),

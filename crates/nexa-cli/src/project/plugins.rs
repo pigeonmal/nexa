@@ -244,6 +244,137 @@ pub(super) fn stage_ios_plugin_artifacts(
 /// tell what to remove.
 const MARKER: &str = ".nexa-plugin-frameworks";
 
+/// A resource a plugin contributes to the app bundle, staged but not copied.
+pub struct StagedResource {
+    /// Destination relative to the resource root, as the manifest records it.
+    pub relative: String,
+    /// The copy that materializes it.
+    pub copy: CopyAction,
+}
+
+/// A file generated alongside staged resources, such as a privacy bundle's
+/// `Info.plist`.
+pub struct StagedGenerated {
+    /// Destination relative to the resource root.
+    pub relative: String,
+    /// Complete file contents.
+    pub contents: String,
+}
+
+/// Everything one platform needs in order to populate its resource directory.
+pub struct StagedResources {
+    /// Files to copy in.
+    pub copies: Vec<StagedResource>,
+    /// Files to generate.
+    pub generated: Vec<StagedGenerated>,
+    /// Paths a previous build staged, relative to the resource root.
+    pub previous: Vec<String>,
+    /// Whether the app gains any resource at all.
+    pub present: bool,
+}
+
+/// Stages the resources and privacy manifests plugins contribute to the iOS
+/// app bundle.
+///
+/// Staging validates every resource and decides where it belongs; the plan
+/// carries the copies and the writer performs them. Nothing is written here,
+/// so a resource that fails validation leaves the previous build intact.
+pub(super) fn stage_ios_plugin_resources(
+    root: &Path,
+    app_name: &str,
+    plugins: &[PluginPackage],
+) -> Result<StagedResources, String> {
+    let directory = format!("ios/{app_name}/NexaPluginResources");
+    let mut copies = Vec::new();
+    let mut generated = Vec::new();
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
+        let package_root = plugin_package_root(plugin)?;
+        for resource in &plugin.artifacts.ios_resources {
+            let source = validate_plugin_file(&package_root, resource, "iOS platform resource")?;
+            let relative = plugin_resource_relative(&source, &package_root, plugin_index)?;
+            copies.push(StagedResource {
+                copy: CopyAction::file(source, format!("{directory}/{relative}")),
+                relative,
+            });
+        }
+        if let Some(privacy_manifest) = &plugin.artifacts.ios_privacy_manifest {
+            let source =
+                validate_plugin_artifact(&package_root, privacy_manifest, "xcprivacy", false)?;
+            if source.file_name().and_then(|value| value.to_str()) != Some("PrivacyInfo.xcprivacy")
+            {
+                return Err(format!(
+                    "iOS privacy manifest `{privacy_manifest}` must be named `PrivacyInfo.xcprivacy`"
+                ));
+            }
+            let bundle = format!("NexaPlugin{plugin_index}.bundle");
+            copies.push(StagedResource {
+                copy: CopyAction::file(
+                    source,
+                    format!("{directory}/{bundle}/PrivacyInfo.xcprivacy"),
+                ),
+                relative: format!("{bundle}/PrivacyInfo.xcprivacy"),
+            });
+            generated.push(StagedGenerated {
+                relative: format!("{bundle}/Info.plist"),
+                contents: format!(
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>com.nexa.plugin.{}</string><key>CFBundleName</key><string>NexaPlugin{plugin_index}</string><key>CFBundlePackageType</key><string>BNDL</string><key>CFBundleVersion</key><string>1</string></dict></plist>\n",
+                    sanitize_asset_name(&plugin.namespace)
+                ),
+            });
+        }
+    }
+    copies.sort_by(|left, right| left.relative.cmp(&right.relative));
+    let present = !copies.is_empty();
+    Ok(StagedResources {
+        copies,
+        generated,
+        previous: read_staged_names(&root.join(directory).join(RESOURCE_MARKER)),
+        present,
+    })
+}
+
+/// Stages the resources plugins contribute to the Android asset directory.
+pub(super) fn stage_android_plugin_resources(
+    root: &Path,
+    plugins: &[PluginPackage],
+) -> Result<StagedResources, String> {
+    let directory = ANDROID_RESOURCE_DIRECTORY;
+    let mut copies = Vec::new();
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
+        let package_root = plugin_package_root(plugin)?;
+        for resource in &plugin.artifacts.android_resources {
+            let source =
+                validate_plugin_file(&package_root, resource, "Android platform resource")?;
+            let relative = plugin_resource_relative(&source, &package_root, plugin_index)?;
+            copies.push(StagedResource {
+                copy: CopyAction::file(source, format!("{directory}/{relative}")),
+                relative,
+            });
+        }
+    }
+    copies.sort_by(|left, right| left.relative.cmp(&right.relative));
+    let present = !copies.is_empty();
+    Ok(StagedResources {
+        copies,
+        generated: Vec::new(),
+        previous: read_staged_names(&root.join(directory).join(RESOURCE_MARKER)),
+        present,
+    })
+}
+
+/// Where the Android app keeps plugin resources.
+const ANDROID_RESOURCE_DIRECTORY: &str = "android/app/src/main/assets/nexa/plugins";
+/// Marker recording what a staging pass produced, per resource root.
+const RESOURCE_MARKER: &str = ".nexa-plugin-resources";
+
+/// The iOS resource directory for an app, relative to the project root.
+pub(super) fn ios_resource_directory(app_name: &str) -> String {
+    format!("ios/{app_name}/NexaPluginResources")
+}
+
+/// The Android resource directory, relative to the project root.
+pub(super) const ANDROID_RESOURCES: &str = ANDROID_RESOURCE_DIRECTORY;
+
 /// Reads the names a previous run recorded in a staging marker.
 fn read_staged_names(marker: &Path) -> Vec<String> {
     std::fs::read_to_string(marker)
@@ -287,76 +418,6 @@ pub(super) fn copy_android_plugin_artifacts(
     remove_stale_files(&library_root, &marker, &generated)?;
     write_manifest(&marker, &generated)?;
     Ok(generated)
-}
-
-pub(super) fn copy_ios_plugin_resources(
-    root: &Path,
-    app_name: &str,
-    plugins: &[PluginPackage],
-) -> Result<bool, String> {
-    let resource_root = root.join("ios").join(app_name).join("NexaPluginResources");
-    if resource_root.is_dir() {
-        fs::remove_dir_all(&resource_root)
-            .map_err(|error| format!("{}: {error}", resource_root.display()))?;
-    }
-    let mut has_resources = false;
-    for (plugin_index, plugin) in plugins.iter().enumerate() {
-        let package_root = plugin_package_root(plugin)?;
-        for resource in &plugin.artifacts.ios_resources {
-            let source = validate_plugin_file(&package_root, resource, "iOS platform resource")?;
-            copy_plugin_resource(&source, &package_root, &resource_root, plugin_index)?;
-            has_resources = true;
-        }
-        if let Some(privacy_manifest) = &plugin.artifacts.ios_privacy_manifest {
-            let source =
-                validate_plugin_artifact(&package_root, privacy_manifest, "xcprivacy", false)?;
-            if source.file_name().and_then(|value| value.to_str()) != Some("PrivacyInfo.xcprivacy")
-            {
-                return Err(format!(
-                    "iOS privacy manifest `{privacy_manifest}` must be named `PrivacyInfo.xcprivacy`"
-                ));
-            }
-            let bundle = resource_root.join(format!("NexaPlugin{plugin_index}.bundle"));
-            fs::create_dir_all(&bundle)
-                .map_err(|error| format!("{}: {error}", bundle.display()))?;
-            fs::copy(&source, bundle.join("PrivacyInfo.xcprivacy"))
-                .map_err(|error| format!("{}: {error}", source.display()))?;
-            fs::write(
-                bundle.join("Info.plist"),
-                format!(
-                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>com.nexa.plugin.{}</string><key>CFBundleName</key><string>NexaPlugin{plugin_index}</string><key>CFBundlePackageType</key><string>BNDL</string><key>CFBundleVersion</key><string>1</string></dict></plist>\n",
-                    sanitize_asset_name(&plugin.namespace)
-                ),
-            )
-            .map_err(|error| format!("{}: {error}", bundle.display()))?;
-            has_resources = true;
-        }
-    }
-    if !has_resources && resource_root.is_dir() {
-        fs::remove_dir_all(&resource_root)
-            .map_err(|error| format!("{}: {error}", resource_root.display()))?;
-    }
-    Ok(has_resources)
-}
-
-pub(super) fn copy_android_plugin_resources(
-    root: &Path,
-    plugins: &[PluginPackage],
-) -> Result<(), String> {
-    let resource_root = root.join("android/app/src/main/assets/nexa/plugins");
-    if resource_root.is_dir() {
-        fs::remove_dir_all(&resource_root)
-            .map_err(|error| format!("{}: {error}", resource_root.display()))?;
-    }
-    for (plugin_index, plugin) in plugins.iter().enumerate() {
-        let package_root = plugin_package_root(plugin)?;
-        for resource in &plugin.artifacts.android_resources {
-            let source =
-                validate_plugin_file(&package_root, resource, "Android platform resource")?;
-            copy_plugin_resource(&source, &package_root, &resource_root, plugin_index)?;
-        }
-    }
-    Ok(())
 }
 
 pub(super) fn android_plugin_proguard_rules(
@@ -495,27 +556,26 @@ fn android_jni_marshalled_named_types(
     reachable
 }
 
-fn copy_plugin_resource(
+/// The path a plugin resource occupies inside the resource root.
+///
+/// Resources are recorded by their full path relative to that root, not by
+/// base name: a resource that moves within its package must still be removed
+/// from where it used to be, or the old copy lingers in the app bundle.
+fn plugin_resource_relative(
     source: &Path,
     package_root: &Path,
-    destination_root: &Path,
     plugin_index: usize,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let relative = source.strip_prefix(package_root).map_err(|_| {
         format!(
             "plugin resource is outside its package: {}",
             source.display()
         )
     })?;
-    let destination = destination_root
-        .join(format!("Plugin{plugin_index}"))
-        .join(relative);
-    let parent = destination
-        .parent()
-        .ok_or_else(|| format!("invalid plugin resource path `{}`", destination.display()))?;
-    fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
-    fs::copy(source, &destination).map_err(|error| format!("{}: {error}", source.display()))?;
-    Ok(())
+    Ok(format!(
+        "Plugin{plugin_index}/{}",
+        relative.to_string_lossy().replace('\\', "/")
+    ))
 }
 
 fn plugin_package_root(plugin: &PluginPackage) -> Result<PathBuf, String> {
@@ -552,8 +612,17 @@ fn validate_plugin_path(
     extension: Option<&str>,
     directory: bool,
 ) -> Result<PathBuf, String> {
-    let source = Path::new(path);
-    let canonical = fs::canonicalize(source)
+    // A manifest declares its artifacts relative to the package, so a relative
+    // path resolves against the package root. Resolving it against the working
+    // directory instead would make the same package build or fail depending on
+    // where `nexa` was invoked from.
+    let declared = Path::new(path);
+    let source = if declared.is_absolute() {
+        declared.to_path_buf()
+    } else {
+        package_root.join(declared)
+    };
+    let canonical = fs::canonicalize(&source)
         .map_err(|error| format!("declared {kind} `{path}` does not exist: {error}"))?;
     if !canonical.starts_with(package_root) {
         return Err(format!(
@@ -1793,10 +1862,9 @@ mod tests {
 
     use super::{
         android_plugin_proguard_rules, copy_android_plugin_artifacts,
-        copy_android_plugin_cpp_sources, copy_android_plugin_resources,
-        copy_ios_plugin_cpp_sources, copy_ios_plugin_resources, copy_plugin_assets,
-        native_plugin_sources, stage_ios_plugin_artifacts, validate_manifest_sources,
-        wildcard_matches,
+        copy_android_plugin_cpp_sources, copy_ios_plugin_cpp_sources, copy_plugin_assets,
+        native_plugin_sources, stage_android_plugin_resources, stage_ios_plugin_artifacts,
+        stage_ios_plugin_resources, validate_manifest_sources, wildcard_matches,
     };
     use crate::project::plugin_package::{PluginArtifacts, PluginPackage};
 
@@ -2069,10 +2137,38 @@ mod tests {
                 .display()
                 .to_string(),
         ];
-        assert!(
-            copy_ios_plugin_resources(&temporary.0, "Demo", &packages)
-                .expect("iOS resources should be packaged")
+        // Resources are staged as data and written by the plan.
+        let staged = stage_ios_plugin_resources(&temporary.0, "Demo", &packages)
+            .expect("iOS resources should be staged");
+        assert!(staged.present);
+        assert_eq!(
+            staged
+                .copies
+                .iter()
+                .map(|resource| resource.relative.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "NexaPlugin0.bundle/PrivacyInfo.xcprivacy",
+                "Plugin0/ios/Resources/model.dat",
+            ]
         );
+        assert_eq!(staged.generated.len(), 1);
+        assert_eq!(
+            staged.generated[0].relative,
+            "NexaPlugin0.bundle/Info.plist"
+        );
+        let mut ios_plan = crate::project::plan::ProjectPlan::ios("Demo");
+        for resource in &staged.copies {
+            ios_plan = ios_plan.with_copy(resource.copy.clone());
+        }
+        for file in &staged.generated {
+            ios_plan = ios_plan.with_file(
+                format!("ios/Demo/NexaPluginResources/{}", file.relative),
+                file.contents.clone(),
+            );
+        }
+        crate::project::writers::write_plan(&temporary.0, &ios_plan)
+            .expect("staged iOS resources should be written");
         assert_eq!(
             fs::read(
                 temporary
@@ -2088,8 +2184,15 @@ mod tests {
                 .join("ios/Demo/NexaPluginResources/NexaPlugin0.bundle/PrivacyInfo.xcprivacy")
                 .is_file()
         );
-        copy_android_plugin_resources(&temporary.0, &packages)
-            .expect("Android resources should be packaged");
+
+        let android = stage_android_plugin_resources(&temporary.0, &packages)
+            .expect("Android resources should be staged");
+        let mut android_plan = crate::project::plan::ProjectPlan::android("Demo");
+        for resource in &android.copies {
+            android_plan = android_plan.with_copy(resource.copy.clone());
+        }
+        crate::project::writers::write_plan(&temporary.0, &android_plan)
+            .expect("staged Android resources should be written");
         assert_eq!(
             fs::read(temporary.0.join(
                 "android/app/src/main/assets/nexa/plugins/Plugin0/android/resources/model.dat"
@@ -2102,6 +2205,144 @@ mod tests {
                 .expect("ProGuard rules should be assembled")
                 .contains("-keep class com.example.sdk.** { *; }")
         );
+    }
+
+    /// Builds a plugin whose declared resources are the given package-relative
+    /// paths.
+    fn resource_package(root: &std::path::Path, resources: &[&str]) -> PluginPackage {
+        std::fs::create_dir_all(root).expect("package root");
+        for resource in resources {
+            let path = root.join(resource);
+            std::fs::create_dir_all(path.parent().expect("resource has a parent"))
+                .expect("resource directory");
+            write_fixture(&path, b"payload");
+        }
+        PluginPackage {
+            namespace: "Vendor".to_owned(),
+            idl_path: root.join("native.nxid").display().to_string(),
+            artifacts: PluginArtifacts {
+                ios_resources: resources.iter().map(|r| (*r).to_owned()).collect(),
+                android_resources: resources.iter().map(|r| (*r).to_owned()).collect(),
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Writes a staged set out the way the iOS plan does.
+    fn materialize_ios(root: &std::path::Path, staged: &super::StagedResources) {
+        let mut plan = crate::project::plan::ProjectPlan::ios("Demo");
+        for resource in &staged.copies {
+            plan = plan.with_copy(resource.copy.clone());
+        }
+        let directory = "ios/Demo/NexaPluginResources";
+        let now: Vec<&str> = staged
+            .copies
+            .iter()
+            .map(|resource| resource.relative.as_str())
+            .collect();
+        for stale in &staged.previous {
+            if !now.contains(&stale.as_str()) {
+                plan = plan.with_removal(format!("{directory}/{stale}"));
+            }
+        }
+        if staged.present {
+            plan = plan.with_file(
+                format!("{directory}/.nexa-plugin-resources"),
+                format!("{}\n", now.join("\n")),
+            );
+        }
+        crate::project::writers::write_plan(root, &plan).expect("staged resources are written");
+    }
+
+    #[test]
+    fn a_failed_resource_staging_leaves_the_previous_build_intact() {
+        // The old implementation deleted the whole resource directory before
+        // validating anything, so one malformed resource destroyed a working app.
+        let temporary = TempProject::new();
+        let good = resource_package(&temporary.0.join("good"), &["ios/Resources/model.dat"]);
+        let staged = stage_ios_plugin_resources(&temporary.0, "Demo", std::slice::from_ref(&good))
+            .expect("the valid resource stages");
+        assert_eq!(
+            staged.copies[0].relative, "Plugin0/ios/Resources/model.dat",
+            "a resource is recorded by its full path, not its base name"
+        );
+        materialize_ios(&temporary.0, &staged);
+        let resource = temporary
+            .0
+            .join("ios/Demo/NexaPluginResources/Plugin0/ios/Resources/model.dat");
+        assert!(resource.is_file(), "the first build wrote the resource");
+
+        // A plugin whose resource escapes its package must fail, and must not
+        // take the previous build's resources with it.
+        let outside = temporary.0.join("outside.dat");
+        write_fixture(&outside, b"secret");
+        let broken = PluginPackage {
+            namespace: "Broken".to_owned(),
+            idl_path: temporary.0.join("broken/native.nxid").display().to_string(),
+            artifacts: PluginArtifacts {
+                ios_resources: vec!["../outside.dat".to_owned()],
+                ..Default::default()
+            },
+        };
+        let result = stage_ios_plugin_resources(&temporary.0, "Demo", &[good, broken]);
+        assert!(result.is_err(), "a resource outside the package must fail");
+        assert!(
+            resource.is_file(),
+            "a failed staging must not delete what the previous build wrote"
+        );
+        assert_eq!(
+            std::fs::read_to_string(
+                temporary
+                    .0
+                    .join("ios/Demo/NexaPluginResources/.nexa-plugin-resources")
+            )
+            .expect("the staging manifest survives"),
+            "Plugin0/ios/Resources/model.dat\n"
+        );
+    }
+
+    #[test]
+    fn a_resource_that_moves_within_its_package_is_removed_from_its_old_path() {
+        let temporary = TempProject::new();
+        let before = resource_package(&temporary.0.join("pkg"), &["ios/Resources/old/model.dat"]);
+        let staged = stage_ios_plugin_resources(&temporary.0, "Demo", &[before]).expect("staging");
+        materialize_ios(&temporary.0, &staged);
+        let old_path = temporary
+            .0
+            .join("ios/Demo/NexaPluginResources/Plugin0/ios/Resources/old/model.dat");
+        assert!(old_path.is_file());
+
+        // The same plugin now declares the resource at a new path.
+        let mut after =
+            resource_package(&temporary.0.join("pkg"), &["ios/Resources/new/model.dat"]);
+        after.artifacts.ios_resources = vec!["ios/Resources/new/model.dat".to_owned()];
+        let staged = stage_ios_plugin_resources(&temporary.0, "Demo", &[after]).expect("staging");
+        assert_eq!(staged.previous, vec!["Plugin0/ios/Resources/old/model.dat"]);
+        materialize_ios(&temporary.0, &staged);
+
+        assert!(
+            !old_path.exists(),
+            "a resource that moved must not linger at its old path"
+        );
+        assert!(
+            temporary
+                .0
+                .join("ios/Demo/NexaPluginResources/Plugin0/ios/Resources/new/model.dat")
+                .is_file()
+        );
+    }
+
+    #[test]
+    fn android_resources_stage_under_the_asset_directory() {
+        let temporary = TempProject::new();
+        let plugin = resource_package(&temporary.0.join("pkg"), &["android/res/model.dat"]);
+        let staged = stage_android_plugin_resources(&temporary.0, &[plugin]).expect("staging");
+        assert_eq!(staged.copies.len(), 1);
+        assert_eq!(
+            staged.copies[0].copy.destination,
+            "android/app/src/main/assets/nexa/plugins/Plugin0/android/res/model.dat"
+        );
+        assert!(staged.present);
     }
 
     #[test]
