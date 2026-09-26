@@ -1,24 +1,12 @@
-use std::{collections::HashMap, fs};
+use std::collections::HashMap;
 
 use nexa_compiler::{IncrementalProjectCompiler, Target};
-
-/// A temporary project whose directory is owned for as long as it is bound.
-struct TempProject(nexa_testkit::TempDir);
-
-impl TempProject {
-    fn new() -> Self {
-        Self(nexa_testkit::TempDir::new("nexa-incremental-project"))
-    }
-
-    fn write(&self, name: &str, source: &str) {
-        fs::write(self.0.join(name), source).expect("write Nexa source");
-    }
-}
+use nexa_testkit::TestProject;
 
 #[test]
 fn unchanged_project_reuses_parsed_imports_and_reparses_only_changed_source() {
-    let project = TempProject::new();
-    let entry = project.0.join("App.nx");
+    let project = TestProject::new("nexa-incremental-project");
+    let entry = project.join("App.nx");
     project.write(
         "App.nx",
         "import \"Card.nx\"\napp Demo { body { Card() } }\n",
@@ -67,8 +55,8 @@ fn unchanged_project_reuses_parsed_imports_and_reparses_only_changed_source() {
 
 #[test]
 fn removed_imports_are_pruned_from_incremental_source_cache() {
-    let project = TempProject::new();
-    let entry = project.0.join("App.nx");
+    let project = TestProject::new("nexa-incremental-project-prune");
+    let entry = project.join("App.nx");
     project.write(
         "App.nx",
         "import \"Card.nx\"\napp Demo { body { Card() } }\n",

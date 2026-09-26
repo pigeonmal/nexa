@@ -4,37 +4,31 @@ use std::{fs, path::PathBuf};
 #[path = "../src/project/assets.rs"]
 mod assets;
 
-/// A temporary project whose directory is owned for as long as it is bound.
-struct TempProject(nexa_testkit::TempDir);
+use nexa_testkit::TestProject;
 
-impl TempProject {
-    fn new() -> Self {
-        Self(nexa_testkit::TempDir::new("nexa-app-assets"))
+fn add_image(project: &TestProject, name: &str, extension: &str) -> PathBuf {
+    let source = project
+        .path()
+        .join("assets/images")
+        .join(format!("{name}.{extension}"));
+    if let Some(parent) = source.parent() {
+        fs::create_dir_all(parent).expect("create source image directory");
     }
-
-    fn add_image(&self, name: &str, extension: &str) -> PathBuf {
-        let source = self
-            .0
-            .join("assets/images")
-            .join(format!("{name}.{extension}"));
-        fs::create_dir_all(source.parent().expect("image parent"))
-            .expect("create source image directory");
-        image::RgbaImage::from_pixel(4, 4, image::Rgba([20, 40, 60, 255]))
-            .save(&source)
-            .expect("write valid source image");
-        source
-    }
+    image::RgbaImage::from_pixel(4, 4, image::Rgba([20, 40, 60, 255]))
+        .save(&source)
+        .expect("write valid source image");
+    source
 }
 
 #[test]
 fn app_images_are_copied_to_ios_catalog_and_android_drawables_deterministically() {
-    let project = TempProject::new();
-    let source = project.add_image("hero_banner", "png");
-    let webp_source = project.add_image("webp_banner", "webp");
+    let project = TestProject::new("nexa-app-assets");
+    let source = add_image(&project, "hero_banner", "png");
+    let webp_source = add_image(&project, "webp_banner", "webp");
 
-    let output = project.0.join("generated");
-    assert!(assets::copy_ios_project_images(&project.0, &output, "Demo").expect("copy iOS image"));
-    assets::copy_android_project_images(&project.0, &output).expect("copy Android image");
+    let output = project.path().join("generated");
+    assert!(assets::copy_ios_project_images(project.path(), &output, "Demo").expect("copy iOS image"));
+    assets::copy_android_project_images(project.path(), &output).expect("copy Android image");
 
     let ios_image = output.join("ios/Demo/Assets.xcassets/hero_banner.imageset/hero_banner.png");
     let ios_manifest = output.join("ios/Demo/Assets.xcassets/hero_banner.imageset/Contents.json");
@@ -61,13 +55,13 @@ fn app_images_are_copied_to_ios_catalog_and_android_drawables_deterministically(
 
     let ios_marker = output.join("ios/Demo/.nexa-project-images");
     let marker_before = fs::read(&ios_marker).unwrap();
-    assets::copy_ios_project_images(&project.0, &output, "Demo").expect("regenerate iOS images");
+    assets::copy_ios_project_images(project.path(), &output, "Demo").expect("regenerate iOS images");
     assert_eq!(marker_before, fs::read(ios_marker).unwrap());
 
     fs::remove_file(source).expect("remove source image");
     fs::remove_file(webp_source).expect("remove WebP source image");
-    assert!(!assets::copy_ios_project_images(&project.0, &output, "Demo").unwrap());
-    assets::copy_android_project_images(&project.0, &output).unwrap();
+    assert!(!assets::copy_ios_project_images(project.path(), &output, "Demo").unwrap());
+    assets::copy_android_project_images(project.path(), &output).unwrap();
     assert!(!ios_image.exists());
     assert!(!ios_webp_image.exists());
     assert!(!android_image.exists());
@@ -76,32 +70,32 @@ fn app_images_are_copied_to_ios_catalog_and_android_drawables_deterministically(
 
 #[test]
 fn app_image_names_and_formats_are_validated_before_copying() {
-    let project = TempProject::new();
-    project.add_image("Uppercase", "png");
-    let error = assets::copy_ios_project_images(&project.0, &project.0, "Demo")
+    let project = TestProject::new("nexa-app-assets");
+    add_image(&project, "Uppercase", "png");
+    let error = assets::copy_ios_project_images(project.path(), project.path(), "Demo")
         .expect_err("Android-incompatible image names should fail");
     assert!(error.contains("lowercase letter"));
 
-    fs::remove_dir_all(project.0.join("assets/images")).unwrap();
-    let image_dir = project.0.join("assets/images");
+    fs::remove_dir_all(project.path().join("assets/images")).unwrap();
+    let image_dir = project.path().join("assets/images");
     fs::create_dir_all(&image_dir).unwrap();
     fs::write(image_dir.join("unknown.gif"), b"GIF89a").unwrap();
-    let error = assets::copy_android_project_images(&project.0, &project.0)
+    let error = assets::copy_android_project_images(project.path(), project.path())
         .expect_err("unsupported source formats should fail");
     assert!(error.contains("unsupported app image asset format"));
 }
 
 #[test]
 fn app_image_marker_rejects_root_relative_cleanup_entries() {
-    let project = TempProject::new();
-    let output = project.0.join("generated");
+    let project = TestProject::new("nexa-app-assets");
+    let output = project.path().join("generated");
     let catalog = output.join("ios/Demo/Assets.xcassets");
     let preserved = catalog.join("preserved.imageset");
     fs::create_dir_all(&preserved).unwrap();
     let marker = output.join("ios/Demo/.nexa-project-images");
     fs::write(&marker, ".\n").unwrap();
 
-    let error = assets::copy_ios_project_images(&project.0, &output, "Demo")
+    let error = assets::copy_ios_project_images(project.path(), &output, "Demo")
         .expect_err("root-relative marker entries must not be cleaned up");
     assert!(error.contains("invalid generated asset marker entry"));
     assert!(preserved.is_dir());

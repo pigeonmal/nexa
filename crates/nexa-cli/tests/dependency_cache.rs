@@ -4,21 +4,13 @@ mod cache;
 
 use std::{collections::BTreeMap, fs};
 
-/// A temporary project whose directory is owned for as long as it is bound.
-struct TempProject(nexa_testkit::TempDir);
-
-impl TempProject {
-    fn new() -> Self {
-        Self(nexa_testkit::TempDir::new("nexa-dependency-cache"))
-    }
-}
+use nexa_testkit::TestProject;
 
 #[test]
 fn project_cache_key_tracks_resolved_plugin_package_contents() {
-    let project = TempProject::new();
-    let entry = project.0.join("App.nx");
-    fs::write(&entry, "app Demo { body { Text(\"ok\") } }\n").expect("write app");
-    let plugin_root = project.0.join("plugins/fast-math");
+    let project = TestProject::new("nexa-dependency-cache");
+    let entry = project.write_app("app Demo { body { Text(\"ok\") } }\n");
+    let plugin_root = project.path().join("plugins/fast-math");
     fs::create_dir_all(&plugin_root).expect("create plugin package");
     let contract = plugin_root.join("native.nxid");
     fs::write(
@@ -42,14 +34,11 @@ fn project_cache_key_tracks_resolved_plugin_package_contents() {
 
 #[test]
 fn dev_cache_key_resolves_package_ids_to_local_plugin_roots() {
-    let project = TempProject::new();
-    let entry = project.0.join("App.nx");
-    fs::write(
-        &entry,
+    let project = TestProject::new("nexa-dependency-cache");
+    let entry = project.write_app(
         "plugin \"dev.example.fast-math\" as FastMath\napp Demo { body { Text(\"ready\") } }\n",
-    )
-    .expect("write app with package-ID plugin declaration");
-    let plugin_root = project.0.join("plugins/fast-math");
+    );
+    let plugin_root = project.path().join("plugins/fast-math");
     fs::create_dir_all(&plugin_root).expect("create local plugin package");
     fs::write(
         plugin_root.join("plugin.config.nx"),
@@ -81,10 +70,9 @@ fn dev_cache_key_resolves_package_ids_to_local_plugin_roots() {
 
 #[test]
 fn app_image_assets_invalidate_project_and_dev_cache_keys() {
-    let project = TempProject::new();
-    let entry = project.0.join("App.nx");
-    fs::write(&entry, "app Demo { body { Text(\"ok\") } }\n").expect("write app");
-    let images = project.0.join("assets/images");
+    let project = TestProject::new("nexa-dependency-cache");
+    let entry = project.write_app("app Demo { body { Text(\"ok\") } }\n");
+    let images = project.join("assets/images");
     let extras = [images.as_path()];
     let roots = BTreeMap::new();
 

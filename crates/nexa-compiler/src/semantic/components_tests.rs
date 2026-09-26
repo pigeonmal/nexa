@@ -385,22 +385,30 @@ fn lowers_native_component_event_with_typed_payload_bindings() {
 }
 
 #[test]
-fn rejects_native_component_event_with_unknown_callback() {
-    let error = lower_native_component_event("onMissing", Vec::new())
-        .expect_err("unknown native component events must not be ignored");
-    assert!(
-        error
-            .to_string()
-            .contains("has no event callback `onMissing`")
-    );
+fn rejects_native_component_events_with_invalid_declarations() {
+    let cases = [
+        (
+            "onMissing",
+            Vec::new(),
+            "has no event callback `onMissing`",
+        ),
+        (
+            "onProgressChanged",
+            vec!["position".to_owned()],
+            "provides 2 value(s)",
+        ),
+    ];
+
+    for (property, parameters, expected_message) in cases {
+        let error = lower_native_component_event(property, parameters)
+            .expect_err("expected invalid component event to fail");
+        assert!(
+            error.to_string().contains(expected_message),
+            "expected '{expected_message}' in error, got: {error}"
+        );
+    }
 }
 
-#[test]
-fn rejects_native_component_event_with_wrong_payload_arity() {
-    let error = lower_native_component_event("onProgressChanged", vec!["position".to_owned()])
-        .expect_err("component event handler must bind every payload value");
-    assert!(error.to_string().contains("provides 2 value(s)"));
-}
 
 #[test]
 fn throwing_native_calls_need_and_use_an_explicit_recovery_block() {
@@ -789,18 +797,42 @@ fn native_component_content_blocks_must_match_the_declared_slot() {
 }
 
 #[test]
-fn rejects_native_instance_use_after_disposal() {
-    let (symbols, functions) = disposal_fixture();
-    let error = lower_actions_with_depth(
-        vec![native_method_call("dispose"), native_method_call("play")],
-        &symbols,
-        &functions,
-        false,
-        0,
-    )
-    .expect_err("native methods must not be called after dispose");
+fn rejects_invalid_disposal_sequences() {
+    let cases: [(&str, Vec<ast::Stmt>, &str); 3] = [
+        (
+            "use after disposal",
+            vec![native_method_call("dispose"), native_method_call("play")],
+            "used after disposal",
+        ),
+        (
+            "double disposal",
+            vec![native_method_call("dispose"), native_method_call("dispose")],
+            "disposed more than once",
+        ),
+        (
+            "conditional disposal followed by use",
+            vec![
+                ast::Stmt::If {
+                    condition: ast::Expr::Bool(true, Span::default()),
+                    then_branch: vec![native_method_call("dispose")],
+                    else_branch: None,
+                    span: Span::default(),
+                },
+                native_method_call("play"),
+            ],
+            "used after disposal",
+        ),
+    ];
 
-    assert!(error.to_string().contains("used after disposal"));
+    for (scenario, stmts, expected_message) in cases {
+        let (symbols, functions) = disposal_fixture();
+        let error = lower_actions_with_depth(stmts, &symbols, &functions, false, 0)
+            .expect_err("expected invalid disposal sequence to fail");
+        assert!(
+            error.to_string().contains(expected_message),
+            "scenario '{scenario}': expected '{expected_message}', got: {error}"
+        );
+    }
 }
 
 #[test]
@@ -908,38 +940,3 @@ fn native_binding_with_alias_cannot_be_replaced_after_disposal() {
     assert!(error.to_string().contains("cannot be replaced while alias"));
 }
 
-#[test]
-fn rejects_disposing_the_same_native_instance_twice() {
-    let (symbols, functions) = disposal_fixture();
-    let error = lower_actions_with_depth(
-        vec![native_method_call("dispose"), native_method_call("dispose")],
-        &symbols,
-        &functions,
-        false,
-        0,
-    )
-    .expect_err("native instances must not be disposed twice");
-
-    assert!(error.to_string().contains("disposed more than once"));
-}
-
-#[test]
-fn propagates_possible_disposal_from_conditional_branches() {
-    let (symbols, functions) = disposal_fixture();
-    let conditional_dispose = ast::Stmt::If {
-        condition: ast::Expr::Bool(true, Span::default()),
-        then_branch: vec![native_method_call("dispose")],
-        else_branch: None,
-        span: Span::default(),
-    };
-    let error = lower_actions_with_depth(
-        vec![conditional_dispose, native_method_call("play")],
-        &symbols,
-        &functions,
-        false,
-        0,
-    )
-    .expect_err("use after a conditional dispose must be rejected");
-
-    assert!(error.to_string().contains("used after disposal"));
-}

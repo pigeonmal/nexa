@@ -6,24 +6,16 @@ use nexa_ir::{
 };
 
 use nexa_compiler::{Target, compile, compile_file_with_warnings_for_target};
-
-/// A temporary project whose directory is owned for as long as it is bound.
-struct TempProject(nexa_testkit::TempDir);
-
-impl TempProject {
-    fn new() -> Self {
-        Self(nexa_testkit::TempDir::new("nexa-plugin-pruning"))
-    }
-}
+use nexa_testkit::TestProject;
 
 #[test]
 fn unused_native_plugins_are_pruned_from_both_target_modules() {
-    let project = TempProject::new();
+    let project = TestProject::new("nexa-plugin-pruning");
     for (directory, id, service) in [
         ("used", "dev.example.used", "Used"),
         ("unused", "dev.example.unused", "Unused"),
     ] {
-        let plugin = project.0.join(directory);
+        let plugin = project.join(directory);
         fs::create_dir_all(&plugin).expect("plugin directory should be created");
         fs::write(
                 plugin.join("plugin.config.nx"),
@@ -38,7 +30,7 @@ fn unused_native_plugins_are_pruned_from_both_target_modules() {
         )
         .expect("plugin contract should be written");
     }
-    let entry = project.0.join("main.nx");
+    let entry = project.join("main.nx");
     fs::write(
             &entry,
             "plugin \"used\" as Used\nplugin \"unused\" as Unused\napp Demo { body { Button(\"Ping\") { Used.ping() } } }\n",
@@ -63,8 +55,8 @@ fn unused_native_plugins_are_pruned_from_both_target_modules() {
 
 #[test]
 fn nested_borrowed_components_keep_the_owner_instance_live() {
-    let project = TempProject::new();
-    let plugin = project.0.join("resource");
+    let project = TestProject::new("nexa-nested-components");
+    let plugin = project.join("resource");
     fs::create_dir_all(&plugin).expect("plugin directory should be created");
     fs::write(
             plugin.join("plugin.config.nx"),
@@ -77,7 +69,7 @@ fn nested_borrowed_components_keep_the_owner_instance_live() {
     )
     .expect("native contract should be written");
 
-    let entry = project.0.join("main.nx");
+    let entry = project.join("main.nx");
     fs::write(
         &entry,
         r#"

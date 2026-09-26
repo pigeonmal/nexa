@@ -36,6 +36,17 @@
 //! the process making progress, and the process id keeps concurrent processes
 //! apart; a stale directory left by a crashed run is absorbed by the same
 //! retry, because the name is claimed rather than assumed.
+pub mod assertions;
+pub mod command;
+pub mod fixtures;
+pub mod project;
+pub mod toolchain;
+
+pub use assertions::*;
+pub use command::*;
+pub use fixtures::*;
+pub use project::TestProject;
+pub use toolchain::{TestTier, Toolchain};
 
 use std::path::{Path, PathBuf};
 use std::process;

@@ -4,20 +4,21 @@ use std::{
     process::Command,
 };
 
+use nexa_testkit::{TestProject, Toolchain, example_path};
+
 /// A temporary project whose directory is owned for as long as it is bound.
-struct TempProject(nexa_testkit::TempDir);
+struct TempProject(TestProject);
 
 impl TempProject {
     fn new(platform: &str) -> Self {
-        Self(nexa_testkit::TempDir::new(&format!(
+        Self(TestProject::new(&format!(
             "nexa-plugin-build-{platform}"
         )))
     }
 
     fn generate(&self, target: &str) -> PathBuf {
         let output = self.0.join("Generated");
-        let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/plugins/video-player-demo.nx");
+        let entry = example_path("plugins/video-player-demo.nx");
         nexa_cli::generate_project(&entry, target, &output, "NexaPluginBuildTest")
             .expect("Nexa project generation should succeed");
         output
@@ -52,110 +53,19 @@ fn generate_plugin_contract(contract: &Path, target: &str, package: Option<&str>
 }
 
 fn command_available(program: &str, args: &[&str]) -> bool {
-    Command::new(program)
-        .args(args)
-        .output()
-        .is_ok_and(|output| output.status.success())
+    Toolchain::is_command_available(program, args)
 }
 
 fn gradle_executable() -> Option<PathBuf> {
-    if let Some(path) = env::var_os("GRADLE").map(PathBuf::from) {
-        if path.is_file() {
-            return Some(path);
-        }
-    }
-    if command_available("gradle", &["--version"]) {
-        return Some(PathBuf::from("gradle"));
-    }
-
-    #[cfg(windows)]
-    let executable = "gradle.bat";
-    #[cfg(not(windows))]
-    let executable = "gradle";
-
-    let gradle_user_home = env::var_os("GRADLE_USER_HOME")
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".gradle")))?;
-    let distributions = fs::read_dir(gradle_user_home.join("wrapper/dists")).ok()?;
-    let mut candidates = Vec::new();
-
-    for distribution in distributions.filter_map(Result::ok) {
-        if !distribution.path().is_dir() {
-            continue;
-        }
-        let hashes = fs::read_dir(distribution.path()).ok()?;
-        for hash in hashes.filter_map(Result::ok) {
-            if !hash.path().is_dir() {
-                continue;
-            }
-            let versions = fs::read_dir(hash.path()).ok()?;
-            for version_dir in versions.filter_map(Result::ok) {
-                if !version_dir.path().is_dir() {
-                    continue;
-                }
-                let name = version_dir.file_name();
-                let Some(version) = name.to_str().and_then(|name| name.strip_prefix("gradle-"))
-                else {
-                    continue;
-                };
-                let Some(version_key) = parse_version(version) else {
-                    continue;
-                };
-                let path = version_dir.path().join("bin").join(executable);
-                if path.is_file() {
-                    candidates.push((version_key, path));
-                }
-            }
-        }
-    }
-
-    candidates.sort_unstable_by(|left, right| right.0.cmp(&left.0));
-    candidates.into_iter().next().map(|(_, path)| path)
-}
-
-fn parse_version(version: &str) -> Option<Vec<u64>> {
-    version
-        .split('.')
-        .map(|part| {
-            part.chars()
-                .take_while(|character| character.is_ascii_digit())
-                .collect::<String>()
-                .parse()
-                .ok()
-        })
-        .collect()
+    Toolchain::gradle().map(PathBuf::from)
 }
 
 fn kotlin_compiler() -> Option<PathBuf> {
-    if let Some(path) = env::var_os("KOTLINC").map(PathBuf::from) {
-        if path.is_file() {
-            return Some(path);
-        }
-    }
-    if command_available("kotlinc", &["-version"]) {
-        return Some(PathBuf::from("kotlinc"));
-    }
-    let android_studio_kotlinc = PathBuf::from(
-        "/Applications/Android Studio.app/Contents/plugins/Kotlin/kotlinc/bin/kotlinc",
-    );
-    android_studio_kotlinc
-        .is_file()
-        .then_some(android_studio_kotlinc)
+    Toolchain::kotlinc().map(PathBuf::from)
 }
 
-fn android_ndk_compiler(sdk: &Path) -> Option<PathBuf> {
-    let mut ndks = fs::read_dir(sdk.join("ndk"))
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .collect::<Vec<_>>();
-    ndks.sort();
-    ndks.into_iter().rev().find_map(|ndk| {
-        let compiler =
-            ndk.join("toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang++");
-        compiler.is_file().then_some(compiler)
-    })
+fn android_ndk_compiler(_sdk: &Path) -> Option<PathBuf> {
+    Toolchain::android_ndk_compiler().map(PathBuf::from)
 }
 
 fn source_tree_contains(root: &Path, extension: &str, needle: &str) -> bool {
@@ -175,18 +85,11 @@ fn source_tree_contains(root: &Path, extension: &str, needle: &str) -> bool {
 }
 
 fn source_text_containing(root: &Path, extension: &str, needle: &str) -> Option<String> {
-    for entry in fs::read_dir(root).ok()?.filter_map(Result::ok) {
-        let path = entry.path();
-        if path.is_dir() {
-            if let Some(source) = source_text_containing(&path, extension, needle) {
-                return Some(source);
-            }
-        } else if path.extension().and_then(|value| value.to_str()) == Some(extension) {
-            if let Ok(source) = fs::read_to_string(path) {
-                if source.contains(needle) {
-                    return Some(source);
-                }
-            }
+    for path in nexa_testkit::TestProject::collect_sources_in(root, extension) {
+        if let Ok(source) = fs::read_to_string(path)
+            && source.contains(needle)
+        {
+            return Some(source);
         }
     }
     None
@@ -510,9 +413,9 @@ fn type_matrix_kotlin_smoke() -> String {
             ));
         }
         if ty.idl == "Bytes" {
-            source.push_str(&format!(
-                "    val returnedBytes = TypesPlugin.echoArrayBytes(arrayBytes)\n    check(returnedBytes.size == arrayBytes.size && returnedBytes.indices.all {{ returnedBytes[it].contentEquals(arrayBytes[it]) }})\n"
-            ));
+            source.push_str(
+                "    val returnedBytes = TypesPlugin.echoArrayBytes(arrayBytes)\n    check(returnedBytes.size == arrayBytes.size && returnedBytes.indices.all { returnedBytes[it].contentEquals(arrayBytes[it]) })\n",
+            );
         } else {
             source.push_str(&format!(
                 "    check(TypesPlugin.echoArray{0}(array{0}) == array{0})\n",
@@ -890,6 +793,10 @@ std::unique_ptr<VideoPlayerSpec> makeVideoPlayerImpl(PlayerOptions options) {
 
 #[test]
 fn generated_video_plugin_builds_for_ios_when_xcode_is_available() {
+    if !Toolchain::should_run_native_builds() {
+        eprintln!("skipping iOS xcodebuild in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)");
+        return;
+    }
     if !command_available("xcrun", &["--sdk", "iphonesimulator", "--show-sdk-path"]) {
         return;
     }
@@ -927,6 +834,10 @@ fn generated_video_plugin_builds_for_ios_when_xcode_is_available() {
 
 #[test]
 fn generated_network_certificate_pinning_compiles_for_ios_when_xcode_is_available() {
+    if !Toolchain::should_run_native_builds() {
+        eprintln!("skipping iOS xcodebuild in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)");
+        return;
+    }
     if !command_available("xcrun", &["--sdk", "iphonesimulator", "--show-sdk-path"]) {
         return;
     }
@@ -1192,6 +1103,10 @@ fn video_player_ios_instances_run_independently_in_a_headless_swift_smoke_test()
 
 #[test]
 fn generated_video_plugin_builds_for_android_when_gradle_and_sdk_are_available() {
+    if !Toolchain::should_run_native_builds() {
+        eprintln!("skipping Android Gradle build in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)");
+        return;
+    }
     let Some(gradle) = gradle_executable() else {
         return;
     };
@@ -1543,7 +1458,8 @@ int nexa_plugin_probe() { return details::value(); }
             .expect("generated C++ bridging header should be readable"),
         "#include \"NexaPluginCpp/Plugin0/NexaPluginBindings.hpp\"\n"
     );
-    if command_available("xcrun", &["--sdk", "iphonesimulator", "--show-sdk-path"])
+    if Toolchain::should_run_native_builds()
+        && command_available("xcrun", &["--sdk", "iphonesimulator", "--show-sdk-path"])
         && command_available("xcodebuild", &["-version"])
     {
         let built = Command::new("xcodebuild")
@@ -2195,7 +2111,7 @@ class Handler(@Suppress("UNUSED_PARAMETER") looper: Looper) {
         let compiled = Command::new(kotlinc)
             .arg(&coroutine_support)
             .arg(&android_os_support)
-            .arg(&package.join("NexaPlugin0_Bindings.kt"))
+            .arg(package.join("NexaPlugin0_Bindings.kt"))
             .arg(&smoke_test)
             .arg("-include-runtime")
             .arg("-d")
@@ -2235,47 +2151,48 @@ class Handler(@Suppress("UNUSED_PARAMETER") looper: Looper) {
     let sdk = env::var_os("ANDROID_HOME")
         .or_else(|| env::var_os("ANDROID_SDK_ROOT"))
         .map(PathBuf::from);
-    if let Some(compiler) = sdk.as_deref().and_then(android_ndk_compiler) {
-        for source in [jni, native_root.join("Plugin0/cpp/Sources/Plugin.cpp")] {
-            let compiled = Command::new(&compiler)
-                .args(["-std=c++20", "-fsyntax-only"])
+    if Toolchain::should_run_native_builds() {
+        if let Some(compiler) = sdk.as_deref().and_then(android_ndk_compiler) {
+            for source in [jni, native_root.join("Plugin0/cpp/Sources/Plugin.cpp")] {
+                let compiled = Command::new(&compiler)
+                    .args(["-std=c++20", "-fsyntax-only"])
+                    .arg("-I")
+                    .arg(native_root.join("Plugin0"))
+                    .arg(&source)
+                    .output()
+                    .expect("Android NDK C++ compiler should start");
+                assert!(
+                    compiled.status.success(),
+                    "generated Android C++ source failed to compile with {}:\n{}\n{}",
+                    compiler.display(),
+                    String::from_utf8_lossy(&compiled.stdout),
+                    String::from_utf8_lossy(&compiled.stderr)
+                );
+            }
+            let linked = Command::new(&compiler)
+                .args(["-std=c++20", "-shared", "-fPIC"])
                 .arg("-I")
                 .arg(native_root.join("Plugin0"))
-                .arg(&source)
+                .arg(native_root.join("Plugin0/NexaPluginJni.cpp"))
+                .arg(native_root.join("Plugin0/cpp/Sources/Plugin.cpp"))
+                .arg("-o")
+                .arg(temp.0.join("libnexa_plugins.so"))
                 .output()
-                .expect("Android NDK C++ compiler should start");
+                .expect("Android NDK linker should start");
             assert!(
-                compiled.status.success(),
-                "generated Android C++ source failed to compile with {}:\n{}\n{}",
-                compiler.display(),
-                String::from_utf8_lossy(&compiled.stdout),
-                String::from_utf8_lossy(&compiled.stderr)
+                linked.status.success(),
+                "generated Android JNI and C++ implementation failed to link:\n{}\n{}",
+                String::from_utf8_lossy(&linked.stdout),
+                String::from_utf8_lossy(&linked.stderr)
             );
         }
-        let linked = Command::new(&compiler)
-            .args(["-std=c++20", "-shared", "-fPIC"])
-            .arg("-I")
-            .arg(native_root.join("Plugin0"))
-            .arg(native_root.join("Plugin0/NexaPluginJni.cpp"))
-            .arg(native_root.join("Plugin0/cpp/Sources/Plugin.cpp"))
-            .arg("-o")
-            .arg(temp.0.join("libnexa_plugins.so"))
-            .output()
-            .expect("Android NDK linker should start");
-        assert!(
-            linked.status.success(),
-            "generated Android JNI and C++ implementation failed to link:\n{}\n{}",
-            String::from_utf8_lossy(&linked.stdout),
-            String::from_utf8_lossy(&linked.stderr)
-        );
-    }
 
-    if cfg!(target_os = "macos")
-        && kotlinc.is_some()
-        && command_available("clang++", &["--version"])
-        && command_available("java", &["-version"])
-        && let Some(java_home) = env::var_os("JAVA_HOME").map(PathBuf::from)
-    {
+        if cfg!(target_os = "macos")
+            && kotlinc.is_some()
+            && command_available("clang++", &["--version"])
+            && command_available("java", &["-version"])
+            && let Some(java_home) = env::var_os("JAVA_HOME").map(PathBuf::from)
+        {
         let host_library = Command::new("clang++")
             .args(["-std=c++20", "-dynamiclib", "-fPIC", "-I"])
             .arg(java_home.join("include"))
@@ -2307,6 +2224,7 @@ class Handler(@Suppress("UNUSED_PARAMETER") looper: Looper) {
             String::from_utf8_lossy(&runtime.stdout),
             String::from_utf8_lossy(&runtime.stderr)
         );
+    }
     }
 }
 
@@ -2596,6 +2514,9 @@ fn generated_android_cpp_adapters_roundtrip_primitive_nullable_and_collection_ma
     let smoke = package.join("TypeMatrixSmoke.kt");
     fs::write(&smoke, type_matrix_kotlin_smoke())
         .expect("Kotlin type-matrix runtime test should be written");
+    if !Toolchain::should_run_native_builds() {
+        return;
+    }
     let Some(kotlinc) = kotlin_compiler() else {
         return;
     };

@@ -1,46 +1,20 @@
 use std::{fs, path::Path};
 
-/// A scratch directory owned for as long as it is bound.
-struct Scratch(nexa_testkit::TempDir);
-
-impl Scratch {
-    fn new() -> Self {
-        Self(nexa_testkit::TempDir::new("nexa-deep-links"))
-    }
-}
-
-fn sources_under(root: &Path, extension: &str) -> String {
-    let mut pending = vec![root.to_path_buf()];
-    let mut sources = String::new();
-    while let Some(directory) = pending.pop() {
-        for entry in fs::read_dir(directory).expect("read generated source directory") {
-            let path = entry.expect("read generated source entry").path();
-            if path.is_dir() {
-                pending.push(path);
-            } else if path.extension().is_some_and(|value| value == extension) {
-                sources.push_str(&fs::read_to_string(path).expect("read generated source"));
-            }
-        }
-    }
-    sources
-}
+use nexa_testkit::TestProject;
 
 #[test]
 fn deep_link_config_generates_native_registration_and_typed_screen_routes() {
-    let scratch = Scratch::new();
-    let project = scratch.0.join("project");
-    fs::create_dir_all(&project).expect("create project directory");
+    let project = TestProject::new("nexa-deep-links");
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/deep_links.nx");
     let entry = project.join("App.nx");
     fs::copy(source, &entry).expect("copy deep-link app fixture");
-    fs::write(
-        project.join("nexa.config.nx"),
+    project.write(
+        "nexa.config.nx",
         r#"config {
             app { displayName: "Deep Links", deepLinks: ["nexa://", "https://links.example.com"] }
         }
         "#,
-    )
-    .expect("write deep-link config");
+    );
 
     for target in [nexa_compiler::Target::Swift, nexa_compiler::Target::Kotlin] {
         nexa_compiler::compile_file_for_target(&entry, target)
@@ -59,7 +33,7 @@ fn deep_link_config_generates_native_registration_and_typed_screen_routes() {
     let entitlements = fs::read_to_string(ios_root.join("Nexa.entitlements"))
         .expect("read iOS associated-domain entitlement");
     assert!(entitlements.contains("applinks:links.example.com"));
-    let swift = sources_under(&ios_root, "swift");
+    let swift = TestProject::concat_sources_in(&ios_root, "swift");
     assert!(swift.contains("NavigationStack(path: $__nexaNavigationPath)"));
     assert!(swift.contains("case \"product-details\":"));
     assert!(swift.contains("guard segments.count == 3"));
@@ -72,7 +46,7 @@ fn deep_link_config_generates_native_registration_and_typed_screen_routes() {
     assert!(manifest.contains("android:scheme=\"nexa\""));
     assert!(manifest.contains("android:autoVerify=\"true\""));
     assert!(manifest.contains("android:host=\"links.example.com\""));
-    let kotlin = sources_under(&android_root.join("java"), "kt");
+    let kotlin = TestProject::concat_sources_in(&android_root.join("java"), "kt");
     assert!(kotlin.contains("LaunchedEffect(nexaDeepLink)"));
     assert!(kotlin.contains("product-details"));
     assert!(kotlin.contains("segments.size == 3"));

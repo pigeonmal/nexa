@@ -1,20 +1,5 @@
 use std::{fs, process::Command};
-
-/// A temporary project whose directory is owned for as long as it is bound.
-struct TempProject(nexa_testkit::TempDir);
-
-impl TempProject {
-    fn new() -> Self {
-        Self(nexa_testkit::TempDir::new("nexa-ios-cpp-maps"))
-    }
-}
-
-fn command_available(program: &str, args: &[&str]) -> bool {
-    Command::new(program)
-        .args(args)
-        .output()
-        .is_ok_and(|output| output.status.success())
-}
+use nexa_testkit::{TestProject, Toolchain};
 
 #[test]
 fn generated_ios_cpp_adapters_typecheck_maps_and_async_methods_when_swift_is_available() {
@@ -22,12 +7,12 @@ fn generated_ios_cpp_adapters_typecheck_maps_and_async_methods_when_swift_is_ava
     // SDK. Swift toolchains installed on Linux can expose C++ interop without
     // those Apple reference-semantics annotations, which changes what Clang
     // imports and produces a misleading failure for this iOS-specific test.
-    if !cfg!(target_os = "macos") || !command_available("xcrun", &["--find", "swiftc"]) {
+    if !cfg!(target_os = "macos") || !Toolchain::is_command_available("xcrun", &["--find", "swiftc"]) {
         return;
     }
 
-    let temp = TempProject::new();
-    let plugin = temp.0.join("cpp-plugin");
+    let temp = TestProject::new("nexa-ios-cpp-maps");
+    let plugin = temp.join("cpp-plugin");
     fs::create_dir_all(plugin.join("cpp/Sources")).expect("C++ source directory should be created");
     fs::write(
         plugin.join("plugin.config.nx"),
@@ -108,20 +93,20 @@ native class Store {
         "#include \"NexaPluginBindings.hpp\"\n",
     )
     .expect("C++ source should be written");
-    let entry = temp.0.join("main.nx");
+    let entry = temp.join("main.nx");
     fs::write(
         &entry,
         "plugin \"cpp-plugin\" as Lookup\napp MapAdapter { body { Button(\"Ping\") { Lookup.ping() } } }\n",
     )
     .expect("Nexa app should be written");
-    let output = temp.0.join("Generated");
+    let output = temp.join("Generated");
     nexa_cli::generate_project(&entry, "ios", &output, "CppMapAdapter")
         .expect("iOS map adapter project generation should succeed");
 
     let ios = output.join("ios/CppMapAdapter");
     let bindings = ios.join("NexaPlugins/NexaPlugin0_Bindings.swift");
     let adapters = ios.join("NexaPlugins/NexaPlugin0_CppBindings.swift");
-    let probe = temp.0.join("MapAdapterProbe.swift");
+    let probe = temp.join("MapAdapterProbe.swift");
     fs::write(
         &probe,
         r#"import Foundation

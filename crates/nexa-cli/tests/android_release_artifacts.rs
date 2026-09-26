@@ -1,17 +1,7 @@
 #![cfg(unix)]
 
-use std::{
-    fs,
-    os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
-    process::Command,
-};
-
-fn executable_in_path(name: &str) -> Option<PathBuf> {
-    std::env::split_paths(&std::env::var_os("PATH")?)
-        .map(|directory| directory.join(name))
-        .find(|path| path.is_file())
-}
+use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
+use nexa_testkit::{TestProject, Toolchain};
 
 #[test]
 fn android_release_validates_signing_and_reports_only_verified_aabs() {
@@ -226,7 +216,11 @@ fn android_release_validates_signing_and_reports_only_verified_aabs() {
 
 #[test]
 fn android_release_verifies_real_jarsigner_outputs_when_a_jdk_is_available() {
-    let Some(jarsigner) = executable_in_path("jarsigner") else {
+    if !Toolchain::should_run_native_builds() {
+        eprintln!("skipping real AAB signature integration in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)");
+        return;
+    }
+    let Some(jarsigner) = Toolchain::jarsigner() else {
         eprintln!("skipping real AAB signature integration: jarsigner is unavailable");
         return;
     };
@@ -238,13 +232,12 @@ fn android_release_verifies_real_jarsigner_outputs_when_a_jdk_is_available() {
         eprintln!("skipping real AAB signature integration: cannot resolve JDK home");
         return;
     };
-    let keytool = jdk_home.join("bin/keytool");
-    if !keytool.is_file() {
+    let Some(keytool) = Toolchain::keytool() else {
         eprintln!("skipping real AAB signature integration: matching keytool is unavailable");
         return;
-    }
+    };
 
-    let scratch = nexa_testkit::TempDir::new("nexa-android-real-aab-signature");
+    let scratch = TestProject::new("nexa-android-real-aab-signature");
     let project = scratch.join("project");
     let create = Command::new(env!("CARGO_BIN_EXE_nexa"))
         .args(["create", "SignedAabSmoke", "--directory"])
@@ -254,7 +247,7 @@ fn android_release_verifies_real_jarsigner_outputs_when_a_jdk_is_available() {
     assert!(create.status.success(), "{create:?}");
 
     let keystore = scratch.join("release.jks");
-    let generated_key = Command::new(&keytool)
+    let generated_key = Command::new(keytool)
         .args(["-genkeypair", "-noprompt", "-alias", "release", "-keystore"])
         .arg(&keystore)
         .args([

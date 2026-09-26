@@ -1,88 +1,32 @@
 use std::{
-    env, fs,
+    fs,
     path::{Path, PathBuf},
     process::Command,
 };
 
+use nexa_testkit::{TestProject, Toolchain, example_path};
+
 const EXAMPLES: &[&str] = &["counter", "showcase", "todo_app", "virtual_list"];
 
-/// A temporary root owned for as long as it is bound.
-struct TempRoot(nexa_testkit::TempDir);
-
-impl TempRoot {
-    fn new() -> Self {
-        Self(nexa_testkit::TempDir::new("nexa-native-examples"))
-    }
-
-    fn generate(&self, example: &str, target: &str) -> PathBuf {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-        let output = self.0.join(format!("{example}-{target}"));
-        let app_name = format!(
-            "Nexa{}",
-            example
-                .split('_')
-                .map(|part| {
-                    let mut characters = part.chars();
-                    characters
-                        .next()
-                        .map(|first| first.to_uppercase().chain(characters).collect::<String>())
-                        .unwrap_or_default()
-                })
-                .collect::<String>()
-        );
-        nexa_cli::generate_project(
-            &root.join(format!("{example}.nx")),
-            target,
-            &output,
-            &app_name,
-        )
+fn generate_example(project: &TestProject, example: &str, target: &str) -> PathBuf {
+    let entry = example_path(&format!("{example}.nx"));
+    let output = project.join(format!("{example}-{target}"));
+    let app_name = format!(
+        "Nexa{}",
+        example
+            .split('_')
+            .map(|part| {
+                let mut characters = part.chars();
+                characters
+                    .next()
+                    .map(|first| first.to_uppercase().chain(characters).collect::<String>())
+                    .unwrap_or_default()
+            })
+            .collect::<String>()
+    );
+    nexa_cli::generate_project(&entry, target, &output, &app_name)
         .unwrap_or_else(|error| panic!("failed to generate {example} for {target}:\n{error}"));
-        output
-    }
-}
-
-fn android_sdk() -> Option<PathBuf> {
-    env::var_os("ANDROID_HOME")
-        .or_else(|| env::var_os("ANDROID_SDK_ROOT"))
-        .map(PathBuf::from)
-}
-
-fn gradle() -> Option<PathBuf> {
-    if let Some(path) = env::var_os("GRADLE").map(PathBuf::from)
-        && path.is_file()
-    {
-        return Some(path);
-    }
-    if let Some(path) = find_on_path("gradle") {
-        return Some(path);
-    }
-    let home = env::var_os("GRADLE_USER_HOME")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".gradle")))?;
-    let mut found = Vec::new();
-    collect_gradle(&home.join("wrapper/dists"), &mut found);
-    found.sort();
-    found.pop()
-}
-
-fn collect_gradle(directory: &Path, found: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.file_name().is_some_and(|name| name == "gradle") && path.is_file() {
-            found.push(path);
-        } else if path.is_dir() {
-            collect_gradle(&path, found);
-        }
-    }
-}
-
-fn find_on_path(program: &str) -> Option<PathBuf> {
-    env::split_paths(&env::var_os("PATH")?)
-        .map(|dir| dir.join(program))
-        .find(|path| path.is_file())
+    output
 }
 
 fn copy_generated_kotlin(source: &Path, destination: &Path) {
@@ -113,24 +57,15 @@ fn copy_generated_kotlin_from(root: &Path, source: &Path, destination: &Path) {
 
 #[test]
 fn generated_ios_example_hosts_build_with_xcode_when_available() {
-    if !Command::new("xcrun")
-        .args(["--sdk", "iphonesimulator", "--show-sdk-path"])
-        .output()
-        .is_ok_and(|output| output.status.success())
-    {
+    let Some(sdk) = Toolchain::ios_simulator_sdk_path() else {
         eprintln!("skipping iOS example builds: iOS Simulator SDK is unavailable");
         return;
-    }
+    };
 
-    let temp = TempRoot::new();
+    let temp = TestProject::new("nexa-native-examples-ios");
     for example in EXAMPLES {
-        let project = temp.generate(example, "ios");
+        let project = generate_example(&temp, example, "ios");
         let source_root = project.join("ios");
-        let sdk = Command::new("xcrun")
-            .args(["--sdk", "iphonesimulator", "--show-sdk-path"])
-            .output()
-            .expect("xcrun should start");
-        let sdk = String::from_utf8_lossy(&sdk.stdout).trim().to_owned();
         let sources = swift_sources(&source_root.join(example_app_dir(example)));
         let mut command = Command::new("xcrun");
         command
@@ -140,7 +75,7 @@ fn generated_ios_example_hosts_build_with_xcode_when_available() {
                 "swiftc",
                 "-typecheck",
                 "-sdk",
-                &sdk,
+                sdk,
                 "-target",
                 "arm64-apple-ios16.0-simulator",
             ])
@@ -157,7 +92,12 @@ fn generated_ios_example_hosts_build_with_xcode_when_available() {
 
 #[test]
 fn generated_android_example_hosts_build_with_gradle_when_available() {
-    let (Some(gradle), Some(sdk)) = (gradle(), android_sdk()) else {
+    if !Toolchain::should_run_native_builds() {
+        eprintln!("skipping Android example builds in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)");
+        return;
+    }
+
+    let (Some(gradle), Some(sdk)) = (Toolchain::gradle(), Toolchain::android_sdk()) else {
         eprintln!("skipping Android example builds: Gradle or Android SDK is unavailable");
         return;
     };
@@ -166,19 +106,19 @@ fn generated_android_example_hosts_build_with_gradle_when_available() {
         return;
     }
 
-    let temp = TempRoot::new();
-    let project = temp.generate("showcase", "android");
+    let temp = TestProject::new("nexa-native-examples-android");
+    let project = generate_example(&temp, "showcase", "android");
     let java_root = project.join("android/app/src/main/java");
     for example in EXAMPLES
         .iter()
         .copied()
         .filter(|example| *example != "showcase")
     {
-        let generated = temp.generate(example, "android");
+        let generated = generate_example(&temp, example, "android");
         let package_root = generated.join("android/app/src/main/java");
         copy_generated_kotlin(&package_root, &java_root);
     }
-    let built = Command::new(&gradle)
+    let built = Command::new(gradle)
         .args([":app:assembleDebug"])
         .current_dir(project.join("android"))
         .output()
