@@ -12,7 +12,7 @@ use nexa_ir::{
 use nexa_syntax::{ast, catalog};
 
 use super::{
-    context::{ScreenSignatures, SemanticContext},
+    context::{ExprContext, ScreenSignatures, SemanticContext},
     expressions::{
         FunctionSignatures, functions_with_error_handling, infer_expr_type, lower_expr,
         plugin_error_variant, type_name,
@@ -172,10 +172,7 @@ enum ListSourceParts {
     },
 }
 
-pub(super) fn lower_node(
-    node: ast::Node,
-    cx: &SemanticContext,
-) -> Result<Node, CompileError> {
+pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, CompileError> {
     let symbols = cx.symbols;
     let screen_ids = cx.screen_ids;
     let themes = cx.themes;
@@ -354,7 +351,7 @@ pub(super) fn lower_node(
             let line_height = args.remove("lineHeight");
             let letter_spacing = args.remove("letterSpacing");
             let selectable = args.remove("selectable");
-            let value = lower_expr(&value, None, symbols, functions, false)?;
+            let value = lower_expr(&value, None, &cx.exprs(false))?;
             let color = optional_color(color, "text color", themes)?;
             let font_size = optional_dimension(
                 font_size,
@@ -392,7 +389,7 @@ pub(super) fn lower_node(
                 ast::ChildBody::Actions(actions) => actions,
                 _ => return Err(child_mismatch(span)),
             };
-            let label = lower_expr(&label, Some(&Type::String), symbols, functions, false)?;
+            let label = lower_expr(&label, Some(&Type::String), &cx.exprs(false))?;
             if !matches!(
                 label,
                 Expr::String(_) | Expr::Interpolation(_) | Expr::State(_, Type::String)
@@ -403,10 +400,10 @@ pub(super) fn lower_node(
                 .map(|value| require_string_literal(&value, "Button icon"))
                 .transpose()?;
             let loading = loading
-                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions, false))
+                .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
                 .transpose()?;
             let disabled = disabled
-                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions, false))
+                .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
                 .transpose()?;
             let lowered =
                 lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)?;
@@ -560,15 +557,14 @@ pub(super) fn lower_node(
                     ImageSource::Asset(asset)
                 }
                 ast::ImageSource::Url(url) => {
-                    let lowered_url =
-                        lower_expr(&url, Some(&Type::String), symbols, functions, false)?;
-                    if let ast::Expr::String(value, _) = &url {
-                        if !is_https_url(value) {
-                            return Err(CompileError::new(
-                                span,
-                                "Image URL must be an absolute HTTPS URL",
-                            ));
-                        }
+                    let lowered_url = lower_expr(&url, Some(&Type::String), &cx.exprs(false))?;
+                    if let ast::Expr::String(value, _) = &url
+                        && !is_https_url(value)
+                    {
+                        return Err(CompileError::new(
+                            span,
+                            "Image URL must be an absolute HTTPS URL",
+                        ));
                     }
                     ImageSource::RemoteUrl(lowered_url)
                 }
@@ -637,7 +633,7 @@ pub(super) fn lower_node(
                 None => Vec::new(),
             };
             let disabled = disabled
-                .map(|value| lower_expr(&value, Some(&Type::Bool), symbols, functions, false))
+                .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
                 .transpose()?
                 .unwrap_or(Expr::Bool(false));
             let haptic = lower_haptic(haptic)?;
@@ -694,7 +690,7 @@ pub(super) fn lower_node(
                 ));
             }
             let label = label
-                .map(|label| lower_expr(&label, Some(&Type::String), symbols, functions, false))
+                .map(|label| lower_expr(&label, Some(&Type::String), &cx.exprs(false)))
                 .transpose()?
                 .unwrap_or_else(|| Expr::String("Back".to_owned()));
             Ok(Node::NavigationBack { label })
@@ -725,7 +721,7 @@ pub(super) fn lower_node(
                 }
             })?;
             let guard = guard
-                .map(|guard| lower_expr(&guard, Some(&Type::Bool), symbols, functions, false))
+                .map(|guard| lower_expr(&guard, Some(&Type::Bool), &cx.exprs(false)))
                 .transpose()?;
             let lowered_children = lower_nodes(children, &child_cx)?;
             Ok(Node::NavigationLink {
@@ -743,14 +739,14 @@ pub(super) fn lower_node(
                 ast::ChildBody::Nodes(children) => children,
                 _ => return Err(child_mismatch(span)),
             };
-            let lowered_url = lower_expr(&url, Some(&Type::String), symbols, functions, false)?;
-            if let ast::Expr::String(value, _) = &url {
-                if !is_link_url(value) {
-                    return Err(CompileError::new(
-                        span,
-                        "Link URL must include a valid absolute scheme (for example `https://` or `mailto:`)",
-                    ));
-                }
+            let lowered_url = lower_expr(&url, Some(&Type::String), &cx.exprs(false))?;
+            if let ast::Expr::String(value, _) = &url
+                && !is_link_url(value)
+            {
+                return Err(CompileError::new(
+                    span,
+                    "Link URL must include a valid absolute scheme (for example `https://` or `mailto:`)",
+                ));
             }
             let children = lower_nodes(children, &child_cx)?;
             Ok(Node::Link {
@@ -768,26 +764,25 @@ pub(super) fn lower_node(
                 ast::ChildBody::Nodes(children) => children,
                 _ => return Err(child_mismatch(span)),
             };
-            let lowered_label = lower_expr(&label, Some(&Type::String), symbols, functions, false)?;
-            if let ast::Expr::String(value, _) = &label {
-                if value.is_empty() {
-                    return Err(CompileError::new(
-                        span,
-                        "Accessibility label cannot be empty",
-                    ));
-                }
+            let lowered_label = lower_expr(&label, Some(&Type::String), &cx.exprs(false))?;
+            if let ast::Expr::String(value, _) = &label
+                && value.is_empty()
+            {
+                return Err(CompileError::new(
+                    span,
+                    "Accessibility label cannot be empty",
+                ));
             }
             let lowered_hint = hint
                 .map(|hint| {
-                    let lowered =
-                        lower_expr(&hint, Some(&Type::String), symbols, functions, false)?;
-                    if let ast::Expr::String(value, _) = &hint {
-                        if value.is_empty() {
-                            return Err(CompileError::new(
-                                hint.span(),
-                                "Accessibility hint cannot be empty",
-                            ));
-                        }
+                    let lowered = lower_expr(&hint, Some(&Type::String), &cx.exprs(false))?;
+                    if let ast::Expr::String(value, _) = &hint
+                        && value.is_empty()
+                    {
+                        return Err(CompileError::new(
+                            hint.span(),
+                            "Accessibility hint cannot be empty",
+                        ));
                     }
                     Ok(lowered)
                 })
@@ -1103,15 +1098,14 @@ pub(super) fn lower_node(
                             "FastList item and section bindings are only available with an array or `sections` source",
                         ));
                     }
-                    let count_value =
-                        lower_expr(&count, Some(&row_index_type), symbols, functions, false)?;
-                    if let ast::Expr::Number(raw, count_span) = &count {
-                        if raw.parse::<i32>().is_ok_and(|value| value < 0) {
-                            return Err(CompileError::new(
-                                *count_span,
-                                "FastList count must be non-negative",
-                            ));
-                        }
+                    let count_value = lower_expr(&count, Some(&row_index_type), &cx.exprs(false))?;
+                    if let ast::Expr::Number(raw, count_span) = &count
+                        && raw.parse::<i32>().is_ok_and(|value| value < 0)
+                    {
+                        return Err(CompileError::new(
+                            *count_span,
+                            "FastList count must be non-negative",
+                        ));
                     }
                     (
                         ListSourceParts::Count { count: count_value },
@@ -1257,7 +1251,7 @@ pub(super) fn lower_node(
                         key.span(),
                         "FastList keys",
                     )?;
-                    lower_expr(&key, Some(&key_type), &row_symbols, functions, false)
+                    lower_expr(&key, Some(&key_type), &cx.exprs(false))
                 })
                 .transpose()?;
             let lowered_children = lower_nodes(children, &child_cx.with_symbols(&row_symbols))?;
@@ -1385,7 +1379,7 @@ pub(super) fn lower_node(
             else_body,
             ..
         } => {
-            let condition = lower_expr(&condition, Some(&Type::Bool), symbols, functions, false)?;
+            let condition = lower_expr(&condition, Some(&Type::Bool), &cx.exprs(false))?;
             let lowered_then = lower_nodes(then_body, &child_cx)?;
             let lowered_else = else_body
                 .map(|body| lower_nodes(body, &child_cx))
@@ -1413,7 +1407,7 @@ pub(super) fn lower_node(
                     "when supports String, Bool, numeric, and enum values only",
                 ));
             }
-            let lowered_value = lower_expr(&value, Some(&value_type), symbols, functions, false)?;
+            let lowered_value = lower_expr(&value, Some(&value_type), &cx.exprs(false))?;
             let mut seen = std::collections::HashSet::with_capacity(cases.len());
             let mut lowered_cases = Vec::with_capacity(cases.len());
             for case in cases {
@@ -1429,8 +1423,7 @@ pub(super) fn lower_node(
                         "when case values must be String, Bool, numeric literals, or enum cases",
                     ));
                 }
-                let lowered_case =
-                    lower_expr(&case.value, Some(&value_type), symbols, functions, false)?;
+                let lowered_case = lower_expr(&case.value, Some(&value_type), &cx.exprs(false))?;
                 let key = format!("{lowered_case:?}");
                 if !seen.insert(key) {
                     return Err(CompileError::new(
@@ -1494,7 +1487,7 @@ pub(super) fn lower_node(
                 })?;
                 lowered_arguments.push((
                     parameter.clone(),
-                    lower_expr(&argument, Some(ty), symbols, functions, false)?,
+                    lower_expr(&argument, Some(ty), &cx.exprs(false))?,
                 ));
             }
             let lowered_children = children
@@ -1573,7 +1566,7 @@ pub(super) fn lower_node(
                     if let Some(default) = signature.defaults.get(parameter) {
                         lowered_arguments.push((
                             parameter.clone(),
-                            lower_expr(default, Some(ty), symbols, functions, false)?,
+                            lower_expr(default, Some(ty), &cx.exprs(false))?,
                         ));
                         continue;
                     }
@@ -1586,7 +1579,7 @@ pub(super) fn lower_node(
                 };
                 lowered_arguments.push((
                     parameter.clone(),
-                    lower_expr(&argument, Some(ty), symbols, functions, false)?,
+                    lower_expr(&argument, Some(ty), &cx.exprs(false))?,
                 ));
             }
             let mut lowered_events = Vec::with_capacity(event_handlers.len());
@@ -1916,7 +1909,11 @@ fn lower_screen_target(
         .iter()
         .zip(&signature.parameters)
         .map(|(argument, parameter)| {
-            lower_expr(argument, Some(&parameter.ty), symbols, functions, false)
+            lower_expr(
+                argument,
+                Some(&parameter.ty),
+                &ExprContext::new(symbols, functions, false),
+            )
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok((id, lowered))
@@ -1982,7 +1979,11 @@ fn lower_actions_with_disposal_state(
     for action in actions {
         match action {
             ast::Stmt::Expression { expression, span } => {
-                let expression = lower_expr(&expression, None, symbols, functions, allow_await)?;
+                let expression = lower_expr(
+                    &expression,
+                    None,
+                    &ExprContext::new(symbols, functions, allow_await),
+                )?;
                 validate_and_record_native_disposal(
                     &expression,
                     disposed_instances,
@@ -2008,7 +2009,11 @@ fn lower_actions_with_disposal_state(
                         format!("`{name}` is immutable and cannot be assigned"),
                     ));
                 }
-                let value = lower_expr(&value, Some(ty), symbols, functions, allow_await)?;
+                let value = lower_expr(
+                    &value,
+                    Some(ty),
+                    &ExprContext::new(symbols, functions, allow_await),
+                )?;
                 validate_and_record_native_disposal(
                     &value,
                     disposed_instances,
@@ -2091,9 +2096,7 @@ fn lower_actions_with_disposal_state(
                 let receiver = lower_expr(
                     &receiver,
                     Some(&receiver_type),
-                    symbols,
-                    functions,
-                    allow_await,
+                    &ExprContext::new(symbols, functions, allow_await),
                 )?;
                 validate_and_record_native_disposal(
                     &receiver,
@@ -2105,9 +2108,7 @@ fn lower_actions_with_disposal_state(
                 let value = lower_expr(
                     &value,
                     Some(&signature.return_type),
-                    symbols,
-                    functions,
-                    allow_await,
+                    &ExprContext::new(symbols, functions, allow_await),
                 )?;
                 validate_and_record_native_disposal(
                     &value,
@@ -2186,9 +2187,7 @@ fn lower_actions_with_disposal_state(
                 let receiver = lower_expr(
                     &receiver,
                     Some(&receiver_type),
-                    symbols,
-                    functions,
-                    allow_await,
+                    &ExprContext::new(symbols, functions, allow_await),
                 )?;
                 validate_and_record_native_disposal(
                     &receiver,
@@ -2230,8 +2229,11 @@ fn lower_actions_with_disposal_state(
                         named_arguments: std::collections::BTreeMap::new(),
                         span,
                     };
-                    let expression =
-                        lower_expr(&expression, None, symbols, functions, allow_await)?;
+                    let expression = lower_expr(
+                        &expression,
+                        None,
+                        &ExprContext::new(symbols, functions, allow_await),
+                    )?;
                     validate_and_record_native_disposal(
                         &expression,
                         disposed_instances,
@@ -2312,7 +2314,11 @@ fn lower_actions_with_disposal_state(
                     .iter()
                     .zip(expected_arguments)
                     .map(|(argument, expected)| {
-                        lower_expr(argument, Some(expected), symbols, functions, allow_await)
+                        lower_expr(
+                            argument,
+                            Some(expected),
+                            &ExprContext::new(symbols, functions, allow_await),
+                        )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 for argument in &arguments {
@@ -2339,9 +2345,7 @@ fn lower_actions_with_disposal_state(
                 let condition = lower_expr(
                     &condition,
                     Some(&Type::Bool),
-                    symbols,
-                    functions,
-                    allow_await,
+                    &ExprContext::new(symbols, functions, allow_await),
                 )?;
                 validate_and_record_native_disposal(
                     &condition,
@@ -2403,8 +2407,16 @@ fn lower_actions_with_disposal_state(
                 } = &iterable
                 {
                     let int32 = Type::Numeric(NumericType::Int32);
-                    let start = lower_expr(start, Some(&int32), symbols, functions, allow_await)?;
-                    let end = lower_expr(end, Some(&int32), symbols, functions, allow_await)?;
+                    let start = lower_expr(
+                        start,
+                        Some(&int32),
+                        &ExprContext::new(symbols, functions, allow_await),
+                    )?;
+                    let end = lower_expr(
+                        end,
+                        Some(&int32),
+                        &ExprContext::new(symbols, functions, allow_await),
+                    )?;
                     let step = step
                         .as_deref()
                         .map(|step| lower_range_step(step, symbols, functions, allow_await))
@@ -2438,9 +2450,7 @@ fn lower_actions_with_disposal_state(
                     let iterable = lower_expr(
                         &iterable,
                         Some(&iterable_type),
-                        symbols,
-                        functions,
-                        allow_await,
+                        &ExprContext::new(symbols, functions, allow_await),
                     )?;
                     (iterable, element_type)
                 };
@@ -2501,9 +2511,7 @@ fn lower_actions_with_disposal_state(
                 let iterable = lower_expr(
                     &iterable,
                     Some(&iterable_type),
-                    symbols,
-                    functions,
-                    allow_await,
+                    &ExprContext::new(symbols, functions, allow_await),
                 )?;
                 validate_and_record_native_disposal(
                     &iterable,
@@ -2541,9 +2549,7 @@ fn lower_actions_with_disposal_state(
                 let condition = lower_expr(
                     &condition,
                     Some(&Type::Bool),
-                    symbols,
-                    functions,
-                    allow_await,
+                    &ExprContext::new(symbols, functions, allow_await),
                 )?;
                 validate_and_record_native_disposal(
                     &condition,
@@ -2603,8 +2609,8 @@ fn lower_actions_with_disposal_state(
                         CompileError::new(
                             arm.span,
                             format!(
-                                "unknown plugin error variant `{}`",
-                                format!("{}.{}.{}", arm.namespace, arm.error_name, arm.variant)
+                                "unknown plugin error variant `{}.{}.{}`",
+                                arm.namespace, arm.error_name, arm.variant
                             ),
                         )
                     })?;
@@ -2972,9 +2978,7 @@ fn lower_range_step(
     lower_expr(
         step,
         Some(&Type::Numeric(NumericType::Int32)),
-        symbols,
-        functions,
-        allow_await,
+        &ExprContext::new(symbols, functions, allow_await),
     )
 }
 

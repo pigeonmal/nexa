@@ -1,4 +1,4 @@
-use nexa_testkit::{assert_output_success, nexa_command, TestProject};
+use nexa_testkit::{TestProject, assert_output_success, nexa_command};
 
 #[test]
 fn check_resolves_local_plugin_dependencies_without_native_toolchains() {

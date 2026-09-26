@@ -60,8 +60,10 @@ fn check_rejects_android_minimum_outside_target_range_table() {
 #[test]
 fn check_validates_custom_and_https_deep_link_bases_table() {
     let project = setup_project();
-    let valid =
-        check_config(&project, r#"config { app { deepLinks: ["nexa://", "https://links.example.com"] } }"#);
+    let valid = check_config(
+        &project,
+        r#"config { app { deepLinks: ["nexa://", "https://links.example.com"] } }"#,
+    );
     assert_output_success(&valid);
 
     let invalid_cases = [

@@ -27,7 +27,9 @@ fn app_images_are_copied_to_ios_catalog_and_android_drawables_deterministically(
     let webp_source = add_image(&project, "webp_banner", "webp");
 
     let output = project.path().join("generated");
-    assert!(assets::copy_ios_project_images(project.path(), &output, "Demo").expect("copy iOS image"));
+    assert!(
+        assets::copy_ios_project_images(project.path(), &output, "Demo").expect("copy iOS image")
+    );
     assets::copy_android_project_images(project.path(), &output).expect("copy Android image");
 
     let ios_image = output.join("ios/Demo/Assets.xcassets/hero_banner.imageset/hero_banner.png");
@@ -55,7 +57,8 @@ fn app_images_are_copied_to_ios_catalog_and_android_drawables_deterministically(
 
     let ios_marker = output.join("ios/Demo/.nexa-project-images");
     let marker_before = fs::read(&ios_marker).unwrap();
-    assets::copy_ios_project_images(project.path(), &output, "Demo").expect("regenerate iOS images");
+    assets::copy_ios_project_images(project.path(), &output, "Demo")
+        .expect("regenerate iOS images");
     assert_eq!(marker_before, fs::read(ios_marker).unwrap());
 
     fs::remove_file(source).expect("remove source image");

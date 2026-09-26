@@ -89,7 +89,8 @@ fn resolves_multiple_packages_from_one_pinned_git_revision_and_writes_stable_loc
         },
     ];
 
-    let first = dependencies::resolve(project.path(), &dependencies).expect("resolve pinned plugins");
+    let first =
+        dependencies::resolve(project.path(), &dependencies).expect("resolve pinned plugins");
     let fast_math = &first.plugin_roots["dev.example.fast-math"];
     let date_time = &first.plugin_roots["dev.example.date-time"];
     assert!(fast_math.ends_with("plugins/fast-math"));
@@ -107,7 +108,8 @@ fn resolves_multiple_packages_from_one_pinned_git_revision_and_writes_stable_loc
 
     let second =
         dependencies::resolve(project.path(), &dependencies).expect("repeat locked resolution");
-    dependencies::write_lock(project.path(), &second.lock_file).expect("rewrite identical lockfile");
+    dependencies::write_lock(project.path(), &second.lock_file)
+        .expect("rewrite identical lockfile");
     assert_eq!(project.read("nexa.lock"), original_lock);
 
     let mut escaping = dependencies[0].clone();
@@ -154,13 +156,15 @@ fn locked_dependencies_detect_missing_lockfiles_and_local_plugin_changes() {
         .expect_err("locked resolution requires a lockfile");
     assert!(missing.contains("`nexa.lock` is missing"));
 
-    dependencies::sync_lock(project.path(), true, &resolved.lock_file, false).expect("write lockfile");
+    dependencies::sync_lock(project.path(), true, &resolved.lock_file, false)
+        .expect("write lockfile");
     dependencies::sync_lock(project.path(), true, &resolved.lock_file, true)
         .expect("accept matching lockfile");
 
     fs::write(package.join("native.nxid"), "service Math { fn add(a: Int32, b: Int32) -> Int32; fn sub(a: Int32, b: Int32) -> Int32 }\n")
         .expect("change plugin interface");
-    let changed = dependencies::resolve(project.path(), &dependencies).expect("resolve changed plugin");
+    let changed =
+        dependencies::resolve(project.path(), &dependencies).expect("resolve changed plugin");
     let stale = dependencies::sync_lock(project.path(), true, &changed.lock_file, true)
         .expect_err("locked resolution rejects changed local packages");
     assert!(stale.contains("`nexa.lock` is out of date"));

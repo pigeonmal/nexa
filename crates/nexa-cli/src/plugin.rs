@@ -9,9 +9,9 @@ use nexa_plugin_idl as idl;
 
 /// Render the platform contract used by generated native projects.
 pub(crate) fn render_swift_bindings(contract: &idl::PluginIdl) -> Result<String, String> {
-    Ok(bindings::swift(
-        &BridgePlan::validate_swift_contract(contract)?,
-    ))
+    Ok(bindings::swift(&BridgePlan::validate_swift_contract(
+        contract,
+    )?))
 }
 
 pub(crate) fn render_kotlin_bindings(
@@ -38,10 +38,7 @@ pub(crate) fn render_cpp_swift_adapters(
     contract: &idl::PluginIdl,
     plugin_id: &str,
 ) -> Result<String, String> {
-    bindings_cpp::render_swift_adapters(
-        &BridgePlan::validate_swift_cpp(contract)?,
-        plugin_id,
-    )
+    bindings_cpp::render_swift_adapters(&BridgePlan::validate_swift_cpp(contract)?, plugin_id)
 }
 
 pub(crate) fn render_cpp_android_adapters(

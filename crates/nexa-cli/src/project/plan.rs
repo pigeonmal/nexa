@@ -303,9 +303,7 @@ impl ProjectPlan {
 
         let mut written: Vec<String> = Vec::new();
         for path in self.written_paths() {
-            if let Err(error) = validate_relative_path(&path) {
-                return Err(error);
-            }
+            validate_relative_path(&path)?;
             if written.contains(&path) {
                 return Err(format!(
                     "`{path}` is written twice, by a source unit and by a planned file"

@@ -13,7 +13,7 @@ use nexa_syntax::ast;
 
 use self::{
     components::{contains_content, lower_nodes},
-    context::{ScreenSignature, ScreenSignatures, SemanticContext},
+    context::{ExprContext, ScreenSignature, ScreenSignatures, SemanticContext},
     custom_components::{lower_components, retain_reachable},
     expressions::{
         FunctionSignature, FunctionSignatures, StructTypes, collect_function_signatures,
@@ -230,9 +230,7 @@ pub fn lower_with_warnings(
         let initial = lower_expr(
             &declaration.initial,
             Some(&ty),
-            &symbols,
-            &function_signatures,
-            false,
+            &ExprContext::new(&symbols, &function_signatures, false),
         )?;
         if declaration.mutable && references_state(&declaration.initial) {
             return Err(CompileError::new(
@@ -306,9 +304,7 @@ pub fn lower_with_warnings(
             let initial = lower_expr(
                 &declaration.initial,
                 Some(&ty),
-                &screen_symbols,
-                &function_signatures,
-                false,
+                &ExprContext::new(&screen_symbols, &function_signatures, false),
             )?;
             if declaration.mutable && references_state(&declaration.initial) {
                 return Err(CompileError::new(
@@ -1314,9 +1310,7 @@ fn lower_functions(
                         let lowered = lower_expr(
                             &initial,
                             Some(&local_type),
-                            &symbols,
-                            signatures,
-                            signature.is_async,
+                            &ExprContext::new(&symbols, signatures, signature.is_async),
                         )?;
                         symbols.insert(name.clone(), (local_type.clone(), false));
                         locals.push(FunctionLocal {
@@ -1369,9 +1363,7 @@ fn lower_functions(
             let body = lower_expr(
                 &value,
                 Some(&signature.return_type),
-                &symbols,
-                signatures,
-                signature.is_async,
+                &ExprContext::new(&symbols, signatures, signature.is_async),
             )?;
             Ok(Function {
                 name: declaration.name,
@@ -1546,11 +1538,19 @@ pub(super) fn contains_direction(node: &Node) -> bool {
     })
 }
 
+/// The appearance hook a screen body declared.
+///
+/// A screen may declare `OnAppear` and `OnDisappear` among its nodes, but both
+/// attach to the view itself on each platform, so they lift out of the body.
+/// This carries the actions to run, whether the appearance hook is async, and
+/// the body with both hooks removed.
+type AppearanceHooks = (Option<Vec<Action>>, bool, Vec<Node>);
+
 fn extract_on_appear(
     nodes: Vec<Node>,
     span: nexa_diagnostics::Span,
     scope: &str,
-) -> Result<(Option<Vec<Action>>, bool, Vec<Node>), CompileError> {
+) -> Result<AppearanceHooks, CompileError> {
     let mut actions = None;
     let mut asynchronous = false;
     let mut body = Vec::with_capacity(nodes.len());

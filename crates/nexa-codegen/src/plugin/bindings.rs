@@ -449,8 +449,7 @@ fn kotlin_named_type(ty: &BridgeNamedType) -> String {
                                             other => other,
                                         },
                                         BridgeType::Scalar(BridgeScalar::String)
-                                    )
-                                {
+                                    ) {
                                     "override "
                                 } else {
                                     ""
@@ -622,13 +621,15 @@ mod tests {
 
     #[test]
     fn generated_native_classes_are_checked_against_their_contracts() {
-        let plan = validate(r#"
+        let plan = validate(
+            r#"
             native class VideoPlayer {
                 init()
                 readonly property state: String
                 fn play()
             }
-            "#);
+            "#,
+        );
         let swift = swift(&plan);
         assert!(swift.contains("@MainActor\npublic protocol VideoPlayerSpec: AnyObject"));
         assert!(swift.contains(
@@ -645,12 +646,14 @@ mod tests {
 
     #[test]
     fn kotlin_native_class_factory_probe_checks_typed_constructor_arguments() {
-        let plan = validate(r#"
+        let plan = validate(
+            r#"
             struct PlayerOptions { autoplay: Bool }
             native class VideoPlayer {
                 init(options: PlayerOptions)
             }
-            "#);
+            "#,
+        );
         let kotlin = kotlin(&plan, "dev.example.video");
         assert!(kotlin.contains(
             "private fun _nexaConstructVideoPlayer(nexaArg0: PlayerOptions): VideoPlayerSpec = VideoPlayerImpl(nexaArg0)"
@@ -659,11 +662,13 @@ mod tests {
 
     #[test]
     fn native_class_event_contracts_use_the_compiler_callback_property_name() {
-        let plan = validate(r#"
+        let plan = validate(
+            r#"
             native class VideoPlayer {
                 event progress_changed(position: Float64, duration: Float64)
             }
-            "#);
+            "#,
+        );
         let swift = swift(&plan);
         assert!(swift.contains("var onProgressChanged: ((Double, Double) -> Void)? { get set }"));
         let kotlin = kotlin(&plan, "dev.example.video");
@@ -672,13 +677,15 @@ mod tests {
 
     #[test]
     fn native_component_defaults_generate_platform_safe_literals() {
-        let plan = validate(r#"
+        let plan = validate(
+            r#"
             native component VideoView {
                 prop title: String = "cost $5\n\"today\""
                 prop controls: Bool = true
                 prop subtitle: String? = null
             }
-            "#);
+            "#,
+        );
         let swift = swift(&plan);
         assert!(swift.contains(r#"title: String = "cost $5\n\"today\""#));
         assert!(swift.contains("controls: Bool = true"));
@@ -692,12 +699,14 @@ mod tests {
 
     #[test]
     fn native_component_content_slots_generate_native_builder_parameters() {
-        let plan = validate(r#"
+        let plan = validate(
+            r#"
             native component Container {
                 content
                 prop title: String
             }
-            "#);
+            "#,
+        );
         let swift = swift(&plan);
         assert!(swift.contains("public struct Container<Content: View>: View"));
         assert!(swift.contains("@ViewBuilder content: () -> Content"));
@@ -710,7 +719,8 @@ mod tests {
 
     #[test]
     fn typed_error_variants_and_throwing_contracts_survive_native_generation() {
-        let plan = validate(r#"
+        let plan = validate(
+            r#"
             error PlayerError {
                 invalidUrl,
                 decodingFailed(message: String),
@@ -721,7 +731,8 @@ mod tests {
                 async fn prepare(url: String, playbackRate: Float64) throws PlayerError
                 async fn currentSource() -> Result<String, PlayerError>
             }
-            "#);
+            "#,
+        );
         let swift = swift(&plan);
         assert!(swift.contains("public enum PlayerError: Error"));
         assert!(swift.contains("case invalidUrl"));
@@ -753,7 +764,8 @@ mod tests {
 
     #[test]
     fn value_contracts_preserve_collection_optionality_and_mutability() {
-        let plan = validate(r#"
+        let plan = validate(
+            r#"
             struct Playlist {
                 titles: Array<String>,
                 selected: Int32?
@@ -762,7 +774,8 @@ mod tests {
                 readonly property current: Playlist?
                 property volume: Float64
             }
-            "#);
+            "#,
+        );
         let swift = swift(&plan);
         assert!(swift.contains("public struct Playlist"));
         assert!(swift.contains("public let titles: [String]"));

@@ -6,9 +6,9 @@
 )]
 
 pub mod ast;
+pub mod catalog;
 mod lexer;
 mod parser;
-pub mod catalog;
 
 use nexa_diagnostics::CompileError;
 

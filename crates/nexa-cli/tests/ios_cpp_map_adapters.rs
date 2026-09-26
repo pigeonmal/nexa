@@ -1,5 +1,5 @@
-use std::{fs, process::Command};
 use nexa_testkit::{TestProject, Toolchain};
+use std::{fs, process::Command};
 
 #[test]
 fn generated_ios_cpp_adapters_typecheck_maps_and_async_methods_when_swift_is_available() {
@@ -7,7 +7,9 @@ fn generated_ios_cpp_adapters_typecheck_maps_and_async_methods_when_swift_is_ava
     // SDK. Swift toolchains installed on Linux can expose C++ interop without
     // those Apple reference-semantics annotations, which changes what Clang
     // imports and produces a misleading failure for this iOS-specific test.
-    if !cfg!(target_os = "macos") || !Toolchain::is_command_available("xcrun", &["--find", "swiftc"]) {
+    if !cfg!(target_os = "macos")
+        || !Toolchain::is_command_available("xcrun", &["--find", "swiftc"])
+    {
         return;
     }
 

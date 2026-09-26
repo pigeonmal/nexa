@@ -254,10 +254,9 @@ mod tests {
     #[test]
     fn modules_without_result_stay_result_free() {
         let mut module = blank_result_module();
-        module.states.push(int_state(
-            "count",
-            Type::Numeric(crate::NumericType::Int32),
-        ));
+        module
+            .states
+            .push(int_state("count", Type::Numeric(crate::NumericType::Int32)));
         let capabilities = analyze(&module);
         assert!(!capabilities.uses_result);
     }

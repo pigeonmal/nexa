@@ -164,15 +164,10 @@ pub(crate) fn android_jni_class_descriptor(ty: &BridgeType) -> Option<String> {
                 Some(format!("[{}", android_jni_class_descriptor(element)?))
             }
         }
-        BridgeType::Set(element) => {
-            if android_primitive_array(element).is_some() {
-                Some(format!("[{}", android_jni_class_descriptor(element)?))
-            } else if android_reference_array_element(element).is_some() {
-                Some(format!("[{}", android_jni_class_descriptor(element)?))
-            } else {
-                None
-            }
-        }
+        // A set is a JNI array, so its descriptor is the element descriptor
+        // behind one `[`. Both a primitive array and a reference array reduce
+        // to that same spelling, so there is nothing to branch on.
+        BridgeType::Set(element) => Some(format!("[{}", android_jni_class_descriptor(element)?)),
         BridgeType::Pair(..) | BridgeType::Triple(..) | BridgeType::Result { .. } => None,
     }
 }

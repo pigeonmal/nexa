@@ -8,6 +8,8 @@ use nexa_ir::{
 use nexa_plugin_idl::TypeRef;
 use nexa_syntax::ast;
 
+use super::context::ExprContext;
+
 #[derive(Clone)]
 pub(super) struct FunctionSignature {
     pub(super) parameters: Vec<(String, Type)>,
@@ -626,9 +628,7 @@ pub(super) fn record_native_alias(
 pub(super) fn lower_expr(
     expr: &ast::Expr,
     expected: Option<&Type>,
-    symbols: &HashMap<String, (Type, bool)>,
-    functions: &FunctionSignatures,
-    allow_await: bool,
+    ctx: &ExprContext<'_>,
 ) -> Result<Expr, CompileError> {
     // A non-null value may be promoted to its optional type without a runtime
     // wrapper. Keep an already-optional expression and the `null` literal on
@@ -637,7 +637,7 @@ pub(super) fn lower_expr(
         Some(Type::Optional(inner))
             if !matches!(expr, ast::Expr::Null(_))
                 && !matches!(
-                    infer_expr_type(expr, symbols, functions),
+                    infer_expr_type(expr, ctx.symbols, ctx.functions),
                     Some(Type::Optional(_))
                 ) =>
         {
@@ -659,22 +659,12 @@ pub(super) fn lower_expr(
                         lowered.push(InterpolatedPart::Literal(value.clone()));
                     }
                     ast::StringPart::Name(name) => {
-                        let value = lower_expr(
-                            &ast::Expr::Name(name.clone(), *span),
-                            None,
-                            symbols,
-                            functions,
-                            allow_await,
-                        )?;
+                        let value = lower_expr(&ast::Expr::Name(name.clone(), *span), None, ctx)?;
                         lowered.push(InterpolatedPart::Value(Box::new(value)));
                     }
                     ast::StringPart::Expression(expression) => {
                         lowered.push(InterpolatedPart::Value(Box::new(lower_expr(
-                            expression,
-                            None,
-                            symbols,
-                            functions,
-                            allow_await,
+                            expression, None, ctx,
                         )?)));
                     }
                 }
@@ -723,13 +713,7 @@ pub(super) fn lower_expr(
             };
             let mut lowered = Vec::with_capacity(items.len());
             for item in items {
-                lowered.push(lower_expr(
-                    item,
-                    Some(element_type),
-                    symbols,
-                    functions,
-                    allow_await,
-                )?);
+                lowered.push(lower_expr(item, Some(element_type), ctx)?);
             }
             if matches!(expected, Some(Type::Set(_))) {
                 Ok(Expr::Set(lowered))
@@ -747,8 +731,8 @@ pub(super) fn lower_expr(
             let mut lowered = Vec::with_capacity(entries.len());
             for (key, value) in entries {
                 lowered.push((
-                    lower_expr(key, Some(key_type), symbols, functions, allow_await)?,
-                    lower_expr(value, Some(value_type), symbols, functions, allow_await)?,
+                    lower_expr(key, Some(key_type), ctx)?,
+                    lower_expr(value, Some(value_type), ctx)?,
                 ));
             }
             Ok(Expr::Map(lowered))
@@ -761,20 +745,8 @@ pub(super) fn lower_expr(
                 ));
             };
             Ok(Expr::Pair(
-                Box::new(lower_expr(
-                    first,
-                    Some(first_type),
-                    symbols,
-                    functions,
-                    allow_await,
-                )?),
-                Box::new(lower_expr(
-                    second,
-                    Some(second_type),
-                    symbols,
-                    functions,
-                    allow_await,
-                )?),
+                Box::new(lower_expr(first, Some(first_type), ctx)?),
+                Box::new(lower_expr(second, Some(second_type), ctx)?),
             ))
         }
         ast::Expr::Triple(first, second, third, span) => {
@@ -785,27 +757,9 @@ pub(super) fn lower_expr(
                 ));
             };
             Ok(Expr::Triple(
-                Box::new(lower_expr(
-                    first,
-                    Some(first_type),
-                    symbols,
-                    functions,
-                    allow_await,
-                )?),
-                Box::new(lower_expr(
-                    second,
-                    Some(second_type),
-                    symbols,
-                    functions,
-                    allow_await,
-                )?),
-                Box::new(lower_expr(
-                    third,
-                    Some(third_type),
-                    symbols,
-                    functions,
-                    allow_await,
-                )?),
+                Box::new(lower_expr(first, Some(first_type), ctx)?),
+                Box::new(lower_expr(second, Some(second_type), ctx)?),
+                Box::new(lower_expr(third, Some(third_type), ctx)?),
             ))
         }
         ast::Expr::Number(raw, span) => {
@@ -842,7 +796,7 @@ pub(super) fn lower_expr(
                     case_name: name.clone(),
                 });
             }
-            let Some((ty, _)) = symbols.get(name) else {
+            let Some((ty, _)) = ctx.symbols.get(name) else {
                 return Err(CompileError::new(*span, format!("unknown state `{name}`")));
             };
             require_expected(expected, ty, *span)?;
@@ -882,7 +836,7 @@ pub(super) fn lower_expr(
                 });
             }
             let key = format!("{enum_name}.{case_name}");
-            let Some((ty @ Type::Enum(_), _)) = symbols.get(&key) else {
+            let Some((ty @ Type::Enum(_), _)) = ctx.symbols.get(&key) else {
                 return Err(CompileError::new(
                     *span,
                     format!("unknown enum case `{enum_name}.{case_name}`"),
@@ -902,10 +856,12 @@ pub(super) fn lower_expr(
             let ty = expected
                 .and_then(as_numeric_type)
                 .or_else(|| {
-                    infer_expr_type(left, symbols, functions).and_then(|ty| as_numeric_type(&ty))
+                    infer_expr_type(left, ctx.symbols, ctx.functions)
+                        .and_then(|ty| as_numeric_type(&ty))
                 })
                 .or_else(|| {
-                    infer_expr_type(right, symbols, functions).and_then(|ty| as_numeric_type(&ty))
+                    infer_expr_type(right, ctx.symbols, ctx.functions)
+                        .and_then(|ty| as_numeric_type(&ty))
                 })
                 .ok_or_else(|| {
                     CompileError::new(*span, "`+` requires numeric values of the same type")
@@ -920,8 +876,8 @@ pub(super) fn lower_expr(
                     ),
                 ));
             }
-            let left = lower_expr(left, Some(&numeric), symbols, functions, allow_await)?;
-            let right = lower_expr(right, Some(&numeric), symbols, functions, allow_await)?;
+            let left = lower_expr(left, Some(&numeric), ctx)?;
+            let right = lower_expr(right, Some(&numeric), ctx)?;
             if expr_numeric_type(&left) != Some(ty) || expr_numeric_type(&right) != Some(ty) {
                 return Err(CompileError::new(
                     *span,
@@ -931,29 +887,15 @@ pub(super) fn lower_expr(
             Ok(Expr::Add(Box::new(left), Box::new(right), ty))
         }
         ast::Expr::Not(value, _span) => {
-            let value = lower_expr(value, Some(&Type::Bool), symbols, functions, allow_await)?;
+            let value = lower_expr(value, Some(&Type::Bool), ctx)?;
             Ok(Expr::Not(Box::new(value)))
         }
-        ast::Expr::Binary(left, operator, right, span) => lower_binary(
-            left,
-            *operator,
-            right,
-            *span,
-            expected,
-            symbols,
-            functions,
-            allow_await,
-        ),
-        ast::Expr::Call(name, arguments, span) => lower_call(
-            name,
-            arguments,
-            *span,
-            expected,
-            symbols,
-            functions,
-            allow_await,
-            false,
-        ),
+        ast::Expr::Binary(left, operator, right, span) => {
+            lower_binary(left, *operator, right, *span, expected, ctx)
+        }
+        ast::Expr::Call(name, arguments, span) => {
+            lower_call(name, arguments, *span, expected, ctx, false)
+        }
         ast::Expr::MethodCall {
             base,
             name,
@@ -962,7 +904,7 @@ pub(super) fn lower_expr(
             span,
         } => {
             if matches!(
-                infer_expr_type(base, symbols, functions),
+                infer_expr_type(base, ctx.symbols, ctx.functions),
                 Some(Type::Plugin { .. })
             ) {
                 lower_plugin_method_call(
@@ -972,9 +914,7 @@ pub(super) fn lower_expr(
                     named_arguments,
                     *span,
                     expected,
-                    symbols,
-                    functions,
-                    allow_await,
+                    ctx,
                     false,
                 )
             } else {
@@ -984,16 +924,7 @@ pub(super) fn lower_expr(
                         "named arguments are not supported for this method call",
                     ));
                 }
-                lower_collection_transform(
-                    base,
-                    name,
-                    arguments,
-                    *span,
-                    expected,
-                    symbols,
-                    functions,
-                    allow_await,
-                )
+                lower_collection_transform(base, name, arguments, *span, expected, ctx)
             }
         }
         ast::Expr::Closure { span, .. } => Err(CompileError::new(
@@ -1013,9 +944,7 @@ pub(super) fn lower_expr(
             named_arguments,
             *span,
             expected,
-            symbols,
-            functions,
-            allow_await,
+            ctx,
             false,
         ),
         ast::Expr::Index {
@@ -1024,7 +953,7 @@ pub(super) fn lower_expr(
             optional,
             span,
         } => {
-            let inferred_collection_type = infer_expr_type(collection, symbols, functions);
+            let inferred_collection_type = infer_expr_type(collection, ctx.symbols, ctx.functions);
             let (index_type, result_type, collection_type) = match inferred_collection_type {
                 Some(Type::Array(_)) if *optional => {
                     return Err(CompileError::new(
@@ -1079,15 +1008,8 @@ pub(super) fn lower_expr(
                     ));
                 }
             };
-            let lowered_collection = lower_expr(
-                collection,
-                Some(&collection_type),
-                symbols,
-                functions,
-                allow_await,
-            )?;
-            let lowered_index =
-                lower_expr(index, Some(&index_type), symbols, functions, allow_await)?;
+            let lowered_collection = lower_expr(collection, Some(&collection_type), ctx)?;
+            let lowered_index = lower_expr(index, Some(&index_type), ctx)?;
             require_expected(expected, &result_type, *span)?;
             Ok(Expr::Index {
                 collection: Box::new(lowered_collection),
@@ -1103,35 +1025,33 @@ pub(super) fn lower_expr(
             optional,
             span,
         } => {
-            if !*optional {
-                if let ast::Expr::Name(enum_name, _) = base.as_ref() {
-                    if enum_name == "PermissionStatus" && is_permission_status_case(name) {
-                        let ty = Type::Enum("PermissionStatus".to_owned());
-                        require_expected(expected, &ty, *span)?;
-                        return Ok(Expr::EnumValue {
-                            enum_name: enum_name.clone(),
-                            case_name: name.clone(),
-                        });
-                    }
-                    if enum_name == "Permission" && is_permission_case(name) {
-                        let ty = Type::Enum("Permission".to_owned());
-                        require_expected(expected, &ty, *span)?;
-                        return Ok(Expr::EnumValue {
-                            enum_name: enum_name.clone(),
-                            case_name: name.clone(),
-                        });
-                    }
-                    let key = format!("{enum_name}.{name}");
-                    if let Some((ty @ Type::Enum(_), _)) = symbols.get(&key) {
-                        require_expected(expected, ty, *span)?;
-                        return Ok(Expr::EnumValue {
-                            enum_name: enum_name.clone(),
-                            case_name: name.clone(),
-                        });
-                    }
+            if !*optional && let ast::Expr::Name(enum_name, _) = base.as_ref() {
+                if enum_name == "PermissionStatus" && is_permission_status_case(name) {
+                    let ty = Type::Enum("PermissionStatus".to_owned());
+                    require_expected(expected, &ty, *span)?;
+                    return Ok(Expr::EnumValue {
+                        enum_name: enum_name.clone(),
+                        case_name: name.clone(),
+                    });
+                }
+                if enum_name == "Permission" && is_permission_case(name) {
+                    let ty = Type::Enum("Permission".to_owned());
+                    require_expected(expected, &ty, *span)?;
+                    return Ok(Expr::EnumValue {
+                        enum_name: enum_name.clone(),
+                        case_name: name.clone(),
+                    });
+                }
+                let key = format!("{enum_name}.{name}");
+                if let Some((ty @ Type::Enum(_), _)) = ctx.symbols.get(&key) {
+                    require_expected(expected, ty, *span)?;
+                    return Ok(Expr::EnumValue {
+                        enum_name: enum_name.clone(),
+                        case_name: name.clone(),
+                    });
                 }
             }
-            let Some(base_type) = infer_expr_type(base, symbols, functions) else {
+            let Some(base_type) = infer_expr_type(base, ctx.symbols, ctx.functions) else {
                 return Err(CompileError::new(
                     *span,
                     format!("cannot access member `{name}` on an untyped value"),
@@ -1144,7 +1064,7 @@ pub(super) fn lower_expr(
                         "`?.` requires an optional Pair, Triple, or struct value",
                     ));
                 };
-                let Some(field_type) = member_field_type_with_plugins(inner, name, functions)
+                let Some(field_type) = member_field_type_with_plugins(inner, name, ctx.functions)
                 else {
                     return Err(CompileError::new(
                         *span,
@@ -1159,7 +1079,8 @@ pub(super) fn lower_expr(
                         "optional values require `?.` for member access",
                     ));
                 }
-                let Some(field_type) = member_field_type_with_plugins(&base_type, name, functions)
+                let Some(field_type) =
+                    member_field_type_with_plugins(&base_type, name, ctx.functions)
                 else {
                     return Err(CompileError::new(
                         *span,
@@ -1168,13 +1089,7 @@ pub(super) fn lower_expr(
                 };
                 (base_type.clone(), field_type)
             };
-            let base = lower_expr(
-                base,
-                Some(&member_base_type),
-                symbols,
-                functions,
-                allow_await,
-            )?;
+            let base = lower_expr(base, Some(&member_base_type), ctx)?;
             require_expected(expected, &field_type, *span)?;
             let tuple_type = match &member_base_type {
                 Type::Optional(inner) => inner.as_ref(),
@@ -1217,16 +1132,16 @@ pub(super) fn lower_expr(
             "ranges are only valid as `for` loop iterables",
         )),
         ast::Expr::Coalesce(left, right, span) => {
-            let Some(Type::Optional(inner)) = infer_expr_type(left, symbols, functions) else {
+            let Some(Type::Optional(inner)) = infer_expr_type(left, ctx.symbols, ctx.functions)
+            else {
                 return Err(CompileError::new(
                     *span,
                     "left side of `??` must be an optional value",
                 ));
             };
             let optional_type = Type::Optional(inner.clone());
-            let lowered_left =
-                lower_expr(left, Some(&optional_type), symbols, functions, allow_await)?;
-            let lowered_right = lower_expr(right, Some(&inner), symbols, functions, allow_await)?;
+            let lowered_left = lower_expr(left, Some(&optional_type), ctx)?;
+            let lowered_right = lower_expr(right, Some(&inner), ctx)?;
             require_expected(expected, &inner, *span)?;
             Ok(Expr::Coalesce(
                 Box::new(lowered_left),
@@ -1234,23 +1149,16 @@ pub(super) fn lower_expr(
             ))
         }
         ast::Expr::Await(value, span) => {
-            if !allow_await {
+            if !ctx.allow_await {
                 return Err(CompileError::new(
                     *span,
                     "`await` is only allowed in an async function or `OnAppear async` block",
                 ));
             }
             let call = match value.as_ref() {
-                ast::Expr::Call(name, arguments, call_span) => lower_call(
-                    name,
-                    arguments,
-                    *call_span,
-                    expected,
-                    symbols,
-                    functions,
-                    allow_await,
-                    true,
-                )?,
+                ast::Expr::Call(name, arguments, call_span) => {
+                    lower_call(name, arguments, *call_span, expected, ctx, true)?
+                }
                 ast::Expr::QualifiedCall {
                     namespace,
                     name,
@@ -1264,9 +1172,7 @@ pub(super) fn lower_expr(
                     named_arguments,
                     *call_span,
                     expected,
-                    symbols,
-                    functions,
-                    allow_await,
+                    ctx,
                     true,
                 )?,
                 ast::Expr::MethodCall {
@@ -1276,7 +1182,7 @@ pub(super) fn lower_expr(
                     named_arguments,
                     span: call_span,
                 } if matches!(
-                    infer_expr_type(base, symbols, functions),
+                    infer_expr_type(base, ctx.symbols, ctx.functions),
                     Some(Type::Plugin { .. })
                 ) =>
                 {
@@ -1287,9 +1193,7 @@ pub(super) fn lower_expr(
                         named_arguments,
                         *call_span,
                         expected,
-                        symbols,
-                        functions,
-                        allow_await,
+                        ctx,
                         true,
                     )?
                 }
@@ -1301,7 +1205,8 @@ pub(super) fn lower_expr(
                 }
             };
             if call.is_throwing_call() {
-                if functions
+                if ctx
+                    .functions
                     .values()
                     .any(|signature| signature.error_handling_allowed)
                 {
@@ -1317,8 +1222,8 @@ pub(super) fn lower_expr(
             }
         }
         ast::Expr::Try { expr: inner, span } => {
-            let lowered = lower_expr(inner, None, symbols, functions, allow_await)?;
-            let ty = infer_expr_type(inner, symbols, functions).ok_or_else(|| {
+            let lowered = lower_expr(inner, None, ctx)?;
+            let ty = infer_expr_type(inner, ctx.symbols, ctx.functions).ok_or_else(|| {
                 CompileError::new(*span, "cannot infer type of expression for `?` operator")
             })?;
             let (val_ty, err_ty) = match ty {
@@ -1349,9 +1254,7 @@ fn lower_collection_transform(
     arguments: &[ast::Expr],
     span: Span,
     expected: Option<&Type>,
-    symbols: &HashMap<String, (Type, bool)>,
-    functions: &FunctionSignatures,
-    allow_await: bool,
+    ctx: &ExprContext<'_>,
 ) -> Result<Expr, CompileError> {
     let operation = match name {
         "map" => CollectionTransform::Map,
@@ -1366,7 +1269,7 @@ fn lower_collection_transform(
             ));
         }
     };
-    let Some(base_type) = infer_expr_type(base, symbols, functions) else {
+    let Some(base_type) = infer_expr_type(base, ctx.symbols, ctx.functions) else {
         return Err(CompileError::new(
             span,
             "collection transformation requires a typed Array<T> value",
@@ -1409,15 +1312,9 @@ fn lower_collection_transform(
             "collection transformations require an inline closure such as `{ item -> item }`",
         ));
     };
-    let initial_type = initial.and_then(|value| infer_expr_type(value, symbols, functions));
+    let initial_type = initial.and_then(|value| infer_expr_type(value, ctx.symbols, ctx.functions));
     let lowered_initial = match initial {
-        Some(value) => Some(Box::new(lower_expr(
-            value,
-            initial_type.as_ref(),
-            symbols,
-            functions,
-            allow_await,
-        )?)),
+        Some(value) => Some(Box::new(lower_expr(value, initial_type.as_ref(), ctx)?)),
         None => None,
     };
     let mut parameter_types = vec![element_type.as_ref().clone()];
@@ -1442,7 +1339,7 @@ fn lower_collection_transform(
             ),
         ));
     }
-    let mut scoped_symbols = symbols.clone();
+    let mut scoped_symbols = ctx.symbols.clone();
     let mut names = HashSet::with_capacity(parameters.len());
     for (parameter, parameter_type) in parameters.iter().zip(parameter_types.iter()) {
         if !names.insert(parameter) {
@@ -1462,13 +1359,11 @@ fn lower_collection_transform(
         CollectionTransform::Reduce => expected.cloned(),
     };
     let inferred_body_type =
-        infer_expr_type(body, &scoped_symbols, functions).or(body_expected.clone());
+        infer_expr_type(body, &scoped_symbols, ctx.functions).or(body_expected.clone());
     let lowered_body = lower_expr(
         body,
         body_expected.as_ref().or(inferred_body_type.as_ref()),
-        &scoped_symbols,
-        functions,
-        false,
+        &ExprContext::new(&scoped_symbols, ctx.functions, false),
     )?;
     let Some(body_type) = inferred_body_type else {
         return Err(CompileError::new(
@@ -1488,7 +1383,7 @@ fn lower_collection_transform(
         CollectionTransform::Reduce => body_type,
     };
     require_expected(expected, &result_type, span)?;
-    let lowered_base = lower_expr(base, Some(&base_type), symbols, functions, allow_await)?;
+    let lowered_base = lower_expr(base, Some(&base_type), ctx)?;
     Ok(Expr::CollectionTransform {
         operation,
         collection: Box::new(lowered_base),
@@ -1555,9 +1450,7 @@ fn lower_call(
     arguments: &[ast::Expr],
     span: Span,
     expected: Option<&Type>,
-    symbols: &HashMap<String, (Type, bool)>,
-    functions: &FunctionSignatures,
-    allow_await: bool,
+    ctx: &ExprContext<'_>,
     awaited: bool,
 ) -> Result<Expr, CompileError> {
     if name == "Ok" {
@@ -1568,8 +1461,9 @@ fn lower_call(
             Some(Type::Result(v, e)) => (Some(v.as_ref()), Some(e.as_ref())),
             _ => (None, None),
         };
-        let lowered_val = lower_expr(&arguments[0], expected_val, symbols, functions, allow_await)?;
-        let val_ty = infer_expr_type(&arguments[0], symbols, functions).unwrap_or(Type::Void);
+        let lowered_val = lower_expr(&arguments[0], expected_val, ctx)?;
+        let val_ty =
+            infer_expr_type(&arguments[0], ctx.symbols, ctx.functions).unwrap_or(Type::Void);
         let err_ty = expected_err.cloned().unwrap_or(Type::String);
         let result_ty = Type::Result(Box::new(val_ty.clone()), Box::new(err_ty.clone()));
         require_expected(expected, &result_ty, span)?;
@@ -1587,8 +1481,9 @@ fn lower_call(
             Some(Type::Result(v, e)) => (Some(v.as_ref()), Some(e.as_ref())),
             _ => (None, None),
         };
-        let lowered_err = lower_expr(&arguments[0], expected_err, symbols, functions, allow_await)?;
-        let err_ty = infer_expr_type(&arguments[0], symbols, functions).unwrap_or(Type::String);
+        let lowered_err = lower_expr(&arguments[0], expected_err, ctx)?;
+        let err_ty =
+            infer_expr_type(&arguments[0], ctx.symbols, ctx.functions).unwrap_or(Type::String);
         let val_ty = expected_val.cloned().unwrap_or(Type::Void);
         let result_ty = Type::Result(Box::new(val_ty.clone()), Box::new(err_ty.clone()));
         require_expected(expected, &result_ty, span)?;
@@ -1598,7 +1493,7 @@ fn lower_call(
             error_type: err_ty,
         });
     }
-    let Some(signature) = functions.get(name) else {
+    let Some(signature) = ctx.functions.get(name) else {
         return Err(CompileError::new(
             span,
             format!("unknown function `{name}`"),
@@ -1626,7 +1521,7 @@ fn lower_call(
             format!("function `{name}` is not async and cannot be awaited"),
         ));
     }
-    if awaited && !allow_await {
+    if awaited && !ctx.allow_await {
         return Err(CompileError::new(
             span,
             "`await` is only allowed in an async function or `OnAppear async` block",
@@ -1636,7 +1531,7 @@ fn lower_call(
     let lowered = arguments
         .iter()
         .zip(&signature.parameters)
-        .map(|(argument, (_, ty))| lower_expr(argument, Some(ty), symbols, functions, allow_await))
+        .map(|(argument, (_, ty))| lower_expr(argument, Some(ty), ctx))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Expr::Call {
         name: name.to_owned(),
@@ -1661,13 +1556,11 @@ fn lower_native_call(
     named_arguments: &BTreeMap<String, ast::Expr>,
     span: Span,
     expected: Option<&Type>,
-    symbols: &HashMap<String, (Type, bool)>,
-    functions: &FunctionSignatures,
-    allow_await: bool,
+    ctx: &ExprContext<'_>,
     awaited: bool,
 ) -> Result<Expr, CompileError> {
     let qualified_name = format!("{namespace}.{name}");
-    if !is_core_native_namespace(namespace) && functions.contains_key(&qualified_name) {
+    if !is_core_native_namespace(namespace) && ctx.functions.contains_key(&qualified_name) {
         return lower_plugin_call(
             namespace,
             name,
@@ -1675,9 +1568,7 @@ fn lower_native_call(
             named_arguments,
             span,
             expected,
-            symbols,
-            functions,
-            allow_await,
+            ctx,
             awaited,
         );
     }
@@ -1687,49 +1578,52 @@ fn lower_native_call(
             "built-in native API calls require named arguments",
         ));
     }
-    let (return_type, is_async, specs): (Type, bool, Vec<(&str, Type, Option<ast::Expr>)>) =
-        match qualified_name.as_str() {
-            "Network.fetch" => (Type::NetworkResponse, true, network_specs(span, false)),
-            "Network.download" => (Type::Bool, true, network_specs(span, true)),
-            "Path.documents" | "Path.caches" | "Path.temporary" | "Path.appSupport" => {
-                (Type::String, false, Vec::new())
-            }
-            "Path.join" => (
-                Type::String,
-                false,
-                vec![
-                    ("path", Type::String, None),
-                    ("component", Type::String, None),
-                ],
-            ),
-            "File.exists" => (Type::Bool, false, vec![("path", Type::String, None)]),
-            "File.readText" => (Type::String, true, vec![("path", Type::String, None)]),
-            "File.writeText" => (
-                Type::Bool,
-                true,
-                vec![
-                    ("path", Type::String, None),
-                    ("contents", Type::String, None),
-                ],
-            ),
-            "File.delete" => (Type::Bool, true, vec![("path", Type::String, None)]),
-            "Permissions.status" => (
-                Type::Enum("PermissionStatus".to_owned()),
-                true,
-                vec![("permission", Type::Enum("Permission".to_owned()), None)],
-            ),
-            "Permissions.request" => (
-                Type::Enum("PermissionStatus".to_owned()),
-                true,
-                vec![("permission", Type::Enum("Permission".to_owned()), None)],
-            ),
-            _ => {
-                return Err(CompileError::new(
-                    span,
-                    format!("unknown native API `{qualified_name}`"),
-                ));
-            }
-        };
+    // One named argument a built-in native API call accepts: its parameter
+    // name, the parameter's type, and the argument the call site supplied.
+    type ArgumentSpecs = Vec<(&'static str, Type, Option<ast::Expr>)>;
+    let (return_type, is_async, specs): (Type, bool, ArgumentSpecs) = match qualified_name.as_str()
+    {
+        "Network.fetch" => (Type::NetworkResponse, true, network_specs(span, false)),
+        "Network.download" => (Type::Bool, true, network_specs(span, true)),
+        "Path.documents" | "Path.caches" | "Path.temporary" | "Path.appSupport" => {
+            (Type::String, false, Vec::new())
+        }
+        "Path.join" => (
+            Type::String,
+            false,
+            vec![
+                ("path", Type::String, None),
+                ("component", Type::String, None),
+            ],
+        ),
+        "File.exists" => (Type::Bool, false, vec![("path", Type::String, None)]),
+        "File.readText" => (Type::String, true, vec![("path", Type::String, None)]),
+        "File.writeText" => (
+            Type::Bool,
+            true,
+            vec![
+                ("path", Type::String, None),
+                ("contents", Type::String, None),
+            ],
+        ),
+        "File.delete" => (Type::Bool, true, vec![("path", Type::String, None)]),
+        "Permissions.status" => (
+            Type::Enum("PermissionStatus".to_owned()),
+            true,
+            vec![("permission", Type::Enum("Permission".to_owned()), None)],
+        ),
+        "Permissions.request" => (
+            Type::Enum("PermissionStatus".to_owned()),
+            true,
+            vec![("permission", Type::Enum("Permission".to_owned()), None)],
+        ),
+        _ => {
+            return Err(CompileError::new(
+                span,
+                format!("unknown native API `{qualified_name}`"),
+            ));
+        }
+    };
     if is_async && !awaited {
         return Err(CompileError::new(
             span,
@@ -1742,7 +1636,7 @@ fn lower_native_call(
             format!("native call `{qualified_name}` is not async and cannot be awaited"),
         ));
     }
-    if awaited && !allow_await {
+    if awaited && !ctx.allow_await {
         return Err(CompileError::new(
             span,
             "`await` is only allowed in an async function or `OnAppear async` block",
@@ -1773,13 +1667,7 @@ fn lower_native_call(
             })?;
         lowered.push((
             argument_name.to_owned(),
-            lower_expr(
-                argument,
-                Some(&argument_type),
-                symbols,
-                functions,
-                allow_await,
-            )?,
+            lower_expr(argument, Some(&argument_type), ctx)?,
         ));
     }
     native_plan(&qualified_name, lowered, span)
@@ -1867,13 +1755,12 @@ fn lower_plugin_call(
     named_arguments: &BTreeMap<String, ast::Expr>,
     span: Span,
     expected: Option<&Type>,
-    symbols: &HashMap<String, (Type, bool)>,
-    functions: &FunctionSignatures,
-    allow_await: bool,
+    ctx: &ExprContext<'_>,
     awaited: bool,
 ) -> Result<Expr, CompileError> {
     let qualified_name = format!("{namespace}.{name}");
-    let signature = functions
+    let signature = ctx
+        .functions
         .get(&qualified_name)
         .expect("plugin signature checked before lowering");
     reject_unhandled_plugin_errors(&qualified_name, signature, span)?;
@@ -1889,7 +1776,7 @@ fn lower_plugin_call(
             format!("plugin call `{qualified_name}` is not async and cannot be awaited"),
         ));
     }
-    if awaited && !allow_await {
+    if awaited && !ctx.allow_await {
         return Err(CompileError::new(
             span,
             "`await` is only allowed in an async function or `OnAppear async` block",
@@ -1918,13 +1805,7 @@ fn lower_plugin_call(
     {
         lowered.push((
             argument_name.clone(),
-            lower_expr(
-                argument,
-                Some(argument_type),
-                symbols,
-                functions,
-                allow_await,
-            )?,
+            lower_expr(argument, Some(argument_type), ctx)?,
         ));
     }
     if signature.is_constructor {
@@ -1963,12 +1844,10 @@ fn lower_plugin_method_call(
     named_arguments: &BTreeMap<String, ast::Expr>,
     span: Span,
     expected: Option<&Type>,
-    symbols: &HashMap<String, (Type, bool)>,
-    functions: &FunctionSignatures,
-    allow_await: bool,
+    ctx: &ExprContext<'_>,
     awaited: bool,
 ) -> Result<Expr, CompileError> {
-    let Some(base_type) = infer_expr_type(base, symbols, functions) else {
+    let Some(base_type) = infer_expr_type(base, ctx.symbols, ctx.functions) else {
         return Err(CompileError::new(
             span,
             "native object method calls require a native class instance",
@@ -1985,7 +1864,7 @@ fn lower_plugin_method_call(
         ));
     };
     let qualified_name = format!("{class}.{name}");
-    let Some(signature) = functions.get(&qualified_name) else {
+    let Some(signature) = ctx.functions.get(&qualified_name) else {
         return Err(CompileError::new(
             span,
             format!("unknown native class method `{class}.{name}`"),
@@ -2026,19 +1905,19 @@ fn lower_plugin_method_call(
             format!("native class method `{class}.{name}` is not async and cannot be awaited"),
         ));
     }
-    if awaited && !allow_await {
+    if awaited && !ctx.allow_await {
         return Err(CompileError::new(
             span,
             "`await` is only allowed in an async function or `OnAppear async` block",
         ));
     }
     require_expected(expected, &signature.return_type, span)?;
-    let receiver = lower_expr(base, Some(&base_type), symbols, functions, allow_await)?;
+    let receiver = lower_expr(base, Some(&base_type), ctx)?;
     let lowered = signature
         .parameters
         .iter()
         .zip(arguments.iter())
-        .map(|((_, ty), argument)| lower_expr(argument, Some(ty), symbols, functions, allow_await))
+        .map(|((_, ty), argument)| lower_expr(argument, Some(ty), ctx))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Expr::NativeCall {
         receiver: Some(Box::new(receiver)),
@@ -2178,9 +2057,7 @@ fn lower_binary(
     right: &ast::Expr,
     span: Span,
     expected: Option<&Type>,
-    symbols: &HashMap<String, (Type, bool)>,
-    functions: &FunctionSignatures,
-    allow_await: bool,
+    ctx: &ExprContext<'_>,
 ) -> Result<Expr, CompileError> {
     let ir_operator = match operator {
         ast::BinaryOp::And => BinaryOp::And,
@@ -2201,7 +2078,7 @@ fn lower_binary(
                 "membership expressions produce Bool",
             ));
         }
-        let Some(collection_type) = infer_expr_type(right, symbols, functions) else {
+        let Some(collection_type) = infer_expr_type(right, ctx.symbols, ctx.functions) else {
             return Err(CompileError::new(
                 span,
                 "the right side of `in` must be an Array<T>, Set<T>, or Map<K, V>",
@@ -2223,14 +2100,8 @@ fn lower_binary(
                 "membership currently supports scalar elements and keys only",
             ));
         }
-        let left = lower_expr(left, Some(element_type), symbols, functions, allow_await)?;
-        let right = lower_expr(
-            right,
-            Some(&collection_type),
-            symbols,
-            functions,
-            allow_await,
-        )?;
+        let left = lower_expr(left, Some(element_type), ctx)?;
+        let right = lower_expr(right, Some(&collection_type), ctx)?;
         return Ok(Expr::Contains {
             value: Box::new(left),
             collection: Box::new(right),
@@ -2249,8 +2120,8 @@ fn lower_binary(
             return Err(CompileError::new(span, "logical expressions produce Bool"));
         }
         let bool_type = Type::Bool;
-        let left = lower_expr(left, Some(&bool_type), symbols, functions, allow_await)?;
-        let right = lower_expr(right, Some(&bool_type), symbols, functions, allow_await)?;
+        let left = lower_expr(left, Some(&bool_type), ctx)?;
+        let right = lower_expr(right, Some(&bool_type), ctx)?;
         return Ok(Expr::Binary {
             op: ir_operator,
             left: Box::new(left),
@@ -2264,8 +2135,8 @@ fn lower_binary(
             "comparison expressions produce Bool",
         ));
     }
-    let left_type = infer_expr_type(left, symbols, functions);
-    let right_type = infer_expr_type(right, symbols, functions);
+    let left_type = infer_expr_type(left, ctx.symbols, ctx.functions);
+    let right_type = infer_expr_type(right, ctx.symbols, ctx.functions);
     let common_type = match (left_type, right_type) {
         (None, Some(right_type)) if !is_ordered && matches!(left, ast::Expr::Null(_)) => right_type,
         (Some(left_type), None) if !is_ordered && matches!(right, ast::Expr::Null(_)) => left_type,
@@ -2292,8 +2163,8 @@ fn lower_binary(
         }
         (Some(ty), None) | (None, Some(ty)) => ty,
         (None, None) => {
-            let left = lower_expr(left, None, symbols, functions, allow_await)?;
-            let right = lower_expr(right, None, symbols, functions, allow_await)?;
+            let left = lower_expr(left, None, ctx)?;
+            let right = lower_expr(right, None, ctx)?;
             let _ = (left, right);
             return Err(CompileError::new(
                 span,
@@ -2313,8 +2184,8 @@ fn lower_binary(
             "equality is supported for scalar, enum, optional, collection, pair, triple, and value-struct types",
         ));
     }
-    let left = lower_expr(left, Some(&common_type), symbols, functions, allow_await)?;
-    let right = lower_expr(right, Some(&common_type), symbols, functions, allow_await)?;
+    let left = lower_expr(left, Some(&common_type), ctx)?;
+    let right = lower_expr(right, Some(&common_type), ctx)?;
     Ok(Expr::Binary {
         op: ir_operator,
         left: Box::new(left),
@@ -2433,19 +2304,15 @@ pub(super) fn infer_expr_type(
             optional,
             ..
         } => {
-            if !*optional {
-                if let ast::Expr::Name(enum_name, _) = base.as_ref() {
-                    if enum_name == "PermissionStatus" && is_permission_status_case(name) {
-                        return Some(Type::Enum("PermissionStatus".to_owned()));
-                    }
-                    if enum_name == "Permission" && is_permission_case(name) {
-                        return Some(Type::Enum("Permission".to_owned()));
-                    }
-                    if let Some((ty @ Type::Enum(_), _)) =
-                        symbols.get(&format!("{enum_name}.{name}"))
-                    {
-                        return Some(ty.clone());
-                    }
+            if !*optional && let ast::Expr::Name(enum_name, _) = base.as_ref() {
+                if enum_name == "PermissionStatus" && is_permission_status_case(name) {
+                    return Some(Type::Enum("PermissionStatus".to_owned()));
+                }
+                if enum_name == "Permission" && is_permission_case(name) {
+                    return Some(Type::Enum("Permission".to_owned()));
+                }
+                if let Some((ty @ Type::Enum(_), _)) = symbols.get(&format!("{enum_name}.{name}")) {
+                    return Some(ty.clone());
                 }
             }
             infer_expr_type(base, symbols, functions).and_then(|base_type| {
@@ -2664,122 +2531,6 @@ pub(super) fn parse_type(syntax: &ast::TypeSyntax) -> Result<Type, CompileError>
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::collections::{BTreeMap, HashMap};
-
-    use nexa_diagnostics::Span;
-    use nexa_ir::Type;
-    use nexa_syntax::ast;
-
-    use super::{
-        FunctionSignature, FunctionSignatures, collect_plugin_signatures, lower_plugin_call,
-        lower_plugin_method_call,
-    };
-
-    fn throwing_signature(receiver: Option<Type>) -> FunctionSignature {
-        FunctionSignature {
-            parameters: Vec::new(),
-            return_type: Type::Void,
-            is_async: true,
-            is_throwing: true,
-            receiver,
-            is_constructor: false,
-            is_mutable_property: false,
-            error_handling_allowed: false,
-            error_type: None,
-        }
-    }
-
-    #[test]
-    fn rejects_throwing_service_calls_without_a_recovery_block() {
-        let functions: FunctionSignatures =
-            HashMap::from([("Camera.capture".to_owned(), throwing_signature(None))]);
-        let error = lower_plugin_call(
-            "Camera",
-            "capture",
-            &[],
-            &BTreeMap::new(),
-            Span::default(),
-            None,
-            &HashMap::new(),
-            &functions,
-            true,
-            true,
-        )
-        .expect_err("throwing service calls must require typed handling");
-        assert!(error.to_string().contains("may throw"));
-    }
-
-    #[test]
-    fn rejects_throwing_native_class_methods_without_a_recovery_block() {
-        let player_type = Type::Plugin {
-            namespace: "Video".to_owned(),
-            name: "VideoPlayer".to_owned(),
-        };
-        let symbols = HashMap::from([("player".to_owned(), (player_type.clone(), false))]);
-        let functions = HashMap::from([(
-            "VideoPlayer.prepare".to_owned(),
-            throwing_signature(Some(player_type)),
-        )]);
-        let error = lower_plugin_method_call(
-            &ast::Expr::Name("player".to_owned(), Span::default()),
-            "prepare",
-            &[],
-            &BTreeMap::new(),
-            Span::default(),
-            None,
-            &symbols,
-            &functions,
-            true,
-            true,
-        )
-        .expect_err("throwing object methods must require typed handling");
-        assert!(error.to_string().contains("may throw"));
-    }
-
-    #[test]
-    fn requires_native_class_disposal_to_be_synchronous_void_and_parameterless() {
-        let idl = nexa_plugin_idl::parse("native class VideoPlayer { async fn dispose() }")
-            .expect("IDL syntax is valid even when disposal semantics are not");
-        let plugin = ast::PluginDecl {
-            path: "video-player".to_owned(),
-            namespace: "Video".to_owned(),
-            span: Span::default(),
-            idl: Some(idl),
-            pure: false,
-            assets_path: None,
-            ios_sources: Vec::new(),
-            android_sources: Vec::new(),
-            cpp_sources: Vec::new(),
-            cpp_headers: Vec::new(),
-            cpp_standard: None,
-            ios_min_version: None,
-            android_min_sdk: None,
-            ios_frameworks: Vec::new(),
-            ios_xcframeworks: Vec::new(),
-            ios_resources: Vec::new(),
-            ios_privacy_manifest: None,
-            swift_packages: Vec::new(),
-            maven_dependencies: Vec::new(),
-            android_aars: Vec::new(),
-            android_resources: Vec::new(),
-            android_proguard_rules: Vec::new(),
-            android_maven_repositories: Vec::new(),
-            ios_usage_descriptions: Vec::new(),
-            ios_entitlements: Vec::new(),
-            ios_linker_flags: Vec::new(),
-            android_permissions: Vec::new(),
-        };
-
-        let error = match collect_plugin_signatures(&[plugin]) {
-            Ok(_) => panic!("async disposal cannot provide deterministic cleanup"),
-            Err(error) => error,
-        };
-        assert!(error.to_string().contains("must be synchronous"));
-    }
-}
-
 pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
     match ty {
         Type::Enum(name) => structs.get(name).cloned().unwrap_or_else(|| ty.clone()),
@@ -2985,17 +2736,17 @@ fn require_expected(
     actual: &Type,
     span: Span,
 ) -> Result<(), CompileError> {
-    if let Some(expected) = expected {
-        if expected != actual {
-            return Err(CompileError::new(
-                span,
-                format!(
-                    "expected {}, found {}",
-                    type_name(expected),
-                    type_name(actual)
-                ),
-            ));
-        }
+    if let Some(expected) = expected
+        && expected != actual
+    {
+        return Err(CompileError::new(
+            span,
+            format!(
+                "expected {}, found {}",
+                type_name(expected),
+                type_name(actual)
+            ),
+        ));
     }
     Ok(())
 }
@@ -3039,5 +2790,118 @@ fn numeric_name(ty: NumericType) -> &'static str {
         NumericType::UInt64 => "UInt64",
         NumericType::Float32 => "Float32",
         NumericType::Float64 => "Float64",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, HashMap};
+
+    use nexa_diagnostics::Span;
+    use nexa_ir::Type;
+    use nexa_syntax::ast;
+
+    use super::{
+        FunctionSignature, FunctionSignatures, collect_plugin_signatures, lower_plugin_call,
+        lower_plugin_method_call,
+    };
+    use crate::semantic::context::ExprContext;
+
+    fn throwing_signature(receiver: Option<Type>) -> FunctionSignature {
+        FunctionSignature {
+            parameters: Vec::new(),
+            return_type: Type::Void,
+            is_async: true,
+            is_throwing: true,
+            receiver,
+            is_constructor: false,
+            is_mutable_property: false,
+            error_handling_allowed: false,
+            error_type: None,
+        }
+    }
+
+    #[test]
+    fn rejects_throwing_service_calls_without_a_recovery_block() {
+        let functions: FunctionSignatures =
+            HashMap::from([("Camera.capture".to_owned(), throwing_signature(None))]);
+        let error = lower_plugin_call(
+            "Camera",
+            "capture",
+            &[],
+            &BTreeMap::new(),
+            Span::default(),
+            None,
+            &ExprContext::new(&HashMap::new(), &functions, true),
+            true,
+        )
+        .expect_err("throwing service calls must require typed handling");
+        assert!(error.to_string().contains("may throw"));
+    }
+
+    #[test]
+    fn rejects_throwing_native_class_methods_without_a_recovery_block() {
+        let player_type = Type::Plugin {
+            namespace: "Video".to_owned(),
+            name: "VideoPlayer".to_owned(),
+        };
+        let symbols = HashMap::from([("player".to_owned(), (player_type.clone(), false))]);
+        let functions = HashMap::from([(
+            "VideoPlayer.prepare".to_owned(),
+            throwing_signature(Some(player_type)),
+        )]);
+        let error = lower_plugin_method_call(
+            &ast::Expr::Name("player".to_owned(), Span::default()),
+            "prepare",
+            &[],
+            &BTreeMap::new(),
+            Span::default(),
+            None,
+            &ExprContext::new(&symbols, &functions, true),
+            true,
+        )
+        .expect_err("throwing object methods must require typed handling");
+        assert!(error.to_string().contains("may throw"));
+    }
+
+    #[test]
+    fn requires_native_class_disposal_to_be_synchronous_void_and_parameterless() {
+        let idl = nexa_plugin_idl::parse("native class VideoPlayer { async fn dispose() }")
+            .expect("IDL syntax is valid even when disposal semantics are not");
+        let plugin = ast::PluginDecl {
+            path: "video-player".to_owned(),
+            namespace: "Video".to_owned(),
+            span: Span::default(),
+            idl: Some(idl),
+            pure: false,
+            assets_path: None,
+            ios_sources: Vec::new(),
+            android_sources: Vec::new(),
+            cpp_sources: Vec::new(),
+            cpp_headers: Vec::new(),
+            cpp_standard: None,
+            ios_min_version: None,
+            android_min_sdk: None,
+            ios_frameworks: Vec::new(),
+            ios_xcframeworks: Vec::new(),
+            ios_resources: Vec::new(),
+            ios_privacy_manifest: None,
+            swift_packages: Vec::new(),
+            maven_dependencies: Vec::new(),
+            android_aars: Vec::new(),
+            android_resources: Vec::new(),
+            android_proguard_rules: Vec::new(),
+            android_maven_repositories: Vec::new(),
+            ios_usage_descriptions: Vec::new(),
+            ios_entitlements: Vec::new(),
+            ios_linker_flags: Vec::new(),
+            android_permissions: Vec::new(),
+        };
+
+        let error = match collect_plugin_signatures(&[plugin]) {
+            Ok(_) => panic!("async disposal cannot provide deterministic cleanup"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("must be synchronous"));
     }
 }

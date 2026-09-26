@@ -9,7 +9,7 @@ pub mod symbols;
 pub use completions::get_completions;
 pub use diagnostics::check_source;
 pub use hover::get_hover;
-pub use line_index::{span_to_range, LineIndex};
+pub use line_index::{LineIndex, span_to_range};
 pub use protocol::*;
 pub use server::LspServer;
 pub use symbols::get_document_symbols;

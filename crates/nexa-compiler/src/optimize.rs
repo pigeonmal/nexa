@@ -1,8 +1,6 @@
 use std::collections::HashSet;
 
-use nexa_ir::walk::{
-    fold_expr_children, fold_node_children, IrFolder, IrVisitor,
-};
+use nexa_ir::walk::{IrFolder, IrVisitor, fold_expr_children, fold_node_children};
 use nexa_ir::{Action, BinaryOp, Expr, LayoutKind, Module, Node, NumericType, ViewStyle};
 
 /// Applies small, semantics-preserving optimizations to the typed IR before
@@ -264,10 +262,10 @@ struct FunctionRefCollector<'a> {
 
 impl IrVisitor for FunctionRefCollector<'_> {
     fn visit_expr(&mut self, expr: &Expr) {
-        if let Expr::Call { name, .. } = expr {
-            if self.declared.contains(name.as_str()) {
-                self.used.insert(name.clone());
-            }
+        if let Expr::Call { name, .. } = expr
+            && self.declared.contains(name.as_str())
+        {
+            self.used.insert(name.clone());
         }
         nexa_ir::walk::walk_expr_children(expr, self);
     }
@@ -844,7 +842,10 @@ impl IrFolder for IrOptimizer {
                 children,
             } => Some(Node::NavigationLink {
                 destination,
-                arguments: arguments.into_iter().map(|arg| self.fold_expr(arg)).collect(),
+                arguments: arguments
+                    .into_iter()
+                    .map(|arg| self.fold_expr(arg))
+                    .collect(),
                 guard: guard.and_then(|guard| match self.fold_expr(guard) {
                     Expr::Bool(true) => None,
                     guard => Some(guard),
@@ -924,34 +925,26 @@ fn fold_expression_rules(expression: Expr) -> Expr {
             Expr::Bool(value) => Expr::Bool(!value),
             value => Expr::Not(Box::new(value)),
         },
-        Expr::Binary { op, left, right } => {
-            match (op, &*left, &*right) {
-                (BinaryOp::And, Expr::Bool(false), _) => Expr::Bool(false),
-                (BinaryOp::And, Expr::Bool(true), _) => *right,
-                (BinaryOp::Or, Expr::Bool(true), _) => Expr::Bool(true),
-                (BinaryOp::Or, Expr::Bool(false), _) => *right,
-                _ => evaluate_binary(op, &left, &right).unwrap_or(Expr::Binary {
-                    op,
-                    left,
-                    right,
-                }),
-            }
-        }
+        Expr::Binary { op, left, right } => match (op, &*left, &*right) {
+            (BinaryOp::And, Expr::Bool(false), _) => Expr::Bool(false),
+            (BinaryOp::And, Expr::Bool(true), _) => *right,
+            (BinaryOp::Or, Expr::Bool(true), _) => Expr::Bool(true),
+            (BinaryOp::Or, Expr::Bool(false), _) => *right,
+            _ => evaluate_binary(op, &left, &right).unwrap_or(Expr::Binary { op, left, right }),
+        },
         Expr::Contains {
             value,
             collection,
             collection_type,
-        } => {
-            evaluate_contains(&value, &collection, &collection_type).unwrap_or_else(|| {
-                Expr::Contains {
-                    value,
-                    collection,
-                    collection_type,
-                }
-            })
-        }
+        } => evaluate_contains(&value, &collection, &collection_type).unwrap_or({
+            Expr::Contains {
+                value,
+                collection,
+                collection_type,
+            }
+        }),
         Expr::Add(left, right, ty) => {
-            fold_numeric_add(&left, &right, ty).unwrap_or_else(|| Expr::Add(left, right, ty))
+            fold_numeric_add(&left, &right, ty).unwrap_or(Expr::Add(left, right, ty))
         }
         Expr::Coalesce(left, right) => {
             if matches!(*left, Expr::Null(_)) {

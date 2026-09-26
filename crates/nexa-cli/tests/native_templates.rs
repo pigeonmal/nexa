@@ -25,6 +25,10 @@ mod plugins {
 }
 
 #[allow(dead_code)]
+#[path = "../src/project/pbxproj.rs"]
+mod pbxproj;
+
+#[allow(dead_code)]
 #[path = "../src/project/templates.rs"]
 mod templates;
 

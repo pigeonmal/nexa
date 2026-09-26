@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
-use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
 use nexa_testkit::{TestProject, Toolchain};
+use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
 
 #[test]
 fn android_release_validates_signing_and_reports_only_verified_aabs() {
@@ -217,7 +217,9 @@ fn android_release_validates_signing_and_reports_only_verified_aabs() {
 #[test]
 fn android_release_verifies_real_jarsigner_outputs_when_a_jdk_is_available() {
     if !Toolchain::should_run_native_builds() {
-        eprintln!("skipping real AAB signature integration in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)");
+        eprintln!(
+            "skipping real AAB signature integration in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)"
+        );
         return;
     }
     let Some(jarsigner) = Toolchain::jarsigner() else {

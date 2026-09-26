@@ -11,9 +11,7 @@ struct TempProject(TestProject);
 
 impl TempProject {
     fn new(platform: &str) -> Self {
-        Self(TestProject::new(&format!(
-            "nexa-plugin-build-{platform}"
-        )))
+        Self(TestProject::new(&format!("nexa-plugin-build-{platform}")))
     }
 
     fn generate(&self, target: &str) -> PathBuf {
@@ -794,7 +792,9 @@ std::unique_ptr<VideoPlayerSpec> makeVideoPlayerImpl(PlayerOptions options) {
 #[test]
 fn generated_video_plugin_builds_for_ios_when_xcode_is_available() {
     if !Toolchain::should_run_native_builds() {
-        eprintln!("skipping iOS xcodebuild in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)");
+        eprintln!(
+            "skipping iOS xcodebuild in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)"
+        );
         return;
     }
     if !command_available("xcrun", &["--sdk", "iphonesimulator", "--show-sdk-path"]) {
@@ -835,7 +835,9 @@ fn generated_video_plugin_builds_for_ios_when_xcode_is_available() {
 #[test]
 fn generated_network_certificate_pinning_compiles_for_ios_when_xcode_is_available() {
     if !Toolchain::should_run_native_builds() {
-        eprintln!("skipping iOS xcodebuild in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)");
+        eprintln!(
+            "skipping iOS xcodebuild in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)"
+        );
         return;
     }
     if !command_available("xcrun", &["--sdk", "iphonesimulator", "--show-sdk-path"]) {
@@ -1104,7 +1106,9 @@ fn video_player_ios_instances_run_independently_in_a_headless_swift_smoke_test()
 #[test]
 fn generated_video_plugin_builds_for_android_when_gradle_and_sdk_are_available() {
     if !Toolchain::should_run_native_builds() {
-        eprintln!("skipping Android Gradle build in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)");
+        eprintln!(
+            "skipping Android Gradle build in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)"
+        );
         return;
     }
     let Some(gradle) = gradle_executable() else {
@@ -2193,38 +2197,38 @@ class Handler(@Suppress("UNUSED_PARAMETER") looper: Looper) {
             && command_available("java", &["-version"])
             && let Some(java_home) = env::var_os("JAVA_HOME").map(PathBuf::from)
         {
-        let host_library = Command::new("clang++")
-            .args(["-std=c++20", "-dynamiclib", "-fPIC", "-I"])
-            .arg(java_home.join("include"))
-            .arg("-I")
-            .arg(java_home.join("include/darwin"))
-            .arg("-I")
-            .arg(native_root.join("Plugin0"))
-            .arg(native_root.join("Plugin0/NexaPluginJni.cpp"))
-            .arg(native_root.join("Plugin0/cpp/Sources/Plugin.cpp"))
-            .arg("-o")
-            .arg(temp.0.join("libnexa_plugins.dylib"))
-            .output()
-            .expect("host C++ JNI library should build");
-        assert!(
-            host_library.status.success(),
-            "host JNI smoke library failed to build:\n{}\n{}",
-            String::from_utf8_lossy(&host_library.stdout),
-            String::from_utf8_lossy(&host_library.stderr)
-        );
-        let runtime = Command::new("java")
-            .arg(format!("-Djava.library.path={}", temp.0.display()))
-            .arg("-jar")
-            .arg(&kotlin_jar)
-            .output()
-            .expect("JNI runtime smoke test should start");
-        assert!(
-            runtime.status.success(),
-            "generated Android Kotlin/JNI contract failed at runtime:\n{}\n{}",
-            String::from_utf8_lossy(&runtime.stdout),
-            String::from_utf8_lossy(&runtime.stderr)
-        );
-    }
+            let host_library = Command::new("clang++")
+                .args(["-std=c++20", "-dynamiclib", "-fPIC", "-I"])
+                .arg(java_home.join("include"))
+                .arg("-I")
+                .arg(java_home.join("include/darwin"))
+                .arg("-I")
+                .arg(native_root.join("Plugin0"))
+                .arg(native_root.join("Plugin0/NexaPluginJni.cpp"))
+                .arg(native_root.join("Plugin0/cpp/Sources/Plugin.cpp"))
+                .arg("-o")
+                .arg(temp.0.join("libnexa_plugins.dylib"))
+                .output()
+                .expect("host C++ JNI library should build");
+            assert!(
+                host_library.status.success(),
+                "host JNI smoke library failed to build:\n{}\n{}",
+                String::from_utf8_lossy(&host_library.stdout),
+                String::from_utf8_lossy(&host_library.stderr)
+            );
+            let runtime = Command::new("java")
+                .arg(format!("-Djava.library.path={}", temp.0.display()))
+                .arg("-jar")
+                .arg(&kotlin_jar)
+                .output()
+                .expect("JNI runtime smoke test should start");
+            assert!(
+                runtime.status.success(),
+                "generated Android Kotlin/JNI contract failed at runtime:\n{}\n{}",
+                String::from_utf8_lossy(&runtime.stdout),
+                String::from_utf8_lossy(&runtime.stderr)
+            );
+        }
     }
 }
 

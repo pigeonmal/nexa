@@ -32,14 +32,19 @@ const FIXTURES: [(&str, &str); 7] = [
     ("todo_app.nx", "TodoApp"),
     ("virtual_list.nx", "VirtualListApp"),
     ("plugins/video-player-demo.nx", "NexaPluginBuildTest"),
-    ("plugins/video-player-route-sharing.nx", "NexaPluginBuildTest"),
+    (
+        "plugins/video-player-route-sharing.nx",
+        "NexaPluginBuildTest",
+    ),
 ];
 
 /// Fixtures also generated through the dev host entry point, which selects a
 /// different backend path (`generate_for_dev`), adds the dev runtime unit, and
 /// writes an Android debug manifest. Fixed values keep the output stable.
-const DEV_FIXTURES: [(&str, &str); 2] =
-    [("counter.nx", "Counter"), ("virtual_list.nx", "VirtualListApp")];
+const DEV_FIXTURES: [(&str, &str); 2] = [
+    ("counter.nx", "Counter"),
+    ("virtual_list.nx", "VirtualListApp"),
+];
 
 const DEV_SERVER_URL: &str = "ws://127.0.0.1:5173";
 const DEV_SESSION_TOKEN: &str = "nexa-fingerprint-session";
@@ -109,7 +114,9 @@ fn normalize(bytes: &[u8], output: &Path, workspace: &Path) -> String {
 }
 
 fn main() {
-    let workspace = workspace_root().canonicalize().expect("workspace should exist");
+    let workspace = workspace_root()
+        .canonicalize()
+        .expect("workspace should exist");
     let examples = workspace.join("examples");
 
     for (entry, app_name) in FIXTURES {
@@ -153,7 +160,11 @@ fn report(examples: &Path, entry: &str, app_name: &str, dev: bool) {
     // One digest per file: a changed path is as much a regression as changed
     // bytes, because the Xcode project references files by name.
     for (path, bytes) in &files {
-        let normalized = normalize(bytes, &output, examples.parent().expect("examples has a parent"));
+        let normalized = normalize(
+            bytes,
+            &output,
+            examples.parent().expect("examples has a parent"),
+        );
         digest(&format!("{label}/{path}"), &normalized);
     }
 
@@ -172,4 +183,3 @@ fn report(examples: &Path, entry: &str, app_name: &str, dev: bool) {
     digest(&format!("{label}/TOTAL"), &combined);
     println!("# {label}: {} files", files.len());
 }
-

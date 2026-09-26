@@ -6,7 +6,7 @@ use nexa_syntax::ast;
 
 use super::{
     components::lower_nodes,
-    context::{ScreenSignatures, SemanticContext},
+    context::{ExprContext, ScreenSignatures, SemanticContext},
     expressions::{
         FunctionSignatures, StructTypes, lower_expr, parse_type, record_native_alias,
         references_state, resolve_declaration_type, resolve_struct_type,
@@ -249,7 +249,11 @@ fn lower_component(
             ));
         }
         let ty = resolve_declaration_type(&state, &symbols, functions, structs)?;
-        let initial = lower_expr(&state.initial, Some(&ty), &symbols, functions, false)?;
+        let initial = lower_expr(
+            &state.initial,
+            Some(&ty),
+            &ExprContext::new(&symbols, functions, false),
+        )?;
         if state.mutable && references_state(&state.initial) {
             return Err(CompileError::new(
                 state.initial.span(),

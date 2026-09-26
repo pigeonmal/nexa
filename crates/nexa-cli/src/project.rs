@@ -21,6 +21,7 @@ use crate::{cache, config, config::ProjectConfig};
 mod assets;
 pub mod plan;
 use self::plan::ProjectPlan;
+mod pbxproj;
 mod plugin_package;
 mod plugins;
 mod templates;
@@ -1125,15 +1126,14 @@ fn copy_directory_contents(source: &Path, destination: &Path) -> Result<(), Stri
         }
         if metadata.is_dir() {
             copy_directory_contents(&source_path, &destination_path)?;
-        } else if metadata.is_file() {
-            if !destination_path.is_file()
+        } else if metadata.is_file()
+            && (!destination_path.is_file()
                 || fs::read(&source_path)
                     .map_err(|error| format!("{}: {error}", source_path.display()))?
-                    != fs::read(&destination_path).unwrap_or_default()
-            {
-                fs::copy(&source_path, &destination_path)
-                    .map_err(|error| format!("{}: {error}", destination_path.display()))?;
-            }
+                    != fs::read(&destination_path).unwrap_or_default())
+        {
+            fs::copy(&source_path, &destination_path)
+                .map_err(|error| format!("{}: {error}", destination_path.display()))?;
         }
     }
     Ok(())

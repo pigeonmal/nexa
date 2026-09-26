@@ -136,7 +136,8 @@ mod tests {
 
     #[test]
     fn hover_documents_dot_modifiers_and_doc_reference() {
-        let source = "app Demo {\n    body {\n        Pressable() { Text(\"x\") }.onPress { }\n    }\n}\n";
+        let source =
+            "app Demo {\n    body {\n        Pressable() { Text(\"x\") }.onPress { }\n    }\n}\n";
         let doc = hover_at(source, 2, 38).expect("hover over onPress");
         assert!(doc.contains("`.onPress`"));
         let component = hover_at(source, 2, 10).expect("hover over Pressable");

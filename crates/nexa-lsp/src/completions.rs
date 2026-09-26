@@ -69,11 +69,7 @@ pub fn get_completions(source: &str, position: Position) -> Vec<CompletionItem> 
 
 /// Returns the identifier prefix immediately before the cursor and whether
 /// the cursor sits in member position (the prefix follows a `.`).
-fn completion_context(
-    source: &str,
-    index: &LineIndex,
-    position: Position,
-) -> (String, bool) {
+fn completion_context(source: &str, index: &LineIndex, position: Position) -> (String, bool) {
     let Some(cursor) = index.to_offset(source, position) else {
         return (String::new(), false);
     };
@@ -150,7 +146,10 @@ mod tests {
     fn dot_context_offers_only_trailing_modifiers() {
         let source = "app P {\n    body {\n        FastList(count: 3) { index in Text(\"x\") }.on\n    }\n}\n";
         let offset = source.find(".on").expect("probe") + 3;
-        let line_start = source[..offset].rfind('\n').map(|index| index + 1).unwrap_or(0);
+        let line_start = source[..offset]
+            .rfind('\n')
+            .map(|index| index + 1)
+            .unwrap_or(0);
         // "on" is 2 UTF-16 units on an ASCII line, so the byte offset doubles
         // as the character position here.
         let labels = labels_at(source, 2, (offset - line_start) as u32);

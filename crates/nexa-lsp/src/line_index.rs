@@ -179,15 +179,33 @@ mod tests {
         // Column 1 splits the surrogate pair; both columns 0 and 1 resolve to
         // the character start, column 2 to the byte after the emoji.
         assert_eq!(
-            index.to_offset(source, Position { line: 0, character: 0 }),
+            index.to_offset(
+                source,
+                Position {
+                    line: 0,
+                    character: 0
+                }
+            ),
             Some(0)
         );
         assert_eq!(
-            index.to_offset(source, Position { line: 0, character: 1 }),
+            index.to_offset(
+                source,
+                Position {
+                    line: 0,
+                    character: 1
+                }
+            ),
             Some(0)
         );
         assert_eq!(
-            index.to_offset(source, Position { line: 0, character: 2 }),
+            index.to_offset(
+                source,
+                Position {
+                    line: 0,
+                    character: 2
+                }
+            ),
             Some(4)
         );
     }
@@ -196,14 +214,32 @@ mod tests {
     fn out_of_range_positions_clamp_safely() {
         let source = "ab\n";
         let index = LineIndex::new(source);
-        assert_eq!(index.to_offset(source, Position { line: 9, character: 0 }), None);
         assert_eq!(
-            index.to_offset(source, Position { line: 0, character: 99 }),
+            index.to_offset(
+                source,
+                Position {
+                    line: 9,
+                    character: 0
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            index.to_offset(
+                source,
+                Position {
+                    line: 0,
+                    character: 99
+                }
+            ),
             Some(2)
         );
         assert_eq!(
             index.to_position(source, usize::MAX),
-            Position { line: 1, character: 0 }
+            Position {
+                line: 1,
+                character: 0
+            }
         );
     }
 

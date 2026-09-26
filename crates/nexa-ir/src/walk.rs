@@ -664,7 +664,10 @@ pub trait IrFolder: Sized {
     }
 
     fn fold_nodes(&mut self, nodes: Vec<Node>) -> Vec<Node> {
-        nodes.into_iter().filter_map(|node| self.fold_node(node)).collect()
+        nodes
+            .into_iter()
+            .filter_map(|node| self.fold_node(node))
+            .collect()
     }
 
     fn fold_expr(&mut self, expr: Expr) -> Expr {
@@ -676,11 +679,14 @@ pub trait IrFolder: Sized {
     }
 
     fn fold_actions(&mut self, actions: Vec<Action>) -> Vec<Action> {
-        actions.into_iter().filter_map(|action| self.fold_action(action)).collect()
+        actions
+            .into_iter()
+            .filter_map(|action| self.fold_action(action))
+            .collect()
     }
 }
 
-pub fn walk_node_children<V: IrVisitor + ?Sized>(node: &Node, visitor: &mut V) {
+pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
     match node {
         Node::Layout { children, .. }
         | Node::KeyboardAware { children, .. }
@@ -715,11 +721,15 @@ pub fn walk_node_children<V: IrVisitor + ?Sized>(node: &Node, visitor: &mut V) {
             }
             visitor.visit_nodes(children);
         }
-        Node::Accessibility { label, children, .. } => {
+        Node::Accessibility {
+            label, children, ..
+        } => {
             visitor.visit_expr(label);
             visitor.visit_nodes(children);
         }
-        Node::RefreshControl { children, actions, .. } => {
+        Node::RefreshControl {
+            children, actions, ..
+        } => {
             visitor.visit_actions(actions);
             visitor.visit_nodes(children);
         }
@@ -795,7 +805,11 @@ pub fn walk_node_children<V: IrVisitor + ?Sized>(node: &Node, visitor: &mut V) {
             }
             visitor.visit_actions(actions);
         }
-        Node::ComponentCall { arguments, children, .. } => {
+        Node::ComponentCall {
+            arguments,
+            children,
+            ..
+        } => {
             for (_, argument) in arguments {
                 visitor.visit_expr(argument);
             }
@@ -803,7 +817,12 @@ pub fn walk_node_children<V: IrVisitor + ?Sized>(node: &Node, visitor: &mut V) {
                 visitor.visit_nodes(children);
             }
         }
-        Node::NativeComponentCall { arguments, children, event_handlers, .. } => {
+        Node::NativeComponentCall {
+            arguments,
+            children,
+            event_handlers,
+            ..
+        } => {
             for (_, argument) in arguments {
                 visitor.visit_expr(argument);
             }
@@ -815,10 +834,7 @@ pub fn walk_node_children<V: IrVisitor + ?Sized>(node: &Node, visitor: &mut V) {
             }
         }
         Node::TextInput { actions, .. } => visitor.visit_actions(actions),
-        Node::Content
-        | Node::Switch { .. }
-        | Node::StatusBar { .. }
-        | Node::Direction { .. } => {}
+        Node::Content | Node::Switch { .. } | Node::StatusBar { .. } | Node::Direction { .. } => {}
         Node::NavigationStack { arguments, .. } => {
             for argument in arguments {
                 visitor.visit_expr(argument);
@@ -833,16 +849,14 @@ pub fn walk_node_children<V: IrVisitor + ?Sized>(node: &Node, visitor: &mut V) {
     }
 }
 
-pub fn walk_expr_children<V: IrVisitor + ?Sized>(expr: &Expr, visitor: &mut V) {
+pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
     match expr {
         Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
             visitor.visit_expr(left);
             visitor.visit_expr(right);
         }
         Expr::Contains {
-            value,
-            collection,
-            ..
+            value, collection, ..
         } => {
             visitor.visit_expr(value);
             visitor.visit_expr(collection);
@@ -923,18 +937,13 @@ pub fn walk_expr_children<V: IrVisitor + ?Sized>(expr: &Expr, visitor: &mut V) {
             visitor.visit_expr(permission);
         }
         Expr::Index {
-            collection,
-            index,
-            ..
+            collection, index, ..
         } => {
             visitor.visit_expr(collection);
             visitor.visit_expr(index);
         }
         Expr::Range {
-            start,
-            end,
-            step,
-            ..
+            start, end, step, ..
         } => {
             visitor.visit_expr(start);
             visitor.visit_expr(end);
@@ -971,15 +980,19 @@ pub fn walk_expr_children<V: IrVisitor + ?Sized>(expr: &Expr, visitor: &mut V) {
     }
 }
 
-pub fn walk_action_children<V: IrVisitor + ?Sized>(action: &Action, visitor: &mut V) {
+pub fn walk_action_children<V: IrVisitor>(action: &Action, visitor: &mut V) {
     match action {
         Action::Expression(expr) => visitor.visit_expr(expr),
         Action::Assign { value, .. } => visitor.visit_expr(value),
-        Action::NativePropertyAssign { receiver, value, .. } => {
+        Action::NativePropertyAssign {
+            receiver, value, ..
+        } => {
             visitor.visit_expr(receiver);
             visitor.visit_expr(value);
         }
-        Action::NativeEventSubscribe { receiver, actions, .. } => {
+        Action::NativeEventSubscribe {
+            receiver, actions, ..
+        } => {
             visitor.visit_expr(receiver);
             visitor.visit_actions(actions);
         }
@@ -988,7 +1001,11 @@ pub fn walk_action_children<V: IrVisitor + ?Sized>(action: &Action, visitor: &mu
                 visitor.visit_expr(argument);
             }
         }
-        Action::If { condition, then_branch, else_branch } => {
+        Action::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
             visitor.visit_expr(condition);
             visitor.visit_actions(then_branch);
             if let Some(else_branch) = else_branch {
@@ -1007,7 +1024,11 @@ pub fn walk_action_children<V: IrVisitor + ?Sized>(action: &Action, visitor: &mu
             visitor.visit_expr(condition);
             visitor.visit_actions(body);
         }
-        Action::TryCatch { body, error_catches, catch_body } => {
+        Action::TryCatch {
+            body,
+            error_catches,
+            catch_body,
+        } => {
             visitor.visit_actions(body);
             for arm in error_catches {
                 visitor.visit_actions(&arm.body);
@@ -1020,9 +1041,14 @@ pub fn walk_action_children<V: IrVisitor + ?Sized>(action: &Action, visitor: &mu
     }
 }
 
-pub fn fold_node_children<F: IrFolder + ?Sized>(node: Node, folder: &mut F) -> Option<Node> {
+pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Node> {
     match node {
-        Node::Layout { kind, spacing, style, children } => Some(Node::Layout {
+        Node::Layout {
+            kind,
+            spacing,
+            style,
+            children,
+        } => Some(Node::Layout {
             kind,
             spacing,
             style,
@@ -1032,12 +1058,22 @@ pub fn fold_node_children<F: IrFolder + ?Sized>(node: Node, folder: &mut F) -> O
             dismiss,
             children: folder.fold_nodes(children),
         }),
-        Node::BottomSheet { state, partial, children } => Some(Node::BottomSheet {
+        Node::BottomSheet {
+            state,
+            partial,
+            children,
+        } => Some(Node::BottomSheet {
             state,
             partial,
             children: folder.fold_nodes(children),
         }),
-        Node::Pressable { disabled, haptic, children, actions, long_press_actions } => Some(Node::Pressable {
+        Node::Pressable {
+            disabled,
+            haptic,
+            children,
+            actions,
+            long_press_actions,
+        } => Some(Node::Pressable {
             disabled: folder.fold_expr(disabled),
             haptic,
             children: folder.fold_nodes(children),
@@ -1048,24 +1084,44 @@ pub fn fold_node_children<F: IrFolder + ?Sized>(node: Node, folder: &mut F) -> O
             url: folder.fold_expr(url),
             children: folder.fold_nodes(children),
         }),
-        Node::NavigationLink { destination, arguments, guard, children } => Some(Node::NavigationLink {
+        Node::NavigationLink {
             destination,
-            arguments: arguments.into_iter().map(|arg| folder.fold_expr(arg)).collect(),
+            arguments,
+            guard,
+            children,
+        } => Some(Node::NavigationLink {
+            destination,
+            arguments: arguments
+                .into_iter()
+                .map(|arg| folder.fold_expr(arg))
+                .collect(),
             guard: guard.map(|g| folder.fold_expr(g)),
             children: folder.fold_nodes(children),
         }),
-        Node::Accessibility { label, hint, role, children } => Some(Node::Accessibility {
+        Node::Accessibility {
+            label,
+            hint,
+            role,
+            children,
+        } => Some(Node::Accessibility {
             label: folder.fold_expr(label),
             hint: hint.map(|h| folder.fold_expr(h)),
             role,
             children: folder.fold_nodes(children),
         }),
-        Node::RefreshControl { state, children, actions } => Some(Node::RefreshControl {
+        Node::RefreshControl {
+            state,
+            children,
+            actions,
+        } => Some(Node::RefreshControl {
             state,
             children: folder.fold_nodes(children),
             actions: folder.fold_actions(actions),
         }),
-        Node::OnAppear { actions, asynchronous } => Some(Node::OnAppear {
+        Node::OnAppear {
+            actions,
+            asynchronous,
+        } => Some(Node::OnAppear {
             actions: folder.fold_actions(actions),
             asynchronous,
         }),
@@ -1097,12 +1153,20 @@ pub fn fold_node_children<F: IrFolder + ?Sized>(node: Node, folder: &mut F) -> O
         Node::FastList { plan } => Some(Node::FastList {
             plan: fold_list_plan(plan, folder),
         }),
-        Node::If { condition, then_body, else_body } => Some(Node::If {
+        Node::If {
+            condition,
+            then_body,
+            else_body,
+        } => Some(Node::If {
             condition: folder.fold_expr(condition),
             then_body: folder.fold_nodes(then_body),
             else_body: else_body.map(|b| folder.fold_nodes(b)),
         }),
-        Node::When { value, cases, else_body } => Some(Node::When {
+        Node::When {
+            value,
+            cases,
+            else_body,
+        } => Some(Node::When {
             value: folder.fold_expr(value),
             cases: cases
                 .into_iter()
@@ -1117,7 +1181,13 @@ pub fn fold_node_children<F: IrFolder + ?Sized>(node: Node, folder: &mut F) -> O
             value: folder.fold_expr(value),
             style,
         }),
-        Node::Button { label, icon, loading, disabled, actions } => Some(Node::Button {
+        Node::Button {
+            label,
+            icon,
+            loading,
+            disabled,
+            actions,
+        } => Some(Node::Button {
             label: folder.fold_expr(label),
             icon,
             loading: loading.map(|l| folder.fold_expr(l)),
@@ -1147,7 +1217,11 @@ pub fn fold_node_children<F: IrFolder + ?Sized>(node: Node, folder: &mut F) -> O
             max_length,
             actions: folder.fold_actions(actions),
         }),
-        Node::ComponentCall { name, arguments, children } => Some(Node::ComponentCall {
+        Node::ComponentCall {
+            name,
+            arguments,
+            children,
+        } => Some(Node::ComponentCall {
             name,
             arguments: arguments
                 .into_iter()
@@ -1180,12 +1254,20 @@ pub fn fold_node_children<F: IrFolder + ?Sized>(node: Node, folder: &mut F) -> O
         }),
         Node::NavigationStack { root, arguments } => Some(Node::NavigationStack {
             root,
-            arguments: arguments.into_iter().map(|arg| folder.fold_expr(arg)).collect(),
+            arguments: arguments
+                .into_iter()
+                .map(|arg| folder.fold_expr(arg))
+                .collect(),
         }),
         Node::NavigationBack { label } => Some(Node::NavigationBack {
             label: folder.fold_expr(label),
         }),
-        Node::Image { source, description, scale, placeholder } => Some(Node::Image {
+        Node::Image {
+            source,
+            description,
+            scale,
+            placeholder,
+        } => Some(Node::Image {
             source: match source {
                 crate::ImageSource::RemoteUrl(url) => {
                     crate::ImageSource::RemoteUrl(folder.fold_expr(url))
@@ -1196,14 +1278,13 @@ pub fn fold_node_children<F: IrFolder + ?Sized>(node: Node, folder: &mut F) -> O
             scale,
             placeholder,
         }),
-        Node::Content
-        | Node::Switch { .. }
-        | Node::StatusBar { .. }
-        | Node::Direction { .. } => Some(node),
+        Node::Content | Node::Switch { .. } | Node::StatusBar { .. } | Node::Direction { .. } => {
+            Some(node)
+        }
     }
 }
 
-pub fn fold_list_plan<F: IrFolder + ?Sized>(plan: ListPlan, folder: &mut F) -> ListPlan {
+pub fn fold_list_plan<F: IrFolder>(plan: ListPlan, folder: &mut F) -> ListPlan {
     match plan {
         ListPlan::Count { count, common } => ListPlan::Count {
             count: folder.fold_expr(count),
@@ -1220,7 +1301,12 @@ pub fn fold_list_plan<F: IrFolder + ?Sized>(plan: ListPlan, folder: &mut F) -> L
                 ..common
             },
         },
-        ListPlan::Items { collection, element_type, item, common } => ListPlan::Items {
+        ListPlan::Items {
+            collection,
+            element_type,
+            item,
+            common,
+        } => ListPlan::Items {
             collection: folder.fold_expr(collection),
             element_type,
             item,
@@ -1237,7 +1323,13 @@ pub fn fold_list_plan<F: IrFolder + ?Sized>(plan: ListPlan, folder: &mut F) -> L
                 ..common
             },
         },
-        ListPlan::Sections { collection, element_type, section, item, common } => ListPlan::Sections {
+        ListPlan::Sections {
+            collection,
+            element_type,
+            section,
+            item,
+            common,
+        } => ListPlan::Sections {
             collection: folder.fold_expr(collection),
             element_type,
             section,
@@ -1256,7 +1348,7 @@ pub fn fold_list_plan<F: IrFolder + ?Sized>(plan: ListPlan, folder: &mut F) -> L
     }
 }
 
-pub fn fold_expr_children<F: IrFolder + ?Sized>(expr: Expr, folder: &mut F) -> Expr {
+pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
     match expr {
         Expr::Add(left, right, ty) => Expr::Add(
             Box::new(folder.fold_expr(*left)),
@@ -1268,14 +1360,28 @@ pub fn fold_expr_children<F: IrFolder + ?Sized>(expr: Expr, folder: &mut F) -> E
             left: Box::new(folder.fold_expr(*left)),
             right: Box::new(folder.fold_expr(*right)),
         },
-        Expr::Contains { value, collection, collection_type } => Expr::Contains {
+        Expr::Contains {
+            value,
+            collection,
+            collection_type,
+        } => Expr::Contains {
             value: Box::new(folder.fold_expr(*value)),
             collection: Box::new(folder.fold_expr(*collection)),
             collection_type,
         },
         Expr::Not(value) => Expr::Not(Box::new(folder.fold_expr(*value))),
-        Expr::Array(items) => Expr::Array(items.into_iter().map(|item| folder.fold_expr(item)).collect()),
-        Expr::Set(items) => Expr::Set(items.into_iter().map(|item| folder.fold_expr(item)).collect()),
+        Expr::Array(items) => Expr::Array(
+            items
+                .into_iter()
+                .map(|item| folder.fold_expr(item))
+                .collect(),
+        ),
+        Expr::Set(items) => Expr::Set(
+            items
+                .into_iter()
+                .map(|item| folder.fold_expr(item))
+                .collect(),
+        ),
         Expr::Map(entries) => Expr::Map(
             entries
                 .into_iter()
@@ -1299,7 +1405,10 @@ pub fn fold_expr_children<F: IrFolder + ?Sized>(expr: Expr, folder: &mut F) -> E
             is_constructor,
         } => Expr::Call {
             name,
-            arguments: arguments.into_iter().map(|arg| folder.fold_expr(arg)).collect(),
+            arguments: arguments
+                .into_iter()
+                .map(|arg| folder.fold_expr(arg))
+                .collect(),
             return_type,
             is_async,
             is_constructor,
@@ -1339,8 +1448,13 @@ pub fn fold_expr_children<F: IrFolder + ?Sized>(expr: Expr, folder: &mut F) -> E
             is_async,
             is_throwing,
         },
-        Expr::NetworkFetch(request) => Expr::NetworkFetch(Box::new(fold_network_request(*request, folder))),
-        Expr::NetworkDownload { destination, request } => Expr::NetworkDownload {
+        Expr::NetworkFetch(request) => {
+            Expr::NetworkFetch(Box::new(fold_network_request(*request, folder)))
+        }
+        Expr::NetworkDownload {
+            destination,
+            request,
+        } => Expr::NetworkDownload {
             destination: Box::new(folder.fold_expr(*destination)),
             request: Box::new(fold_network_request(*request, folder)),
         },
@@ -1410,17 +1524,29 @@ pub fn fold_expr_children<F: IrFolder + ?Sized>(expr: Expr, folder: &mut F) -> E
         ),
         Expr::Await(value) => Expr::Await(Box::new(folder.fold_expr(*value))),
         Expr::TryAwait(value) => Expr::TryAwait(Box::new(folder.fold_expr(*value))),
-        Expr::ResultOk { value, value_type, error_type } => Expr::ResultOk {
+        Expr::ResultOk {
+            value,
+            value_type,
+            error_type,
+        } => Expr::ResultOk {
             value: Box::new(folder.fold_expr(*value)),
             value_type,
             error_type,
         },
-        Expr::ResultErr { error, value_type, error_type } => Expr::ResultErr {
+        Expr::ResultErr {
+            error,
+            value_type,
+            error_type,
+        } => Expr::ResultErr {
             error: Box::new(folder.fold_expr(*error)),
             value_type,
             error_type,
         },
-        Expr::Try { expr, value_type, error_type } => Expr::Try {
+        Expr::Try {
+            expr,
+            value_type,
+            error_type,
+        } => Expr::Try {
             expr: Box::new(folder.fold_expr(*expr)),
             value_type,
             error_type,
@@ -1449,40 +1575,69 @@ pub fn fold_expr_children<F: IrFolder + ?Sized>(expr: Expr, folder: &mut F) -> E
     }
 }
 
-pub fn fold_action_children<F: IrFolder + ?Sized>(action: Action, folder: &mut F) -> Option<Action> {
+pub fn fold_action_children<F: IrFolder>(action: Action, folder: &mut F) -> Option<Action> {
     match action {
         Action::Expression(expr) => Some(Action::Expression(folder.fold_expr(expr))),
         Action::Assign { name, value } => Some(Action::Assign {
             name,
             value: folder.fold_expr(value),
         }),
-        Action::NativePropertyAssign { receiver, property, value } => Some(Action::NativePropertyAssign {
+        Action::NativePropertyAssign {
+            receiver,
+            property,
+            value,
+        } => Some(Action::NativePropertyAssign {
             receiver: folder.fold_expr(receiver),
             property,
             value: folder.fold_expr(value),
         }),
-        Action::NativeEventSubscribe { receiver, property, parameters, actions } => Some(Action::NativeEventSubscribe {
+        Action::NativeEventSubscribe {
+            receiver,
+            property,
+            parameters,
+            actions,
+        } => Some(Action::NativeEventSubscribe {
             receiver: folder.fold_expr(receiver),
             property,
             parameters,
             actions: folder.fold_actions(actions),
         }),
-        Action::CollectionMutation { name, operation, arguments } => Some(Action::CollectionMutation {
+        Action::CollectionMutation {
             name,
             operation,
-            arguments: arguments.into_iter().map(|arg| folder.fold_expr(arg)).collect(),
+            arguments,
+        } => Some(Action::CollectionMutation {
+            name,
+            operation,
+            arguments: arguments
+                .into_iter()
+                .map(|arg| folder.fold_expr(arg))
+                .collect(),
         }),
-        Action::If { condition, then_branch, else_branch } => Some(Action::If {
+        Action::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => Some(Action::If {
             condition: folder.fold_expr(condition),
             then_branch: folder.fold_actions(then_branch),
             else_branch: else_branch.map(|eb| folder.fold_actions(eb)),
         }),
-        Action::For { name, iterable, body } => Some(Action::For {
+        Action::For {
+            name,
+            iterable,
+            body,
+        } => Some(Action::For {
             name,
             iterable: folder.fold_expr(iterable),
             body: folder.fold_actions(body),
         }),
-        Action::ForMap { key_name, value_name, iterable, body } => Some(Action::ForMap {
+        Action::ForMap {
+            key_name,
+            value_name,
+            iterable,
+            body,
+        } => Some(Action::ForMap {
             key_name,
             value_name,
             iterable: folder.fold_expr(iterable),
@@ -1492,7 +1647,11 @@ pub fn fold_action_children<F: IrFolder + ?Sized>(action: Action, folder: &mut F
             condition: folder.fold_expr(condition),
             body: folder.fold_actions(body),
         }),
-        Action::TryCatch { body, error_catches, catch_body } => Some(Action::TryCatch {
+        Action::TryCatch {
+            body,
+            error_catches,
+            catch_body,
+        } => Some(Action::TryCatch {
             body: folder.fold_actions(body),
             error_catches: error_catches
                 .into_iter()
@@ -1510,7 +1669,10 @@ pub fn fold_action_children<F: IrFolder + ?Sized>(action: Action, folder: &mut F
     }
 }
 
-pub fn fold_network_request<F: IrFolder + ?Sized>(mut request: NetworkRequest, folder: &mut F) -> NetworkRequest {
+pub fn fold_network_request<F: IrFolder>(
+    mut request: NetworkRequest,
+    folder: &mut F,
+) -> NetworkRequest {
     request.url = Box::new(folder.fold_expr(*request.url));
     request.method = Box::new(folder.fold_expr(*request.method));
     request.headers = Box::new(folder.fold_expr(*request.headers));
@@ -1637,7 +1799,10 @@ mod tests {
                 Node::If {
                     condition: Expr::Binary {
                         op: crate::BinaryOp::Equal,
-                        left: Box::new(Expr::State("count".to_owned(), Type::Numeric(NumericType::Int64))),
+                        left: Box::new(Expr::State(
+                            "count".to_owned(),
+                            Type::Numeric(NumericType::Int64),
+                        )),
                         right: Box::new(Expr::Number {
                             raw: "0".to_owned(),
                             ty: NumericType::Int64,
@@ -1650,7 +1815,10 @@ mod tests {
                         disabled: None,
                         actions: vec![Action::Assign {
                             name: "count".to_owned(),
-                            value: Expr::State("step".to_owned(), Type::Numeric(NumericType::Int64)),
+                            value: Expr::State(
+                                "step".to_owned(),
+                                Type::Numeric(NumericType::Int64),
+                            ),
                         }],
                     }],
                     else_body: None,
@@ -1681,10 +1849,13 @@ mod tests {
 
             fn fold_node(&mut self, node: Node) -> Option<Node> {
                 // Filter out Text nodes whose value is "drop_me"
-                if let Node::Text { value: Expr::String(ref s), .. } = node {
-                    if s == "drop_me" {
-                        return None;
-                    }
+                if let Node::Text {
+                    value: Expr::String(ref s),
+                    ..
+                } = node
+                    && s == "drop_me"
+                {
+                    return None;
                 }
                 super::fold_node_children(node, self)
             }
@@ -1711,7 +1882,10 @@ mod tests {
         if let Node::Layout { children, .. } = folded {
             assert_eq!(children.len(), 1);
             match &children[0] {
-                Node::Text { value: Expr::State(name, _), .. } => {
+                Node::Text {
+                    value: Expr::State(name, _),
+                    ..
+                } => {
                     assert_eq!(name, "new_name");
                 }
                 other => panic!("expected rewritten Text node, got {other:?}"),
@@ -1721,4 +1895,3 @@ mod tests {
         }
     }
 }
-

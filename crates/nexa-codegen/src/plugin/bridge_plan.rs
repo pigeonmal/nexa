@@ -314,7 +314,10 @@ fn check_target_structure(plan: &BridgePlan, target: Target) -> Result<(), Strin
                     interface.name
                 ));
             }
-            let dispose = interface.methods.iter().find(|method| method.name == "dispose");
+            let dispose = interface
+                .methods
+                .iter()
+                .find(|method| method.name == "dispose");
             let Some(dispose) = dispose else {
                 return Err(format!(
                     "Android C++ native class `{}` must declare `fn dispose()` for deterministic native ownership",
@@ -441,7 +444,8 @@ impl<'a> Resolver<'a> {
     }
 
     fn method(&self, method: &Method) -> Result<BridgeMethod, String> {
-        let return_type = self.resolve(&method.return_type, &method.name, Position::MethodReturn)?;
+        let return_type =
+            self.resolve(&method.return_type, &method.name, Position::MethodReturn)?;
         if matches!(return_type, BridgeType::Result { .. }) && method.throws.is_some() {
             return Err(format!(
                 "method `{}` cannot combine `Result` with `throws`; declare one error type",
@@ -453,13 +457,13 @@ impl<'a> Resolver<'a> {
             .as_ref()
             .map(|throws| self.error_reference(throws, &method.name))
             .transpose()?;
-        if let BridgeType::Result { failure, .. } = &return_type {
-            if !self.errors.contains(failure.as_str()) {
-                return Err(format!(
-                    "failure type `{failure}` in method `{}` must be a declared error type",
-                    method.name
-                ));
-            }
+        if let BridgeType::Result { failure, .. } = &return_type
+            && !self.errors.contains(failure.as_str())
+        {
+            return Err(format!(
+                "failure type `{failure}` in method `{}` must be a declared error type",
+                method.name
+            ));
         }
         if let Some(throws) = &throws
             && !self.errors.contains(throws.as_str())
@@ -478,7 +482,11 @@ impl<'a> Resolver<'a> {
         })
     }
 
-    fn error_reference(&self, ty: &nexa_plugin_idl::TypeRef, context: &str) -> Result<String, String> {
+    fn error_reference(
+        &self,
+        ty: &nexa_plugin_idl::TypeRef,
+        context: &str,
+    ) -> Result<String, String> {
         if ty.optional || !ty.arguments.is_empty() {
             return Err(format!(
                 "throws type `{}` in method `{context}` must be a declared error type",
@@ -534,7 +542,11 @@ impl<'a> Resolver<'a> {
             }
             "Set" => {
                 let element = self.generic_argument(ty, context, 1)?.remove(0);
-                BridgeType::Set(Box::new(self.resolve(&element, context, Position::Value)?))
+                BridgeType::Set(Box::new(self.resolve(
+                    &element,
+                    context,
+                    Position::Value,
+                )?))
             }
             "Map" => {
                 let mut arguments = self.generic_argument(ty, context, 2)?;
@@ -580,9 +592,7 @@ impl<'a> Resolver<'a> {
                 let failure = arguments.pop().expect("two result type arguments");
                 let success = arguments.pop().expect("two result type arguments");
                 if failure.optional {
-                    return Err(format!(
-                        "{context} uses an optional `Result` failure type"
-                    ));
+                    return Err(format!("{context} uses an optional `Result` failure type"));
                 }
                 let failure = self.plain_name(&failure, context)?;
                 BridgeType::Result {
@@ -655,11 +665,7 @@ impl<'a> Resolver<'a> {
         Ok(ty.arguments.clone())
     }
 
-    fn plain_name(
-        &self,
-        ty: &nexa_plugin_idl::TypeRef,
-        context: &str,
-    ) -> Result<String, String> {
+    fn plain_name(&self, ty: &nexa_plugin_idl::TypeRef, context: &str) -> Result<String, String> {
         if !ty.arguments.is_empty() {
             return Err(format!(
                 "{context} uses `{}` with unexpected type arguments",
@@ -690,9 +696,9 @@ fn collect_referenced_errors(plan: &BridgePlan) -> Vec<BridgeNamedType> {
     names
         .into_iter()
         .filter_map(|name| {
-            plan.types.iter().find(|ty| {
-                ty.name == name && matches!(ty.kind, BridgeTypeKind::Error)
-            })
+            plan.types
+                .iter()
+                .find(|ty| ty.name == name && matches!(ty.kind, BridgeTypeKind::Error))
         })
         .cloned()
         .collect()
@@ -702,21 +708,18 @@ fn collect_referenced_errors(plan: &BridgePlan) -> Vec<BridgeNamedType> {
 /// mappers at every render call. Returns the same errors the renderers
 /// used to produce so unsupported contracts fail identically.
 fn check_target_values(plan: &BridgePlan, target: Target) -> Result<(), String> {
-    let check = |interface: &str,
-                 member: &str,
-                 ty: &BridgeType,
-                 allow_void: bool|
-     -> Result<(), String> {
-        let supported = match target {
-            Target::Contract | Target::SwiftContract | Target::KotlinContract => true,
-            Target::SwiftCpp => swift_cpp_supported(ty),
-            Target::Android => android_member_supported(plan, ty, allow_void),
+    let check =
+        |interface: &str, member: &str, ty: &BridgeType, allow_void: bool| -> Result<(), String> {
+            let supported = match target {
+                Target::Contract | Target::SwiftContract | Target::KotlinContract => true,
+                Target::SwiftCpp => swift_cpp_supported(ty),
+                Target::Android => android_member_supported(plan, ty, allow_void),
+            };
+            if supported && (allow_void || !ty.is_void()) {
+                return Ok(());
+            }
+            Err(target_value_error(target, interface, member, ty))
         };
-        if supported && (allow_void || !ty.is_void()) {
-            return Ok(());
-        }
-        Err(target_value_error(target, interface, member, ty))
-    };
     for ty in &plan.types {
         // Every declared struct and enum is validated for the target, so
         // helpers render directly. Unused-but-unsupported declarations fail
@@ -732,14 +735,15 @@ fn check_target_values(plan: &BridgePlan, target: Target) -> Result<(), String> 
                 check_nested_value(plan, &parameter.ty, target)?;
             }
         }
-        if matches!(target, Target::Android) && matches!(ty.kind, BridgeTypeKind::Enum) {
-            if ty.cases.is_empty() || ty.cases.len() > 256 {
-                return Err(format!(
-                    "Android C++ adapters require enums with 1 to 256 cases; `{}` declares {}",
-                    ty.name,
-                    ty.cases.len()
-                ));
-            }
+        if matches!(target, Target::Android)
+            && matches!(ty.kind, BridgeTypeKind::Enum)
+            && (ty.cases.is_empty() || ty.cases.len() > 256)
+        {
+            return Err(format!(
+                "Android C++ adapters require enums with 1 to 256 cases; `{}` declares {}",
+                ty.name,
+                ty.cases.len()
+            ));
         }
     }
     for interface in &plan.interfaces {
@@ -781,7 +785,14 @@ fn check_target_values(plan: &BridgePlan, target: Target) -> Result<(), String> 
                 };
                 for case in &referenced.cases {
                     for parameter in &case.parameters {
-                        check_error_payload(&parameter.ty, target, &interface.name, &method.name, error, &case.name)?;
+                        check_error_payload(
+                            &parameter.ty,
+                            target,
+                            &interface.name,
+                            &method.name,
+                            error,
+                            &case.name,
+                        )?;
                     }
                 }
             }
@@ -882,7 +893,10 @@ fn target_nested_error(target: Target, ty: &BridgeType) -> String {
             "Android C++ adapters support primitive, `String`, `Bytes`, nested `Array` values, compatible `Set` values, flat primitive/string `Map` values, and maps with array or compatible set values; nested type `{}` is an unsupported type",
             bridge_bare_name(ty)
         ),
-        _ => format!("nested type `{}` is an unsupported type", bridge_bare_name(ty)),
+        _ => format!(
+            "nested type `{}` is an unsupported type",
+            bridge_bare_name(ty)
+        ),
     }
 }
 
@@ -1136,9 +1150,9 @@ fn android_contains_named(plan: &BridgePlan, ty: &BridgeType) -> bool {
         return true;
     }
     match ty {
-        BridgeType::Array(element)
-        | BridgeType::Set(element)
-        | BridgeType::Optional(element) => android_contains_named(plan, element),
+        BridgeType::Array(element) | BridgeType::Set(element) | BridgeType::Optional(element) => {
+            android_contains_named(plan, element)
+        }
         BridgeType::Map(key, value) | BridgeType::Pair(key, value) => {
             android_contains_named(plan, key) || android_contains_named(plan, value)
         }
@@ -1300,8 +1314,7 @@ fn android_map_value_supported(plan: &BridgePlan, ty: &BridgeType) -> bool {
 fn android_map_supported(plan: &BridgePlan, ty: &BridgeType) -> bool {
     match ty {
         BridgeType::Map(key, value) => {
-            android_map_element_supported(key, true)
-                && android_map_value_supported(plan, value)
+            android_map_element_supported(key, true) && android_map_value_supported(plan, value)
         }
         _ => false,
     }
@@ -1339,26 +1352,29 @@ fn android_reference_array_element_supported(ty: &BridgeType) -> bool {
     if ty.is_optional() {
         return false;
     }
-    matches!(ty, BridgeType::Scalar(BridgeScalar::String | BridgeScalar::Bytes))
+    matches!(
+        ty,
+        BridgeType::Scalar(BridgeScalar::String | BridgeScalar::Bytes)
+    )
 }
 
 fn android_error_payload_supported(ty: &BridgeType) -> bool {
-    match ty {
+    matches!(
+        ty,
         BridgeType::Scalar(
             BridgeScalar::Bool
-            | BridgeScalar::Int8
-            | BridgeScalar::Int16
-            | BridgeScalar::Int32
-            | BridgeScalar::Int64
-            | BridgeScalar::UInt8
-            | BridgeScalar::UInt16
-            | BridgeScalar::UInt32
-            | BridgeScalar::UInt64
-            | BridgeScalar::Float32
-            | BridgeScalar::Float64
-            | BridgeScalar::String
-            | BridgeScalar::Bytes,
-        ) => true,
-        _ => false,
-    }
+                | BridgeScalar::Int8
+                | BridgeScalar::Int16
+                | BridgeScalar::Int32
+                | BridgeScalar::Int64
+                | BridgeScalar::UInt8
+                | BridgeScalar::UInt16
+                | BridgeScalar::UInt32
+                | BridgeScalar::UInt64
+                | BridgeScalar::Float32
+                | BridgeScalar::Float64
+                | BridgeScalar::String
+                | BridgeScalar::Bytes
+        )
+    )
 }

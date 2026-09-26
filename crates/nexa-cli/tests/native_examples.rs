@@ -93,7 +93,9 @@ fn generated_ios_example_hosts_build_with_xcode_when_available() {
 #[test]
 fn generated_android_example_hosts_build_with_gradle_when_available() {
     if !Toolchain::should_run_native_builds() {
-        eprintln!("skipping Android example builds in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)");
+        eprintln!(
+            "skipping Android example builds in default test tier (opt-in with NEXA_TEST_NATIVE_BUILDS=1 or NEXA_TEST_TIER=e2e)"
+        );
         return;
     }
 

@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use nexa_ir::{ScreenId, Type};
 
 use super::{
-    custom_components::ComponentSignatures,
-    expressions::FunctionSignatures,
-    themes::ThemeSymbols,
+    custom_components::ComponentSignatures, expressions::FunctionSignatures, themes::ThemeSymbols,
 };
 use crate::Target;
 
@@ -16,6 +14,35 @@ pub(super) struct ScreenSignature {
 }
 
 pub(super) type ScreenSignatures = HashMap<String, ScreenSignature>;
+
+/// The environment every expression-lowering helper needs.
+///
+/// Expression lowering is a different concern from node lowering, so it gets
+/// its own bundle rather than the whole [`SemanticContext`]: what an
+/// expression needs is the symbol table, the function signatures it may call,
+/// and whether `await` is legal here. Threading those three separately through
+/// the recursive descent was how a call site ended up with the right symbol
+/// table and the wrong function table.
+#[derive(Clone, Copy)]
+pub(super) struct ExprContext<'a> {
+    pub(super) symbols: &'a HashMap<String, (Type, bool)>,
+    pub(super) functions: &'a FunctionSignatures,
+    pub(super) allow_await: bool,
+}
+
+impl<'a> ExprContext<'a> {
+    pub(super) fn new(
+        symbols: &'a HashMap<String, (Type, bool)>,
+        functions: &'a FunctionSignatures,
+        allow_await: bool,
+    ) -> Self {
+        Self {
+            symbols,
+            functions,
+            allow_await,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(super) struct SemanticContext<'a> {
@@ -78,6 +105,15 @@ impl<'a> SemanticContext<'a> {
             allow_navigation_stack: allow_stack,
             allow_navigation_back: allow_back,
             ..*self
+        }
+    }
+
+    /// Narrows to the slice of this context that expression lowering needs.
+    pub(super) fn exprs(&self, allow_await: bool) -> ExprContext<'_> {
+        ExprContext {
+            symbols: self.symbols,
+            functions: self.functions,
+            allow_await,
         }
     }
 }

@@ -162,10 +162,7 @@ fn lsp_rejects_unsupported_component_names() {
     ] {
         let source = format!("app P {{\n    body {{\n        {name}()\n    }}\n}}\n");
         let diagnostics = nexa_lsp::check_source(&source);
-        assert!(
-            !diagnostics.is_empty(),
-            "{name} should not compile cleanly"
-        );
+        assert!(!diagnostics.is_empty(), "{name} should not compile cleanly");
     }
     // The supported spelling compiles cleanly.
     let diagnostics = nexa_lsp::check_source(
@@ -192,7 +189,10 @@ fn lsp_completion_response_matches_the_catalog() {
     };
 
     let (response, _) = server.handle_request(request);
-    let result = response.expect("response should be returned").result.expect("result");
+    let result = response
+        .expect("response should be returned")
+        .result
+        .expect("result");
     let completions = result.as_array().expect("completions is an array");
     let labels: Vec<&str> = completions
         .iter()
@@ -202,7 +202,10 @@ fn lsp_completion_response_matches_the_catalog() {
     for supported in ["Column", "TextInput", "FastList", "Pressable"] {
         assert!(labels.contains(&supported), "{supported} should be offered");
     }
-    assert!(!labels.contains(&"onPress"), "dot modifiers need member position");
+    assert!(
+        !labels.contains(&"onPress"),
+        "dot modifiers need member position"
+    );
     for rejected in [
         "TextField",
         "FastSectionedList",
@@ -212,7 +215,10 @@ fn lsp_completion_response_matches_the_catalog() {
         "HStack",
         "ZStack",
     ] {
-        assert!(!labels.contains(&rejected), "{rejected} must not be offered");
+        assert!(
+            !labels.contains(&rejected),
+            "{rejected} must not be offered"
+        );
     }
 }
 

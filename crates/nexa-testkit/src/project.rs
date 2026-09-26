@@ -96,7 +96,12 @@ impl TestProject {
     /// Reads a file relative to the project root, panicking with a clear error message on failure.
     pub fn read(&self, relative_path: impl AsRef<Path>) -> String {
         self.read_to_string(relative_path.as_ref())
-            .unwrap_or_else(|err| panic!("failed to read file {}: {err}", relative_path.as_ref().display()))
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to read file {}: {err}",
+                    relative_path.as_ref().display()
+                )
+            })
     }
 
     /// Recursively collects all files ending with `extension`.

@@ -312,16 +312,22 @@ pub enum Expr {
         component: Box<Expr>,
     },
     /// Validated `File.exists` call.
-    FileExists { path: Box<Expr> },
+    FileExists {
+        path: Box<Expr>,
+    },
     /// Validated `File.readText` call.
-    FileReadText { path: Box<Expr> },
+    FileReadText {
+        path: Box<Expr>,
+    },
     /// Validated `File.writeText` call.
     FileWriteText {
         path: Box<Expr>,
         contents: Box<Expr>,
     },
     /// Validated `File.delete` call.
-    FileDelete { path: Box<Expr> },
+    FileDelete {
+        path: Box<Expr>,
+    },
     /// Validated permission query: `Status` renders `status`, `Request`
     /// renders `request`.
     PermissionOp {
@@ -997,15 +1003,17 @@ impl Expr {
     /// single source of truth shared by `await` rendering and throwing-call
     /// analysis; the call shapes themselves carry no flags to misread.
     pub fn is_throwing_call(&self) -> bool {
-        match self {
-            Expr::NativeCall { is_throwing: true, .. } => true,
-            Expr::NetworkFetch(_)
-            | Expr::NetworkDownload { .. }
-            | Expr::FileReadText { .. }
-            | Expr::FileWriteText { .. }
-            | Expr::FileDelete { .. } => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            Expr::NativeCall {
+                is_throwing: true,
+                ..
+            } | Expr::NetworkFetch(_)
+                | Expr::NetworkDownload { .. }
+                | Expr::FileReadText { .. }
+                | Expr::FileWriteText { .. }
+                | Expr::FileDelete { .. }
+        )
     }
 }
 

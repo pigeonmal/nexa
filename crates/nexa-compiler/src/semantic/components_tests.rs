@@ -395,11 +395,7 @@ fn lowers_native_component_event_with_typed_payload_bindings() {
 #[test]
 fn rejects_native_component_events_with_invalid_declarations() {
     let cases = [
-        (
-            "onMissing",
-            Vec::new(),
-            "has no event callback `onMissing`",
-        ),
+        ("onMissing", Vec::new(), "has no event callback `onMissing`"),
         (
             "onProgressChanged",
             vec!["position".to_owned()],
@@ -416,7 +412,6 @@ fn rejects_native_component_events_with_invalid_declarations() {
         );
     }
 }
-
 
 #[test]
 fn throwing_native_calls_need_and_use_an_explicit_recovery_block() {
@@ -954,4 +949,3 @@ fn native_binding_with_alias_cannot_be_replaced_after_disposal() {
     .expect_err("replacing the source binding would leave its alias stale");
     assert!(error.to_string().contains("cannot be replaced while alias"));
 }
-
