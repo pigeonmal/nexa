@@ -55,6 +55,7 @@ const INDENT: &str = "    ";
 #[derive(Clone, Debug, Default)]
 pub struct SourceWriter {
     buffer: String,
+    next_id: usize,
 }
 
 impl SourceWriter {
@@ -67,7 +68,22 @@ impl SourceWriter {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             buffer: String::with_capacity(capacity),
+            next_id: 0,
         }
+    }
+
+    /// Returns an identifier that is unique within this writer.
+    ///
+    /// Generated code sometimes needs a name that cannot collide -- a Compose
+    /// `remember` key or a SwiftUI state holder for one element of a repeated
+    /// list. Seeding those names from the buffer length would tie them to how
+    /// the file happens to be assembled, so a purely cosmetic change to
+    /// formatting would rename them. A counter keeps them stable and unique
+    /// within the file being written.
+    pub fn next_id(&mut self) -> usize {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
     }
 
     /// Writes `args` followed by a newline.
@@ -203,6 +219,19 @@ mod tests {
         out.line_at(1, format_args!("let y = 2"));
         assert_eq!(out.as_str(), "let x = 1\n    let y = 2\n");
         assert_eq!(out.len(), out.as_str().len());
+    }
+
+    #[test]
+    fn ids_are_unique_per_writer_and_independent_of_length() {
+        let mut out = SourceWriter::new();
+        out.line(format_args!("first"));
+        let first = out.next_id();
+        out.line(format_args!("a much longer second line than the first one"));
+        let second = out.next_id();
+        assert_eq!((first, second), (0, 1));
+        // A second writer restarts numbering: ids only need to be unique in the
+        // file being written.
+        assert_eq!(SourceWriter::new().next_id(), 0);
     }
 
     #[test]
