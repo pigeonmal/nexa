@@ -148,7 +148,7 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             ..
         } => {
             let callee = if *is_constructor {
-                kotlin_type(&return_type)
+                kotlin_type(return_type)
             } else {
                 function_name(name)
             };
@@ -309,68 +309,20 @@ fn render_network_request(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::expression;
-    use nexa_ir::{Expr, Type};
-
-    #[test]
-    fn file_calls_use_the_generated_native_helper_names_and_argument_order() {
-        let path = || Box::new(Expr::String("notes.txt".to_owned()));
-        let read = Expr::Await(Box::new(Expr::FileReadText { path: path() }));
-        let write = Expr::Await(Box::new(Expr::FileWriteText {
-            contents: Box::new(Expr::String("saved".to_owned())),
-            path: path(),
-        }));
-        let delete = Expr::Await(Box::new(Expr::FileDelete { path: path() }));
-
-        assert_eq!(expression(&read), "NexaFile.readText(\"notes.txt\")");
-        assert_eq!(
-            expression(&write),
-            "NexaFile.writeText(\"saved\", \"notes.txt\")"
-        );
-        assert_eq!(expression(&delete), "NexaFile.delete(\"notes.txt\")");
-    }
-
-    #[test]
-    fn native_instance_calls_stay_direct_and_use_kotlin_positional_arguments() {
-        let call = Expr::NativeCall {
-            receiver: Some(Box::new(Expr::State(
-                "player".to_owned(),
-                Type::Plugin {
-                    namespace: "Video".to_owned(),
-                    name: "VideoPlayer".to_owned(),
-                },
-            ))),
-            namespace: "Video".to_owned(),
-            name: "prepare".to_owned(),
-            arguments: vec![("url".to_owned(), Expr::String("clip.mp4".to_owned()))],
-            return_type: Type::Void,
-            is_async: true,
-            is_throwing: false,
-        };
-
-        assert_eq!(
-            expression(&Expr::Await(Box::new(call))),
-            "nexa_player.prepare(\"clip.mp4\")"
-        );
-    }
-}
-
 fn is_optional_expression(expr: &Expr) -> bool {
-    match expr {
+    matches!(
+        expr,
         Expr::State(_, Type::Optional(_))
-        | Expr::Member {
-            field_type: Type::Optional(_),
-            ..
-        }
-        | Expr::Index {
-            element_type: Type::Optional(_),
-            ..
-        }
-        | Expr::Null(_) => true,
-        _ => false,
-    }
+            | Expr::Member {
+                field_type: Type::Optional(_),
+                ..
+            }
+            | Expr::Index {
+                element_type: Type::Optional(_),
+                ..
+            }
+            | Expr::Null(_)
+    )
 }
 
 fn binary_operator(operator: BinaryOp) -> &'static str {
@@ -436,5 +388,53 @@ pub(crate) fn text_expression(expr: &Expr) -> String {
         }
         | Expr::Interpolation(_) => expression(expr),
         _ => format!("{}.toString()", expression(expr)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expression;
+    use nexa_ir::{Expr, Type};
+
+    #[test]
+    fn file_calls_use_the_generated_native_helper_names_and_argument_order() {
+        let path = || Box::new(Expr::String("notes.txt".to_owned()));
+        let read = Expr::Await(Box::new(Expr::FileReadText { path: path() }));
+        let write = Expr::Await(Box::new(Expr::FileWriteText {
+            contents: Box::new(Expr::String("saved".to_owned())),
+            path: path(),
+        }));
+        let delete = Expr::Await(Box::new(Expr::FileDelete { path: path() }));
+
+        assert_eq!(expression(&read), "NexaFile.readText(\"notes.txt\")");
+        assert_eq!(
+            expression(&write),
+            "NexaFile.writeText(\"saved\", \"notes.txt\")"
+        );
+        assert_eq!(expression(&delete), "NexaFile.delete(\"notes.txt\")");
+    }
+
+    #[test]
+    fn native_instance_calls_stay_direct_and_use_kotlin_positional_arguments() {
+        let call = Expr::NativeCall {
+            receiver: Some(Box::new(Expr::State(
+                "player".to_owned(),
+                Type::Plugin {
+                    namespace: "Video".to_owned(),
+                    name: "VideoPlayer".to_owned(),
+                },
+            ))),
+            namespace: "Video".to_owned(),
+            name: "prepare".to_owned(),
+            arguments: vec![("url".to_owned(), Expr::String("clip.mp4".to_owned()))],
+            return_type: Type::Void,
+            is_async: true,
+            is_throwing: false,
+        };
+
+        assert_eq!(
+            expression(&Expr::Await(Box::new(call))),
+            "nexa_player.prepare(\"clip.mp4\")"
+        );
     }
 }

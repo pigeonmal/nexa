@@ -124,7 +124,7 @@ pub(crate) fn render_virtualized_list(
                 format_args!(
                     "let {}: {} = {collection}[listPosition]",
                     state_name(item),
-                    swift_type(&element_type)
+                    swift_type(element_type)
                 ),
             );
         }
@@ -234,7 +234,7 @@ fn render_sectioned_list(
         format_args!(
             "let {}: {} = {collection}[sectionPosition][itemPosition]",
             state_name(item),
-            swift_type(&element_type)
+            swift_type(element_type)
         ),
     );
     render_children(children, module, features, depth + 2, out);

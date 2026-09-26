@@ -20,7 +20,16 @@ pub(crate) fn optimize(module: &mut Module) {
     module.states.iter_mut().for_each(|state| {
         state.initial = fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
     });
-    module.body = optimize_nodes(std::mem::take(&mut module.body));
+    // Both backends wrap a multi-node app body in an implicit
+    // `Column { spacing: 0 }` before rendering it, so two adjacent
+    // zero-spaced plain columns at the top level merge into exactly that
+    // wrapper and the wrapper disappears with them.
+    module.body = hoist_nested_layouts(
+        optimize_nodes(std::mem::take(&mut module.body)),
+        LayoutKind::Column,
+        0.0,
+        &ViewStyle::default(),
+    );
     if let Some(actions) = &mut module.on_appear {
         *actions = optimize_actions(std::mem::take(actions));
     }
@@ -785,12 +794,9 @@ impl IrFolder for IrOptimizer {
                 style,
                 children,
             } => {
-                let children = self.fold_nodes(children);
-                if children.len() == 1
-                    && spacing == 0.0
-                    && style.alignment.is_none()
-                    && !style.has_modifiers()
-                {
+                let children =
+                    hoist_nested_layouts(self.fold_nodes(children), kind, spacing, &style);
+                if children.len() == 1 && spacing == 0.0 && is_plain_style(&style) {
                     return children.into_iter().next();
                 }
                 Some(Node::Layout {
@@ -905,6 +911,65 @@ fn collapse_nodes(nodes: Vec<Node>) -> Option<Node> {
             children: nodes,
         }),
     }
+}
+
+/// Whether a layout style contributes nothing of its own.
+///
+/// A style with an alignment positions its children on the cross axis, and a
+/// style with modifiers draws something the layout is responsible for. Folding
+/// a layout whose style is neither moves the grandchildren up one level, which
+/// is only invisible when the layout they are moving out of was itself
+/// invisible.
+fn is_plain_style(style: &ViewStyle) -> bool {
+    style.alignment.is_none() && !style.has_modifiers()
+}
+
+/// Hoists any child layout that `parent` exactly subsumes.
+///
+/// `Column { spacing: s, A, Column { spacing: s, B, C }, D }` places B and C
+/// at exactly the offsets `Column { spacing: s, A, B, C, D }` does, so the
+/// inner column is a view both layout engines measure for nothing. Requiring
+/// equal spacings is what makes that identity hold: an inner layout with a
+/// different spacing produces non-uniform gaps that no single spacing value
+/// reproduces, so those stay nested.
+///
+/// Both layouts must also be plain. The inner one because its alignment would
+/// be lost, and the outer one because its alignment would otherwise start
+/// applying to the grandchildren instead of to the layout they are leaving.
+fn hoist_nested_layouts(
+    children: Vec<Node>,
+    kind: LayoutKind,
+    spacing: f32,
+    style: &ViewStyle,
+) -> Vec<Node> {
+    if !is_plain_style(style) {
+        return children;
+    }
+    let mut hoisted: Vec<Node> = Vec::with_capacity(children.len());
+    for child in children {
+        match subsumed_layout_children(&child, kind, spacing) {
+            Some(inner) => hoisted.extend(inner.iter().cloned()),
+            None => hoisted.push(child),
+        }
+    }
+    hoisted
+}
+
+/// The grandchildren a parent layout takes over, when it takes any.
+fn subsumed_layout_children(node: &Node, kind: LayoutKind, spacing: f32) -> Option<&[Node]> {
+    let Node::Layout {
+        kind: child_kind,
+        spacing: child_spacing,
+        style,
+        children,
+    } = node
+    else {
+        return None;
+    };
+    if *child_kind != kind || *child_spacing != spacing || !is_plain_style(style) {
+        return None;
+    }
+    Some(children)
 }
 
 fn fold_expression(expression: Expr) -> Expr {
@@ -1180,5 +1245,261 @@ impl ConstantNumber {
             NumericType::Float32 => Self::Float(raw.parse::<f32>().ok()? as f64),
             NumericType::Float64 => Self::Float(raw.parse().ok()?),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexa_ir::Alignment;
+
+    /// Every layout in a body, depth first, as `(kind, spacing)`.
+    ///
+    /// A flattening bug is a change in the *shape* of the tree, so these tests
+    /// compare shapes rather than whole nodes. The IR deliberately has no
+    /// `PartialEq`: structural equality over a whole module is not a question
+    /// anything needs to ask, and deriving it would push the requirement down
+    /// through every expression and action type.
+    fn layout_shape(nodes: &[Node]) -> Vec<(LayoutKind, f32)> {
+        let mut shapes = Vec::new();
+        for node in nodes {
+            if let Node::Layout {
+                kind,
+                spacing,
+                children,
+                ..
+            } = node
+            {
+                shapes.push((*kind, *spacing));
+                shapes.extend(layout_shape(children));
+            }
+        }
+        shapes
+    }
+
+    /// The literal text in a body, in traversal order.
+    fn text_under(nodes: &[Node]) -> Vec<String> {
+        let mut texts = Vec::new();
+        for node in nodes {
+            match node {
+                Node::Text {
+                    value: Expr::String(value),
+                    ..
+                } => texts.push(value.clone()),
+                Node::Layout { children, .. } => texts.extend(text_under(children)),
+                _ => {}
+            }
+        }
+        texts
+    }
+
+    fn text(value: &str) -> Node {
+        Node::Text {
+            value: Expr::String(value.to_owned()),
+            style: Default::default(),
+        }
+    }
+
+    fn column(spacing: f32, children: Vec<Node>) -> Node {
+        Node::Layout {
+            kind: LayoutKind::Column,
+            spacing,
+            style: ViewStyle::default(),
+            children,
+        }
+    }
+
+    /// A column that draws something of its own.
+    fn padded_column(spacing: f32, padding: f32, children: Vec<Node>) -> Node {
+        Node::Layout {
+            kind: LayoutKind::Column,
+            spacing,
+            style: ViewStyle {
+                padding: Some(padding),
+                ..ViewStyle::default()
+            },
+            children,
+        }
+    }
+
+    fn module_with_body(body: Vec<Node>) -> Module {
+        Module {
+            app_name: "FlattenApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body,
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        }
+    }
+
+    fn optimized_body(body: Vec<Node>) -> Vec<Node> {
+        let mut module = module_with_body(body);
+        optimize(&mut module);
+        module.body
+    }
+
+    #[test]
+    fn nested_columns_with_equal_spacing_collapse_into_one_layout() {
+        let body = optimized_body(vec![column(
+            8.0,
+            vec![
+                text("a"),
+                column(8.0, vec![text("b"), text("c")]),
+                text("d"),
+            ],
+        )]);
+
+        assert_eq!(
+            layout_shape(&body),
+            vec![(LayoutKind::Column, 8.0)],
+            "the inner 8-spaced column is gone"
+        );
+        assert_eq!(text_under(&body), ["a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn a_run_of_three_matching_columns_collapses_in_one_pass() {
+        let body = optimized_body(vec![column(
+            0.0,
+            vec![
+                column(0.0, vec![text("a"), text("b")]),
+                column(0.0, vec![text("c"), text("d")]),
+                column(0.0, vec![text("e"), text("f")]),
+            ],
+        )]);
+
+        assert!(
+            layout_shape(&body).is_empty(),
+            "the zero-spaced column the backends would supply replaces all three: {:?}",
+            layout_shape(&body)
+        );
+        assert_eq!(text_under(&body), ["a", "b", "c", "d", "e", "f"]);
+    }
+
+    #[test]
+    fn differing_spacings_keep_the_nested_layout() {
+        // An inner spacing of 4 inside an outer spacing of 8 produces
+        // non-uniform gaps that no single spacing value can reproduce.
+        let body = optimized_body(vec![column(
+            8.0,
+            vec![text("a"), column(4.0, vec![text("b"), text("c")])],
+        )]);
+
+        assert_eq!(
+            layout_shape(&body),
+            vec![(LayoutKind::Column, 8.0), (LayoutKind::Column, 4.0)],
+            "collapsing these would change the gap between a and b"
+        );
+    }
+
+    #[test]
+    fn a_styled_inner_layout_is_not_merged() {
+        // Its padding is drawn by the layout itself, so hoisting its children
+        // up would pad each of them separately.
+        let body = optimized_body(vec![column(
+            0.0,
+            vec![
+                text("a"),
+                padded_column(0.0, 12.0, vec![text("b"), text("c")]),
+            ],
+        )]);
+
+        assert_eq!(
+            layout_shape(&body),
+            vec![(LayoutKind::Column, 0.0)],
+            "only the padded layout survives"
+        );
+    }
+
+    #[test]
+    fn an_aligned_parent_does_not_take_over_its_childs_children() {
+        // The parent's alignment would otherwise start applying to the texts,
+        // which the inner layout was previously positioning.
+        let mut module = module_with_body(vec![Node::Layout {
+            kind: LayoutKind::Column,
+            spacing: 0.0,
+            style: ViewStyle {
+                alignment: Some(Alignment::Center),
+                ..ViewStyle::default()
+            },
+            children: vec![text("a"), column(0.0, vec![text("b"), text("c")])],
+        }]);
+        optimize(&mut module);
+
+        assert_eq!(
+            layout_shape(&module.body),
+            vec![(LayoutKind::Column, 0.0), (LayoutKind::Column, 0.0)],
+            "the inner column keeps positioning its own children"
+        );
+    }
+
+    #[test]
+    fn an_aligned_inner_layout_does_not_lose_its_alignment() {
+        let body = optimized_body(vec![column(
+            0.0,
+            vec![
+                text("a"),
+                Node::Layout {
+                    kind: LayoutKind::Column,
+                    spacing: 0.0,
+                    style: ViewStyle {
+                        alignment: Some(Alignment::End),
+                        ..ViewStyle::default()
+                    },
+                    children: vec![text("b"), text("c")],
+                },
+            ],
+        )]);
+
+        assert_eq!(
+            layout_shape(&body),
+            vec![(LayoutKind::Column, 0.0)],
+            "the trailing-aligned column must stay, or b and c move"
+        );
+    }
+
+    #[test]
+    fn a_row_never_absorbs_a_column() {
+        let body = optimized_body(vec![Node::Layout {
+            kind: LayoutKind::Row,
+            spacing: 0.0,
+            style: ViewStyle::default(),
+            children: vec![
+                column(0.0, vec![text("a"), text("b")]),
+                column(0.0, vec![text("c"), text("d")]),
+            ],
+        }]);
+
+        assert_eq!(
+            layout_shape(&body).len(),
+            3,
+            "a column positions its children along the other axis"
+        );
+    }
+
+    #[test]
+    fn adjacent_top_level_columns_collapse_into_the_implicit_wrapper() {
+        // Both backends wrap a multi-node body in a zero-spaced column, so two
+        // top-level zero-spaced columns merge into exactly that wrapper.
+        let body = optimized_body(vec![
+            column(0.0, vec![text("a"), text("b")]),
+            column(0.0, vec![text("c"), text("d")]),
+        ]);
+
+        assert!(layout_shape(&body).is_empty(), "{:?}", layout_shape(&body));
+        assert_eq!(text_under(&body), ["a", "b", "c", "d"]);
     }
 }

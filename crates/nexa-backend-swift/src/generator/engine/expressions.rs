@@ -163,7 +163,7 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             ..
         } => {
             let callee = if *is_constructor {
-                swift_type(&return_type)
+                swift_type(return_type)
             } else {
                 function_name(name)
             };

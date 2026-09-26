@@ -142,12 +142,12 @@ pub(crate) fn render_pressable(
         "combinedClickable"
     };
     let has_long_press = !long_press_actions.is_empty();
+    let enabled = format!("!({})", expression(disabled));
     out.push_str(&format!(
-        "Box(\n{}    modifier = Modifier.{}(\n{}        enabled = {},\n{}        role = Role.Button,\n{}        onClick = {{",
+        "Box(\n{}    modifier = Modifier.{}(\n{}        enabled = {enabled},\n{}        role = Role.Button,\n{}        onClick = {{",
         "    ".repeat(depth),
         modifier,
         "    ".repeat(depth),
-        format!("!({})", expression(disabled)),
         "    ".repeat(depth),
         "    ".repeat(depth)
     ));

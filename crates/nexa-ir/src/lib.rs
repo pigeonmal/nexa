@@ -802,7 +802,7 @@ pub enum ListAxis {
     Grid { columns: u32 },
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LayoutKind {
     Column,
     Row,

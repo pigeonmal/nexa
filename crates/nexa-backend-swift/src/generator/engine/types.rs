@@ -5,8 +5,8 @@
 //! each backend decides how to spell it.
 
 use nexa_codegen::{
-    names::{enum_name, struct_name},
     SourceWriter,
+    names::{enum_name, struct_name},
 };
 use nexa_ir::{Module, NumericType, Type};
 

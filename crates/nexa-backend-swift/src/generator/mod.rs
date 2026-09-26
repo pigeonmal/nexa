@@ -6,14 +6,14 @@ mod components;
 mod engine;
 
 pub(super) use api::{network, permissions};
+use components::components as component_renderer;
 pub(super) use components::{
     accessibility, bottom_bar, controls, custom_components, direction, images, input, keyboard,
     layout, lifecycle, links, list_runtime, lists, navigation, refresh, sheets, status_bar,
 };
 pub(super) use engine::state::{render_immutable_state, render_native_object_state};
-pub(super) use engine::{colors, expressions, features, functions, imports, structs, utils};
-use components::components as component_renderer;
 use engine::types::{self, swift_type};
+pub(super) use engine::{colors, expressions, features, functions, imports, structs, utils};
 
 /// Generates the release source as one concatenated string.
 ///
@@ -51,13 +51,13 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Gene
     let mut units = SourceUnits::new("swift");
     units.set_imports(&imports::render(&features));
     units.set_preamble(&preamble);
-    units.write("types", |mut out| {
-        types::render_enums(module, &mut out);
-        structs::render(module, &mut out);
-        types::render_navigation_routes(module, &mut out);
+    units.write("types", |out| {
+        types::render_enums(module, out);
+        structs::render(module, out);
+        types::render_navigation_routes(module, out);
     });
 
-    units.write("app", |mut out| {
+    units.write("app", |out| {
         out.push_str(&format!(
             "public struct {}: View {{\n",
             nexa_codegen::names::screen_name(&module.app_name)
@@ -68,7 +68,7 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Gene
         }
         for state in &module.states {
             if state.is_native_class_constructor_binding() {
-                render_native_object_state(state, 1, &mut out);
+                render_native_object_state(state, 1, out);
                 continue;
             }
             if (!state.mutable && !state.is_native_class_instance_binding())
@@ -123,10 +123,10 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Gene
         }
         out.push_str("    public init() {}\n\n    public var body: some View {\n");
         if module.screens.is_empty() {
-            render_immutable_state(&module.states, 2, &mut out);
+            render_immutable_state(&module.states, 2, out);
         }
         if module.body.len() == 1 {
-            component_renderer::render_node(&module.body[0], module, &features, 2, &mut out);
+            component_renderer::render_node(&module.body[0], module, &features, 2, out);
         } else {
             layout::render_layout(
                 LayoutKind::Column,
@@ -136,23 +136,18 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Gene
                 module,
                 &features,
                 2,
-                &mut out,
+                out,
             );
         }
-        direction::render(module.direction, 2, &mut out);
-        lifecycle::render_on_appear(
-            module.on_appear.as_deref(),
-            module.on_appear_async,
-            2,
-            &mut out,
-        );
-        lifecycle::render_on_disappear(module.on_disappear.as_deref(), 2, &mut out);
-        lifecycle::render_scene_phase(module, 2, &mut out);
-        status_bar::render(module.status_bar, 2, &mut out);
+        direction::render(module.direction, 2, out);
+        lifecycle::render_on_appear(module.on_appear.as_deref(), module.on_appear_async, 2, out);
+        lifecycle::render_on_disappear(module.on_disappear.as_deref(), 2, out);
+        lifecycle::render_scene_phase(module, 2, out);
+        status_bar::render(module.status_bar, 2, out);
         out.push_str("\n    }\n");
         if !module.screens.is_empty() {
             for screen in &module.screens {
-                navigation::render_screen_view(screen, module, &features, &mut out);
+                navigation::render_screen_view(screen, module, &features, out);
             }
         }
         out.push_str("}\n");

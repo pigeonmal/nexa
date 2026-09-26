@@ -19,7 +19,11 @@ pub(crate) fn render_on_appear(
     };
     out.push('\n');
     utils::indent(out, depth + 1);
-    out.push_str(if asynchronous { ".task {" } else { ".onAppear {" });
+    out.push_str(if asynchronous {
+        ".task {"
+    } else {
+        ".onAppear {"
+    });
     if actions.is_empty() {
         out.push('}');
         return;

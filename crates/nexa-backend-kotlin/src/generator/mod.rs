@@ -111,7 +111,7 @@ fn join_units(units: Vec<nexa_codegen::SourceUnit>) -> String {
 fn generate_with_analysis(module: &Module, features: &features::Features) -> GeneratedSources {
     let focus_bindings = features.facts.focus_bindings.app.clone();
     let imports = engine::imports::render(engine::imports::ImportContext {
-        features: &features,
+        features,
         has_navigation: !module.screens.is_empty(),
         has_direction: module.direction.is_some(),
         has_on_appear: module.on_appear.is_some()
@@ -130,7 +130,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
     });
     let mut units = SourceUnits::new("kt");
     units.set_imports(&imports);
-    units.write("types", |mut out| {
+    units.write("types", |out| {
         if features.uses_result {
             out.push_str(
                 r#"public sealed class NexaResult<out T, out E> {
@@ -166,10 +166,10 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                 declaration.cases.join(", ")
             ));
         }
-        structs::render(module, &mut out);
+        structs::render(module, out);
     });
 
-    units.write("app", |mut out| {
+    units.write("app", |out| {
             if features.uses_bottom_sheet {
                 out.push_str("@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)\n");
             }
@@ -186,7 +186,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             if features.uses_adaptive_color {
                 out.push_str("    val nexaIsDarkTheme = isSystemInDarkTheme()\n");
             }
-            components::status_bar::render(module.status_bar, features.uses_status_bar, 1, &mut out);
+            components::status_bar::render(module.status_bar, features.uses_status_bar, 1, out);
             if features.app_uses_link {
                 out.push_str("    val nexaLinkContext = LocalContext.current\n");
             }
@@ -247,16 +247,16 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             if !module.states.is_empty() {
                 out.push('\n');
             }
-            let body_depth = components::direction::start(module.direction, &mut out);
-            components::lifecycle::render_on_appear(module.on_appear.as_deref(), body_depth, &mut out);
+            let body_depth = components::direction::start(module.direction, out);
+            components::lifecycle::render_on_appear(module.on_appear.as_deref(), body_depth, out);
             components::lifecycle::render_on_disappear(
                 module.on_disappear.as_deref(),
                 body_depth,
-                &mut out,
+                out,
             );
-            components::lifecycle::render_app(module, body_depth, &mut out);
+            components::lifecycle::render_app(module, body_depth, out);
             if module.body.len() == 1 {
-                component_renderer::render_node(&module.body[0], module, &features, body_depth, &mut out);
+                component_renderer::render_node(&module.body[0], module, features, body_depth, out);
             } else {
                 layout::render_layout(
                     LayoutKind::Column,
@@ -264,17 +264,17 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                     &ViewStyle::default(),
                     &module.body,
                     module,
-                    &features,
+                    features,
                     body_depth,
-                    &mut out,
+                    out,
                 );
             }
-            components::direction::end(module.direction, &mut out);
+            components::direction::end(module.direction, out);
             out.push_str("\n}\n");
     });
 
     units.write("components", |out| {
-        custom_components::render(module, &features, out);
+        custom_components::render(module, features, out);
     });
     if features.uses_network_api || features.uses_path_api || features.uses_permissions {
         units.write("runtime", |out| {

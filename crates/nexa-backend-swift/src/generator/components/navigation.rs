@@ -349,12 +349,7 @@ pub(crate) fn render_screen_view(
     render_immutable_state(&module.states, 2, out);
     render_immutable_state(&screen.states, 2, out);
     render_children(&screen.body, module, features, 2, out);
-    lifecycle::render_on_appear(
-        screen.on_appear.as_deref(),
-        screen.on_appear_async,
-        2,
-        out,
-    );
+    lifecycle::render_on_appear(screen.on_appear.as_deref(), screen.on_appear_async, 2, out);
     lifecycle::render_on_disappear(screen.on_disappear.as_deref(), 2, out);
     status_bar::render(screen.status_bar.or(module.status_bar), 2, out);
     out.push_str("\n    }\n}\n");

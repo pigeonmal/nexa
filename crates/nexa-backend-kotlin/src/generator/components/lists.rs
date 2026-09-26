@@ -293,7 +293,7 @@ pub(crate) fn render_virtualized_list(
                 format_args!(
                     "val {}: {} = {collection}[{}]",
                     state_name(item),
-                    kotlin_type(&element_type),
+                    kotlin_type(element_type),
                     state_name(pieces.index)
                 ),
             );
@@ -386,7 +386,7 @@ fn render_sectioned_list(
         format_args!(
             "val {}: {} = sectionItems[itemPosition]",
             state_name(item),
-            kotlin_type(&element_type)
+            kotlin_type(element_type)
         ),
     );
     render_row_content(
@@ -504,7 +504,7 @@ fn render_grid_list(
                 format_args!(
                     "val {}: {} = {collection}[{}]",
                     state_name(item),
-                    kotlin_type(&element_type),
+                    kotlin_type(element_type),
                     state_name(pieces.index)
                 ),
             );

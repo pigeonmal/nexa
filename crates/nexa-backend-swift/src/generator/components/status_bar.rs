@@ -4,11 +4,7 @@ use nexa_ir::StatusBarConfig;
 use crate::generator::engine::colors;
 
 /// Renders the status-bar visibility, content style, and background modifiers.
-pub(crate) fn render(
-    config: Option<StatusBarConfig>,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
+pub(crate) fn render(config: Option<StatusBarConfig>, depth: usize, out: &mut SourceWriter) {
     let Some(config) = config else {
         return;
     };

@@ -89,12 +89,12 @@ fn array_initializer(initial: &nexa_ir::Expr, element: &Type) -> String {
     match initial {
         nexa_ir::Expr::Array(items) => format!(
             "mutableStateListOf<{}>({})",
-            kotlin_type(&element),
+            kotlin_type(element),
             items.iter().map(expression).collect::<Vec<_>>().join(", ")
         ),
         _ => format!(
             "mutableStateListOf<{}>().also {{ it.addAll({}) }}",
-            kotlin_type(&element),
+            kotlin_type(element),
             expression(initial)
         ),
     }
@@ -104,12 +104,12 @@ fn set_initializer(initial: &nexa_ir::Expr, element: &Type) -> String {
     match initial {
         nexa_ir::Expr::Set(items) | nexa_ir::Expr::Array(items) => format!(
             "mutableStateSetOf<{}>({})",
-            kotlin_type(&element),
+            kotlin_type(element),
             items.iter().map(expression).collect::<Vec<_>>().join(", ")
         ),
         _ => format!(
             "mutableStateSetOf<{}>().also {{ it.addAll({}) }}",
-            kotlin_type(&element),
+            kotlin_type(element),
             expression(initial)
         ),
     }
@@ -119,8 +119,8 @@ fn map_initializer(initial: &nexa_ir::Expr, key: &Type, value: &Type) -> String 
     match initial {
         nexa_ir::Expr::Map(entries) => format!(
             "mutableStateMapOf<{}, {}>({})",
-            kotlin_type(&key),
-            kotlin_type(&value),
+            kotlin_type(key),
+            kotlin_type(value),
             entries
                 .iter()
                 .map(|(key, value)| format!("{} to {}", expression(key), expression(value)))
@@ -129,8 +129,8 @@ fn map_initializer(initial: &nexa_ir::Expr, key: &Type, value: &Type) -> String 
         ),
         _ => format!(
             "mutableStateMapOf<{}, {}>().also {{ it.putAll({}) }}",
-            kotlin_type(&key),
-            kotlin_type(&value),
+            kotlin_type(key),
+            kotlin_type(value),
             expression(initial)
         ),
     }

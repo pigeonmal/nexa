@@ -608,6 +608,12 @@ fn contains_content_slot(node: &ast::Node) -> bool {
     }
 }
 
+fn is_builtin_component(name: &str) -> bool {
+    // Single source of truth: every catalogued built-in (primary name or
+    // alias) is reserved and cannot be redeclared as a custom component.
+    nexa_syntax::catalog::is_component(name)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, HashMap};
@@ -706,10 +712,4 @@ mod tests {
                 .contains("component parameter `player` is borrowed")
         );
     }
-}
-
-fn is_builtin_component(name: &str) -> bool {
-    // Single source of truth: every catalogued built-in (primary name or
-    // alias) is reserved and cannot be redeclared as a custom component.
-    nexa_syntax::catalog::is_component(name)
 }
