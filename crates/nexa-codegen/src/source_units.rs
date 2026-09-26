@@ -200,6 +200,9 @@ impl SourceUnits {
     /// The returned writer borrows the builder, so prefer [`Self::write`]:
     /// the unit's borrow ends with the call, which is what lets a later unit
     /// open even when the earlier one is only conditionally written.
+    ///
+    /// Trailing blank lines in a unit are dropped, so how a generator closes a
+    /// section does not change the file it produces.
     pub fn begin(&mut self, name: &str) -> &mut SourceWriter {
         self.close();
         self.current = Some((name.to_owned(), SourceWriter::new()));
@@ -210,16 +213,6 @@ impl SourceUnits {
     pub fn write(&mut self, name: &str, body: impl FnOnce(&mut SourceWriter)) {
         self.begin(name);
         body(self.writer());
-    }
-
-    /// Writes one unit, leaving a blank line at the end of the previous one.
-    ///
-    /// Swift separates its units with a blank line; Kotlin does not.
-    pub fn write_separated(&mut self, name: &str, body: impl FnOnce(&mut SourceWriter)) {
-        if self.current.is_some() {
-            self.writer().blank_line();
-        }
-        self.write(name, body)
     }
 
     /// Finishes the open unit, if any.
@@ -270,9 +263,23 @@ fn is_blank(body: &str) -> bool {
 ///
 /// Units compile as separate files, so a file-private declaration would be
 /// invisible to the other units that reference it.
+/// Lowers a `private` top-level declaration to file-internal and returns the
+/// unit body.
+///
+/// Units compile as separate files, so a file-private declaration would be
+/// invisible to the other units that reference it.
+///
+/// Trailing blank lines are dropped and exactly one newline is emitted. A
+/// generator that happens to end a section with an extra newline should not
+/// change the file it produces, and the same rule applies to every target, so
+/// an iOS unit and a Kotlin unit never disagree about trailing whitespace.
 fn lower_access(body: &str) -> String {
+    let mut lines: Vec<&str> = body.lines().collect();
+    while lines.last().is_some_and(|line| line.trim().is_empty()) {
+        lines.pop();
+    }
     let mut contents = String::new();
-    for line in body.lines() {
+    for line in lines {
         if let Some(stripped) = line.strip_prefix("private ") {
             contents.push_str(stripped);
         } else {
@@ -433,28 +440,34 @@ mod tests {
     }
 
     #[test]
-    fn spacing_between_units_is_the_callers_choice() {
-        let tight = files(
-            "import SwiftUI\n",
-            "",
-            &[("app", "// app\n"), ("types", "// types\n")],
-        );
-        assert_eq!(tight[0].contents, "import SwiftUI\n\n// app\n");
-        assert_eq!(tight[1].contents, "import SwiftUI\n\n// types\n");
-
-        // Writing a blank line on the open unit before opening the next one
-        // leaves the separator at the end of the earlier unit, which is where
-        // the old `// nexa-unit:` markers put it.
+    fn a_blank_line_between_units_does_not_reach_the_file() {
+        // Separating two units is the generator's choice, but the blank line
+        // lands at the end of the earlier body and is trimmed like any other
+        // trailing whitespace.
         let mut builder = SourceUnits::new("swift");
         builder.set_imports("import SwiftUI\n");
-        builder.begin("app").push_str("// app\n");
+        builder.write("app", |out| out.push_str("// app\n"));
         builder.writer().blank_line();
-        builder.begin("types").push_str("// types\n");
+        builder.write("types", |out| out.push_str("// types\n"));
         let sources = builder.finish();
         let header = sources.merged_imports(&[]);
-        let spaced = sources.into_files_with_header(&header, "");
-        assert_eq!(spaced[0].contents, "import SwiftUI\n\n// app\n\n");
-        assert_eq!(spaced[1].contents, "import SwiftUI\n\n// types\n");
+        let files = sources.into_files_with_header(&header, "");
+        assert_eq!(files[0].contents, "import SwiftUI\n\n// app\n");
+        assert_eq!(files[1].contents, "import SwiftUI\n\n// types\n");
+    }
+
+    #[test]
+    fn trailing_blank_lines_do_not_reach_the_file() {
+        // A generator that ends a section with extra newlines must not change
+        // the file, and every target must agree about trailing whitespace.
+        for trailing in ["", "\n", "\n\n", "\n\n\n"] {
+            let built = files(
+                "import SwiftUI\n",
+                "",
+                &[("app", &format!("// app\n{trailing}"))],
+            );
+            assert_eq!(built[0].contents, "import SwiftUI\n\n// app\n");
+        }
     }
 
     #[test]
