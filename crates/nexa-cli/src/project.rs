@@ -19,9 +19,12 @@ use nexa_ir::Module;
 use crate::{cache, config, config::ProjectConfig};
 
 mod assets;
+pub mod plan;
+use self::plan::ProjectPlan;
 mod plugin_package;
 mod plugins;
 mod templates;
+pub mod writers;
 
 fn report_warnings(warnings: &[CompileWarning], deny_warnings: bool) -> Result<(), String> {
     for warning in warnings {
@@ -489,37 +492,12 @@ fn collect_source_units(
     Ok(())
 }
 
-/// Splits backend output at generator-owned unit markers while preserving one
-/// shared import/package header in every native source file. Top-level private
-/// declarations become module-internal so a component can call a generated
-/// helper from another unit without a runtime indirection; member visibility
-/// remains unchanged.
-fn remove_stale_generated_units(
-    directory: &Path,
-    current: &[String],
-    extension: &str,
-) -> Result<(), String> {
-    if !directory.is_dir() {
-        return Ok(());
-    }
-    for entry in
-        fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?
-    {
-        let entry = entry.map_err(|error| format!("{}: {error}", directory.display()))?;
-        let path = entry.path();
-        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
-            continue;
-        };
-        if name.starts_with("NexaGenerated_")
-            && path.extension().and_then(|value| value.to_str()) == Some(extension)
-            && !current.iter().any(|value| value == name)
-        {
-            fs::remove_file(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-        }
-    }
-    Ok(())
-}
-
+/// Generates the iOS host project.
+///
+/// The work is split in three. `prepare_ios` performs the filesystem copies
+/// whose results the Xcode project has to reference. `ios_plan` then computes
+/// every path and file body from those facts without touching disk, and the
+/// writer only materializes the validated plan.
 fn generate_ios(
     root: &Path,
     source_root: &Path,
@@ -529,10 +507,67 @@ fn generate_ios(
     config: &ProjectConfig,
     dev_session: Option<&DevSessionConfig>,
 ) -> Result<(), String> {
+    let dev_runtime = dev_session.is_some();
+    let prepared = prepare_ios(
+        root,
+        source_root,
+        app_name,
+        module,
+        plugins,
+        config,
+        dev_runtime,
+    )?;
+    let plan = ios_plan(app_name, module, plugins, config, dev_session, &prepared)?;
+    writers::write_plan(root, &plan)?;
+    writers::remove_stale_units(
+        &root.join("ios").join(app_name),
+        &generated_unit_names(&plan, dev_runtime),
+        plan.platform().unit_extension(),
+    )
+}
+
+/// Every generated file name in an iOS source directory, including the dev
+/// runtime when this build uses it. Used to clear units a previous run left.
+fn generated_unit_names(plan: &ProjectPlan, dev_runtime: bool) -> Vec<String> {
+    let mut names: Vec<String> = plan
+        .source_units()
+        .iter()
+        .map(|unit| unit.name.clone())
+        .collect();
+    if dev_runtime {
+        names.push("NexaDevRuntime.swift".to_owned());
+    }
+    names
+}
+
+/// Facts gathered by the filesystem work, which the Xcode project references.
+struct PreparedIos {
+    source_units: Vec<nexa_codegen::SourceUnit>,
+    /// Whether the app bundle carries images, icons, or a splash screen.
+    has_assets: bool,
+    /// Whether any plugin contributes bundle resources.
+    has_plugin_resources: bool,
+    /// Swift files staged from plugin packages, relative to the app directory.
+    plugin_sources: Vec<String>,
+    /// C++ sources staged for the bridging header.
+    cpp_sources: Vec<String>,
+    /// XCFrameworks vendored into the app.
+    xcframeworks: Vec<String>,
+}
+
+/// Performs the iOS filesystem copies and gathers the facts they produce.
+fn prepare_ios(
+    root: &Path,
+    source_root: &Path,
+    app_name: &str,
+    module: &Module,
+    plugins: &[plugin_package::PluginPackage],
+    config: &ProjectConfig,
+    dev_runtime: bool,
+) -> Result<PreparedIos, String> {
     let directory = root.join("ios").join(app_name);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
-    let screen = nexa_codegen::names::screen_name(&module.app_name);
-    let source_units = ios_source_units(module, plugins, config, dev_session.is_some())?;
+    let source_units = ios_source_units(module, plugins, config, dev_runtime)?;
     copy_config_icons(root, app_name, config)?;
     let ios_icon = config.ios_icon.as_ref().or(config.icon_source.as_ref());
     let has_project_images = assets::copy_ios_project_images(source_root, root, app_name)?;
@@ -545,86 +580,95 @@ fn generate_ios(
     let cpp_sources = plugins::copy_ios_plugin_cpp_sources(root, app_name, plugins)?;
     let xcframeworks = plugins::copy_ios_plugin_artifacts(root, app_name, plugins)?;
     let has_plugin_resources = plugins::copy_ios_plugin_resources(root, app_name, plugins)?;
-    let mut generated_names = source_units
-        .iter()
-        .map(|unit| {
-            write_if_changed(&directory.join(&unit.name), &unit.contents)?;
-            Ok(unit.name.clone())
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    if dev_session.is_some() {
-        write_if_changed(
-            &directory.join("NexaDevRuntime.swift"),
-            include_str!("../../../runtime/ios/NexaDevRuntime.swift"),
-        )?;
-        generated_names.push("NexaDevRuntime.swift".to_owned());
-    } else {
-        let runtime = directory.join("NexaDevRuntime.swift");
-        if runtime.is_file() {
-            fs::remove_file(&runtime).map_err(|error| format!("{}: {error}", runtime.display()))?;
-        }
-    }
-    remove_stale_generated_units(&directory, &generated_names, "swift")?;
-    let app_root = if let Some(dev_session) = dev_session {
-        format!(
+    Ok(PreparedIos {
+        source_units,
+        has_assets,
+        has_plugin_resources,
+        plugin_sources,
+        cpp_sources,
+        xcframeworks,
+    })
+}
+
+/// Computes every iOS file and path from prepared facts, without touching disk.
+fn ios_plan(
+    app_name: &str,
+    module: &Module,
+    plugins: &[plugin_package::PluginPackage],
+    config: &ProjectConfig,
+    dev_session: Option<&DevSessionConfig>,
+    prepared: &PreparedIos,
+) -> Result<ProjectPlan, String> {
+    let screen = nexa_codegen::names::screen_name(&module.app_name);
+    let directory = format!("ios/{app_name}");
+    let dev_runtime = dev_session.is_some();
+    let app_root = match dev_session {
+        Some(dev_session) => format!(
             "NexaDevRuntimeRoot(serverURL: \"{}\", sessionToken: \"{}\")",
             swift_escape(&dev_session.server_url),
             swift_escape(&dev_session.session_token)
-        )
-    } else {
-        format!("{screen}()")
-    };
-    write_if_changed(
-        &directory.join(format!("{app_name}App.swift")),
-        &format!(
-            "import SwiftUI\n\n@main\nstruct {app_name}App: App {{\n    var body: some Scene {{\n        WindowGroup {{\n            {app_root}\n        }}\n    }}\n}}\n"
         ),
-    )?;
+        None => format!("{screen}()"),
+    };
+    let generated_names = generated_unit_names(
+        &ProjectPlan::ios(app_name).with_source_units(prepared.source_units.clone()),
+        dev_runtime,
+    );
+    let mut plan = ProjectPlan::ios(app_name)
+        .with_source_directory(directory.clone())
+        .with_source_units(prepared.source_units.clone())
+        .with_file(
+            format!("{directory}/{app_name}App.swift"),
+            format!(
+                "import SwiftUI\n\n@main\nstruct {app_name}App: App {{\n    var body: some Scene {{\n        WindowGroup {{\n            {app_root}\n        }}\n    }}\n}}\n"
+            ),
+        )
+        .with_file(
+            format!("ios/{app_name}.xcodeproj/xcshareddata/xcschemes/{app_name}.xcscheme"),
+            templates::ios_scheme(app_name),
+        )
+        .with_file(
+            format!("ios/{app_name}.xcodeproj/project.pbxproj"),
+            templates::ios_project_file_with_config(
+                app_name,
+                prepared.has_assets,
+                prepared.has_plugin_resources,
+                &generated_names,
+                &prepared.plugin_sources,
+                &prepared.cpp_sources,
+                &prepared.xcframeworks,
+                plugins,
+                config,
+            )?,
+        )
+        .with_file(
+            format!("{directory}/Info.plist"),
+            templates::ios_info_plist_with_dev_runtime(app_name, config, plugins, dev_runtime)?,
+        );
     if config.splash_source.is_some() {
-        write_if_changed(
-            &directory.join("LaunchScreen.storyboard"),
-            &templates::ios_launch_storyboard(),
-        )?;
+        plan = plan.with_file(
+            format!("{directory}/LaunchScreen.storyboard"),
+            templates::ios_launch_storyboard(),
+        );
     }
-    write_if_changed(
-        &directory.join("Info.plist"),
-        &templates::ios_info_plist_with_dev_runtime(
-            app_name,
-            config,
-            plugins,
-            dev_session.is_some(),
-        )?,
-    )?;
-    let entitlements_path = directory.join("Nexa.entitlements");
-    if let Some(entitlements) = templates::ios_entitlements(config, plugins)? {
-        write_if_changed(&entitlements_path, &entitlements)?;
-    } else if entitlements_path.is_file() {
-        fs::remove_file(&entitlements_path)
-            .map_err(|error| format!("{}: {error}", entitlements_path.display()))?;
+    if dev_runtime {
+        plan = plan.with_file(
+            format!("{directory}/NexaDevRuntime.swift"),
+            include_str!("../../../runtime/ios/NexaDevRuntime.swift"),
+        );
+    } else {
+        plan = plan.with_removal(format!("{directory}/NexaDevRuntime.swift"));
     }
-    write_if_changed(
-        &root
-            .join("ios")
-            .join(format!("{app_name}.xcodeproj/project.pbxproj")),
-        &templates::ios_project_file_with_config(
-            app_name,
-            has_assets,
-            has_plugin_resources,
-            &generated_names,
-            &plugin_sources,
-            &cpp_sources,
-            &xcframeworks,
-            plugins,
-            config,
-        )?,
-    )?;
-    write_if_changed(
-        &root.join("ios").join(format!(
-            "{app_name}.xcodeproj/xcshareddata/xcschemes/{app_name}.xcscheme"
-        )),
-        &templates::ios_scheme(app_name),
-    )?;
-    Ok(())
+    match templates::ios_entitlements(config, plugins)? {
+        Some(entitlements) => {
+            plan = plan.with_file(format!("{directory}/Nexa.entitlements"), entitlements);
+        }
+        None => {
+            plan = plan.with_removal(format!("{directory}/Nexa.entitlements"));
+        }
+    }
+    plan.validate()?;
+    Ok(plan)
 }
 
 fn generate_android(
@@ -658,23 +702,6 @@ fn generate_android(
     copy_config_icons(root, app_name, config)?;
     plugins::copy_plugin_assets(root, app_name, module)?;
     assets::copy_android_project_images(source_root, root)?;
-    let screen = nexa_codegen::names::screen_name(&module.app_name);
-    let cronet_import = if project_features.uses_network {
-        "import com.google.android.gms.net.CronetProviderInstaller\n"
-    } else {
-        ""
-    };
-    let permission_callback = "";
-    let splash_install = if config.splash_source.is_some() {
-        "        installSplashScreen()\n"
-    } else {
-        ""
-    };
-    let splash_import = if config.splash_source.is_some() {
-        "import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen\n"
-    } else {
-        ""
-    };
     // Every generated file needs the package declaration, and plugin bindings
     // add an import between the package line and the generator's own imports.
     // The header is assembled here rather than by rewriting a concatenated
@@ -700,28 +727,63 @@ fn generate_android(
         .iter()
         .map(|unit| unit.name.clone())
         .collect::<Vec<_>>();
-    for unit in &generated_units {
-        write_if_changed(&source_dir.join(&unit.name), &unit.contents)?;
-    }
-    remove_stale_generated_units(&source_dir, &generated_names, "kt")?;
+
+    let plan = android_plan(
+        app_name,
+        nexa_codegen::names::screen_name(&module.app_name),
+        &package,
+        &package_path,
+        &generated_units,
+        config,
+        plugins,
+        dev_session,
+        project_features,
+        &local_aars,
+    )?;
+    writers::write_plan(root, &plan)?;
+    let mut keep = generated_names;
     if dev_session.is_some() {
-        let runtime = include_str!("../../../runtime/android/NexaDevRuntime.kt")
-            .replace("__NEXA_PACKAGE__", &package);
-        write_if_changed(&source_dir.join("NexaDevRuntime.kt"), &runtime)?;
-    } else {
-        let runtime = source_dir.join("NexaDevRuntime.kt");
-        if runtime.is_file() {
-            fs::remove_file(&runtime).map_err(|error| format!("{}: {error}", runtime.display()))?;
-        }
+        keep.push("NexaDevRuntime.kt".to_owned());
     }
-    let compose_root = if let Some(dev_session) = dev_session {
-        format!(
+    writers::remove_stale_units(&source_dir, &keep, plan.platform().unit_extension())
+}
+
+/// Computes every Android file and path, without touching the filesystem.
+#[allow(clippy::too_many_arguments)]
+fn android_plan(
+    app_name: &str,
+    screen: String,
+    package: &str,
+    package_path: &str,
+    source_units: &[nexa_codegen::SourceUnit],
+    config: &ProjectConfig,
+    plugins: &[plugin_package::PluginPackage],
+    dev_session: Option<&DevSessionConfig>,
+    project_features: nexa_backend_kotlin::KotlinProjectFeatures,
+    local_aars: &[String],
+) -> Result<ProjectPlan, String> {
+    let dev_runtime = dev_session.is_some();
+    let source_directory = format!("android/app/src/main/java/{package_path}");
+    let compose_root = match dev_session {
+        Some(dev_session) => format!(
             "NexaDevRuntimeRoot(serverURL = \"{}\", sessionToken = \"{}\")",
             kotlin_escape(&dev_session.server_url),
             kotlin_escape(&dev_session.session_token)
+        ),
+        None => format!("{screen}()"),
+    };
+    let cronet_import = if project_features.uses_network {
+        "import com.google.android.gms.net.CronetProviderInstaller\n"
+    } else {
+        ""
+    };
+    let (splash_install, splash_import) = if config.splash_source.is_some() {
+        (
+            "        installSplashScreen()\n",
+            "import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen\n",
         )
     } else {
-        format!("{screen}()")
+        ("", "")
     };
     let activity_content = if project_features.uses_network {
         format!(
@@ -730,78 +792,68 @@ fn generate_android(
     } else {
         format!("        setContent {{ MaterialTheme {{ {compose_root} }} }}\n")
     };
-    write_if_changed(
-        &source_dir.join("MainActivity.kt"),
-        &format!(
-            "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{splash_import}{cronet_import}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n{activity_content}    }}\n{permission_callback}}}\n"
-        ),
-    )?;
-    write_if_changed(
-        &root.join("android/app/src/main/AndroidManifest.xml"),
-        &templates::android_manifest(
-            app_name,
-            &package,
-            project_features.uses_network,
-            config,
-            plugins,
-        ),
-    )?;
-    let debug_manifest = root.join("android/app/src/debug/AndroidManifest.xml");
-    if dev_session.is_some() {
-        write_if_changed(
-            &debug_manifest,
+    let mut plan = ProjectPlan::android(app_name)
+        .with_source_directory(source_directory.clone())
+        .with_source_units(source_units.to_vec())
+        .with_file(
+            format!("{source_directory}/MainActivity.kt"),
+            format!(
+                "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{splash_import}{cronet_import}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n{activity_content}    }}\n}}\n"
+            ),
+        )
+        .with_file(
+            "android/app/src/main/AndroidManifest.xml",
+            templates::android_manifest(app_name, package, project_features.uses_network, config, plugins),
+        )
+        .with_file(
+            "android/settings.gradle.kts",
+            templates::android_settings(app_name, plugins),
+        )
+        .with_file("android/build.gradle.kts", templates::android_root_gradle())
+        .with_file("android/gradle.properties", templates::android_properties())
+        .with_file(
+            "android/gradle/wrapper/gradle-wrapper.properties",
+            templates::android_gradle_wrapper_properties(),
+        )
+        .with_file("android/gradlew", templates::ANDROID_GRADLEW)
+        .with_executable("android/gradlew")
+        .with_file("android/gradlew.bat", templates::ANDROID_GRADLEW_BAT)
+        .with_binary(
+            "android/gradle/wrapper/gradle-wrapper.jar",
+            templates::ANDROID_GRADLE_WRAPPER_JAR,
+        )
+        .with_file(
+            "android/app/build.gradle.kts",
+            templates::android_app_gradle_with_dev_runtime(
+                package,
+                project_features,
+                plugins,
+                local_aars,
+                config,
+                dev_runtime,
+            )?,
+        )
+        .with_file(
+            "android/app/proguard-rules.pro",
+            plugins::android_plugin_proguard_rules(plugins, package)?,
+        );
+    if dev_runtime {
+        plan = plan.with_file(
+            format!("{source_directory}/NexaDevRuntime.kt"),
+            include_str!("../../../runtime/android/NexaDevRuntime.kt")
+                .replace("__NEXA_PACKAGE__", package),
+        );
+        plan = plan.with_file(
+            "android/app/src/debug/AndroidManifest.xml",
             "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><uses-permission android:name=\"android.permission.INTERNET\"/><application android:usesCleartextTraffic=\"true\"/></manifest>\n",
-        )?;
-    } else if debug_manifest.is_file() {
-        fs::remove_file(&debug_manifest)
-            .map_err(|error| format!("{}: {error}", debug_manifest.display()))?;
+        );
+    } else {
+        plan = plan
+            .with_removal(format!("{source_directory}/NexaDevRuntime.kt"))
+            .with_removal("android/app/src/debug/AndroidManifest.xml");
     }
-    write_if_changed(
-        &root.join("android/settings.gradle.kts"),
-        &templates::android_settings(app_name, plugins),
-    )?;
-    write_if_changed(
-        &root.join("android/build.gradle.kts"),
-        &templates::android_root_gradle(),
-    )?;
-    write_if_changed(
-        &root.join("android/gradle.properties"),
-        &templates::android_properties(),
-    )?;
-    write_if_changed(
-        &root.join("android/gradle/wrapper/gradle-wrapper.properties"),
-        &templates::android_gradle_wrapper_properties(),
-    )?;
-    let wrapper_jar = root.join("android/gradle/wrapper/gradle-wrapper.jar");
-    write_bytes_if_changed(&wrapper_jar, templates::ANDROID_GRADLE_WRAPPER_JAR)?;
-    let gradlew = root.join("android/gradlew");
-    write_if_changed(&gradlew, templates::ANDROID_GRADLEW)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&gradlew, fs::Permissions::from_mode(0o755))
-            .map_err(|error| format!("{}: {error}", gradlew.display()))?;
-    }
-    write_if_changed(
-        &root.join("android/gradlew.bat"),
-        templates::ANDROID_GRADLEW_BAT,
-    )?;
-    write_if_changed(
-        &root.join("android/app/build.gradle.kts"),
-        &templates::android_app_gradle_with_dev_runtime(
-            &package,
-            project_features,
-            plugins,
-            &local_aars,
-            config,
-            dev_session.is_some(),
-        )?,
-    )?;
-    write_if_changed(
-        &root.join("android/app/proguard-rules.pro"),
-        &plugins::android_plugin_proguard_rules(plugins, &package)?,
-    )?;
-    Ok(())
+    plan.validate()?;
+    Ok(plan)
 }
 
 fn copy_config_icons(root: &Path, app_name: &str, config: &ProjectConfig) -> Result<(), String> {
@@ -923,16 +975,6 @@ fn ios_source_units(
 
 fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {
     if path.is_file() && fs::read_to_string(path).ok().as_deref() == Some(contents) {
-        return Ok(());
-    }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
-    }
-    fs::write(path, contents).map_err(|error| format!("{}: {error}", path.display()))
-}
-
-fn write_bytes_if_changed(path: &Path, contents: &[u8]) -> Result<(), String> {
-    if path.is_file() && fs::read(path).ok().as_deref() == Some(contents) {
         return Ok(());
     }
     if let Some(parent) = path.parent() {

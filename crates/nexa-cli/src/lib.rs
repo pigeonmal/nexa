@@ -5,6 +5,12 @@ mod dependencies;
 mod plugin;
 mod project;
 
+/// The deterministic model behind native project generation, and the writers
+/// that materialize it.
+pub mod plan {
+    pub use crate::project::plan::{PlannedBinary, PlannedFile, ProjectPlan};
+}
+
 /// Run the Nexa command-line interface.
 pub fn run() -> Result<(), String> {
     commands::run(std::env::args().skip(1).collect())
