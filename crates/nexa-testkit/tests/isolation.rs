@@ -4,7 +4,7 @@
 //! shape directly, and it passes only because ownership is claimed through the
 //! operating system rather than assumed.
 
-use nexa_testkit::{TempDir, vacant_path};
+use nexa_testkit::{TempDir, VacantDir};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process;
@@ -177,7 +177,8 @@ fn an_occupied_name_is_skipped_rather_than_adopted() {
 /// tests that drive it need a claimed name whose directory is absent.
 #[test]
 fn a_vacant_path_does_not_exist_and_is_still_claimable() {
-    let path = vacant_path("nexa-testkit-vacant");
+    let vacant = VacantDir::new("nexa-testkit-vacant");
+    let path = vacant.path().to_path_buf();
     assert!(!path.exists(), "a vacant path must not exist yet");
     assert!(
         path.parent().is_some_and(|parent| parent.is_dir()),
@@ -187,5 +188,35 @@ fn a_vacant_path_does_not_exist_and_is_still_claimable() {
     // Nothing else can have taken the name, so a consumer can create it.
     std::fs::create_dir(&path).expect("the claimed name is free to create");
     assert!(path.is_dir());
-    std::fs::remove_dir(&path).expect("clean up");
+}
+
+/// A vacant path is cleaned up even though the consumer created it.
+///
+/// This is the leak the guard exists to prevent: `nexa create` and the dev
+/// runtime tests need a path that does not exist, and their previous cleanup
+/// was a trailing `remove_dir_all` that never ran when an assertion panicked.
+#[test]
+fn a_vacant_path_is_removed_when_the_guard_drops() {
+    let path = {
+        let vacant = VacantDir::new("nexa-testkit-vacant-cleanup");
+        let path = vacant.path().to_path_buf();
+        // Stand in for whatever the consumer scaffolds.
+        std::fs::create_dir(&path).expect("create the claimed path");
+        std::fs::write(path.join("App.nx"), b"app Demo {}\n").expect("write fixture");
+        path
+    };
+    assert!(
+        !path.exists(),
+        "the guard must remove what the consumer created"
+    );
+}
+
+/// A vacant path the consumer never creates is not an error to clean up.
+#[test]
+fn an_unused_vacant_path_releases_cleanly() {
+    let path = VacantDir::new("nexa-testkit-vacant-unused")
+        .path()
+        .to_path_buf();
+    assert!(!path.exists());
+    drop(path);
 }

@@ -1,13 +1,13 @@
 use std::{fs, path::Path, process::Command};
 
-fn temporary_project() -> std::path::PathBuf {
+fn temporary_project() -> nexa_testkit::VacantDir {
     // `nexa create` refuses to scaffold into a directory that already exists,
     // so the path has to be vacant. The name is still claimed, and the test
     // removes the project when it finishes.
-    let root = nexa_testkit::vacant_path("nexa-dev-runtime-command");
+    let root = nexa_testkit::VacantDir::new("nexa-dev-runtime-command");
     let output = Command::new(env!("CARGO_BIN_EXE_nexa"))
         .args(["create", "RuntimeSmoke", "--directory"])
-        .arg(&root)
+        .arg(root.path())
         .output()
         .expect("run create");
     assert!(output.status.success(), "{output:?}");

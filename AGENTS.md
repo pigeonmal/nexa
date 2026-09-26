@@ -148,8 +148,9 @@ on collision:
 let scratch: nexa_testkit::TempDir = nexa_testkit::TempDir::new("nexa-my-test");
 
 // A claimed name whose directory does not exist yet, for `nexa create` and
-// other consumers that refuse an existing directory.
-let path: PathBuf = nexa_testkit::vacant_path("nexa-my-test");
+// other consumers that refuse an existing directory. Still a guard, so
+// whatever the consumer scaffolds is removed on drop.
+let vacant: nexa_testkit::VacantDir = nexa_testkit::VacantDir::new("nexa-my-test");
 ```
 
 `nexa-testkit` is a `dev-dependency` only and never reaches a shipped binary, so

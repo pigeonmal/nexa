@@ -100,23 +100,72 @@ impl TempDir {
     }
 }
 
-/// Claims a name and then releases the directory, yielding a path that does not
-/// exist yet.
+/// A uniquely owned temporary path whose directory does not exist yet.
 ///
-/// Some consumers require the absence of a directory rather than its presence:
-/// `nexa create` refuses to scaffold into a directory that already exists. A
-/// [`TempDir`] cannot serve those, because claiming the name means creating it.
+/// Some consumers require the *absence* of a directory rather than its
+/// presence: `nexa create` refuses to scaffold into a directory that already
+/// exists. A [`TempDir`] cannot serve those, because claiming a name means
+/// creating it.
 ///
-/// The name is still exclusively ours after the release. It is built from the
-/// process id and a sequence number that this process never reuses, and
-/// [`TempDir::new`] proved the name was free a moment earlier, so releasing the
-/// directory cannot hand it to anyone else. Cleanup returns to the caller.
-pub fn vacant_path(prefix: &str) -> PathBuf {
-    let claimed = TempDir::new(prefix);
-    let path = claimed.path().to_path_buf();
-    std::fs::remove_dir(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-    debug_assert!(!path.exists(), "a vacant path must not exist");
-    path
+/// The name is still exclusively ours after the directory is released. It is
+/// built from the process id and a sequence number that this process never
+/// reuses, and [`TempDir::new`] proved the name was free a moment earlier, so
+/// releasing the directory cannot hand it to anyone else.
+///
+/// The guard keeps ownership, so whatever the consumer creates underneath is
+/// removed on drop -- including when an assertion panics partway through.
+#[derive(Debug)]
+pub struct VacantDir {
+    path: PathBuf,
+}
+
+impl VacantDir {
+    /// Claims a name and releases its directory, leaving a path that is free to
+    /// be created.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the name cannot be claimed, or the claimed directory cannot be
+    /// released.
+    pub fn new(prefix: &str) -> Self {
+        let claimed = TempDir::new(prefix);
+        let path = claimed.path().to_path_buf();
+        std::fs::remove_dir(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        debug_assert!(!path.exists(), "a vacant path must not exist yet");
+        // Ownership passes to this guard, which cleans up rather than deleting
+        // on construction.
+        std::mem::forget(claimed);
+        Self { path }
+    }
+
+    /// The path, which does not exist.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for VacantDir {
+    fn drop(&mut self) {
+        // The consumer may never have created anything, so a missing directory
+        // is the expected case rather than a failure. Anything else is ignored
+        // for the same reason `TempDir` ignores its errors: a cleanup problem
+        // must not mask the assertion that actually failed.
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+impl AsRef<Path> for VacantDir {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl std::ops::Deref for VacantDir {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.path
+    }
 }
 
 impl Drop for TempDir {
