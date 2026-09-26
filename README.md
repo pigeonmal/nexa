@@ -139,7 +139,7 @@ Explore real-world examples in [`examples/`](examples/):
 To verify the entire compiler workspace:
 
 ```bash
-# 1. Type checking across all 13 crates
+# 1. Type checking across all 14 crates
 cargo check --workspace --all-targets
 
 # 2. Strict linter verification
