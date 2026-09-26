@@ -1,30 +1,13 @@
-use std::{
-    collections::HashMap,
-    fs,
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 use nexa_compiler::{Target, compile_file_with_warnings_for_targets_and_plugin_roots};
 
-struct TempProject(PathBuf);
+/// A temporary project whose directory is owned for as long as it is bound.
+struct TempProject(nexa_testkit::TempDir);
 
 impl TempProject {
     fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("nexa-plugin-roots-{}-{nonce}", std::process::id()));
-        fs::create_dir_all(&path).expect("create temporary project");
-        Self(path)
-    }
-}
-
-impl Drop for TempProject {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        Self(nexa_testkit::TempDir::new("nexa-plugin-roots"))
     }
 }
 

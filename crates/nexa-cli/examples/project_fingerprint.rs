@@ -62,17 +62,12 @@ fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn temporary_root(tag: &str) -> PathBuf {
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock should be after the epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "nexa-project-fingerprint-{tag}-{}-{unique}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&root).expect("temporary project root should be created");
-    root
+/// Claims a temporary project root, removed when the guard is dropped.
+///
+/// This example previously left every fixture's generated tree behind in the
+/// system temporary directory, which is hundreds of files per run.
+fn temporary_root(tag: &str) -> nexa_testkit::TempDir {
+    nexa_testkit::TempDir::new(&format!("nexa-project-fingerprint-{tag}"))
 }
 
 /// Collects every file under `root`, keyed by its path relative to `root`.
@@ -133,7 +128,9 @@ fn report(examples: &Path, entry: &str, app_name: &str, dev: bool) {
     }
     let base = entry.trim_end_matches(".nx").replace('/', "-");
     let label = if dev { format!("dev-{base}") } else { base };
-    let output = temporary_root(&label).join("Generated");
+    // The guard is bound so the tree outlives generation and hashing.
+    let root = temporary_root(&label);
+    let output = root.join("Generated");
 
     let outcome = if dev {
         nexa_cli::generate_dev_project(

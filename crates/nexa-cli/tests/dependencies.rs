@@ -1,39 +1,16 @@
 #[path = "../src/dependencies.rs"]
 mod dependencies;
 
-use std::{
-    fs,
-    path::Path,
-    process::Command,
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fs, path::Path, process::Command};
 
 use nexa_syntax::ast::PluginDependencyConfig;
 
-static TEMP_PROJECT_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
-
-struct TempProject(std::path::PathBuf);
+/// A temporary project whose directory is owned for as long as it is bound.
+struct TempProject(nexa_testkit::TempDir);
 
 impl TempProject {
     fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let sequence = TEMP_PROJECT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "nexa-dependencies-{}-{nonce}-{sequence}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&path).expect("create temporary project");
-        Self(path)
-    }
-}
-
-impl Drop for TempProject {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        Self(nexa_testkit::TempDir::new("nexa-dependencies"))
     }
 }
 

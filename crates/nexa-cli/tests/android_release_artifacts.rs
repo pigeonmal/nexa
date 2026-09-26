@@ -5,7 +5,6 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::Command,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 fn executable_in_path(name: &str) -> Option<PathBuf> {
@@ -16,14 +15,8 @@ fn executable_in_path(name: &str) -> Option<PathBuf> {
 
 #[test]
 fn android_release_validates_signing_and_reports_only_verified_aabs() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock")
-        .as_nanos();
-    let scratch = std::env::temp_dir().join(format!(
-        "nexa-android-release-artifacts-{}-{nonce}",
-        std::process::id()
-    ));
+    // The guard removes the scratch tree, including when an assertion panics.
+    let scratch = nexa_testkit::TempDir::new("nexa-android-release-artifacts");
     let project = scratch.join("project");
     let fake_jdk = scratch.join("jdk");
     let fake_bin = fake_jdk.join("bin");
@@ -155,7 +148,7 @@ fn android_release_validates_signing_and_reports_only_verified_aabs() {
     );
 
     let mut directory_keystore = credentials.clone();
-    directory_keystore[0].1 = Some(scratch.clone().into_os_string());
+    directory_keystore[0].1 = Some(scratch.path().to_path_buf().into_os_string());
     let failure = release(&directory_keystore, false, "valid");
     assert!(!failure.status.success());
     assert!(String::from_utf8_lossy(&failure.stderr).contains("must point to a file"));
@@ -229,8 +222,6 @@ fn android_release_validates_signing_and_reports_only_verified_aabs() {
             .exists(),
         "the previous AAB should be removed before release"
     );
-
-    fs::remove_dir_all(scratch).expect("clean test scratch files");
 }
 
 #[test]
@@ -253,15 +244,7 @@ fn android_release_verifies_real_jarsigner_outputs_when_a_jdk_is_available() {
         return;
     }
 
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock")
-        .as_nanos();
-    let scratch = std::env::temp_dir().join(format!(
-        "nexa-android-real-aab-signature-{}-{nonce}",
-        std::process::id()
-    ));
-    fs::create_dir_all(&scratch).expect("create real-signature test directory");
+    let scratch = nexa_testkit::TempDir::new("nexa-android-real-aab-signature");
     let project = scratch.join("project");
     let create = Command::new(env!("CARGO_BIN_EXE_nexa"))
         .args(["create", "SignedAabSmoke", "--directory"])
@@ -333,6 +316,4 @@ fn android_release_verifies_real_jarsigner_outputs_when_a_jdk_is_available() {
         "jarsigner did not confirm the bundle signature: {}",
         String::from_utf8_lossy(&verified.stdout)
     );
-
-    fs::remove_dir_all(scratch).expect("clean real-signature test files");
 }

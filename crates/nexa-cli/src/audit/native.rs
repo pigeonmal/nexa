@@ -97,15 +97,34 @@ struct TempDirectory {
 }
 
 impl TempDirectory {
+    /// Claims a scratch directory for one audit run.
+    ///
+    /// Ownership comes from `create_dir`, which fails when a name is taken,
+    /// rather than from a clock reading. `as_nanos()` repeats under concurrency
+    /// -- the clock is far coarser than a nanosecond -- and `create_dir_all` on
+    /// an existing directory is a no-op rather than an error, so a clock-derived
+    /// name lets two concurrent audits silently share one tree, and whichever
+    /// finishes first deletes the other's generated sources. The counter keeps
+    /// the retry making progress, and the process id keeps concurrent audits
+    /// apart. `nexa-testkit::TempDir` is the same primitive for test code.
     fn new() -> std::io::Result<Self> {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(std::io::Error::other)?
-            .as_nanos();
-        let path =
-            env::temp_dir().join(format!("nexa-audit-release-{}-{nonce}", std::process::id()));
-        fs::create_dir_all(&path)?;
-        Ok(Self { path })
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let base = env::temp_dir();
+        for _ in 0..1024 {
+            let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path = base.join(format!(
+                "nexa-audit-release-{}-{sequence}",
+                std::process::id()
+            ));
+            match fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(std::io::Error::other(
+            "no unused temporary directory name available for the audit scratch directory",
+        ))
     }
 }
 
@@ -819,26 +838,12 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    struct TempDirectory(PathBuf);
+    /// A temporary directory owned for as long as it is bound.
+    struct TempDirectory(nexa_testkit::TempDir);
 
     impl TempDirectory {
         fn new() -> Self {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("clock should be after the Unix epoch")
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "nexa-audit-native-unit-{}-{nonce}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&path).expect("temporary audit directory should be created");
-            Self(path)
-        }
-    }
-
-    impl Drop for TempDirectory {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
+            Self(nexa_testkit::TempDir::new("nexa-audit-native-unit"))
         }
     }
 

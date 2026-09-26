@@ -1,22 +1,11 @@
 #![cfg(unix)]
 
-use std::{
-    fs,
-    os::unix::fs::PermissionsExt,
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fs, os::unix::fs::PermissionsExt, process::Command};
 
 #[test]
 fn ios_release_uses_an_imported_manual_provisioning_profile() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock")
-        .as_nanos();
-    let scratch = std::env::temp_dir().join(format!(
-        "nexa-ios-release-signing-{}-{nonce}",
-        std::process::id()
-    ));
+    // The guard removes the scratch tree, including when an assertion panics.
+    let scratch = nexa_testkit::TempDir::new("nexa-ios-release-signing");
     let project = scratch.join("project");
     let fake_bin = scratch.join("bin");
     fs::create_dir_all(&fake_bin).expect("create fake tool directory");
@@ -162,6 +151,4 @@ exit 0
             .exists(),
         "the previous IPA should be removed before export"
     );
-
-    fs::remove_dir_all(scratch).expect("clean test scratch files");
 }

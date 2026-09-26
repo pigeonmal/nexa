@@ -31,8 +31,13 @@ crates/
 ├── nexa-backend-swift/   # SwiftUI generator (API, components, features, state, views)
 ├── nexa-backend-kotlin/  # Jetpack Compose generator (API, components, features, state, composables)
 ├── nexa-lsp/             # Language Server Protocol 3.17 implementation (IDE tooling)
-└── nexa-cli/             # Command-line interface (`nexa run`, `build`, `generate`, `audit`, `plugin`)
+├── nexa-cli/             # Command-line interface (`nexa run`, `build`, `generate`, `audit`, `plugin`)
+└── nexa-testkit/         # dev-dependency only: claimed temporary directories for tests
 ```
+
+`nexa-testkit` depends on nothing and is depended on by nothing at runtime, so it
+can sit at the bottom of the graph and be shared by every other crate's tests
+without inverting any layering. See [§5.1](#51-temporary-directories-in-tests).
 
 ### Dependency Flow:
 ```mermaid
@@ -50,6 +55,8 @@ graph TD
     CLI --> NativeApp["Native iOS & Android Builds"]
     Syntax --> LSP["nexa-lsp"]
     Compiler --> LSP
+    CLI -. "dev-dependency only" .-> Testkit["nexa-testkit"]
+    Compiler -. "dev-dependency only" .-> Testkit
 ```
 
 ---
@@ -122,4 +129,38 @@ cargo clippy --workspace --all-targets
 
 # 3. Complete test suite execution
 cargo test --workspace
+```
+
+### 5.1 Temporary Directories in Tests
+
+Tests must never name a temporary directory from a clock reading.
+`SystemTime::now().as_nanos()` repeats under concurrency — the clock is far
+coarser than a nanosecond — and `create_dir_all` on an existing directory is a
+no-op rather than an error, so two tests silently share one tree and whichever
+finishes first deletes the other's files. That surfaces as `NotFound` on a write
+whose `create_dir_all` succeeded moments earlier, and only under load.
+
+Use `nexa_testkit` instead, which claims a name through `create_dir` and retries
+on collision:
+
+```rust
+// A directory, removed even if an assertion panics.
+let scratch: nexa_testkit::TempDir = nexa_testkit::TempDir::new("nexa-my-test");
+
+// A claimed name whose directory does not exist yet, for `nexa create` and
+// other consumers that refuse an existing directory.
+let path: PathBuf = nexa_testkit::vacant_path("nexa-my-test");
+```
+
+`nexa-testkit` is a `dev-dependency` only and never reaches a shipped binary, so
+`nexa-cli` and `nexa-compiler` can both use it without inverting the layering
+between real crates. Production code that needs the same guarantee cannot use a
+dev-dependency; `src/audit/native.rs` shows the inline form.
+
+Run the collision gate after changing anything that creates temporary
+directories. It is `#[ignore]`d so the default suite stays fast:
+
+```bash
+# 4. Temporary-directory collision gate (heavy; 36,000 concurrent claims)
+cargo test -p nexa-testkit -- --ignored
 ```

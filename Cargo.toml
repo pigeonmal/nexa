@@ -13,6 +13,7 @@ members = [
     "crates/nexa-lsp",
     "crates/nexa-plugin-idl",
     "crates/nexa-syntax",
+    "crates/nexa-testkit",
 ]
 default-members = ["crates/nexa-cli"]
 resolver = "3"

@@ -1,28 +1,11 @@
-use std::{
-    env, fs,
-    path::PathBuf,
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fs, process::Command};
 
-struct TempProject(PathBuf);
+/// A temporary project whose directory is owned for as long as it is bound.
+struct TempProject(nexa_testkit::TempDir);
 
 impl TempProject {
     fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should be after Unix epoch")
-            .as_nanos();
-        let path =
-            env::temp_dir().join(format!("nexa-ios-cpp-maps-{}-{nonce}", std::process::id()));
-        fs::create_dir_all(&path).expect("temporary test directory should be created");
-        Self(path)
-    }
-}
-
-impl Drop for TempProject {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        Self(nexa_testkit::TempDir::new("nexa-ios-cpp-maps"))
     }
 }
 

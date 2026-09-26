@@ -419,42 +419,20 @@ impl Fnv64 {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs,
-        path::PathBuf,
-        sync::atomic::{AtomicUsize, Ordering},
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::fs;
 
     use super::key;
 
-    static TEMP_PROJECT_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
-
-    struct TempProject(PathBuf);
+    /// A temporary project whose directory is owned for as long as it is bound.
+    struct TempProject(nexa_testkit::TempDir);
 
     impl TempProject {
         fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock should be after the epoch")
-                .as_nanos();
-            let sequence = TEMP_PROJECT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let root = std::env::temp_dir().join(format!(
-                "nexa-cache-test-{}-{unique}-{sequence}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&root).expect("temporary project should be created");
-            Self(root)
+            Self(nexa_testkit::TempDir::new("nexa-cache-test"))
         }
 
         fn path(&self) -> &std::path::Path {
             &self.0
-        }
-    }
-
-    impl Drop for TempProject {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
         }
     }
 

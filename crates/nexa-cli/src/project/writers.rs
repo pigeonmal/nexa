@@ -185,22 +185,14 @@ mod tests {
     use super::{remove_stale_units, write_if_changed, write_plan};
     use crate::project::plan::ProjectPlan;
     use nexa_codegen::SourceUnit;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
-    struct TempDir(PathBuf);
+    /// A temporary directory owned for as long as it is bound.
+    struct TempDir(nexa_testkit::TempDir);
 
     impl TempDir {
         fn new(tag: &str) -> Self {
-            let unique = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "nexa-writers-{tag}-{}-{unique}",
-                std::process::id()
-            ));
-            std::fs::create_dir_all(&path).expect("temp dir");
-            Self(path)
+            Self(nexa_testkit::TempDir::new(&format!("nexa-writers-{tag}")))
         }
 
         fn read(&self, relative: &str) -> String {
@@ -209,12 +201,6 @@ mod tests {
 
         fn exists(&self, relative: &str) -> bool {
             self.0.join(relative).exists()
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
         }
     }
 

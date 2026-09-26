@@ -206,7 +206,10 @@ mod template_generation {
         let mut ids = Vec::new();
         let mut search = project;
         while let Some(end) = search.find(" = { isa = ") {
-            let start = search[..end].rfind(['\t', ' ', '\n', '{']).map(|index| index + 1).unwrap_or(0);
+            let start = search[..end]
+                .rfind(['\t', ' ', '\n', '{'])
+                .map(|index| index + 1)
+                .unwrap_or(0);
             ids.push(search[start..end].to_owned());
             search = &search[end + 1..];
         }
@@ -222,7 +225,10 @@ mod template_generation {
     /// Find the `PBXBuildFile` whose `fileRef` points at the file reference
     /// with the given `path = ...` value.
     fn pbx_object_id_on_line(project: &str, position: usize) -> String {
-        let line_start = project[..position].rfind('\n').map(|index| index + 1).unwrap_or(0);
+        let line_start = project[..position]
+            .rfind('\n')
+            .map(|index| index + 1)
+            .unwrap_or(0);
         let line = &project[line_start..];
         let id = line
             .split(" = ")
@@ -278,19 +284,26 @@ mod template_generation {
             "Frameworks/NexaPlugin1_AudioSDK.xcframework".to_owned(),
         ];
         let mut media_plugin = plugin("Media");
-        media_plugin.artifacts.ios_frameworks = vec!["AVFoundation".to_owned(), "CoreMedia".to_owned()];
-        media_plugin.artifacts.swift_packages.push(nexa_plugin_idl::manifest::SwiftPackage {
-            url: "https://example.com/media.git".to_owned(),
-            from: "2.3.0".to_owned(),
-            products: vec!["MediaKit".to_owned(), "MediaUI".to_owned()],
-        });
+        media_plugin.artifacts.ios_frameworks =
+            vec!["AVFoundation".to_owned(), "CoreMedia".to_owned()];
+        media_plugin
+            .artifacts
+            .swift_packages
+            .push(nexa_plugin_idl::manifest::SwiftPackage {
+                url: "https://example.com/media.git".to_owned(),
+                from: "2.3.0".to_owned(),
+                products: vec!["MediaKit".to_owned(), "MediaUI".to_owned()],
+            });
         let mut maps_plugin = plugin("Maps");
         maps_plugin.artifacts.ios_frameworks = vec!["MapKit".to_owned()];
-        maps_plugin.artifacts.swift_packages.push(nexa_plugin_idl::manifest::SwiftPackage {
-            url: "https://example.com/maps.git".to_owned(),
-            from: "1.0.0".to_owned(),
-            products: vec!["MapsKit".to_owned()],
-        });
+        maps_plugin
+            .artifacts
+            .swift_packages
+            .push(nexa_plugin_idl::manifest::SwiftPackage {
+                url: "https://example.com/maps.git".to_owned(),
+                from: "1.0.0".to_owned(),
+                products: vec!["MapsKit".to_owned()],
+            });
         let plugins = [media_plugin, maps_plugin];
 
         let project = ios_project_file_with_config(
@@ -348,7 +361,9 @@ mod template_generation {
         }
         for name in &plugin_sources {
             assert_eq!(
-                project.matches(&format!("path = NexaPlugins/{name};")).count(),
+                project
+                    .matches(&format!("path = NexaPlugins/{name};"))
+                    .count(),
                 1,
                 "plugin source {name} should have exactly one file reference"
             );
@@ -405,14 +420,7 @@ mod template_generation {
                 list_unique.len(),
                 "every PBX object key must be unique in the xcodebuild variant"
             );
-            let root = std::env::temp_dir().join(format!(
-                "nexa-pbx-scale-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("system clock")
-                    .as_nanos()
-            ));
+            let root = nexa_testkit::TempDir::new("nexa-pbx-scale");
             let proj_dir = root.join("Demo.xcodeproj");
             std::fs::create_dir_all(proj_dir.join("xcshareddata/xcschemes"))
                 .expect("create xcodeproj layout");
@@ -441,7 +449,6 @@ mod template_generation {
                 }
                 Err(error) => panic!("failed to run xcodebuild -list: {error}"),
             }
-            let _ = std::fs::remove_dir_all(&root);
         }
     }
 
@@ -531,21 +538,27 @@ mod template_generation {
         media_plugin.artifacts.ios_min_version = Some("18.2".to_owned());
         media_plugin.artifacts.android_min_sdk = Some(29);
         media_plugin.artifacts.ios_frameworks = vec!["AVFoundation".to_owned()];
-        media_plugin.artifacts.ios_xcframeworks = vec!["/plugins/video/ios/VideoSDK.xcframework".to_owned()];
+        media_plugin.artifacts.ios_xcframeworks =
+            vec!["/plugins/video/ios/VideoSDK.xcframework".to_owned()];
         media_plugin.artifacts.ios_linker_flags = vec![
             "-ObjC".to_owned(),
             "-force_load".to_owned(),
             "$(PROJECT_DIR)/Vendor SDK/lib.a".to_owned(),
         ];
-        media_plugin.artifacts.swift_packages.push(nexa_plugin_idl::manifest::SwiftPackage {
-            url: "https://example.com/media.git".to_owned(),
-            from: "2.3.0".to_owned(),
-            products: vec!["MediaKit".to_owned()],
-        });
         media_plugin
-            .artifacts.maven_dependencies
+            .artifacts
+            .swift_packages
+            .push(nexa_plugin_idl::manifest::SwiftPackage {
+                url: "https://example.com/media.git".to_owned(),
+                from: "2.3.0".to_owned(),
+                products: vec!["MediaKit".to_owned()],
+            });
+        media_plugin
+            .artifacts
+            .maven_dependencies
             .push("com.example:media:2.3.0".to_owned());
-        media_plugin.artifacts.android_aars = vec!["/plugins/video/android/libs/media.aar".to_owned()];
+        media_plugin.artifacts.android_aars =
+            vec!["/plugins/video/android/libs/media.aar".to_owned()];
         media_plugin.artifacts.android_maven_repositories =
             vec!["https://maven.example.com/releases".to_owned()];
         let mut second_plugin = plugin("Recorder");
@@ -632,7 +645,8 @@ mod template_generation {
         cpp_plugin.artifacts.cpp_sources = vec!["/plugins/video/cpp/Sources/**".to_owned()];
         cpp_plugin.artifacts.cpp_standard = Some(23);
         let mut lower_standard_plugin = plugin("Audio");
-        lower_standard_plugin.artifacts.cpp_sources = vec!["/plugins/audio/cpp/Sources/**".to_owned()];
+        lower_standard_plugin.artifacts.cpp_sources =
+            vec!["/plugins/audio/cpp/Sources/**".to_owned()];
         lower_standard_plugin.artifacts.cpp_standard = Some(17);
         let ios = ios_project_file(
             "Demo",
@@ -651,7 +665,8 @@ mod template_generation {
         assert!(ios.contains("HEADER_SEARCH_PATHS"));
 
         let mut default_standard_plugin = plugin("DefaultStandard");
-        default_standard_plugin.artifacts.cpp_sources = vec!["/plugins/default/cpp/Sources/**".to_owned()];
+        default_standard_plugin.artifacts.cpp_sources =
+            vec!["/plugins/default/cpp/Sources/**".to_owned()];
         let default_ios = ios_project_file(
             "Demo",
             false,
@@ -720,14 +735,8 @@ mod template_generation {
 
     #[test]
     fn every_configured_permission_maps_to_ios_and_android_manifests() {
-        let path = std::env::temp_dir().join(format!(
-            "nexa-all-permissions-{}-{}.nx",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system clock")
-                .as_nanos()
-        ));
+        let home = nexa_testkit::TempDir::new("nexa-all-permissions");
+        let path = home.path().join("config.nx");
         fs::write(
             &path,
             r#"config { permissions {

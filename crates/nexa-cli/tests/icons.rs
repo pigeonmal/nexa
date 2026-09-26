@@ -2,24 +2,11 @@
 #[allow(dead_code)]
 mod assets;
 
-use std::{
-    fs,
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::fs;
 
-static TEMP_ROOT_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
-
-fn temp_root(prefix: &str) -> std::path::PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let sequence = TEMP_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "{prefix}-{}-{nonce}-{sequence}",
-        std::process::id()
-    ))
+/// Claims a temporary asset root that is removed when the guard is dropped.
+fn temp_root(prefix: &str) -> nexa_testkit::TempDir {
+    nexa_testkit::TempDir::new(prefix)
 }
 
 fn write_test_icon(root: &std::path::Path) -> std::path::PathBuf {
@@ -46,7 +33,6 @@ fn shared_raster_icon_generates_android_adaptive_round_and_themed_layers() {
     let themed = fs::read_to_string(res.join("mipmap-anydpi-v33/ic_launcher.xml"))
         .expect("themed adaptive icon XML");
     assert!(themed.contains("<monochrome"));
-    fs::remove_dir_all(root).expect("remove temporary asset directory");
 }
 
 #[test]
@@ -60,7 +46,6 @@ fn shared_raster_icon_generates_ios_asset_catalog_icon() {
         fs::read_to_string(icon_dir.join("Contents.json")).expect("AppIcon asset catalog metadata");
     assert!(contents.contains("1024x1024"));
     assert!(icon_dir.join("AppIcon.png").is_file());
-    fs::remove_dir_all(root).expect("remove temporary asset directory");
 }
 
 #[test]
@@ -93,6 +78,4 @@ fn ios_icon_composer_overrides_copy_packages_and_single_files() {
         fs::read(&destination).expect("copied icon file"),
         b"icon file"
     );
-
-    fs::remove_dir_all(root).expect("remove temporary Icon Composer assets");
 }

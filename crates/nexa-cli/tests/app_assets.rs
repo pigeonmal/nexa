@@ -1,31 +1,15 @@
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-    time::SystemTime,
-};
+use std::{fs, path::PathBuf};
 
 #[allow(dead_code)]
 #[path = "../src/project/assets.rs"]
 mod assets;
 
-static NEXT_PROJECT_ID: AtomicU64 = AtomicU64::new(0);
-
-struct TempProject(PathBuf);
+/// A temporary project whose directory is owned for as long as it is bound.
+struct TempProject(nexa_testkit::TempDir);
 
 impl TempProject {
     fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("system clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "nexa-app-assets-{}-{nonce}-{}",
-            std::process::id(),
-            NEXT_PROJECT_ID.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&path).expect("create temporary project");
-        Self(path)
+        Self(nexa_testkit::TempDir::new("nexa-app-assets"))
     }
 
     fn add_image(&self, name: &str, extension: &str) -> PathBuf {
@@ -39,12 +23,6 @@ impl TempProject {
             .save(&source)
             .expect("write valid source image");
         source
-    }
-}
-
-impl Drop for TempProject {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
     }
 }
 

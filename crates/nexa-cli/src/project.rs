@@ -1222,17 +1222,9 @@ mod tests {
         }
     }
 
-    fn temp_root(tag: &str) -> std::path::PathBuf {
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock after epoch")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "nexa-artifact-staging-{tag}-{}-{unique}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&path).expect("temp root");
-        path
+    /// Claims a temporary project root that stays alive for the whole test.
+    fn temp_root(tag: &str) -> nexa_testkit::TempDir {
+        nexa_testkit::TempDir::new(&format!("nexa-artifact-staging-{tag}"))
     }
 
     #[test]

@@ -1,40 +1,17 @@
-use std::{
-    collections::HashMap,
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-    time::SystemTime,
-};
-
-static NEXT_PROJECT_ID: AtomicU64 = AtomicU64::new(0);
+use std::{collections::HashMap, fs};
 
 use nexa_compiler::{IncrementalProjectCompiler, Target};
 
-struct TempProject(PathBuf);
+/// A temporary project whose directory is owned for as long as it is bound.
+struct TempProject(nexa_testkit::TempDir);
 
 impl TempProject {
     fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "nexa-incremental-project-{}-{nonce}-{}",
-            std::process::id(),
-            NEXT_PROJECT_ID.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&root).expect("create temporary project");
-        Self(root)
+        Self(nexa_testkit::TempDir::new("nexa-incremental-project"))
     }
 
     fn write(&self, name: &str, source: &str) {
         fs::write(self.0.join(name), source).expect("write Nexa source");
-    }
-}
-
-impl Drop for TempProject {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
     }
 }
 

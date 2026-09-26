@@ -2,24 +2,15 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     process::Command,
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
-static TEMP_PROJECT_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
-
-struct TempProject(PathBuf);
+/// A temporary project whose directory is owned for as long as it is bound.
+struct TempProject(nexa_testkit::TempDir);
 
 impl TempProject {
     fn new(platform: &str) -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should be after Unix epoch")
-            .as_nanos();
-        let sequence = TEMP_PROJECT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        Self(env::temp_dir().join(format!(
-            "nexa-plugin-build-{platform}-{}-{nonce}-{sequence}",
-            std::process::id(),
+        Self(nexa_testkit::TempDir::new(&format!(
+            "nexa-plugin-build-{platform}"
         )))
     }
 
@@ -30,12 +21,6 @@ impl TempProject {
         nexa_cli::generate_project(&entry, target, &output, "NexaPluginBuildTest")
             .expect("Nexa project generation should succeed");
         output
-    }
-}
-
-impl Drop for TempProject {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
     }
 }
 
@@ -892,7 +877,7 @@ std::unique_ptr<VideoPlayerSpec> makeVideoPlayerImpl(PlayerOptions options) {
     .expect("C++ implementation should be written");
     let checked = Command::new("clang++")
         .args(["-std=c++20", "-fsyntax-only", "-I"])
-        .arg(&temp.0)
+        .arg(temp.0.path())
         .arg(&implementation)
         .output()
         .expect("clang++ should start when available");

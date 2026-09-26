@@ -2,26 +2,16 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     process::Command,
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 const EXAMPLES: &[&str] = &["counter", "showcase", "todo_app", "virtual_list"];
-static TEMP_ROOT_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 
-struct TempRoot(PathBuf);
+/// A temporary root owned for as long as it is bound.
+struct TempRoot(nexa_testkit::TempDir);
 
 impl TempRoot {
     fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after Unix epoch")
-            .as_nanos();
-        let sequence = TEMP_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        Self(env::temp_dir().join(format!(
-            "nexa-native-examples-{}-{nonce}-{sequence}",
-            std::process::id(),
-        )))
+        Self(nexa_testkit::TempDir::new("nexa-native-examples"))
     }
 
     fn generate(&self, example: &str, target: &str) -> PathBuf {
@@ -48,12 +38,6 @@ impl TempRoot {
         )
         .unwrap_or_else(|error| panic!("failed to generate {example} for {target}:\n{error}"));
         output
-    }
-}
-
-impl Drop for TempRoot {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
     }
 }
 

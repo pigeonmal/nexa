@@ -1854,11 +1854,7 @@ fn sanitize_asset_name(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs,
-        path::PathBuf,
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::fs;
 
     use super::{
         android_plugin_proguard_rules, copy_android_plugin_artifacts,
@@ -1875,26 +1871,12 @@ mod tests {
         });
     }
 
-    struct TempProject(PathBuf);
+    /// A temporary project whose directory is owned for as long as it is bound.
+    struct TempProject(nexa_testkit::TempDir);
 
     impl TempProject {
         fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock should be after the epoch")
-                .as_nanos();
-            let root = std::env::temp_dir().join(format!(
-                "nexa-plugin-artifact-test-{}-{unique}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&root).expect("temporary project should be created");
-            Self(root)
-        }
-    }
-
-    impl Drop for TempProject {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
+            Self(nexa_testkit::TempDir::new("nexa-plugin-artifact-test"))
         }
     }
 

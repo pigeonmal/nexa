@@ -1,33 +1,20 @@
 use std::{
     fs,
-    path::PathBuf,
     process::{Command, Output},
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
-static PROJECT_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
-
-struct TempProject(PathBuf);
+/// A temporary project whose directory is owned for as long as it is bound.
+struct TempProject(nexa_testkit::TempDir);
 
 impl TempProject {
     fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock")
-            .as_nanos();
-        let sequence = PROJECT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "nexa-config-validation-{}-{nonce}-{sequence}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&root).expect("create temporary project");
+        let temporary = nexa_testkit::TempDir::new("nexa-config-validation");
         fs::write(
-            root.join("App.nx"),
+            temporary.join("App.nx"),
             "app Demo { body { Text(\"ready\") } }\n",
         )
         .expect("write app source");
-        Self(root)
+        Self(temporary)
     }
 
     fn check(&self, config: &str) -> Output {
@@ -37,12 +24,6 @@ impl TempProject {
             .current_dir(&self.0)
             .output()
             .expect("run nexa check")
-    }
-}
-
-impl Drop for TempProject {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
     }
 }
 

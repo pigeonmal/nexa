@@ -1,9 +1,4 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fs, path::Path};
 
 use nexa_ir::{
     Expr, Node, Type,
@@ -12,29 +7,12 @@ use nexa_ir::{
 
 use nexa_compiler::{Target, compile, compile_file_with_warnings_for_target};
 
-static TEMP_PROJECT_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-struct TempProject(PathBuf);
+/// A temporary project whose directory is owned for as long as it is bound.
+struct TempProject(nexa_testkit::TempDir);
 
 impl TempProject {
     fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should be after Unix epoch")
-            .as_nanos();
-        let sequence = TEMP_PROJECT_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "nexa-plugin-pruning-{}-{nonce}-{sequence}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&root).expect("temporary project should be created");
-        Self(root)
-    }
-}
-
-impl Drop for TempProject {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        Self(nexa_testkit::TempDir::new("nexa-plugin-pruning"))
     }
 }
 

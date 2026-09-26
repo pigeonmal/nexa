@@ -1,23 +1,10 @@
-use std::{
-    fs,
-    path::Path,
-    process::Command,
-    sync::atomic::{AtomicU64, Ordering},
-    time::SystemTime,
-};
-
-static TEMP_PROJECT_ID: AtomicU64 = AtomicU64::new(0);
+use std::{fs, path::Path, process::Command};
 
 fn temporary_project() -> std::path::PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "nexa-dev-runtime-command-{}-{nonce}-{}",
-        std::process::id(),
-        TEMP_PROJECT_ID.fetch_add(1, Ordering::Relaxed)
-    ));
+    // `nexa create` refuses to scaffold into a directory that already exists,
+    // so the path has to be vacant. The name is still claimed, and the test
+    // removes the project when it finishes.
+    let root = nexa_testkit::vacant_path("nexa-dev-runtime-command");
     let output = Command::new(env!("CARGO_BIN_EXE_nexa"))
         .args(["create", "RuntimeSmoke", "--directory"])
         .arg(&root)
@@ -62,7 +49,6 @@ fn dev_rejects_conflicting_once_and_compile_only_modes() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    fs::remove_dir_all(root).expect("remove temporary project");
 }
 
 #[test]
@@ -139,8 +125,6 @@ fn development_runtime_is_debug_only_and_removed_by_aot_regeneration() {
             .expect("read regenerated iOS app entry")
             .contains("NexaDevRuntime")
     );
-
-    fs::remove_dir_all(root).expect("remove temporary project");
 }
 
 #[test]
@@ -244,8 +228,6 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
             .join("ios/RuntimeSmoke/NexaGenerated_native_library.swift")
             .exists()
     );
-
-    fs::remove_dir_all(root).expect("remove temporary project");
 }
 
 #[test]
@@ -301,8 +283,6 @@ fn development_async_network_calls_use_release_native_adapters() {
     )
     .expect("read generated Android screen");
     assert!(android_screen.contains("import androidx.compose.ui.platform.LocalContext"));
-
-    fs::remove_dir_all(root).expect("remove temporary project");
 }
 
 #[test]
@@ -380,8 +360,6 @@ fn development_navigation_host_keeps_platform_navigation_state_outside_the_tree(
             .expect("read Android navigation dependencies")
             .contains("androidx.navigation:navigation-compose")
     );
-
-    fs::remove_dir_all(root).expect("remove temporary project");
 }
 
 #[test]
@@ -423,8 +401,6 @@ fn development_runtime_restores_text_input_focus_after_compatible_module_replace
             .contains("androidx.navigation:navigation-compose"),
         "debug runtime navigation dependency should be available even when the app has no navigation"
     );
-
-    fs::remove_dir_all(root).expect("remove temporary project");
 }
 
 #[test]
@@ -459,8 +435,6 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms() {
     let kotlin = fs::read_to_string(kotlin_path).expect("read Kotlin DevRuntime");
     assert!(kotlin.contains("\"BottomSheet\" ->"));
     assert!(kotlin.contains("ModalBottomSheet(onDismissRequest"));
-
-    fs::remove_dir_all(root).expect("remove temporary project");
 }
 
 #[test]
@@ -494,6 +468,4 @@ fn development_runtime_renders_bottom_tabs_on_both_platforms() {
     let kotlin = fs::read_to_string(kotlin_path).expect("read Kotlin DevRuntime");
     assert!(kotlin.contains("\"AppBottomBar\" ->"));
     assert!(kotlin.contains("NavigationBarItem("));
-
-    fs::remove_dir_all(root).expect("remove temporary project");
 }

@@ -23,4 +23,5 @@ nexa-syntax = { path = "../nexa-syntax" }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
 [dev-dependencies]
+nexa-testkit = { path = "../nexa-testkit" }
 serde_json = "1"

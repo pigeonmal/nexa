@@ -1,27 +1,11 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fs, path::Path};
 
-struct Scratch(PathBuf);
+/// A scratch directory owned for as long as it is bound.
+struct Scratch(nexa_testkit::TempDir);
 
 impl Scratch {
     fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock")
-            .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("nexa-deep-links-{}-{nonce}", std::process::id()));
-        fs::create_dir_all(&path).expect("create deep-link test directory");
-        Self(path)
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        Self(nexa_testkit::TempDir::new("nexa-deep-links"))
     }
 }
 

@@ -386,6 +386,7 @@ dependencies = [
  "nexa-ir",
  "nexa-plugin-idl",
  "nexa-syntax",
+ "nexa-testkit",
  "serde_json",
 ]
 
@@ -405,6 +406,7 @@ dependencies = [
  "nexa-ir",
  "nexa-plugin-idl",
  "nexa-syntax",
+ "nexa-testkit",
 ]
 
 [[package]]
@@ -472,6 +474,10 @@ dependencies = [
  "nexa-diagnostics",
  "nexa-plugin-idl",
 ]
+
+[[package]]
+name = "nexa-testkit"
+version = "0.1.0"
 
 [[package]]
 name = "num-traits"
