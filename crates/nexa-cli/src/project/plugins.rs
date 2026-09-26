@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use super::plan::CopyAction;
 use super::plugin_package::PluginPackage;
 use nexa_ir::Module;
 #[cfg(test)]
@@ -191,17 +192,31 @@ fn validate_native_artifacts(
     Ok(())
 }
 
-pub(super) fn copy_ios_plugin_artifacts(
+/// An artifact a plugin contributes to the app bundle, named but not yet
+/// copied.
+///
+/// Staging and copying are separate: staging validates the artifact and
+/// decides where it belongs, and the plan's writer performs the copy. The
+/// names are what the Xcode project file references.
+pub struct StagedArtifact {
+    /// Destination path relative to the app directory, as the Xcode project
+    /// references it.
+    pub name: String,
+    /// The copy that materializes it.
+    pub copy: CopyAction,
+}
+
+/// Stages the XCFrameworks a set of plugins vendors into the app.
+///
+/// Returns the staged artifacts and the names a previous run staged, so the
+/// caller can turn the difference into plan removals instead of deleting
+/// directories as a side effect.
+pub(super) fn stage_ios_plugin_artifacts(
     root: &Path,
     app_name: &str,
     plugins: &[PluginPackage],
-) -> Result<Vec<String>, String> {
-    let framework_root = root.join("ios").join(app_name).join("Frameworks");
-    let marker = root
-        .join("ios")
-        .join(app_name)
-        .join(".nexa-plugin-frameworks");
-    let mut generated = Vec::new();
+) -> Result<(Vec<StagedArtifact>, Vec<String>), String> {
+    let mut artifacts = Vec::new();
     for (plugin_index, plugin) in plugins.iter().enumerate() {
         let package_root = plugin_package_root(plugin)?;
         for (artifact_index, artifact) in plugin.artifacts.ios_xcframeworks.iter().enumerate() {
@@ -214,20 +229,32 @@ pub(super) fn copy_ios_plugin_artifacts(
                 "NexaPlugin{plugin_index}_{artifact_index}_{}.xcframework",
                 sanitize_asset_name(base_name)
             );
-            let relative = format!("Frameworks/{name}");
-            copy_directory(&source, &framework_root.join(&name))?;
-            generated.push(relative);
+            artifacts.push(StagedArtifact {
+                name: format!("Frameworks/{name}"),
+                copy: CopyAction::directory(source, format!("ios/{app_name}/Frameworks/{name}")),
+            });
         }
     }
-    generated.sort();
-    remove_stale_directories(
-        root.join("ios").join(app_name),
-        &marker,
-        &generated,
-        "Frameworks",
-    )?;
-    write_manifest(&marker, &generated)?;
-    Ok(generated)
+    artifacts.sort_by(|left, right| left.name.cmp(&right.name));
+    let previous = read_staged_names(&root.join("ios").join(app_name).join(MARKER));
+    Ok((artifacts, previous))
+}
+
+/// Relative marker recording what a staging pass produced, so the next run can
+/// tell what to remove.
+const MARKER: &str = ".nexa-plugin-frameworks";
+
+/// Reads the names a previous run recorded in a staging marker.
+fn read_staged_names(marker: &Path) -> Vec<String> {
+    std::fs::read_to_string(marker)
+        .map(|contents| {
+            contents
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub(super) fn copy_android_plugin_artifacts(
@@ -545,68 +572,6 @@ fn validate_plugin_path(
         return Err(format!("declared {kind} `{path}` must be a {expected}"));
     }
     Ok(canonical)
-}
-
-fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
-    if destination.exists() {
-        fs::remove_dir_all(destination)
-            .map_err(|error| format!("{}: {error}", destination.display()))?;
-    }
-    fs::create_dir_all(destination)
-        .map_err(|error| format!("{}: {error}", destination.display()))?;
-    let mut entries = fs::read_dir(source)
-        .map_err(|error| format!("{}: {error}", source.display()))?
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("{}: {error}", source.display()))?;
-    entries.sort();
-    for path in entries {
-        let kind = fs::symlink_metadata(&path)
-            .map_err(|error| format!("{}: {error}", path.display()))?
-            .file_type();
-        let output = destination.join(path.file_name().expect("directory entry has a name"));
-        if kind.is_symlink() {
-            return Err(format!(
-                "XCFramework contains unsupported symlink `{}`",
-                path.display()
-            ));
-        }
-        if kind.is_dir() {
-            copy_directory(&path, &output)?;
-        } else if kind.is_file() {
-            fs::copy(&path, &output).map_err(|error| format!("{}: {error}", path.display()))?;
-        } else {
-            return Err(format!(
-                "unsupported XCFramework entry `{}`",
-                path.display()
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn remove_stale_directories(
-    root: PathBuf,
-    marker: &Path,
-    current: &[String],
-    relative_prefix: &str,
-) -> Result<(), String> {
-    if let Ok(previous) = fs::read_to_string(marker) {
-        for path in previous
-            .lines()
-            .filter(|path| !current.iter().any(|value| value == path))
-        {
-            let Some(name) = path.strip_prefix(&format!("{relative_prefix}/")) else {
-                continue;
-            };
-            let stale = root.join(relative_prefix).join(name);
-            if stale.is_dir() {
-                fs::remove_dir_all(&stale)
-                    .map_err(|error| format!("{}: {error}", stale.display()))?;
-            }
-        }
-    }
-    Ok(())
 }
 
 fn remove_stale_files(directory: &Path, marker: &Path, current: &[String]) -> Result<(), String> {
@@ -1828,11 +1793,19 @@ mod tests {
 
     use super::{
         android_plugin_proguard_rules, copy_android_plugin_artifacts,
-        copy_android_plugin_cpp_sources, copy_android_plugin_resources, copy_ios_plugin_artifacts,
+        copy_android_plugin_cpp_sources, copy_android_plugin_resources,
         copy_ios_plugin_cpp_sources, copy_ios_plugin_resources, copy_plugin_assets,
-        native_plugin_sources, validate_manifest_sources, wildcard_matches,
+        native_plugin_sources, stage_ios_plugin_artifacts, validate_manifest_sources,
+        wildcard_matches,
     };
     use crate::project::plugin_package::{PluginArtifacts, PluginPackage};
+
+    /// Writes a fixture file, reporting the path if the write fails.
+    fn write_fixture(path: &std::path::Path, contents: &[u8]) {
+        fs::write(path, contents).unwrap_or_else(|error| {
+            panic!("fixture {} should be writable: {error}", path.display())
+        });
+    }
 
     struct TempProject(PathBuf);
 
@@ -1896,16 +1869,17 @@ mod tests {
             .expect("C++ source directory should be created");
         fs::create_dir_all(cpp_header.parent().expect("C++ header has a parent"))
             .expect("C++ include directory should be created");
-        fs::write(xcframework.join("Info.plist"), "framework metadata")
-            .expect("XCFramework metadata should be written");
-        fs::write(&aar, b"aar payload").expect("AAR should be written");
-        fs::write(&second_aar, b"second AAR payload").expect("second AAR should be written");
-        fs::write(&ios_resource, b"iOS resource payload").expect("iOS resource should be written");
-        fs::write(&privacy_manifest, "<plist/>\n").expect("privacy manifest should be written");
-        fs::write(&android_resource, b"Android resource payload")
-            .expect("Android resource should be written");
-        fs::write(&proguard_rules, "-keep class com.example.sdk.** { *; }\n")
-            .expect("ProGuard rules should be written");
+        // Seed paths appear in the failure messages. This test has failed
+        // rarely and only under load, with `NotFound` on a write that followed
+        // a successful `create_dir_all`; naming the path is what makes such an
+        // occurrence diagnosable instead of a bare assertion.
+        write_fixture(&xcframework.join("Info.plist"), b"framework metadata");
+        write_fixture(&aar, b"aar payload");
+        write_fixture(&second_aar, b"second AAR payload");
+        write_fixture(&ios_resource, b"iOS resource payload");
+        write_fixture(&privacy_manifest, b"<plist/>\n");
+        write_fixture(&android_resource, b"Android resource payload");
+        write_fixture(&proguard_rules, b"-keep class com.example.sdk.** { *; }\n");
         fs::write(
             &cpp_source,
             "#include \"NexaPluginBindings.hpp\"\n#include \"vendor/Decoder.hpp\"\nint nexa_decoder_version() { return 1; }\n",
@@ -2003,9 +1977,17 @@ mod tests {
             },
         }];
 
-        let ios = copy_ios_plugin_artifacts(&temporary.0, "Demo", &packages)
-            .expect("XCFramework should be copied to the iOS host");
+        // XCFrameworks are staged as data and copied by the plan's writer.
+        let (staged, previous) = stage_ios_plugin_artifacts(&temporary.0, "Demo", &packages)
+            .expect("XCFramework should be staged for the iOS host");
+        assert!(previous.is_empty());
+        let ios = staged
+            .iter()
+            .map(|artifact| artifact.name.clone())
+            .collect::<Vec<_>>();
         assert_eq!(ios, vec!["Frameworks/NexaPlugin0_0_videosdk.xcframework"]);
+        let plan = crate::project::plan::ProjectPlan::ios("Demo").with_copy(staged[0].copy.clone());
+        crate::project::writers::write_plan(&temporary.0, &plan).expect("plan writes the copies");
         assert_eq!(
             fs::read_to_string(
                 temporary

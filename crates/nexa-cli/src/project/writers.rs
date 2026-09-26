@@ -35,10 +35,16 @@ pub fn write_files(root: &Path, plan: &ProjectPlan) -> Result<(), String> {
 }
 
 /// Deletes the plan's removal paths when they exist.
+///
+/// A removal may name a directory, because a vendored artifact such as an
+/// XCFramework is a directory tree rather than a single file.
 pub fn apply_removals(root: &Path, plan: &ProjectPlan) -> Result<(), String> {
     for path in plan.removals() {
         let path = root.join(path);
-        if path.is_file() {
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+        } else if path.is_file() {
             std::fs::remove_file(&path).map_err(|error| format!("{}: {error}", path.display()))?;
         }
     }
@@ -78,10 +84,46 @@ pub fn mark_executable(root: &Path, plan: &ProjectPlan) -> Result<(), String> {
     Ok(())
 }
 
+/// Performs the plan's file and directory copies.
+pub fn perform_copies(root: &Path, plan: &ProjectPlan) -> Result<(), String> {
+    for copy in plan.copies() {
+        let destination = root.join(&copy.destination);
+        if copy.directory {
+            copy_directory(&copy.source, &destination)?;
+        } else {
+            write_if_changed(&destination, &read_file(&copy.source)?)?;
+        }
+    }
+    Ok(())
+}
+
+/// Reads a copy source, reporting the path when it cannot be read.
+fn read_file(source: &Path) -> Result<String, String> {
+    std::fs::read_to_string(source).map_err(|error| format!("{}: {error}", source.display()))
+}
+
+/// Copies a directory's contents, creating the destination as needed.
+fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
+    let entries =
+        std::fs::read_dir(source).map_err(|error| format!("{}: {error}", source.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("{}: {error}", source.display()))?;
+        let from = entry.path();
+        let to = destination.join(entry.file_name());
+        if from.is_dir() {
+            copy_directory(&from, &to)?;
+        } else {
+            write_if_changed(&to, &read_file(&from)?)?;
+        }
+    }
+    Ok(())
+}
+
 /// Materializes a whole plan: sources, then files, then removals.
 pub fn write_plan(root: &Path, plan: &ProjectPlan) -> Result<(), String> {
     plan.validate()?;
     write_source_units(root, plan)?;
+    perform_copies(root, plan)?;
     write_files(root, plan)?;
     write_binaries(root, plan)?;
     #[cfg(unix)]
@@ -261,6 +303,40 @@ mod tests {
             temp.exists("ios/HandWritten.swift"),
             "hand-written files are untouched"
         );
+    }
+
+    #[test]
+    fn copies_are_performed_before_planned_files() {
+        let temp = TempDir::new("copies");
+        write(&temp.0.join("pkg/ios/A.swift"), "// from a plugin\n");
+        write(&temp.0.join("pkg/assets/icon.dat"), "x");
+        write(&temp.0.join("pkg/assets/nested/deep.dat"), "y");
+
+        let plan = ProjectPlan::ios("Demo")
+            .with_copy(crate::project::plan::CopyAction::file(
+                temp.0.join("pkg/ios/A.swift"),
+                "ios/Demo/A.swift",
+            ))
+            .with_copy(crate::project::plan::CopyAction::directory(
+                temp.0.join("pkg/assets"),
+                "ios/Demo/assets",
+            ));
+        write_plan(&temp.0, &plan).expect("copies run");
+
+        assert_eq!(temp.read("ios/Demo/A.swift"), "// from a plugin\n");
+        assert_eq!(temp.read("ios/Demo/assets/icon.dat"), "x");
+        assert_eq!(temp.read("ios/Demo/assets/nested/deep.dat"), "y");
+    }
+
+    #[test]
+    fn a_copy_from_a_missing_source_reports_the_path() {
+        let temp = TempDir::new("copy-missing");
+        let plan = ProjectPlan::ios("Demo").with_copy(crate::project::plan::CopyAction::file(
+            temp.0.join("pkg/ios/A.swift"),
+            "ios/Demo/A.swift",
+        ));
+        let error = write_plan(&temp.0, &plan).expect_err("a missing source must fail");
+        assert!(error.contains("A.swift"), "{error}");
     }
 
     #[test]

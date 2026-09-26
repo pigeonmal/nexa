@@ -28,6 +28,7 @@
 //! ```
 
 use nexa_codegen::SourceUnit;
+use std::path::PathBuf;
 
 /// The native platform a plan targets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +74,42 @@ impl PlannedFile {
     }
 }
 
+/// A file or directory the writer should copy into the project.
+///
+/// Plugin packages ship sources, resources, and vendored artifacts that the
+/// project links but does not generate. Naming them as data keeps path
+/// validation in one place and lets the writer perform the copy, instead of
+/// each staging function validating and writing on its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CopyAction {
+    /// Absolute path of the file or directory to copy.
+    pub source: PathBuf,
+    /// Project-root-relative destination, using `/` separators.
+    pub destination: String,
+    /// Whether the source is a directory copied recursively.
+    pub directory: bool,
+}
+
+impl CopyAction {
+    /// Copies a single file to `destination`.
+    pub fn file(source: impl Into<PathBuf>, destination: impl Into<String>) -> Self {
+        Self {
+            source: source.into(),
+            destination: destination.into(),
+            directory: false,
+        }
+    }
+
+    /// Copies a directory recursively to `destination`.
+    pub fn directory(source: impl Into<PathBuf>, destination: impl Into<String>) -> Self {
+        Self {
+            source: source.into(),
+            destination: destination.into(),
+            directory: true,
+        }
+    }
+}
+
 /// A binary file the writer should create, with a project-relative path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlannedBinary {
@@ -92,6 +129,7 @@ pub struct ProjectPlan {
     files: Vec<PlannedFile>,
     binaries: Vec<PlannedBinary>,
     executables: Vec<String>,
+    copies: Vec<CopyAction>,
     removals: Vec<String>,
 }
 
@@ -115,6 +153,7 @@ impl ProjectPlan {
             files: Vec::new(),
             binaries: Vec::new(),
             executables: Vec::new(),
+            copies: Vec::new(),
             removals: Vec::new(),
         }
     }
@@ -195,6 +234,17 @@ impl ProjectPlan {
         &self.executables
     }
 
+    /// Adds a file or directory to copy into the project.
+    pub fn with_copy(mut self, copy: CopyAction) -> Self {
+        self.copies.push(copy);
+        self
+    }
+
+    /// The copies the writer should perform.
+    pub fn copies(&self) -> &[CopyAction] {
+        &self.copies
+    }
+
     /// The paths to delete before writing.
     pub fn removals(&self) -> &[String] {
         &self.removals
@@ -215,6 +265,7 @@ impl ProjectPlan {
             .into_iter()
             .chain(self.files.iter().map(|file| file.path.clone()))
             .chain(self.binaries.iter().map(|file| file.path.clone()))
+            .chain(self.copies.iter().map(|copy| copy.destination.clone()))
             .collect()
     }
 
@@ -297,7 +348,7 @@ fn validate_relative_path(path: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::ProjectPlan;
+    use super::{CopyAction, ProjectPlan};
     use nexa_codegen::SourceUnit;
 
     fn unit(name: &str) -> SourceUnit {
@@ -390,6 +441,30 @@ mod tests {
     fn removing_a_stale_file_is_allowed() {
         let plan = plan().with_removal("ios/Demo/NexaDevRuntime.swift");
         assert!(plan.validate().is_ok());
+    }
+
+    #[test]
+    fn copy_destinations_are_validated_like_every_other_path() {
+        let valid = plan().with_copy(CopyAction::file(
+            "/pkg/ios/Sources/A.swift",
+            "ios/Demo/A.swift",
+        ));
+        assert!(valid.validate().is_ok());
+
+        let escaping = plan().with_copy(CopyAction::directory("/pkg", "../outside"));
+        let error = escaping.validate().expect_err("an escaping copy must fail");
+        assert!(error.contains("must not leave the project root"), "{error}");
+    }
+
+    #[test]
+    fn a_copy_may_not_collide_with_a_planned_file() {
+        let colliding = plan()
+            .with_file("ios/Demo/Info.plist", "<plist/>")
+            .with_copy(CopyAction::file("/pkg/a", "ios/Demo/Info.plist"));
+        let error = colliding
+            .validate()
+            .expect_err("a copy must not overwrite a file");
+        assert!(error.contains("written twice"), "{error}");
     }
 
     #[test]

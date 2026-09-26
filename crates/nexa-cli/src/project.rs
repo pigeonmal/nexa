@@ -553,6 +553,10 @@ struct PreparedIos {
     cpp_sources: Vec<String>,
     /// XCFrameworks vendored into the app.
     xcframeworks: Vec<String>,
+    /// The XCFrameworks to copy, and the ones a previous run staged that this
+    /// build no longer produces.
+    artifacts: Vec<plan::CopyAction>,
+    removed_artifacts: Vec<String>,
 }
 
 /// Performs the iOS filesystem copies and gathers the facts they produce.
@@ -578,7 +582,12 @@ fn prepare_ios(
         || config.splash_source.is_some();
     let plugin_sources = plugins::copy_ios_plugin_sources(root, app_name, plugins)?;
     let cpp_sources = plugins::copy_ios_plugin_cpp_sources(root, app_name, plugins)?;
-    let xcframeworks = plugins::copy_ios_plugin_artifacts(root, app_name, plugins)?;
+    let (staged_artifacts, previous_artifacts) =
+        plugins::stage_ios_plugin_artifacts(root, app_name, plugins)?;
+    let xcframeworks = staged_artifacts
+        .iter()
+        .map(|artifact| artifact.name.clone())
+        .collect::<Vec<_>>();
     let has_plugin_resources = plugins::copy_ios_plugin_resources(root, app_name, plugins)?;
     Ok(PreparedIos {
         source_units,
@@ -586,7 +595,16 @@ fn prepare_ios(
         has_plugin_resources,
         plugin_sources,
         cpp_sources,
-        xcframeworks,
+        xcframeworks: xcframeworks.clone(),
+        artifacts: staged_artifacts
+            .iter()
+            .map(|artifact| artifact.copy.clone())
+            .collect(),
+        removed_artifacts: previous_artifacts
+            .iter()
+            .filter(|name| !xcframeworks.iter().any(|current| current == *name))
+            .map(|name| format!("ios/{app_name}/{name}"))
+            .collect(),
     })
 }
 
@@ -616,7 +634,25 @@ fn ios_plan(
     );
     let mut plan = ProjectPlan::ios(app_name)
         .with_source_directory(directory.clone())
-        .with_source_units(prepared.source_units.clone())
+        .with_source_units(prepared.source_units.clone());
+    for copy in &prepared.artifacts {
+        plan = plan.with_copy(copy.clone());
+    }
+    for stale in &prepared.removed_artifacts {
+        plan = plan.with_removal(stale.clone());
+    }
+    // The marker records what this build staged, so the next run can tell what
+    // to remove. It is a planned file like any other, which keeps staging free
+    // of writes and stale removal inside the plan.
+    if prepared.xcframeworks.is_empty() {
+        plan = plan.with_removal(format!("{directory}/.nexa-plugin-frameworks"));
+    } else {
+        plan = plan.with_file(
+            format!("{directory}/.nexa-plugin-frameworks"),
+            format!("{}\n", prepared.xcframeworks.join("\n")),
+        );
+    }
+    plan = plan
         .with_file(
             format!("{directory}/{app_name}App.swift"),
             format!(
@@ -1099,7 +1135,88 @@ mod tests {
     use nexa_codegen::Backend;
     use nexa_compiler::{Target, compile_file_with_warnings_for_targets};
 
-    use super::{KotlinBackend, SwiftBackend};
+    use super::{KotlinBackend, ProjectPlan, SwiftBackend, plugin_package, plugins, writers};
+
+    /// Builds a plugin package that vendors one XCFramework.
+    fn package_with_xcframework(root: &Path, name: &str) -> plugin_package::PluginPackage {
+        let xcframework = root.join("ios").join(format!("{name}.xcframework"));
+        std::fs::create_dir_all(&xcframework).expect("xcframework directory");
+        std::fs::write(xcframework.join("Info.plist"), "metadata").expect("xcframework metadata");
+        plugin_package::PluginPackage {
+            namespace: "Vendor".to_owned(),
+            idl_path: root.join("native.nxid").display().to_string(),
+            artifacts: plugin_package::PluginArtifacts {
+                ios_xcframeworks: vec![xcframework.display().to_string()],
+                ..Default::default()
+            },
+        }
+    }
+
+    fn temp_root(tag: &str) -> std::path::PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "nexa-artifact-staging-{tag}-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&path).expect("temp root");
+        path
+    }
+
+    #[test]
+    fn xcframework_staging_is_planned_and_replaced_across_builds() {
+        let root = temp_root("xcframework");
+        let package_root = root.join("pkg");
+        std::fs::create_dir_all(&package_root).expect("package root");
+        let plugins = [package_with_xcframework(&package_root, "Vendor")];
+
+        // First build: the framework is copied and the marker records it.
+        let (staged, previous) =
+            plugins::stage_ios_plugin_artifacts(&root, "Demo", &plugins).expect("staging");
+        assert!(previous.is_empty(), "nothing staged before the first build");
+        assert_eq!(staged.len(), 1);
+        assert_eq!(
+            staged[0].name,
+            "Frameworks/NexaPlugin0_0_vendor.xcframework"
+        );
+        assert_eq!(
+            staged[0].copy.destination,
+            "ios/Demo/Frameworks/NexaPlugin0_0_vendor.xcframework"
+        );
+        let plan = ProjectPlan::ios("Demo")
+            .with_copy(staged[0].copy.clone())
+            .with_file(
+                "ios/Demo/.nexa-plugin-frameworks",
+                format!("{}\n", staged[0].name),
+            );
+        writers::write_plan(&root, &plan).expect("first build writes");
+        assert!(
+            root.join("ios/Demo/Frameworks/NexaPlugin0_0_vendor.xcframework/Info.plist")
+                .is_file()
+        );
+
+        // Dropping the plugin must plan a removal of what the marker recorded.
+        let (_, previous) =
+            plugins::stage_ios_plugin_artifacts(&root, "Demo", &[]).expect("staging");
+        assert_eq!(
+            previous,
+            vec!["Frameworks/NexaPlugin0_0_vendor.xcframework"]
+        );
+        let plan = ProjectPlan::ios("Demo")
+            .with_removal("ios/Demo/Frameworks/NexaPlugin0_0_vendor.xcframework")
+            .with_removal("ios/Demo/.nexa-plugin-frameworks");
+        writers::write_plan(&root, &plan).expect("second build writes");
+        assert!(
+            !root
+                .join("ios/Demo/Frameworks/NexaPlugin0_0_vendor.xcframework")
+                .exists(),
+            "a framework the app no longer uses must not be left behind"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn video_player_demo_generates_two_direct_native_instances_on_both_targets() {
