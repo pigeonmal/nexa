@@ -119,10 +119,22 @@ fn hot_reload_interpreter_variants_have_both_native_dispatches() {
     let inventory = fixture["ir_variants"]
         .as_object()
         .expect("IR inventory object");
-    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRuntime.swift"))
-        .expect("read iOS dev runtime");
-    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRuntime.kt"))
-        .expect("read Android dev runtime");
+    let swift_dir = root.join("../../runtime/ios");
+    let swift = fs::read_dir(&swift_dir)
+        .expect("read iOS runtime directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "swift"))
+        .map(|entry| fs::read_to_string(entry.path()).expect("read swift runtime file"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let kotlin_dir = root.join("../../runtime/android");
+    let kotlin = fs::read_dir(&kotlin_dir)
+        .expect("read Android runtime directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "kt"))
+        .map(|entry| fs::read_to_string(entry.path()).expect("read kotlin runtime file"))
+        .collect::<Vec<_>>()
+        .join("\n");
 
     // These IR enums are consumed by the hot-reload interpreters. Metadata-only
     // node variants are handled by the module/store lifecycle; a native plugin

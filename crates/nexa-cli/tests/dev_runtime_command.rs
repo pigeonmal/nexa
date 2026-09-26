@@ -51,6 +51,54 @@ fn dev_rejects_conflicting_once_and_compile_only_modes() {
     );
 }
 
+const IOS_DEV_RUNTIME_MODULES: &[&str] = &[
+    "NexaDevSchema.swift",
+    "NexaDevProtocol.swift",
+    "NexaDevState.swift",
+    "NexaDevActions.swift",
+    "NexaDevNavigation.swift",
+    "NexaDevNativeApis.swift",
+    "NexaDevOverlay.swift",
+    "NexaDevRenderer.swift",
+    "NexaDevRuntime.swift",
+];
+
+const ANDROID_DEV_RUNTIME_MODULES: &[&str] = &[
+    "NexaDevSchema.kt",
+    "NexaDevProtocol.kt",
+    "NexaDevState.kt",
+    "NexaDevActions.kt",
+    "NexaDevNavigation.kt",
+    "NexaDevNativeApis.kt",
+    "NexaDevOverlay.kt",
+    "NexaDevRenderer.kt",
+    "NexaDevRuntime.kt",
+];
+
+fn read_ios_dev_runtime(output: &Path) -> String {
+    let base = output.join("ios/RuntimeSmoke");
+    IOS_DEV_RUNTIME_MODULES
+        .iter()
+        .map(|name| {
+            let path = base.join(name);
+            fs::read_to_string(&path).unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn read_android_dev_runtime(output: &Path) -> String {
+    let base = output.join("android/app/src/main/java/dev/nexa/runtimesmoke");
+    ANDROID_DEV_RUNTIME_MODULES
+        .iter()
+        .map(|name| {
+            let path = base.join(name);
+            fs::read_to_string(&path).unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[test]
 fn development_runtime_is_debug_only_and_removed_by_aot_regeneration() {
     let root = temporary_project();
@@ -67,16 +115,21 @@ fn development_runtime_is_debug_only_and_removed_by_aot_regeneration() {
             .expect("read AOT iOS app entry")
             .contains("NexaDevRuntime")
     );
-    assert!(
-        !output
-            .join("ios/RuntimeSmoke/NexaDevRuntime.swift")
-            .exists()
-    );
-    assert!(
-        !output
-            .join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevRuntime.kt")
-            .exists()
-    );
+    for file in IOS_DEV_RUNTIME_MODULES {
+        assert!(
+            !output.join("ios/RuntimeSmoke").join(file).exists(),
+            "AOT build should not have {file}"
+        );
+    }
+    for file in ANDROID_DEV_RUNTIME_MODULES {
+        assert!(
+            !output
+                .join("android/app/src/main/java/dev/nexa/runtimesmoke")
+                .join(file)
+                .exists(),
+            "AOT build should not have {file}"
+        );
+    }
 
     nexa_cli::generate_dev_project(
         &entry,
@@ -87,16 +140,21 @@ fn development_runtime_is_debug_only_and_removed_by_aot_regeneration() {
         "0123456789abcdef0123456789abcdef",
     )
     .expect("generate dev hosts");
-    assert!(
-        output
-            .join("ios/RuntimeSmoke/NexaDevRuntime.swift")
-            .is_file()
-    );
-    assert!(
-        output
-            .join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevRuntime.kt")
-            .is_file()
-    );
+    for file in IOS_DEV_RUNTIME_MODULES {
+        assert!(
+            output.join("ios/RuntimeSmoke").join(file).is_file(),
+            "Dev build should produce {file}"
+        );
+    }
+    for file in ANDROID_DEV_RUNTIME_MODULES {
+        assert!(
+            output
+                .join("android/app/src/main/java/dev/nexa/runtimesmoke")
+                .join(file)
+                .is_file(),
+            "Dev build should produce {file}"
+        );
+    }
     assert!(
         fs::read_to_string(&ios_app)
             .expect("read iOS app entry")
@@ -110,16 +168,21 @@ fn development_runtime_is_debug_only_and_removed_by_aot_regeneration() {
 
     nexa_cli::generate_project(&entry, "all", &output, "RuntimeSmoke")
         .expect("regenerate AOT hosts");
-    assert!(
-        !output
-            .join("ios/RuntimeSmoke/NexaDevRuntime.swift")
-            .exists()
-    );
-    assert!(
-        !output
-            .join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevRuntime.kt")
-            .exists()
-    );
+    for file in IOS_DEV_RUNTIME_MODULES {
+        assert!(
+            !output.join("ios/RuntimeSmoke").join(file).exists(),
+            "Regenerated AOT build should remove {file}"
+        );
+    }
+    for file in ANDROID_DEV_RUNTIME_MODULES {
+        assert!(
+            !output
+                .join("android/app/src/main/java/dev/nexa/runtimesmoke")
+                .join(file)
+                .exists(),
+            "Regenerated AOT build should remove {file}"
+        );
+    }
     assert!(
         !fs::read_to_string(ios_app)
             .expect("read regenerated iOS app entry")
@@ -143,15 +206,13 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     )
     .expect("generate Android dev host");
 
-    let kotlin_path =
-        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevRuntime.kt");
-    let kotlin = fs::read_to_string(kotlin_path).expect("read Kotlin DevRuntime");
+    let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("AsyncImage("));
     assert!(kotlin.contains("imageLoader = nexaImageLoader()"));
     assert!(!kotlin.contains("URL(url).openConnection()"));
     assert!(kotlin.contains("NexaFile.readText(stringOption(\"path\"))"));
     assert!(kotlin.contains("NexaPath.temporary(context)"));
-    assert!(kotlin.contains("private fun invokeNativeSync("));
+    assert!(kotlin.contains("invokeNativeSync("));
     assert!(kotlin.contains("NexaPermissions.status(context, permission).name"));
     assert!(kotlin.contains("NexaRuntime.bindPermissionLauncher(permissionLauncher)"));
 
@@ -184,10 +245,9 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
         generated_ios
             .contains("public static func readText(_ path: String) async throws -> String")
     );
-    let swift_runtime = fs::read_to_string(output.join("ios/RuntimeSmoke/NexaDevRuntime.swift"))
-        .expect("read Swift DevRuntime");
+    let swift_runtime = read_ios_dev_runtime(&output);
     assert!(swift_runtime.contains("try await NexaFile.readText(stringOption(\"path\"))"));
-    assert!(swift_runtime.contains("private func invokeNativeSync("));
+    assert!(swift_runtime.contains("func invokeNativeSync("));
     assert!(swift_runtime.contains("NexaPermissions.status(permission)"));
     let generated_ios_permissions =
         fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_permissions.swift"))
@@ -256,8 +316,7 @@ fn development_async_network_calls_use_release_native_adapters() {
     )
     .expect("generate cross-platform network dev hosts");
 
-    let swift = fs::read_to_string(output.join("ios/RuntimeSmoke/NexaDevRuntime.swift"))
-        .expect("read Swift DevRuntime");
+    let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"NativeCall\":"));
     assert!(swift.contains("NexaNetwork.fetch("));
     assert!(swift.contains("tagged[\"TryCatch\"] as? [String: Any]"));
@@ -266,9 +325,7 @@ fn development_async_network_calls_use_release_native_adapters() {
             .expect("read generated Swift networking adapter");
     assert!(generated_swift.contains("public enum NexaNetwork"));
 
-    let kotlin_path =
-        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevRuntime.kt");
-    let kotlin = fs::read_to_string(kotlin_path).expect("read Kotlin DevRuntime");
+    let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"NativeCall\" -> invokeNativeAsync"));
     assert!(kotlin.contains("NexaNetwork.fetch("));
     assert!(kotlin.contains("action.optJSONObject(\"TryCatch\")"));
@@ -343,15 +400,12 @@ fn development_navigation_host_keeps_platform_navigation_state_outside_the_tree(
     )
     .expect("generate navigation dev hosts");
 
-    let swift = fs::read_to_string(output.join("ios/RuntimeSmoke/NexaDevRuntime.swift"))
-        .expect("read Swift DevRuntime");
+    let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("NavigationStack(path: $store.navigationPath)"));
     assert!(swift.contains("routeDestination(route)"));
     assert!(swift.contains("screen/\\(name)"));
 
-    let kotlin_path =
-        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevRuntime.kt");
-    let kotlin = fs::read_to_string(kotlin_path).expect("read Kotlin DevRuntime");
+    let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("rememberNavController()"));
     assert!(kotlin.contains("NavHost(navController = navController"));
     assert!(kotlin.contains("navigationEpoch"));
@@ -379,17 +433,14 @@ fn development_runtime_restores_text_input_focus_after_compatible_module_replace
     )
     .expect("generate text input dev hosts");
 
-    let swift = fs::read_to_string(output.join("ios/RuntimeSmoke/NexaDevRuntime.swift"))
-        .expect("read Swift DevRuntime");
+    let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("@FocusState private var activeInput: String?"));
     assert!(swift.contains(".focused(focusedField, equals: identity)"));
     assert!(swift.contains("focusedFieldKey"));
     assert!(swift.contains("store.hotRestart(module: module)"));
     assert!(swift.contains("func hotRestart(module: [String: Any])"));
 
-    let kotlin_path =
-        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevRuntime.kt");
-    let kotlin = fs::read_to_string(kotlin_path).expect("read Kotlin DevRuntime");
+    let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("FocusRequester()"));
     assert!(kotlin.contains("store.focusedFieldKey == focusKey"));
     assert!(kotlin.contains("store.focusChanged(focusKey)"));
@@ -424,15 +475,12 @@ fn development_runtime_renders_bottom_sheets_on_both_platforms() {
     )
     .expect("generate bottom-sheet dev hosts");
 
-    let swift = fs::read_to_string(output.join("ios/RuntimeSmoke/NexaDevRuntime.swift"))
-        .expect("read Swift DevRuntime");
+    let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"BottomSheet\":"));
     assert!(swift.contains(".sheet(isPresented: Binding("));
     assert!(swift.contains("presentationDetents(sheet.partial ? [.medium, .large] : [.large])"));
 
-    let kotlin_path =
-        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevRuntime.kt");
-    let kotlin = fs::read_to_string(kotlin_path).expect("read Kotlin DevRuntime");
+    let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"BottomSheet\" ->"));
     assert!(kotlin.contains("ModalBottomSheet(onDismissRequest"));
 }
@@ -458,14 +506,11 @@ fn development_runtime_renders_bottom_tabs_on_both_platforms() {
     )
     .expect("generate bottom-bar dev hosts");
 
-    let swift = fs::read_to_string(output.join("ios/RuntimeSmoke/NexaDevRuntime.swift"))
-        .expect("read Swift DevRuntime");
+    let swift = read_ios_dev_runtime(&output);
     assert!(swift.contains("case \"AppBottomBar\":"));
     assert!(swift.contains("TabView(selection: Binding("));
 
-    let kotlin_path =
-        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevRuntime.kt");
-    let kotlin = fs::read_to_string(kotlin_path).expect("read Kotlin DevRuntime");
+    let kotlin = read_android_dev_runtime(&output);
     assert!(kotlin.contains("\"AppBottomBar\" ->"));
     assert!(kotlin.contains("NavigationBarItem("));
 }

@@ -1,0 +1,149 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NexaDevIRSchema",
+  "description": "Canonical schema definitions for Nexa dynamic Dev IR protocol, operations, and interpreter keys",
+  "protocol_version": 3,
+  "dev_ir_format_version": 1,
+  "platforms": [
+    "ios",
+    "android"
+  ],
+  "client_messages": [
+    "hello",
+    "acknowledge",
+    "request_full_module",
+    "disconnect"
+  ],
+  "server_messages": [
+    "welcome",
+    "full_module",
+    "patch",
+    "diagnostics",
+    "reload",
+    "restart",
+    "performance_overlay"
+  ],
+  "patch_operations": [
+    "set",
+    "remove"
+  ],
+  "severities": [
+    "error",
+    "warning"
+  ],
+  "node_kinds": [
+    "Layout",
+    "Column",
+    "Row",
+    "Stack",
+    "Text",
+    "Button",
+    "Pressable",
+    "TextInput",
+    "FastList",
+    "Switch",
+    "Image",
+    "RefreshControl",
+    "If",
+    "When",
+    "Link",
+    "Accessibility",
+    "KeyboardAware",
+    "AppBottomBar",
+    "BottomSheet",
+    "NavigationStack",
+    "NavigationLink",
+    "NavigationBack",
+    "Content",
+    "ComponentCall"
+  ],
+  "action_kinds": [
+    "Assign",
+    "Expression",
+    "If",
+    "For",
+    "ForMap",
+    "While",
+    "CollectionMutation",
+    "TryCatch",
+    "Break",
+    "Continue",
+    "NativeCall"
+  ],
+  "collection_mutation_kinds": [
+    "ArrayAppend",
+    "ArrayRemoveAt",
+    "SetInsert",
+    "SetRemove",
+    "MapSet",
+    "MapRemove"
+  ],
+  "native_namespaces": [
+    "Network",
+    "File",
+    "Path",
+    "Permissions"
+  ],
+  "keys": {
+    "protocol": {
+      "type": "type",
+      "payload": "payload",
+      "protocol_version": "protocol_version",
+      "session_token": "session_token",
+      "target": "target",
+      "revision": "revision",
+      "base_revision": "base_revision",
+      "module": "module",
+      "operations": "operations",
+      "identities": "identities",
+      "diagnostics": "diagnostics",
+      "enabled": "enabled",
+      "reason": "reason"
+    },
+    "patch": {
+      "op": "op",
+      "path": "path",
+      "value": "value"
+    },
+    "identity": {
+      "id": "id",
+      "kind": "kind"
+    },
+    "module": {
+      "app_name": "app_name",
+      "body": "body",
+      "screens": "screens",
+      "states": "states",
+      "functions": "functions",
+      "structs": "structs",
+      "direction": "direction",
+      "status_bar": "status_bar",
+      "on_appear": "on_appear",
+      "on_appear_async": "on_appear_async",
+      "on_disappear": "on_disappear",
+      "on_active": "on_active",
+      "on_inactive": "on_inactive",
+      "on_background": "on_background"
+    },
+    "screen": {
+      "name": "name",
+      "parameters": "parameters",
+      "states": "states",
+      "body": "body",
+      "on_appear": "on_appear",
+      "on_disappear": "on_disappear"
+    },
+    "state": {
+      "name": "name",
+      "ty": "ty",
+      "initial": "initial"
+    },
+    "diagnostic": {
+      "severity": "severity",
+      "file": "file",
+      "line": "line",
+      "column": "column",
+      "message": "message"
+    }
+  }
+}

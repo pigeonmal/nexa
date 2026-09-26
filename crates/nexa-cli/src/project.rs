@@ -526,6 +526,84 @@ fn generate_ios(
     )
 }
 
+const IOS_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
+    (
+        "NexaDevSchema.swift",
+        include_str!("../../../runtime/ios/NexaDevSchema.swift"),
+    ),
+    (
+        "NexaDevProtocol.swift",
+        include_str!("../../../runtime/ios/NexaDevProtocol.swift"),
+    ),
+    (
+        "NexaDevState.swift",
+        include_str!("../../../runtime/ios/NexaDevState.swift"),
+    ),
+    (
+        "NexaDevActions.swift",
+        include_str!("../../../runtime/ios/NexaDevActions.swift"),
+    ),
+    (
+        "NexaDevNavigation.swift",
+        include_str!("../../../runtime/ios/NexaDevNavigation.swift"),
+    ),
+    (
+        "NexaDevNativeApis.swift",
+        include_str!("../../../runtime/ios/NexaDevNativeApis.swift"),
+    ),
+    (
+        "NexaDevOverlay.swift",
+        include_str!("../../../runtime/ios/NexaDevOverlay.swift"),
+    ),
+    (
+        "NexaDevRenderer.swift",
+        include_str!("../../../runtime/ios/NexaDevRenderer.swift"),
+    ),
+    (
+        "NexaDevRuntime.swift",
+        include_str!("../../../runtime/ios/NexaDevRuntime.swift"),
+    ),
+];
+
+const ANDROID_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
+    (
+        "NexaDevSchema.kt",
+        include_str!("../../../runtime/android/NexaDevSchema.kt"),
+    ),
+    (
+        "NexaDevProtocol.kt",
+        include_str!("../../../runtime/android/NexaDevProtocol.kt"),
+    ),
+    (
+        "NexaDevState.kt",
+        include_str!("../../../runtime/android/NexaDevState.kt"),
+    ),
+    (
+        "NexaDevActions.kt",
+        include_str!("../../../runtime/android/NexaDevActions.kt"),
+    ),
+    (
+        "NexaDevNavigation.kt",
+        include_str!("../../../runtime/android/NexaDevNavigation.kt"),
+    ),
+    (
+        "NexaDevNativeApis.kt",
+        include_str!("../../../runtime/android/NexaDevNativeApis.kt"),
+    ),
+    (
+        "NexaDevOverlay.kt",
+        include_str!("../../../runtime/android/NexaDevOverlay.kt"),
+    ),
+    (
+        "NexaDevRenderer.kt",
+        include_str!("../../../runtime/android/NexaDevRenderer.kt"),
+    ),
+    (
+        "NexaDevRuntime.kt",
+        include_str!("../../../runtime/android/NexaDevRuntime.kt"),
+    ),
+];
+
 /// Every generated file name in an iOS source directory, including the dev
 /// runtime when this build uses it. Used to clear units a previous run left.
 fn generated_unit_names(plan: &ProjectPlan, dev_runtime: bool) -> Vec<String> {
@@ -535,7 +613,9 @@ fn generated_unit_names(plan: &ProjectPlan, dev_runtime: bool) -> Vec<String> {
         .map(|unit| unit.name.clone())
         .collect();
     if dev_runtime {
-        names.push("NexaDevRuntime.swift".to_owned());
+        for (filename, _) in IOS_DEV_RUNTIME_FILES {
+            names.push((*filename).to_owned());
+        }
     }
     names
 }
@@ -726,12 +806,13 @@ fn ios_plan(
         );
     }
     if dev_runtime {
-        plan = plan.with_file(
-            format!("{directory}/NexaDevRuntime.swift"),
-            include_str!("../../../runtime/ios/NexaDevRuntime.swift"),
-        );
+        for (filename, content) in IOS_DEV_RUNTIME_FILES {
+            plan = plan.with_file(format!("{directory}/{filename}"), *content);
+        }
     } else {
-        plan = plan.with_removal(format!("{directory}/NexaDevRuntime.swift"));
+        for (filename, _) in IOS_DEV_RUNTIME_FILES {
+            plan = plan.with_removal(format!("{directory}/{filename}"));
+        }
     }
     match templates::ios_entitlements(config, plugins)? {
         Some(entitlements) => {
@@ -818,7 +899,9 @@ fn generate_android(
     writers::write_plan(root, &plan)?;
     let mut keep = generated_names;
     if dev_session.is_some() {
-        keep.push("NexaDevRuntime.kt".to_owned());
+        for (filename, _) in ANDROID_DEV_RUNTIME_FILES {
+            keep.push((*filename).to_owned());
+        }
     }
     writers::remove_stale_units(&source_dir, &keep, plan.platform().unit_extension())
 }
@@ -944,19 +1027,21 @@ fn android_plan(
         plan = plan.with_removal(format!("{resource_directory}/.nexa-plugin-resources"));
     }
     if dev_runtime {
-        plan = plan.with_file(
-            format!("{source_directory}/NexaDevRuntime.kt"),
-            include_str!("../../../runtime/android/NexaDevRuntime.kt")
-                .replace("__NEXA_PACKAGE__", package),
-        );
+        for (filename, content) in ANDROID_DEV_RUNTIME_FILES {
+            plan = plan.with_file(
+                format!("{source_directory}/{filename}"),
+                content.replace("__NEXA_PACKAGE__", package),
+            );
+        }
         plan = plan.with_file(
             "android/app/src/debug/AndroidManifest.xml",
             "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><uses-permission android:name=\"android.permission.INTERNET\"/><application android:usesCleartextTraffic=\"true\"/></manifest>\n",
         );
     } else {
-        plan = plan
-            .with_removal(format!("{source_directory}/NexaDevRuntime.kt"))
-            .with_removal("android/app/src/debug/AndroidManifest.xml");
+        for (filename, _) in ANDROID_DEV_RUNTIME_FILES {
+            plan = plan.with_removal(format!("{source_directory}/{filename}"));
+        }
+        plan = plan.with_removal("android/app/src/debug/AndroidManifest.xml");
     }
     plan.validate()?;
     Ok(plan)
