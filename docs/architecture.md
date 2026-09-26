@@ -81,7 +81,14 @@ graph LR
   images.
 - **Plan.** Every path, name, and file body, computed from prepared facts with
   no filesystem access. Plans carry text files, binary files such as the Gradle
-  wrapper jar, and executable bits as data.
+  wrapper jar, executable bits, and `CopyAction`s for artifacts vendored from a
+  plugin package -- all as data.
+
+Staging a plugin artifact follows the same split. `stage_ios_plugin_artifacts`
+validates each XCFramework and returns the name the Xcode project references
+plus a `CopyAction`; the plan turns the difference against the staging marker
+into removals and writes the marker as an ordinary planned file. Only the
+writer copies or deletes.
 - **Validate.** One place decides whether names and paths are sound: duplicate
   unit names, a unit name that is really a path, a planned file colliding with a
   compile unit, a path escaping the project root, or a plan that both writes and
