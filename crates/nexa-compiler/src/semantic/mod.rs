@@ -12,7 +12,8 @@ use nexa_ir::{
 use nexa_syntax::ast;
 
 use self::{
-    components::{ScreenSignature, ScreenSignatures, contains_content, lower_nodes},
+    components::{contains_content, lower_nodes},
+    context::{ScreenSignature, ScreenSignatures, SemanticContext},
     custom_components::{lower_components, retain_reachable},
     expressions::{
         FunctionSignature, FunctionSignatures, StructTypes, collect_function_signatures,
@@ -25,6 +26,7 @@ use self::{
 use crate::Target;
 
 mod components;
+mod context;
 mod custom_components;
 mod expressions;
 mod styles;
@@ -323,18 +325,17 @@ pub fn lower_with_warnings(
                 mutable: declaration.mutable,
             });
         }
-        let screen_body = lower_nodes(
-            screen.body,
+        let cx = SemanticContext::new(
             &screen_symbols,
             &screen_signatures,
             &themes,
             &component_signatures,
             &function_signatures,
             &screen_native_aliases,
-            false,
-            true,
             target,
-        )?;
+        )
+        .with_navigation(false, true);
+        let screen_body = lower_nodes(screen.body, &cx)?;
         let (status_bar, screen_body) = extract_status_bar(screen_body, screen.span, "screen")?;
         if screen_body.iter().any(contains_content) {
             return Err(CompileError::new(
@@ -377,18 +378,17 @@ pub fn lower_with_warnings(
         });
     }
 
-    let body = lower_nodes(
-        app.body,
+    let cx = SemanticContext::new(
         &symbols,
         &screen_signatures,
         &themes,
         &component_signatures,
         &function_signatures,
         &native_aliases,
-        true,
-        false,
         target,
-    )?;
+    )
+    .with_navigation(true, false);
+    let body = lower_nodes(app.body, &cx)?;
     let (status_bar, body) = extract_status_bar(body, app.span, "app")?;
     if body.iter().any(contains_content) {
         return Err(CompileError::new(

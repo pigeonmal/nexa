@@ -1,18 +1,19 @@
-use nexa_codegen::{GeneratedSources, SourceUnit, SourceUnits, SourceWriter};
+use nexa_codegen::{GeneratedSources, SourceUnit, SourceUnits};
 use nexa_ir::{LayoutKind, Module, State, ViewStyle};
 
 mod api;
 mod components;
 mod engine;
 
-use crate::generator::engine::types::swift_type;
 pub(super) use api::{network, permissions};
-use components::components as component_renderer;
 pub(super) use components::{
-    accessibility, bottom_bar, controls, custom_components, images, input, keyboard, layout, links,
-    list_runtime, lists, navigation, refresh, sheets,
+    accessibility, bottom_bar, controls, custom_components, direction, images, input, keyboard,
+    layout, lifecycle, links, list_runtime, lists, navigation, refresh, sheets, status_bar,
 };
+pub(super) use engine::state::{render_immutable_state, render_native_object_state};
 pub(super) use engine::{colors, expressions, features, functions, imports, structs, utils};
+use components::components as component_renderer;
+use engine::types::{self, swift_type};
 
 /// Generates the release source as one concatenated string.
 ///
@@ -51,35 +52,9 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Gene
     units.set_imports(&imports::render(&features));
     units.set_preamble(&preamble);
     units.write("types", |mut out| {
-        for declaration in &module.enums {
-            out.push_str(&format!(
-                "private enum {}: String, Error {{\n",
-                nexa_codegen::names::enum_name(&declaration.name)
-            ));
-            for case in &declaration.cases {
-                out.push_str(&format!("    case {case}\n"));
-            }
-            out.push_str("}\n\n");
-        }
+        types::render_enums(module, &mut out);
         structs::render(module, &mut out);
-        if !module.screens.is_empty() {
-            out.push_str("private enum NexaNavigationRoute: Hashable {\n");
-            for screen in &module.screens {
-                let case_name = nexa_codegen::names::navigation_case_name(screen.id);
-                let mut payload_types = vec!["UUID".to_owned()];
-                payload_types.extend(
-                    screen
-                        .parameters
-                        .iter()
-                        .map(|parameter| swift_type(&parameter.ty)),
-                );
-                out.push_str(&format!(
-                    "    case {case_name}({})\n",
-                    payload_types.join(", ")
-                ));
-            }
-            out.push_str("}\n\n");
-        }
+        types::render_navigation_routes(module, &mut out);
     });
 
     units.write("app", |mut out| {
@@ -164,16 +139,16 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Gene
                 &mut out,
             );
         }
-        render_direction_modifier(module.direction, 2, &mut out);
-        render_on_appear_modifier(
+        direction::render(module.direction, 2, &mut out);
+        lifecycle::render_on_appear(
             module.on_appear.as_deref(),
             module.on_appear_async,
             2,
             &mut out,
         );
-        render_on_disappear_modifier(module.on_disappear.as_deref(), 2, &mut out);
-        render_scene_phase_modifier(module, 2, &mut out);
-        render_status_bar_modifiers(module.status_bar, 2, &mut out);
+        lifecycle::render_on_disappear(module.on_disappear.as_deref(), 2, &mut out);
+        lifecycle::render_scene_phase(module, 2, &mut out);
+        status_bar::render(module.status_bar, 2, &mut out);
         out.push_str("\n    }\n");
         if !module.screens.is_empty() {
             for screen in &module.screens {
@@ -273,166 +248,6 @@ pub(super) fn generate_for_dev_units(module: &Module) -> GeneratedSources {
     generate_with_analysis(module, features)
 }
 
-fn render_direction_modifier(
-    config: Option<nexa_ir::DirectionConfig>,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
-    let Some(config) = config else {
-        return;
-    };
-    let direction = match config.style {
-        nexa_ir::DirectionStyle::Ltr => "leftToRight",
-        nexa_ir::DirectionStyle::Rtl => "rightToLeft",
-    };
-    out.push('\n');
-    out.text_at(
-        depth + 1,
-        format_args!(".environment(\\.layoutDirection, .{direction})"),
-    );
-}
-
-pub(super) fn render_on_appear_modifier(
-    actions: Option<&[nexa_ir::Action]>,
-    asynchronous: bool,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
-    let Some(actions) = actions else {
-        return;
-    };
-    out.push('\n');
-    utils::indent(out, depth + 1);
-    out.push_str(if asynchronous {
-        ".task {"
-    } else {
-        ".onAppear {"
-    });
-    if actions.is_empty() {
-        out.push('}');
-        return;
-    }
-    out.push('\n');
-    controls::render_actions(actions, depth + 2, out);
-    utils::indent(out, depth + 1);
-    out.push('}');
-}
-
-pub(super) fn render_on_disappear_modifier(
-    actions: Option<&[nexa_ir::Action]>,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
-    let Some(actions) = actions else {
-        return;
-    };
-    out.push('\n');
-    utils::indent(out, depth + 1);
-    out.push_str(".onDisappear {");
-    if actions.is_empty() {
-        out.push('}');
-        return;
-    }
-    out.push('\n');
-    controls::render_actions(actions, depth + 2, out);
-    utils::indent(out, depth + 1);
-    out.push('}');
-}
-
-fn render_scene_phase_modifier(module: &Module, depth: usize, out: &mut SourceWriter) {
-    if module.on_active.is_none() && module.on_inactive.is_none() && module.on_background.is_none()
-    {
-        return;
-    }
-    out.push('\n');
-    utils::indent(out, depth + 1);
-    out.push_str(".onChange(of: nexaScenePhase) { phase in\n");
-    utils::indent(out, depth + 2);
-    out.push_str("switch phase {\n");
-    for (phase, actions) in [
-        ("active", module.on_active.as_deref()),
-        ("inactive", module.on_inactive.as_deref()),
-        ("background", module.on_background.as_deref()),
-    ] {
-        out.line_at(depth + 3, format_args!("case .{phase}:"));
-        if let Some(actions) = actions {
-            if actions.is_empty() {
-                utils::indent(out, depth + 4);
-                out.push_str("break\n");
-            } else {
-                controls::render_actions(actions, depth + 4, out);
-            }
-        } else {
-            utils::indent(out, depth + 4);
-            out.push_str("break\n");
-        }
-    }
-    utils::indent(out, depth + 3);
-    out.push_str("@unknown default:\n");
-    utils::indent(out, depth + 4);
-    out.push_str("break\n");
-    utils::indent(out, depth + 2);
-    out.push_str("}\n");
-    utils::indent(out, depth + 1);
-    out.push('}');
-}
-
-pub(super) fn render_status_bar_modifiers(
-    config: Option<nexa_ir::StatusBarConfig>,
-    depth: usize,
-    out: &mut SourceWriter,
-) {
-    let Some(config) = config else {
-        return;
-    };
-    if config.hidden {
-        out.push('\n');
-        utils::indent(out, depth);
-        out.push_str(".statusBarHidden(true)");
-    }
-    let scheme = match config.style {
-        nexa_ir::StatusBarStyle::Default => None,
-        // Light status-bar content uses a dark color scheme so the native
-        // status bar selects light foreground content.
-        nexa_ir::StatusBarStyle::Light => Some("dark"),
-        nexa_ir::StatusBarStyle::Dark => Some("light"),
-    };
-    if let Some(scheme) = scheme {
-        out.push('\n');
-        out.text_at(depth, format_args!(".preferredColorScheme(.{scheme})"));
-    }
-    if let Some(background) = config.background {
-        out.push('\n');
-        out.text_at(depth, format_args!(".background(alignment: .top) {{ GeometryReader {{ proxy in {}.frame(height: proxy.safeAreaInsets.top) }}.ignoresSafeArea(edges: .top) }}",
-            colors::expression(background)
-        ));
-    }
-}
-
-pub(super) fn render_immutable_state(states: &[State], depth: usize, out: &mut SourceWriter) {
-    let immutable = states
-        .iter()
-        .filter(|state| !state.mutable && !state.is_native_class_instance_binding())
-        .collect::<Vec<_>>();
-    for state in immutable {
-        out.line_at(
-            depth,
-            format_args!(
-                "let {}: {} = {}",
-                nexa_codegen::names::state_name(&state.name),
-                swift_type(&state.ty),
-                expressions::expression(&state.initial)
-            ),
-        );
-    }
-    if states
-        .iter()
-        .any(|state| !state.mutable && !state.is_native_class_instance_binding())
-    {
-        out.push('\n');
-    }
-}
-
 fn module_has_native_object_state(module: &Module) -> bool {
     module
         .states
@@ -450,34 +265,6 @@ fn module_has_native_object_state(module: &Module) -> bool {
                 .flat_map(|component| component.states.iter()),
         )
         .any(State::is_native_class_constructor_binding)
-}
-
-pub(super) fn render_native_object_state(state: &State, depth: usize, out: &mut SourceWriter) {
-    if !state.is_native_class_constructor_binding() {
-        return;
-    }
-    let name = nexa_codegen::names::state_name(&state.name);
-    let storage = format!("__nexaNativeObjectStorage_{name}");
-    out.line_at(
-        depth,
-        format_args!(
-            "@StateObject private var {storage} = NexaNativeObjectStorage {{ {} }}",
-            expressions::expression(&state.initial)
-        ),
-    );
-    out.line_at(
-        depth,
-        format_args!("private var {name}: {} {{", swift_type(&state.ty)),
-    );
-    out.line_at(depth + 1, format_args!("get {{ {storage}.value }}"));
-    if state.mutable {
-        out.line_at(
-            depth + 1,
-            format_args!("nonmutating set {{ {storage}.value = newValue }}"),
-        );
-    }
-    utils::indent(out, depth);
-    out.push_str("}\n");
 }
 
 #[cfg(test)]

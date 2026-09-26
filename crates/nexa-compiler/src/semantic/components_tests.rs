@@ -4,7 +4,10 @@ use nexa_diagnostics::Span;
 use nexa_ir::{Action, Expr, NativeComponentEventHandler, NumericType, Type};
 use nexa_syntax::ast;
 
-use super::{FunctionSignatures, lower_actions_with_aliases, lower_actions_with_depth, lower_node};
+use super::{
+    FunctionSignatures, SemanticContext, lower_actions_with_aliases, lower_actions_with_depth,
+    lower_node,
+};
 use crate::Target;
 use crate::semantic::custom_components::{
     ComponentEventSignature, ComponentSignature, ComponentSignatures,
@@ -134,18 +137,23 @@ fn lower_native_component_event(
     property: &str,
     parameters: Vec<String>,
 ) -> Result<nexa_ir::Node, nexa_diagnostics::CompileError> {
-    lower_node(
-        native_component_event_node(property, parameters),
-        &HashMap::new(),
-        &HashMap::new(),
-        &ThemeSymbols::default(),
-        &native_component_signatures(),
-        &HashMap::new(),
-        &HashMap::new(),
-        false,
-        false,
+    let symbols = HashMap::new();
+    let screens = HashMap::new();
+    let themes = ThemeSymbols::default();
+    let signatures = native_component_signatures();
+    let functions = HashMap::new();
+    let aliases = HashMap::new();
+    let cx = SemanticContext::new(
+        &symbols,
+        &screens,
+        &themes,
+        &signatures,
+        &functions,
+        &aliases,
         Target::Swift,
     )
+    .with_navigation(false, false);
+    lower_node(native_component_event_node(property, parameters), &cx)
 }
 
 fn disposal_fixture() -> (HashMap<String, (Type, bool)>, FunctionSignatures) {
@@ -751,20 +759,27 @@ fn native_component_content_blocks_must_match_the_declared_slot() {
         .get_mut("Video.VideoView")
         .expect("component fixture should exist")
         .has_content_slot = true;
+    let symbols = HashMap::new();
+    let screens = HashMap::new();
+    let themes = ThemeSymbols::default();
+    let functions = HashMap::new();
+    let aliases = HashMap::new();
+    let cx = SemanticContext::new(
+        &symbols,
+        &screens,
+        &themes,
+        &signatures,
+        &functions,
+        &aliases,
+        Target::Swift,
+    )
+    .with_navigation(false, false);
     let error = lower_node(
         native_component_event_node(
             "onProgressChanged",
             vec!["position".to_owned(), "duration".to_owned()],
         ),
-        &HashMap::new(),
-        &HashMap::new(),
-        &ThemeSymbols::default(),
-        &signatures,
-        &HashMap::new(),
-        &HashMap::new(),
-        false,
-        false,
-        Target::Swift,
+        &cx,
     )
     .expect_err("a declared content slot requires a child block");
     assert!(error.to_string().contains("requires a child block"));
@@ -776,19 +791,19 @@ fn native_component_content_blocks_must_match_the_declared_slot() {
     if let ast::Node::NativeComponentCall { children, .. } = &mut node {
         *children = Some(Vec::new());
     }
-    let error = lower_node(
-        node,
-        &HashMap::new(),
-        &HashMap::new(),
-        &ThemeSymbols::default(),
-        &native_component_signatures(),
-        &HashMap::new(),
-        &HashMap::new(),
-        false,
-        false,
+    let default_signatures = native_component_signatures();
+    let default_cx = SemanticContext::new(
+        &symbols,
+        &screens,
+        &themes,
+        &default_signatures,
+        &functions,
+        &aliases,
         Target::Swift,
     )
-    .expect_err("a child block without a declared slot must be rejected");
+    .with_navigation(false, false);
+    let error = lower_node(node, &default_cx)
+        .expect_err("a child block without a declared slot must be rejected");
     assert!(
         error
             .to_string()

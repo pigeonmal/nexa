@@ -12,35 +12,18 @@ use nexa_ir::{
 use nexa_syntax::{ast, catalog};
 
 use super::{
-    custom_components::ComponentSignatures,
+    context::{ScreenSignatures, SemanticContext},
     expressions::{
         FunctionSignatures, functions_with_error_handling, infer_expr_type, lower_expr,
         plugin_error_variant, type_name,
     },
     styles::{lower_style, optional_color, optional_dimension, parse_color_literal},
-    themes::ThemeSymbols,
 };
 use crate::Target;
 
-#[derive(Clone)]
-pub(super) struct ScreenSignature {
-    pub(super) id: ScreenId,
-    pub(super) parameters: Vec<nexa_ir::FunctionParameter>,
-}
-
-pub(super) type ScreenSignatures = HashMap<String, ScreenSignature>;
-
 pub(super) fn lower_nodes(
     nodes: Vec<ast::Node>,
-    symbols: &HashMap<String, (Type, bool)>,
-    screen_ids: &ScreenSignatures,
-    themes: &ThemeSymbols,
-    components: &ComponentSignatures,
-    functions: &FunctionSignatures,
-    native_aliases: &HashMap<String, String>,
-    allow_navigation_stack: bool,
-    allow_navigation_back: bool,
-    target: Target,
+    cx: &SemanticContext,
 ) -> Result<Vec<Node>, CompileError> {
     let mut lowered = Vec::with_capacity(nodes.len());
     for node in nodes {
@@ -50,40 +33,19 @@ pub(super) fn lower_nodes(
                 children,
                 ..
             } => {
-                if target == Target::All || platform_matches(platform, target) {
-                    lowered.extend(lower_nodes(
-                        children,
-                        symbols,
-                        screen_ids,
-                        themes,
-                        components,
-                        functions,
-                        native_aliases,
-                        allow_navigation_stack,
-                        allow_navigation_back,
-                        target,
-                    )?);
+                if cx.target == Target::All || platform_matches(platform, cx.target) {
+                    lowered.extend(lower_nodes(children, cx)?);
                 }
             }
             node => {
-                let allow_navigation = allow_navigation_stack
+                let allow_navigation = cx.allow_navigation_stack
                     && if let ast::Node::ComponentInvocation(invocation) = &node {
                         invocation.name == "NavigationStack"
                     } else {
                         false
                     };
-                lowered.push(lower_node(
-                    node,
-                    symbols,
-                    screen_ids,
-                    themes,
-                    components,
-                    functions,
-                    native_aliases,
-                    allow_navigation,
-                    allow_navigation_back,
-                    target,
-                )?);
+                let child_cx = cx.with_navigation(allow_navigation, cx.allow_navigation_back);
+                lowered.push(lower_node(node, &child_cx)?);
             }
         }
     }
@@ -212,16 +174,17 @@ enum ListSourceParts {
 
 pub(super) fn lower_node(
     node: ast::Node,
-    symbols: &HashMap<String, (Type, bool)>,
-    screen_ids: &ScreenSignatures,
-    themes: &ThemeSymbols,
-    components: &ComponentSignatures,
-    functions: &FunctionSignatures,
-    native_aliases: &HashMap<String, String>,
-    allow_navigation_stack: bool,
-    allow_navigation_back: bool,
-    target: Target,
+    cx: &SemanticContext,
 ) -> Result<Node, CompileError> {
+    let symbols = cx.symbols;
+    let screen_ids = cx.screen_ids;
+    let themes = cx.themes;
+    let components = cx.components;
+    let functions = cx.functions;
+    let native_aliases = cx.native_aliases;
+    let allow_navigation_stack = cx.allow_navigation_stack;
+    let allow_navigation_back = cx.allow_navigation_back;
+    let child_cx = cx.with_navigation(false, cx.allow_navigation_back);
     match node {
         ast::Node::Platform { .. } => {
             unreachable!("platform blocks are expanded by lower_nodes")
@@ -372,18 +335,7 @@ pub(super) fn lower_node(
             )?
             .unwrap_or(0.0);
             let style = lower_style(style, themes)?;
-            let lowered = lower_nodes(
-                children,
-                symbols,
-                screen_ids,
-                themes,
-                components,
-                functions,
-                native_aliases,
-                false,
-                allow_navigation_back,
-                target,
-            )?;
+            let lowered = lower_nodes(children, &child_cx)?;
             Ok(Node::Layout {
                 kind,
                 spacing,
@@ -689,18 +641,7 @@ pub(super) fn lower_node(
                 .transpose()?
                 .unwrap_or(Expr::Bool(false));
             let haptic = lower_haptic(haptic)?;
-            let lowered_children = lower_nodes(
-                children,
-                symbols,
-                screen_ids,
-                themes,
-                components,
-                functions,
-                native_aliases,
-                false,
-                allow_navigation_back,
-                target,
-            )?;
+            let lowered_children = lower_nodes(children, &child_cx)?;
             let actions =
                 lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)?;
             let long_press_actions = lower_actions_with_aliases(
@@ -786,18 +727,7 @@ pub(super) fn lower_node(
             let guard = guard
                 .map(|guard| lower_expr(&guard, Some(&Type::Bool), symbols, functions, false))
                 .transpose()?;
-            let lowered_children = lower_nodes(
-                children,
-                symbols,
-                screen_ids,
-                themes,
-                components,
-                functions,
-                native_aliases,
-                false,
-                allow_navigation_back,
-                target,
-            )?;
+            let lowered_children = lower_nodes(children, &child_cx)?;
             Ok(Node::NavigationLink {
                 destination: destination.0,
                 arguments: destination.1,
@@ -822,18 +752,7 @@ pub(super) fn lower_node(
                     ));
                 }
             }
-            let children = lower_nodes(
-                children,
-                symbols,
-                screen_ids,
-                themes,
-                components,
-                functions,
-                native_aliases,
-                false,
-                allow_navigation_back,
-                target,
-            )?;
+            let children = lower_nodes(children, &child_cx)?;
             Ok(Node::Link {
                 url: lowered_url,
                 children,
@@ -895,18 +814,7 @@ pub(super) fn lower_node(
                     ));
                 }
             };
-            let children = lower_nodes(
-                children,
-                symbols,
-                screen_ids,
-                themes,
-                components,
-                functions,
-                native_aliases,
-                false,
-                allow_navigation_back,
-                target,
-            )?;
+            let children = lower_nodes(children, &child_cx)?;
             if children.is_empty() {
                 return Err(CompileError::new(
                     span,
@@ -927,18 +835,7 @@ pub(super) fn lower_node(
                 ast::ChildBody::Nodes(children) => children,
                 _ => return Err(child_mismatch(inv.span)),
             };
-            let lowered_children = lower_nodes(
-                children,
-                symbols,
-                screen_ids,
-                themes,
-                components,
-                functions,
-                native_aliases,
-                false,
-                allow_navigation_back,
-                target,
-            )?;
+            let lowered_children = lower_nodes(children, &child_cx)?;
             Ok(Node::KeyboardAware {
                 dismiss: lower_keyboard_dismiss(dismiss)?,
                 children: lowered_children,
@@ -955,18 +852,7 @@ pub(super) fn lower_node(
             };
             let state =
                 require_mutable_binding(&is_presented, &Type::Bool, symbols, span, "BottomSheet")?;
-            let lowered_children = lower_nodes(
-                children,
-                symbols,
-                screen_ids,
-                themes,
-                components,
-                functions,
-                native_aliases,
-                false,
-                allow_navigation_back,
-                target,
-            )?;
+            let lowered_children = lower_nodes(children, &child_cx)?;
             Ok(Node::BottomSheet {
                 state,
                 partial: optional_bool(partial, false, "BottomSheet partial")?,
@@ -999,18 +885,7 @@ pub(super) fn lower_node(
                 span,
                 "RefreshControl",
             )?;
-            let mut lowered_children = lower_nodes(
-                children,
-                symbols,
-                screen_ids,
-                themes,
-                components,
-                functions,
-                native_aliases,
-                false,
-                allow_navigation_back,
-                target,
-            )?;
+            let mut lowered_children = lower_nodes(children, &child_cx)?;
             let actions =
                 lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)?;
             if lowered_children.len() == 1 {
@@ -1077,18 +952,7 @@ pub(super) fn lower_node(
                     .as_ref()
                     .map(|badge| require_string_literal(badge, "Tab badge"))
                     .transpose()?;
-                let children = lower_nodes(
-                    tab.children,
-                    symbols,
-                    screen_ids,
-                    themes,
-                    components,
-                    functions,
-                    native_aliases,
-                    false,
-                    allow_navigation_back,
-                    target,
-                )?;
+                let children = lower_nodes(tab.children, &child_cx)?;
                 lowered_tabs.push(BottomBarTab {
                     index,
                     label,
@@ -1396,18 +1260,7 @@ pub(super) fn lower_node(
                     lower_expr(&key, Some(&key_type), &row_symbols, functions, false)
                 })
                 .transpose()?;
-            let lowered_children = lower_nodes(
-                children,
-                &row_symbols,
-                screen_ids,
-                themes,
-                components,
-                functions,
-                native_aliases,
-                false,
-                allow_navigation_back,
-                target,
-            )?;
+            let lowered_children = lower_nodes(children, &child_cx.with_symbols(&row_symbols))?;
             if lowered_children.is_empty() {
                 return Err(CompileError::new(
                     span,
@@ -1437,20 +1290,7 @@ pub(super) fn lower_node(
                 })
                 .transpose()?;
             let sticky_header = sticky_header
-                .map(|header| {
-                    lower_nodes(
-                        header,
-                        symbols,
-                        screen_ids,
-                        themes,
-                        components,
-                        functions,
-                        native_aliases,
-                        false,
-                        allow_navigation_back,
-                        target,
-                    )
-                })
+                .map(|header| lower_nodes(header, &child_cx))
                 .transpose()?;
             let section_header = section_header
                 .map(|header| {
@@ -1461,18 +1301,7 @@ pub(super) fn lower_node(
                             (Type::Numeric(NumericType::Int32), false),
                         );
                     }
-                    lower_nodes(
-                        header,
-                        &header_symbols,
-                        screen_ids,
-                        themes,
-                        components,
-                        functions,
-                        native_aliases,
-                        false,
-                        allow_navigation_back,
-                        target,
-                    )
+                    lower_nodes(header, &child_cx.with_symbols(&header_symbols))
                 })
                 .transpose()?;
             Ok(Node::FastList {
@@ -1557,33 +1386,9 @@ pub(super) fn lower_node(
             ..
         } => {
             let condition = lower_expr(&condition, Some(&Type::Bool), symbols, functions, false)?;
-            let lowered_then = lower_nodes(
-                then_body,
-                symbols,
-                screen_ids,
-                themes,
-                components,
-                functions,
-                native_aliases,
-                false,
-                allow_navigation_back,
-                target,
-            )?;
+            let lowered_then = lower_nodes(then_body, &child_cx)?;
             let lowered_else = else_body
-                .map(|body| {
-                    lower_nodes(
-                        body,
-                        symbols,
-                        screen_ids,
-                        themes,
-                        components,
-                        functions,
-                        native_aliases,
-                        false,
-                        allow_navigation_back,
-                        target,
-                    )
-                })
+                .map(|body| lower_nodes(body, &child_cx))
                 .transpose()?;
             Ok(Node::If {
                 condition,
@@ -1633,35 +1438,13 @@ pub(super) fn lower_node(
                         "when case values must be unique",
                     ));
                 }
-                let body = lower_nodes(
-                    case.body,
-                    symbols,
-                    screen_ids,
-                    themes,
-                    components,
-                    functions,
-                    native_aliases,
-                    false,
-                    allow_navigation_back,
-                    target,
-                )?;
+                let body = lower_nodes(case.body, &child_cx)?;
                 lowered_cases.push(WhenCase {
                     value: lowered_case,
                     body,
                 });
             }
-            let lowered_else = lower_nodes(
-                else_body,
-                symbols,
-                screen_ids,
-                themes,
-                components,
-                functions,
-                native_aliases,
-                false,
-                allow_navigation_back,
-                target,
-            )?;
+            let lowered_else = lower_nodes(else_body, &child_cx)?;
             Ok(Node::When {
                 value: lowered_value,
                 cases: lowered_cases,
@@ -1716,18 +1499,7 @@ pub(super) fn lower_node(
             }
             let lowered_children = children
                 .map(|children| {
-                    let lowered = lower_nodes(
-                        children,
-                        symbols,
-                        screen_ids,
-                        themes,
-                        components,
-                        functions,
-                        native_aliases,
-                        false,
-                        allow_navigation_back,
-                        target,
-                    )?;
+                    let lowered = lower_nodes(children, &child_cx)?;
                     if lowered.iter().any(contains_content) {
                         return Err(CompileError::new(
                             span,
@@ -1762,18 +1534,7 @@ pub(super) fn lower_node(
                 ));
             }
             let lowered_children = match (signature.has_content_slot, children) {
-                (true, Some(children)) => Some(lower_nodes(
-                    children,
-                    symbols,
-                    screen_ids,
-                    themes,
-                    components,
-                    functions,
-                    native_aliases,
-                    allow_navigation_stack,
-                    allow_navigation_back,
-                    target,
-                )?),
+                (true, Some(children)) => Some(lower_nodes(children, cx)?),
                 (true, None) => {
                     return Err(CompileError::new(
                         span,

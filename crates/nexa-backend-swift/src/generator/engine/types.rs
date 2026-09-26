@@ -4,8 +4,11 @@
 //! platform output, not semantic facts: the IR knows *what* a type is, and
 //! each backend decides how to spell it.
 
-use nexa_codegen::names::{enum_name, struct_name};
-use nexa_ir::{NumericType, Type};
+use nexa_codegen::{
+    names::{enum_name, struct_name},
+    SourceWriter,
+};
+use nexa_ir::{Module, NumericType, Type};
 
 /// Swift spelling of a numeric type.
 pub(crate) fn swift_numeric(ty: NumericType) -> &'static str {
@@ -51,4 +54,49 @@ pub(crate) fn swift_type(ty: &Type) -> String {
         Type::NetworkResponse => "NexaNetworkResponse".to_owned(),
         Type::Struct { name, .. } => struct_name(name),
     }
+}
+
+/// Renders the module's enums as Swift `String`-backed error types.
+///
+/// Every `.nx` enum is lowered to a `String`-backed `Error` conformance
+/// because a failed `Result` must carry the case name across the native
+/// boundary without any runtime type information.
+pub(crate) fn render_enums(module: &Module, out: &mut SourceWriter) {
+    for declaration in &module.enums {
+        out.push_str(&format!(
+            "private enum {}: String, Error {{\n",
+            enum_name(&declaration.name)
+        ));
+        for case in &declaration.cases {
+            out.push_str(&format!("    case {case}\n"));
+        }
+        out.push_str("}\n\n");
+    }
+}
+
+/// Renders the `NexaNavigationRoute` enum that types the navigation path.
+///
+/// Each case carries a `UUID` route identity ahead of the screen's parameters.
+/// SwiftUI needs that identity to distinguish two pushes of the same screen
+/// with different arguments, which a payload-only enum cannot express.
+pub(crate) fn render_navigation_routes(module: &Module, out: &mut SourceWriter) {
+    if module.screens.is_empty() {
+        return;
+    }
+    out.push_str("private enum NexaNavigationRoute: Hashable {\n");
+    for screen in &module.screens {
+        let case_name = nexa_codegen::names::navigation_case_name(screen.id);
+        let mut payload_types = vec!["UUID".to_owned()];
+        payload_types.extend(
+            screen
+                .parameters
+                .iter()
+                .map(|parameter| swift_type(&parameter.ty)),
+        );
+        out.push_str(&format!(
+            "    case {case_name}({})\n",
+            payload_types.join(", ")
+        ));
+    }
+    out.push_str("}\n\n");
 }

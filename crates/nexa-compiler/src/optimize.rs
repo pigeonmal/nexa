@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
-use nexa_ir::{
-    Action, BinaryOp, Expr, FastListRefresh, InterpolatedPart, LayoutKind, ListCommon, ListPlan,
-    Module, Node, NumericType, SectionedListCommon, ViewStyle,
+use nexa_ir::walk::{
+    fold_expr_children, fold_node_children, IrFolder, IrVisitor,
 };
+use nexa_ir::{Action, BinaryOp, Expr, LayoutKind, Module, Node, NumericType, ViewStyle};
 
 /// Applies small, semantics-preserving optimizations to the typed IR before
 /// either native backend sees it. The pass deliberately stays conservative:
@@ -78,163 +78,37 @@ fn prune_unused_function_locals(function: &mut nexa_ir::Function) {
     function.locals = kept;
 }
 
-fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>) {
-    match expression {
-        Expr::State(name, _) => {
-            names.insert(name.clone());
-        }
-        Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
-            collect_expression_state_names(left, names);
-            collect_expression_state_names(right, names);
-        }
-        Expr::Contains {
-            value, collection, ..
-        } => {
-            collect_expression_state_names(value, names);
-            collect_expression_state_names(collection, names);
-        }
-        Expr::Not(value) | Expr::Await(value) | Expr::TryAwait(value) => {
-            collect_expression_state_names(value, names)
-        }
-        Expr::ResultOk { value, .. } => collect_expression_state_names(value, names),
-        Expr::ResultErr { error, .. } => collect_expression_state_names(error, names),
-        Expr::Try { expr, .. } => collect_expression_state_names(expr, names),
-        Expr::Index {
-            collection, index, ..
-        } => {
-            collect_expression_state_names(collection, names);
-            collect_expression_state_names(index, names);
-        }
-        Expr::Range {
-            start, end, step, ..
-        } => {
-            collect_expression_state_names(start, names);
-            collect_expression_state_names(end, names);
-            if let Some(step) = step {
-                collect_expression_state_names(step, names);
+struct StateNameCollector<'a> {
+    names: &'a mut HashSet<String>,
+}
+
+impl IrVisitor for StateNameCollector<'_> {
+    fn visit_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::State(name, _) => {
+                self.names.insert(name.clone());
             }
-        }
-        Expr::Member { base, .. } => collect_expression_state_names(base, names),
-        Expr::Coalesce(left, right) => {
-            collect_expression_state_names(left, names);
-            collect_expression_state_names(right, names);
-        }
-        Expr::Array(items) | Expr::Set(items) => {
-            for item in items {
-                collect_expression_state_names(item, names);
-            }
-        }
-        Expr::Map(entries) => {
-            for (key, value) in entries {
-                collect_expression_state_names(key, names);
-                collect_expression_state_names(value, names);
-            }
-        }
-        Expr::Pair(first, second) => {
-            collect_expression_state_names(first, names);
-            collect_expression_state_names(second, names);
-        }
-        Expr::Triple(first, second, third) => {
-            collect_expression_state_names(first, names);
-            collect_expression_state_names(second, names);
-            collect_expression_state_names(third, names);
-        }
-        Expr::Call { arguments, .. } => {
-            for argument in arguments {
-                collect_expression_state_names(argument, names);
-            }
-        }
-        Expr::CollectionTransform {
-            collection,
-            initial,
-            closure,
-            ..
-        } => {
-            collect_expression_state_names(collection, names);
-            if let Some(initial) = initial {
-                collect_expression_state_names(initial, names);
-            }
-            collect_expression_state_names(closure, names);
-        }
-        Expr::Closure { parameters, body } => {
-            let mut closure_names = HashSet::new();
-            collect_expression_state_names(body, &mut closure_names);
-            for name in closure_names {
-                if !parameters.iter().any(|parameter| parameter == &name) {
-                    names.insert(name);
+            Expr::Closure { parameters, body } => {
+                let mut closure_names = HashSet::new();
+                let mut inner = StateNameCollector {
+                    names: &mut closure_names,
+                };
+                inner.visit_expr(body);
+                for name in closure_names {
+                    if !parameters.iter().any(|parameter| parameter == &name) {
+                        self.names.insert(name);
+                    }
                 }
+                return;
             }
+            _ => {}
         }
-        Expr::NativeCall {
-            receiver,
-            arguments,
-            ..
-        } => {
-            if let Some(receiver) = receiver {
-                collect_expression_state_names(receiver, names);
-            }
-            for (_, argument) in arguments {
-                collect_expression_state_names(argument, names);
-            }
-        }
-        Expr::NetworkFetch(request) => {
-            collect_network_request_state_names(request, names);
-        }
-        Expr::NetworkDownload {
-            destination,
-            request,
-        } => {
-            collect_expression_state_names(destination, names);
-            collect_network_request_state_names(request, names);
-        }
-        Expr::PathJoin { path, component } => {
-            collect_expression_state_names(path, names);
-            collect_expression_state_names(component, names);
-        }
-        Expr::FileExists { path } | Expr::FileReadText { path } | Expr::FileDelete { path } => {
-            collect_expression_state_names(path, names);
-        }
-        Expr::FileWriteText { path, contents } => {
-            collect_expression_state_names(path, names);
-            collect_expression_state_names(contents, names);
-        }
-        Expr::PermissionOp { permission, .. } => {
-            collect_expression_state_names(permission, names);
-        }
-        Expr::Interpolation(parts) => {
-            for part in parts {
-                if let InterpolatedPart::Value(value) = part {
-                    collect_expression_state_names(value, names);
-                }
-            }
-        }
-        Expr::String(_)
-        | Expr::Bool(_)
-        | Expr::Number { .. }
-        | Expr::EnumValue { .. }
-        | Expr::Null(_)
-        | Expr::IsRegularWidth
-        | Expr::IsCompactWidth
-        | Expr::IsRegularHeight
-        | Expr::IsCompactHeight => {}
+        nexa_ir::walk::walk_expr_children(expr, self);
     }
 }
 
-fn collect_network_request_state_names(
-    request: &nexa_ir::NetworkRequest,
-    names: &mut HashSet<String>,
-) {
-    collect_expression_state_names(&request.url, names);
-    collect_expression_state_names(&request.method, names);
-    collect_expression_state_names(&request.headers, names);
-    collect_expression_state_names(&request.timeout, names);
-    collect_expression_state_names(&request.use_cache, names);
-    collect_expression_state_names(&request.follow_redirects, names);
-    collect_expression_state_names(&request.max_response_bytes, names);
-    collect_expression_state_names(&request.certificate_pins, names);
-    if let Some(body) = &request.body {
-        collect_expression_state_names(body, names);
-    }
+fn collect_expression_state_names(expression: &Expr, names: &mut HashSet<String>) {
+    StateNameCollector { names }.visit_expr(expression);
 }
 
 fn is_pure_expression(expression: &Expr) -> bool {
@@ -295,8 +169,8 @@ fn is_pure_expression(expression: &Expr) -> bool {
             is_pure_expression(first) && is_pure_expression(second) && is_pure_expression(third)
         }
         Expr::Interpolation(parts) => parts.iter().all(|part| match part {
-            InterpolatedPart::Literal(_) => true,
-            InterpolatedPart::Value(value) => is_pure_expression(value),
+            nexa_ir::InterpolatedPart::Literal(_) => true,
+            nexa_ir::InterpolatedPart::Value(value) => is_pure_expression(value),
         }),
         Expr::String(_)
         | Expr::Bool(_)
@@ -383,18 +257,28 @@ fn prune_unused_functions(module: &mut Module) {
         .retain(|function| used.contains(function.name.as_str()));
 }
 
+struct FunctionRefCollector<'a> {
+    declared: &'a HashSet<&'a str>,
+    used: &'a mut HashSet<String>,
+}
+
+impl IrVisitor for FunctionRefCollector<'_> {
+    fn visit_expr(&mut self, expr: &Expr) {
+        if let Expr::Call { name, .. } = expr {
+            if self.declared.contains(name.as_str()) {
+                self.used.insert(name.clone());
+            }
+        }
+        nexa_ir::walk::walk_expr_children(expr, self);
+    }
+}
+
 fn collect_node_function_references(
     nodes: &[Node],
     declared: &HashSet<&str>,
     used: &mut HashSet<String>,
 ) {
-    nexa_ir::walk::walk_ir(nodes, &mut |_| {}, &mut |expression| {
-        if let Expr::Call { name, .. } = expression
-            && declared.contains(name.as_str())
-        {
-            used.insert(name.clone());
-        }
-    });
+    FunctionRefCollector { declared, used }.visit_nodes(nodes);
 }
 
 fn collect_expression_function_references(
@@ -402,13 +286,7 @@ fn collect_expression_function_references(
     declared: &HashSet<&str>,
     used: &mut HashSet<String>,
 ) {
-    nexa_ir::walk::walk_expression(expression, &mut |expression| {
-        if let Expr::Call { name, .. } = expression
-            && declared.contains(name.as_str())
-        {
-            used.insert(name.clone());
-        }
-    });
+    FunctionRefCollector { declared, used }.visit_expr(expression);
 }
 
 fn collect_action_function_references(
@@ -416,70 +294,7 @@ fn collect_action_function_references(
     declared: &HashSet<&str>,
     used: &mut HashSet<String>,
 ) {
-    for action in actions {
-        match action {
-            Action::Expression(expression) => {
-                collect_expression_function_references(expression, declared, used)
-            }
-            Action::Assign { value, .. } => {
-                collect_expression_function_references(value, declared, used)
-            }
-            Action::NativePropertyAssign {
-                receiver, value, ..
-            } => {
-                collect_expression_function_references(receiver, declared, used);
-                collect_expression_function_references(value, declared, used);
-            }
-            Action::NativeEventSubscribe {
-                receiver, actions, ..
-            } => {
-                collect_expression_function_references(receiver, declared, used);
-                collect_action_function_references(actions, declared, used);
-            }
-            Action::CollectionMutation { arguments, .. } => {
-                for argument in arguments {
-                    collect_expression_function_references(argument, declared, used);
-                }
-            }
-            Action::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                collect_expression_function_references(condition, declared, used);
-                collect_action_function_references(then_branch, declared, used);
-                if let Some(else_branch) = else_branch {
-                    collect_action_function_references(else_branch, declared, used);
-                }
-            }
-            Action::For { iterable, body, .. } => {
-                collect_expression_function_references(iterable, declared, used);
-                collect_action_function_references(body, declared, used);
-            }
-            Action::ForMap { iterable, body, .. } => {
-                collect_expression_function_references(iterable, declared, used);
-                collect_action_function_references(body, declared, used);
-            }
-            Action::While { condition, body } => {
-                collect_expression_function_references(condition, declared, used);
-                collect_action_function_references(body, declared, used);
-            }
-            Action::TryCatch {
-                body,
-                error_catches,
-                catch_body,
-            } => {
-                collect_action_function_references(body, declared, used);
-                for arm in error_catches {
-                    collect_action_function_references(&arm.body, declared, used);
-                }
-                if let Some(catch_body) = catch_body {
-                    collect_action_function_references(catch_body, declared, used);
-                }
-            }
-            Action::Break | Action::Continue => {}
-        }
-    }
+    FunctionRefCollector { declared, used }.visit_actions(actions);
 }
 
 fn prune_unused_states(module: &mut Module) {
@@ -608,7 +423,7 @@ fn prune_unused_structs(module: &mut Module) {
         }
         pending.extend(
             used.iter()
-                .filter(|field_name| !expanded.contains(*field_name))
+                .filter(|name| !expanded.contains(*name))
                 .cloned(),
         );
     }
@@ -623,9 +438,6 @@ fn prune_unused_plugins(module: &mut Module) {
         .iter()
         .map(|plugin| plugin.namespace.as_str())
         .collect::<HashSet<_>>();
-    if declared.is_empty() {
-        return;
-    }
     let mut used = HashSet::new();
     let mut used_by_component = HashSet::new();
     let mut collect_node = |node: &nexa_ir::Node| {
@@ -652,10 +464,10 @@ fn prune_unused_plugins(module: &mut Module) {
     }
     nexa_ir::walk::walk_ir(&module.body, &mut collect_node, &mut collect);
     if let Some(actions) = &module.on_appear {
-        collect_action_plugin_references(actions, &mut collect);
+        nexa_ir::walk::walk_actions(actions, &mut collect);
     }
     if let Some(actions) = &module.on_disappear {
-        collect_action_plugin_references(actions, &mut collect);
+        nexa_ir::walk::walk_actions(actions, &mut collect);
     }
     for actions in module
         .on_active
@@ -663,7 +475,7 @@ fn prune_unused_plugins(module: &mut Module) {
         .chain(module.on_inactive.iter())
         .chain(module.on_background.iter())
     {
-        collect_action_plugin_references(actions, &mut collect);
+        nexa_ir::walk::walk_actions(actions, &mut collect);
     }
     for screen in &module.screens {
         for state in &screen.states {
@@ -671,10 +483,10 @@ fn prune_unused_plugins(module: &mut Module) {
         }
         nexa_ir::walk::walk_ir(&screen.body, &mut collect_node, &mut collect);
         if let Some(actions) = &screen.on_appear {
-            collect_action_plugin_references(actions, &mut collect);
+            nexa_ir::walk::walk_actions(actions, &mut collect);
         }
         if let Some(actions) = &screen.on_disappear {
-            collect_action_plugin_references(actions, &mut collect);
+            nexa_ir::walk::walk_actions(actions, &mut collect);
         }
     }
     for component in &module.components {
@@ -693,66 +505,6 @@ fn prune_unused_plugins(module: &mut Module) {
     module
         .plugins
         .retain(|plugin| used.contains(plugin.namespace.as_str()));
-}
-
-fn collect_action_plugin_references(actions: &[Action], collect: &mut impl FnMut(&Expr)) {
-    for action in actions {
-        match action {
-            Action::Expression(expression) => nexa_ir::walk::walk_expression(expression, collect),
-            Action::Assign { value, .. } => nexa_ir::walk::walk_expression(value, collect),
-            Action::NativePropertyAssign {
-                receiver, value, ..
-            } => {
-                nexa_ir::walk::walk_expression(receiver, collect);
-                nexa_ir::walk::walk_expression(value, collect);
-            }
-            Action::NativeEventSubscribe {
-                receiver, actions, ..
-            } => {
-                nexa_ir::walk::walk_expression(receiver, collect);
-                collect_action_plugin_references(actions, collect);
-            }
-            Action::CollectionMutation { arguments, .. } => {
-                for argument in arguments {
-                    nexa_ir::walk::walk_expression(argument, collect);
-                }
-            }
-            Action::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                nexa_ir::walk::walk_expression(condition, collect);
-                collect_action_plugin_references(then_branch, collect);
-                if let Some(else_branch) = else_branch {
-                    collect_action_plugin_references(else_branch, collect);
-                }
-            }
-            Action::For { iterable, body, .. }
-            | Action::ForMap { iterable, body, .. }
-            | Action::While {
-                condition: iterable,
-                body,
-            } => {
-                nexa_ir::walk::walk_expression(iterable, collect);
-                collect_action_plugin_references(body, collect);
-            }
-            Action::TryCatch {
-                body,
-                error_catches,
-                catch_body,
-            } => {
-                collect_action_plugin_references(body, collect);
-                for arm in error_catches {
-                    collect_action_plugin_references(&arm.body, collect);
-                }
-                if let Some(catch_body) = catch_body {
-                    collect_action_plugin_references(catch_body, collect);
-                }
-            }
-            Action::Break | Action::Continue => {}
-        }
-    }
 }
 
 fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
@@ -787,10 +539,19 @@ fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
     }
 }
 
+struct StructNameCollector<'a> {
+    used: &'a mut HashSet<String>,
+}
+
+impl IrVisitor for StructNameCollector<'_> {
+    fn visit_expr(&mut self, expr: &Expr) {
+        collect_expression_type_struct_names(expr, self.used);
+        nexa_ir::walk::walk_expr_children(expr, self);
+    }
+}
+
 fn collect_expression_struct_names(expression: &Expr, used: &mut HashSet<String>) {
-    nexa_ir::walk::walk_expression(expression, &mut |expression| {
-        collect_expression_type_struct_names(expression, used)
-    });
+    StructNameCollector { used }.visit_expr(expression);
 }
 
 fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<String>) {
@@ -798,8 +559,6 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         Expr::State(_, ty) | Expr::Null(ty) => collect_type_struct_names(ty, used),
         Expr::Call { return_type, .. } => collect_type_struct_names(return_type, used),
         Expr::NativeCall { return_type, .. } => collect_type_struct_names(return_type, used),
-        // Validated core calls have fixed return types without struct
-        // payloads (`NetworkResponse`, scalars, `PermissionStatus`).
         Expr::NetworkFetch(_)
         | Expr::NetworkDownload { .. }
         | Expr::PathJoin { .. }
@@ -871,69 +630,11 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
 }
 
 fn collect_node_struct_names(nodes: &[Node], used: &mut HashSet<String>) {
-    nexa_ir::walk::walk_ir(nodes, &mut |_| {}, &mut |expression| {
-        collect_expression_type_struct_names(expression, used)
-    });
+    StructNameCollector { used }.visit_nodes(nodes);
 }
 
 fn collect_action_struct_names(actions: &[Action], used: &mut HashSet<String>) {
-    for action in actions {
-        match action {
-            Action::Expression(expression) => collect_expression_struct_names(expression, used),
-            Action::Assign { value, .. } => collect_expression_struct_names(value, used),
-            Action::NativePropertyAssign {
-                receiver, value, ..
-            } => {
-                collect_expression_struct_names(receiver, used);
-                collect_expression_struct_names(value, used);
-            }
-            Action::NativeEventSubscribe {
-                receiver, actions, ..
-            } => {
-                collect_expression_struct_names(receiver, used);
-                collect_action_struct_names(actions, used);
-            }
-            Action::CollectionMutation { arguments, .. } => {
-                for argument in arguments {
-                    collect_expression_struct_names(argument, used);
-                }
-            }
-            Action::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                collect_expression_struct_names(condition, used);
-                collect_action_struct_names(then_branch, used);
-                if let Some(else_branch) = else_branch {
-                    collect_action_struct_names(else_branch, used);
-                }
-            }
-            Action::For { iterable, body, .. }
-            | Action::ForMap { iterable, body, .. }
-            | Action::While {
-                condition: iterable,
-                body,
-            } => {
-                collect_expression_struct_names(iterable, used);
-                collect_action_struct_names(body, used);
-            }
-            Action::TryCatch {
-                body,
-                error_catches,
-                catch_body,
-            } => {
-                collect_action_struct_names(body, used);
-                for arm in error_catches {
-                    collect_action_struct_names(&arm.body, used);
-                }
-                if let Some(catch_body) = catch_body {
-                    collect_action_struct_names(catch_body, used);
-                }
-            }
-            Action::Break | Action::Continue => {}
-        }
-    }
+    StructNameCollector { used }.visit_actions(actions);
 }
 
 fn retain_referenced_states(states: &mut Vec<nexa_ir::State>, mut used: HashSet<String>) {
@@ -1020,401 +721,175 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
     used.extend(bindings);
 }
 
-fn collect_action_bindings(actions: &[Action], used: &mut Vec<String>) {
-    for action in actions {
+struct ActionBindingCollector<'a> {
+    used: &'a mut Vec<String>,
+}
+
+impl IrVisitor for ActionBindingCollector<'_> {
+    fn visit_action(&mut self, action: &Action) {
         match action {
-            Action::Expression(expression) => {
-                nexa_ir::walk::walk_expression(expression, &mut |expression| {
-                    if let Expr::State(name, _) = expression {
-                        used.push(name.clone());
-                    }
-                });
+            Action::Assign { name, .. } | Action::CollectionMutation { name, .. } => {
+                self.used.push(name.clone());
             }
-            Action::Assign { name, .. } => used.push(name.clone()),
-            Action::NativePropertyAssign {
-                receiver, value, ..
-            } => {
-                nexa_ir::walk::walk_expression(receiver, &mut |expression| {
-                    if let Expr::State(name, _) = expression {
-                        used.push(name.clone());
-                    }
-                });
-                nexa_ir::walk::walk_expression(value, &mut |expression| {
-                    if let Expr::State(name, _) = expression {
-                        used.push(name.clone());
-                    }
-                });
-            }
-            Action::NativeEventSubscribe {
-                receiver, actions, ..
-            } => {
-                nexa_ir::walk::walk_expression(receiver, &mut |expression| {
-                    if let Expr::State(name, _) = expression {
-                        used.push(name.clone());
-                    }
-                });
-                collect_action_bindings(actions, used);
-            }
-            Action::CollectionMutation { name, .. } => used.push(name.clone()),
-            Action::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                collect_action_bindings(then_branch, used);
-                if let Some(else_branch) = else_branch {
-                    collect_action_bindings(else_branch, used);
-                }
-            }
-            Action::For { body, .. } | Action::While { body, .. } => {
-                collect_action_bindings(body, used);
-            }
-            Action::ForMap { body, .. } => collect_action_bindings(body, used),
-            Action::TryCatch {
-                body,
-                error_catches,
-                catch_body,
-            } => {
-                collect_action_bindings(body, used);
-                for arm in error_catches {
-                    collect_action_bindings(&arm.body, used);
-                }
-                if let Some(catch_body) = catch_body {
-                    collect_action_bindings(catch_body, used);
-                }
-            }
-            Action::Break | Action::Continue => {}
+            _ => {}
         }
+        nexa_ir::walk::walk_action_children(action, self);
+    }
+
+    fn visit_expr(&mut self, expr: &Expr) {
+        if let Expr::State(name, _) = expr {
+            self.used.push(name.clone());
+        }
+        nexa_ir::walk::walk_expr_children(expr, self);
+    }
+}
+
+fn collect_action_bindings(actions: &[Action], used: &mut Vec<String>) {
+    ActionBindingCollector { used }.visit_actions(actions);
+}
+
+struct ActionStateRefCollector<'a> {
+    used: &'a mut HashSet<String>,
+}
+
+impl IrVisitor for ActionStateRefCollector<'_> {
+    fn visit_action(&mut self, action: &Action) {
+        match action {
+            Action::Assign { name, .. } | Action::CollectionMutation { name, .. } => {
+                self.used.insert(name.clone());
+            }
+            _ => {}
+        }
+        nexa_ir::walk::walk_action_children(action, self);
+    }
+
+    fn visit_expr(&mut self, expr: &Expr) {
+        collect_expression_state_names(expr, self.used);
     }
 }
 
 fn collect_action_state_references(actions: &[Action], used: &mut HashSet<String>) {
-    for action in actions {
-        match action {
-            Action::Expression(expression) => collect_expression_state_references(expression, used),
-            Action::Assign { name, value } => {
-                used.insert(name.clone());
-                collect_expression_state_references(value, used);
-            }
-            Action::NativePropertyAssign {
-                receiver, value, ..
-            } => {
-                collect_expression_state_references(receiver, used);
-                collect_expression_state_references(value, used);
-            }
-            Action::NativeEventSubscribe {
-                receiver, actions, ..
-            } => {
-                collect_expression_state_references(receiver, used);
-                collect_action_state_references(actions, used);
-            }
-            Action::CollectionMutation {
-                name, arguments, ..
-            } => {
-                used.insert(name.clone());
-                for argument in arguments {
-                    collect_expression_state_references(argument, used);
-                }
-            }
-            Action::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                collect_expression_state_references(condition, used);
-                collect_action_state_references(then_branch, used);
-                if let Some(else_branch) = else_branch {
-                    collect_action_state_references(else_branch, used);
-                }
-            }
-            Action::For { iterable, body, .. } => {
-                collect_expression_state_references(iterable, used);
-                collect_action_state_references(body, used);
-            }
-            Action::ForMap { iterable, body, .. } => {
-                collect_expression_state_references(iterable, used);
-                collect_action_state_references(body, used);
-            }
-            Action::While { condition, body } => {
-                collect_expression_state_references(condition, used);
-                collect_action_state_references(body, used);
-            }
-            Action::TryCatch {
-                body,
-                error_catches,
-                catch_body,
-            } => {
-                collect_action_state_references(body, used);
-                for arm in error_catches {
-                    collect_action_state_references(&arm.body, used);
-                }
-                if let Some(catch_body) = catch_body {
-                    collect_action_state_references(catch_body, used);
-                }
-            }
-            Action::Break | Action::Continue => {}
-        }
-    }
+    ActionStateRefCollector { used }.visit_actions(actions);
 }
 
 fn collect_expression_state_references(expression: &Expr, used: &mut HashSet<String>) {
     collect_expression_state_names(expression, used);
 }
 
-fn optimize_nodes(nodes: Vec<Node>) -> Vec<Node> {
-    let mut optimized = Vec::with_capacity(nodes.len());
-    for node in nodes {
-        if let Some(node) = optimize_node(node) {
-            optimized.push(node);
-        }
-    }
-    optimized
-}
+struct IrOptimizer;
 
-fn optimize_node(node: Node) -> Option<Node> {
-    match node {
-        Node::Layout {
-            kind,
-            spacing,
-            style,
-            children,
-        } => {
-            let children = optimize_nodes(children);
-            if children.len() == 1
-                && spacing == 0.0
-                && style.alignment.is_none()
-                && !style.has_modifiers()
-            {
-                return children.into_iter().next();
-            }
-            Some(Node::Layout {
+impl IrFolder for IrOptimizer {
+    fn fold_node(&mut self, node: Node) -> Option<Node> {
+        match node {
+            Node::Layout {
                 kind,
                 spacing,
                 style,
                 children,
-            })
-        }
-        Node::Text { value, style } => Some(Node::Text {
-            value: fold_expression(value),
-            style,
-        }),
-        Node::Button {
-            label,
-            icon,
-            loading,
-            disabled,
-            actions,
-        } => Some(Node::Button {
-            label: fold_expression(label),
-            icon,
-            loading: loading
-                .map(fold_expression)
-                .filter(|loading| !matches!(loading, Expr::Bool(false))),
-            disabled: disabled
-                .map(fold_expression)
-                .filter(|disabled| !matches!(disabled, Expr::Bool(false))),
-            actions: optimize_actions(actions),
-        }),
-        Node::Pressable {
-            disabled,
-            haptic,
-            children,
-            actions,
-            long_press_actions,
-        } => Some(Node::Pressable {
-            disabled: fold_expression(disabled),
-            haptic,
-            children: optimize_nodes(children),
-            actions: optimize_actions(actions),
-            long_press_actions: optimize_actions(long_press_actions),
-        }),
-        Node::FastList { plan } => Some(Node::FastList {
-            plan: optimize_list_plan(plan),
-        }),
-        Node::If {
-            condition,
-            then_body,
-            else_body,
-        } => {
-            let condition = fold_expression(condition);
-            let then_body = optimize_nodes(then_body);
-            let else_body = else_body.map(optimize_nodes);
-            match condition {
-                Expr::Bool(true) => collapse_nodes(then_body),
-                Expr::Bool(false) => collapse_nodes(else_body.unwrap_or_default()),
-                condition => Some(Node::If {
-                    condition,
-                    then_body,
-                    else_body,
+            } => {
+                let children = self.fold_nodes(children);
+                if children.len() == 1
+                    && spacing == 0.0
+                    && style.alignment.is_none()
+                    && !style.has_modifiers()
+                {
+                    return children.into_iter().next();
+                }
+                Some(Node::Layout {
+                    kind,
+                    spacing,
+                    style,
+                    children,
+                })
+            }
+            Node::Button {
+                label,
+                icon,
+                loading,
+                disabled,
+                actions,
+            } => Some(Node::Button {
+                label: self.fold_expr(label),
+                icon,
+                loading: loading
+                    .map(|loading| self.fold_expr(loading))
+                    .filter(|loading| !matches!(loading, Expr::Bool(false))),
+                disabled: disabled
+                    .map(|disabled| self.fold_expr(disabled))
+                    .filter(|disabled| !matches!(disabled, Expr::Bool(false))),
+                actions: self.fold_actions(actions),
+            }),
+            Node::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                let condition = self.fold_expr(condition);
+                let then_body = self.fold_nodes(then_body);
+                let else_body = else_body.map(|body| self.fold_nodes(body));
+                match condition {
+                    Expr::Bool(true) => collapse_nodes(then_body),
+                    Expr::Bool(false) => collapse_nodes(else_body.unwrap_or_default()),
+                    condition => Some(Node::If {
+                        condition,
+                        then_body,
+                        else_body,
+                    }),
+                }
+            }
+            Node::NavigationLink {
+                destination,
+                arguments,
+                guard,
+                children,
+            } => Some(Node::NavigationLink {
+                destination,
+                arguments: arguments.into_iter().map(|arg| self.fold_expr(arg)).collect(),
+                guard: guard.and_then(|guard| match self.fold_expr(guard) {
+                    Expr::Bool(true) => None,
+                    guard => Some(guard),
                 }),
+                children: self.fold_nodes(children),
+            }),
+            other => fold_node_children(other, self),
+        }
+    }
+
+    fn fold_actions(&mut self, actions: Vec<Action>) -> Vec<Action> {
+        let mut optimized = Vec::with_capacity(actions.len());
+        for action in actions {
+            match action {
+                Action::If {
+                    condition,
+                    then_branch,
+                    else_branch,
+                } => {
+                    let condition = self.fold_expr(condition);
+                    let then_branch = self.fold_actions(then_branch);
+                    let else_branch = else_branch.map(|branch| self.fold_actions(branch));
+                    match condition {
+                        Expr::Bool(true) => optimized.extend(then_branch),
+                        Expr::Bool(false) => optimized.extend(else_branch.unwrap_or_default()),
+                        condition => optimized.push(Action::If {
+                            condition,
+                            then_branch,
+                            else_branch,
+                        }),
+                    }
+                }
+                other => {
+                    if let Some(action) = self.fold_action(other) {
+                        optimized.push(action);
+                    }
+                }
             }
         }
-        Node::When {
-            value,
-            cases,
-            else_body,
-        } => Some(Node::When {
-            value: fold_expression(value),
-            cases: cases
-                .into_iter()
-                .map(|case| nexa_ir::WhenCase {
-                    value: fold_expression(case.value),
-                    body: optimize_nodes(case.body),
-                })
-                .collect(),
-            else_body: optimize_nodes(else_body),
-        }),
-        Node::ComponentCall {
-            name,
-            arguments,
-            children,
-        } => Some(Node::ComponentCall {
-            name,
-            arguments: arguments
-                .into_iter()
-                .map(|(name, value)| (name, fold_expression(value)))
-                .collect(),
-            children: children.map(optimize_nodes),
-        }),
-        Node::NativeComponentCall {
-            namespace,
-            name,
-            arguments,
-            children,
-            event_handlers,
-        } => Some(Node::NativeComponentCall {
-            namespace,
-            name,
-            arguments: arguments
-                .into_iter()
-                .map(|(name, value)| (name, fold_expression(value)))
-                .collect(),
-            children: children.map(optimize_nodes),
-            event_handlers: event_handlers
-                .into_iter()
-                .map(|handler| nexa_ir::NativeComponentEventHandler {
-                    property: handler.property,
-                    parameters: handler.parameters,
-                    actions: optimize_actions(handler.actions),
-                })
-                .collect(),
-        }),
-        Node::TextInput {
-            state,
-            placeholder,
-            keyboard,
-            secure,
-            multiline,
-            autocorrect,
-            capitalization,
-            focused,
-            max_length,
-            actions,
-        } => Some(Node::TextInput {
-            state,
-            placeholder,
-            keyboard,
-            secure,
-            multiline,
-            autocorrect,
-            capitalization,
-            focused,
-            max_length,
-            actions: optimize_actions(actions),
-        }),
-        Node::Content => Some(Node::Content),
-        Node::NavigationStack { root, arguments } => Some(Node::NavigationStack {
-            root,
-            arguments: arguments.into_iter().map(fold_expression).collect(),
-        }),
-        node @ (Node::Switch { .. }
-        | Node::Image { .. }
-        | Node::StatusBar { .. }
-        | Node::Direction { .. }
-        | Node::NavigationBack { .. }) => Some(node),
-        Node::OnAppear {
-            actions,
-            asynchronous,
-        } => Some(Node::OnAppear {
-            actions: optimize_actions(actions),
-            asynchronous,
-        }),
-        Node::OnDisappear { actions } => Some(Node::OnDisappear {
-            actions: optimize_actions(actions),
-        }),
-        Node::OnActive { actions } => Some(Node::OnActive {
-            actions: optimize_actions(actions),
-        }),
-        Node::OnInactive { actions } => Some(Node::OnInactive {
-            actions: optimize_actions(actions),
-        }),
-        Node::OnBackground { actions } => Some(Node::OnBackground {
-            actions: optimize_actions(actions),
-        }),
-        Node::NavigationLink {
-            destination,
-            arguments,
-            guard,
-            children,
-        } => Some(Node::NavigationLink {
-            destination,
-            arguments: arguments.into_iter().map(fold_expression).collect(),
-            guard: guard.and_then(|guard| match fold_expression(guard) {
-                Expr::Bool(true) => None,
-                guard => Some(guard),
-            }),
-            children: optimize_nodes(children),
-        }),
-        Node::Link { url, children } => Some(Node::Link {
-            url,
-            children: optimize_nodes(children),
-        }),
-        Node::Accessibility {
-            label,
-            hint,
-            role,
-            children,
-        } => Some(Node::Accessibility {
-            label,
-            hint: hint.map(fold_expression),
-            role,
-            children: optimize_nodes(children),
-        }),
-        Node::KeyboardAware { dismiss, children } => Some(Node::KeyboardAware {
-            dismiss,
-            children: optimize_nodes(children),
-        }),
-        Node::BottomSheet {
-            state,
-            partial,
-            children,
-        } => Some(Node::BottomSheet {
-            state,
-            partial,
-            children: optimize_nodes(children),
-        }),
-        Node::RefreshControl {
-            state,
-            children,
-            actions,
-        } => Some(Node::RefreshControl {
-            state,
-            children: optimize_nodes(children),
-            actions: optimize_actions(actions),
-        }),
-        Node::AppBottomBar { state, tabs } => Some(Node::AppBottomBar {
-            state,
-            tabs: tabs
-                .into_iter()
-                .map(|tab| nexa_ir::BottomBarTab {
-                    index: tab.index,
-                    label: tab.label,
-                    icon: tab.icon,
-                    badge: tab.badge,
-                    children: optimize_nodes(tab.children),
-                })
-                .collect(),
-        }),
+        optimized
+    }
+
+    fn fold_expr(&mut self, expr: Expr) -> Expr {
+        let folded = fold_expr_children(expr, self);
+        fold_expression_rules(folded)
     }
 }
 
@@ -1431,214 +906,34 @@ fn collapse_nodes(nodes: Vec<Node>) -> Option<Node> {
     }
 }
 
-fn optimize_list_plan(plan: ListPlan) -> ListPlan {
-    fn refresh(refresh: Option<FastListRefresh>) -> Option<FastListRefresh> {
-        refresh.map(|refresh| FastListRefresh {
-            state: refresh.state,
-            actions: optimize_actions(refresh.actions),
-        })
-    }
-    match plan {
-        ListPlan::Count { count, common } => ListPlan::Count {
-            count: fold_expression(count),
-            common: ListCommon {
-                key: common.key.map(fold_expression),
-                children: optimize_nodes(common.children),
-                on_end_reached: common.on_end_reached.map(optimize_actions),
-                on_scroll: common.on_scroll.map(optimize_actions),
-                sticky_header: common.sticky_header.map(optimize_nodes),
-                refresh: refresh(common.refresh),
-                ..common
-            },
-        },
-        ListPlan::Items {
-            collection,
-            element_type,
-            item,
-            common,
-        } => ListPlan::Items {
-            collection: fold_expression(collection),
-            element_type,
-            item,
-            common: ListCommon {
-                key: common.key.map(fold_expression),
-                children: optimize_nodes(common.children),
-                on_end_reached: common.on_end_reached.map(optimize_actions),
-                on_scroll: common.on_scroll.map(optimize_actions),
-                sticky_header: common.sticky_header.map(optimize_nodes),
-                refresh: refresh(common.refresh),
-                ..common
-            },
-        },
-        ListPlan::Sections {
-            collection,
-            element_type,
-            section,
-            item,
-            common,
-        } => ListPlan::Sections {
-            collection: fold_expression(collection),
-            element_type,
-            section,
-            item,
-            common: SectionedListCommon {
-                key: common.key.map(fold_expression),
-                children: optimize_nodes(common.children),
-                section_header: common.section_header.map(optimize_nodes),
-                refresh: refresh(common.refresh),
-                ..common
-            },
-        },
-    }
+fn fold_expression(expression: Expr) -> Expr {
+    IrOptimizer.fold_expr(expression)
+}
+
+fn optimize_nodes(nodes: Vec<Node>) -> Vec<Node> {
+    IrOptimizer.fold_nodes(nodes)
 }
 
 fn optimize_actions(actions: Vec<Action>) -> Vec<Action> {
-    let mut optimized = Vec::with_capacity(actions.len());
-    for action in actions {
-        match action {
-            Action::Expression(expression) => {
-                optimized.push(Action::Expression(fold_expression(expression)))
-            }
-            Action::Assign { name, value } => optimized.push(Action::Assign {
-                name,
-                value: fold_expression(value),
-            }),
-            Action::NativePropertyAssign {
-                receiver,
-                property,
-                value,
-            } => optimized.push(Action::NativePropertyAssign {
-                receiver: fold_expression(receiver),
-                property,
-                value: fold_expression(value),
-            }),
-            Action::NativeEventSubscribe {
-                receiver,
-                property,
-                parameters,
-                actions,
-            } => optimized.push(Action::NativeEventSubscribe {
-                receiver: fold_expression(receiver),
-                property,
-                parameters,
-                actions: optimize_actions(actions),
-            }),
-            Action::CollectionMutation {
-                name,
-                operation,
-                arguments,
-            } => optimized.push(Action::CollectionMutation {
-                name,
-                operation,
-                arguments: arguments.into_iter().map(fold_expression).collect(),
-            }),
-            Action::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                let condition = fold_expression(condition);
-                let then_branch = optimize_actions(then_branch);
-                let else_branch = else_branch.map(optimize_actions);
-                match condition {
-                    Expr::Bool(true) => optimized.extend(then_branch),
-                    Expr::Bool(false) => optimized.extend(else_branch.unwrap_or_default()),
-                    condition => optimized.push(Action::If {
-                        condition,
-                        then_branch,
-                        else_branch,
-                    }),
-                }
-            }
-            Action::For {
-                name,
-                iterable,
-                body,
-            } => optimized.push(Action::For {
-                name,
-                iterable: fold_expression(iterable),
-                body: optimize_actions(body),
-            }),
-            Action::ForMap {
-                key_name,
-                value_name,
-                iterable,
-                body,
-            } => optimized.push(Action::ForMap {
-                key_name,
-                value_name,
-                iterable: fold_expression(iterable),
-                body: optimize_actions(body),
-            }),
-            Action::While { condition, body } => optimized.push(Action::While {
-                condition: fold_expression(condition),
-                body: optimize_actions(body),
-            }),
-            Action::TryCatch {
-                body,
-                error_catches,
-                catch_body,
-            } => optimized.push(Action::TryCatch {
-                body: optimize_actions(body),
-                error_catches: error_catches
-                    .into_iter()
-                    .map(|mut arm| {
-                        arm.body = optimize_actions(arm.body);
-                        arm
-                    })
-                    .collect(),
-                catch_body: catch_body.map(optimize_actions),
-            }),
-            Action::Break => optimized.push(Action::Break),
-            Action::Continue => optimized.push(Action::Continue),
-        }
-    }
-    optimized
+    IrOptimizer.fold_actions(actions)
 }
 
-fn fold_network_request(request: nexa_ir::NetworkRequest) -> nexa_ir::NetworkRequest {
-    let nexa_ir::NetworkRequest {
-        url,
-        method,
-        headers,
-        timeout,
-        use_cache,
-        follow_redirects,
-        max_response_bytes,
-        certificate_pins,
-        body,
-    } = request;
-    nexa_ir::NetworkRequest {
-        url: Box::new(fold_expression(*url)),
-        method: Box::new(fold_expression(*method)),
-        headers: Box::new(fold_expression(*headers)),
-        timeout: Box::new(fold_expression(*timeout)),
-        use_cache: Box::new(fold_expression(*use_cache)),
-        follow_redirects: Box::new(fold_expression(*follow_redirects)),
-        max_response_bytes: Box::new(fold_expression(*max_response_bytes)),
-        certificate_pins: Box::new(fold_expression(*certificate_pins)),
-        body: body.map(|body| Box::new(fold_expression(*body))),
-    }
-}
-
-fn fold_expression(expression: Expr) -> Expr {
+fn fold_expression_rules(expression: Expr) -> Expr {
     match expression {
-        Expr::Not(value) => match fold_expression(*value) {
+        Expr::Not(value) => match *value {
             Expr::Bool(value) => Expr::Bool(!value),
             value => Expr::Not(Box::new(value)),
         },
         Expr::Binary { op, left, right } => {
-            let left = fold_expression(*left);
-            let right = fold_expression(*right);
-            match (op, &left, &right) {
+            match (op, &*left, &*right) {
                 (BinaryOp::And, Expr::Bool(false), _) => Expr::Bool(false),
-                (BinaryOp::And, Expr::Bool(true), _) => right,
+                (BinaryOp::And, Expr::Bool(true), _) => *right,
                 (BinaryOp::Or, Expr::Bool(true), _) => Expr::Bool(true),
-                (BinaryOp::Or, Expr::Bool(false), _) => right,
+                (BinaryOp::Or, Expr::Bool(false), _) => *right,
                 _ => evaluate_binary(op, &left, &right).unwrap_or(Expr::Binary {
                     op,
-                    left: Box::new(left),
-                    right: Box::new(right),
+                    left,
+                    right,
                 }),
             }
         }
@@ -1647,184 +942,24 @@ fn fold_expression(expression: Expr) -> Expr {
             collection,
             collection_type,
         } => {
-            let value = fold_expression(*value);
-            let collection = fold_expression(*collection);
             evaluate_contains(&value, &collection, &collection_type).unwrap_or_else(|| {
                 Expr::Contains {
-                    value: Box::new(value),
-                    collection: Box::new(collection),
+                    value,
+                    collection,
                     collection_type,
                 }
             })
         }
         Expr::Add(left, right, ty) => {
-            let left = fold_expression(*left);
-            let right = fold_expression(*right);
-            fold_numeric_add(&left, &right, ty)
-                .unwrap_or_else(|| Expr::Add(Box::new(left), Box::new(right), ty))
+            fold_numeric_add(&left, &right, ty).unwrap_or_else(|| Expr::Add(left, right, ty))
         }
-        Expr::Array(values) => Expr::Array(values.into_iter().map(fold_expression).collect()),
-        Expr::Set(values) => Expr::Set(values.into_iter().map(fold_expression).collect()),
-        Expr::Map(entries) => Expr::Map(
-            entries
-                .into_iter()
-                .map(|(key, value)| (fold_expression(key), fold_expression(value)))
-                .collect(),
-        ),
-        Expr::Pair(first, second) => Expr::Pair(
-            Box::new(fold_expression(*first)),
-            Box::new(fold_expression(*second)),
-        ),
-        Expr::Triple(first, second, third) => Expr::Triple(
-            Box::new(fold_expression(*first)),
-            Box::new(fold_expression(*second)),
-            Box::new(fold_expression(*third)),
-        ),
-        Expr::Call {
-            name,
-            arguments,
-            return_type,
-            is_async,
-            is_constructor,
-        } => Expr::Call {
-            name,
-            arguments: arguments.into_iter().map(fold_expression).collect(),
-            return_type,
-            is_async,
-            is_constructor,
-        },
-        Expr::CollectionTransform {
-            operation,
-            collection,
-            initial,
-            closure,
-        } => Expr::CollectionTransform {
-            operation,
-            collection: Box::new(fold_expression(*collection)),
-            initial: initial.map(|initial| Box::new(fold_expression(*initial))),
-            closure: Box::new(fold_expression(*closure)),
-        },
-        Expr::Closure { parameters, body } => Expr::Closure {
-            parameters,
-            body: Box::new(fold_expression(*body)),
-        },
-        Expr::Index {
-            collection,
-            index,
-            optional,
-            collection_type,
-            element_type,
-        } => Expr::Index {
-            collection: Box::new(fold_expression(*collection)),
-            index: Box::new(fold_expression(*index)),
-            optional,
-            collection_type,
-            element_type,
-        },
-        Expr::Range {
-            start,
-            end,
-            inclusive,
-            step,
-        } => Expr::Range {
-            start: Box::new(fold_expression(*start)),
-            end: Box::new(fold_expression(*end)),
-            inclusive,
-            step: step.map(|step| Box::new(fold_expression(*step))),
-        },
-        Expr::Member {
-            base,
-            name,
-            optional,
-            base_type,
-            field_type,
-            kind,
-        } => Expr::Member {
-            base: Box::new(fold_expression(*base)),
-            name,
-            optional,
-            base_type,
-            field_type,
-            kind,
-        },
-        Expr::Null(ty) => Expr::Null(ty),
         Expr::Coalesce(left, right) => {
-            let left = fold_expression(*left);
-            let right = fold_expression(*right);
-            if matches!(left, Expr::Null(_)) {
-                right
+            if matches!(*left, Expr::Null(_)) {
+                *right
             } else {
-                Expr::Coalesce(Box::new(left), Box::new(right))
+                Expr::Coalesce(left, right)
             }
         }
-        Expr::Await(value) => Expr::Await(Box::new(fold_expression(*value))),
-        Expr::ResultOk {
-            value,
-            value_type,
-            error_type,
-        } => Expr::ResultOk {
-            value: Box::new(fold_expression(*value)),
-            value_type,
-            error_type,
-        },
-        Expr::ResultErr {
-            error,
-            value_type,
-            error_type,
-        } => Expr::ResultErr {
-            error: Box::new(fold_expression(*error)),
-            value_type,
-            error_type,
-        },
-        Expr::Try {
-            expr,
-            value_type,
-            error_type,
-        } => Expr::Try {
-            expr: Box::new(fold_expression(*expr)),
-            value_type,
-            error_type,
-        },
-        Expr::NetworkFetch(request) => Expr::NetworkFetch(Box::new(fold_network_request(*request))),
-        Expr::NetworkDownload {
-            destination,
-            request,
-        } => Expr::NetworkDownload {
-            destination: Box::new(fold_expression(*destination)),
-            request: Box::new(fold_network_request(*request)),
-        },
-        Expr::PathJoin { path, component } => Expr::PathJoin {
-            path: Box::new(fold_expression(*path)),
-            component: Box::new(fold_expression(*component)),
-        },
-        Expr::FileExists { path } => Expr::FileExists {
-            path: Box::new(fold_expression(*path)),
-        },
-        Expr::FileReadText { path } => Expr::FileReadText {
-            path: Box::new(fold_expression(*path)),
-        },
-        Expr::FileWriteText { path, contents } => Expr::FileWriteText {
-            path: Box::new(fold_expression(*path)),
-            contents: Box::new(fold_expression(*contents)),
-        },
-        Expr::FileDelete { path } => Expr::FileDelete {
-            path: Box::new(fold_expression(*path)),
-        },
-        Expr::PermissionOp { op, permission } => Expr::PermissionOp {
-            op,
-            permission: Box::new(fold_expression(*permission)),
-        },
-        Expr::Interpolation(parts) => Expr::Interpolation(
-            parts
-                .into_iter()
-                .map(|part| match part {
-                    InterpolatedPart::Literal(value) => InterpolatedPart::Literal(value),
-                    InterpolatedPart::Value(value) => {
-                        InterpolatedPart::Value(Box::new(fold_expression(*value)))
-                    }
-                })
-                .collect(),
-        ),
         expression => expression,
     }
 }

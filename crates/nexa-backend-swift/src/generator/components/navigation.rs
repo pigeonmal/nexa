@@ -6,7 +6,11 @@ use crate::generator::engine::expressions::expression;
 use crate::generator::engine::expressions::text_expression;
 use crate::generator::engine::types::swift_type;
 use crate::generator::{components::render_children, utils::indent};
-use crate::generator::{features::Features, render_immutable_state, render_native_object_state};
+use crate::generator::{
+    features::Features, render_immutable_state, render_native_object_state, status_bar,
+};
+
+use super::lifecycle;
 use nexa_ir::State;
 
 pub(crate) fn render_link(
@@ -345,14 +349,14 @@ pub(crate) fn render_screen_view(
     render_immutable_state(&module.states, 2, out);
     render_immutable_state(&screen.states, 2, out);
     render_children(&screen.body, module, features, 2, out);
-    crate::generator::render_on_appear_modifier(
+    lifecycle::render_on_appear(
         screen.on_appear.as_deref(),
         screen.on_appear_async,
         2,
         out,
     );
-    crate::generator::render_on_disappear_modifier(screen.on_disappear.as_deref(), 2, out);
-    crate::generator::render_status_bar_modifiers(screen.status_bar.or(module.status_bar), 2, out);
+    lifecycle::render_on_disappear(screen.on_disappear.as_deref(), 2, out);
+    status_bar::render(screen.status_bar.or(module.status_bar), 2, out);
     out.push_str("\n    }\n}\n");
 }
 

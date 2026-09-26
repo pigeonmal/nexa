@@ -5,7 +5,8 @@ use nexa_ir::{Component, ComponentParameter, Node, Screen, State, Type};
 use nexa_syntax::ast;
 
 use super::{
-    components::{ScreenSignatures, lower_nodes},
+    components::lower_nodes,
+    context::{ScreenSignatures, SemanticContext},
     expressions::{
         FunctionSignatures, StructTypes, lower_expr, parse_type, record_native_alias,
         references_state, resolve_declaration_type, resolve_struct_type,
@@ -265,18 +266,17 @@ fn lower_component(
         });
     }
 
-    let body = lower_nodes(
-        declaration.body,
+    let cx = SemanticContext::new(
         &symbols,
         screen_ids,
         themes,
         signatures,
         functions,
         &native_aliases,
-        false,
-        false,
         target,
-    )?;
+    )
+    .with_navigation(false, false);
+    let body = lower_nodes(declaration.body, &cx)?;
     if body.iter().any(super::contains_status_bar) {
         return Err(CompileError::new(
             declaration.span,
