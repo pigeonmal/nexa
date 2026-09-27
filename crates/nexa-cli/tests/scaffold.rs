@@ -18,4 +18,28 @@ fn scaffold_writes_valid_source_and_default_config() {
     let config = fs::read_to_string(root.join("nexa.config.nx")).expect("scaffold config");
     let config = nexa_syntax::parse_config(&config).expect("scaffold config is valid");
     assert_eq!(config.android.expect("android config").target_sdk, Some(36));
+    let signing = fs::read_to_string(root.join(".nexa/signing.properties"))
+        .expect("scaffold local signing settings");
+    assert!(signing.contains("NEXA_ANDROID_KEYSTORE="));
+    assert!(signing.contains("NEXA_ANDROID_KEY_ALIAS="));
+    assert!(
+        fs::read_to_string(root.join(".gitignore"))
+            .expect("scaffold gitignore")
+            .lines()
+            .any(|line| line == ".nexa/"),
+        "local signing settings should be Git-ignored"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(root.join(".nexa/signing.properties"))
+                .expect("signing settings metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600,
+            "local signing settings should only be readable by their owner"
+        );
+    }
 }

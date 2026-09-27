@@ -66,6 +66,26 @@ fn create(args: &[String]) -> Result<(), String> {
     fs::create_dir_all(&root).map_err(|error| format!("{}: {error}", root.display()))?;
     write(&root.join("App.nx"), &starter_source(&project_name))?;
     write(&root.join("nexa.config.nx"), &starter_config(&project_name))?;
+    fs::create_dir_all(root.join(".nexa"))
+        .map_err(|error| format!("{}: {error}", root.join(".nexa").display()))?;
+    write(
+        &root.join(".nexa/signing.properties"),
+        "# Local Android release signing. This directory is ignored by Git.\nNEXA_ANDROID_KEYSTORE=\nNEXA_ANDROID_KEY_ALIAS=\nNEXA_ANDROID_STORE_PASSWORD=\nNEXA_ANDROID_KEY_PASSWORD=\n",
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(
+            root.join(".nexa/signing.properties"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .map_err(|error| {
+            format!(
+                "{}: {error}",
+                root.join(".nexa/signing.properties").display()
+            )
+        })?;
+    }
     write(
         &root.join(".gitignore"),
         "build/\n.nexa/\n*.xcuserstate\n.DS_Store\nlocal.properties\n*.keystore\n*.jks\n",
@@ -1006,8 +1026,12 @@ fn build_android(root: &Path, mode: BuildMode, dev_port: Option<u16>) -> Result<
     let mut command = Command::new(&gradle);
     command.current_dir(root.join("android")).arg(task);
     if matches!(mode, BuildMode::Release) {
-        let keystore = validate_android_release_signing()?;
-        command.env("NEXA_ANDROID_KEYSTORE", keystore);
+        let signing = validate_android_release_signing()?;
+        command
+            .env("NEXA_ANDROID_KEYSTORE", signing.keystore)
+            .env("NEXA_ANDROID_KEY_ALIAS", signing.key_alias)
+            .env("NEXA_ANDROID_STORE_PASSWORD", signing.store_password)
+            .env("NEXA_ANDROID_KEY_PASSWORD", signing.key_password);
     }
     run_command(command, "Android build")?;
     match mode {
@@ -1104,28 +1128,61 @@ fn verify_android_aab_signature(aab: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_android_release_signing() -> Result<PathBuf, String> {
+struct AndroidReleaseSigning {
+    keystore: PathBuf,
+    key_alias: String,
+    store_password: String,
+    key_password: String,
+}
+
+fn validate_android_release_signing() -> Result<AndroidReleaseSigning, String> {
     let required = [
         "NEXA_ANDROID_KEYSTORE",
         "NEXA_ANDROID_KEY_ALIAS",
         "NEXA_ANDROID_STORE_PASSWORD",
         "NEXA_ANDROID_KEY_PASSWORD",
     ];
+    let local_signing_path = env::current_dir()
+        .map_err(|error| error.to_string())?
+        .join(".nexa/signing.properties");
+    let local_values = if local_signing_path.is_file() {
+        parse_android_signing_properties(&local_signing_path)?
+    } else {
+        BTreeMap::new()
+    };
+    let values = required
+        .iter()
+        .map(|name| {
+            let value = env::var(name)
+                .ok()
+                .or_else(|| local_values.get(*name).cloned())
+                .unwrap_or_default();
+            (*name, value)
+        })
+        .collect::<BTreeMap<_, _>>();
     let missing = required
         .iter()
-        .filter(|key| env::var(key).map_or(true, |value| value.trim().is_empty()))
+        .filter(|key| {
+            values
+                .get(**key)
+                .is_none_or(|value| value.trim().is_empty())
+        })
         .copied()
         .collect::<Vec<_>>();
     if !missing.is_empty() {
         return Err(format!(
-            "Android release signing requires non-empty {} environment variables",
+            "Android release signing requires {}. Set them in `.nexa/signing.properties` or the environment",
             missing.join(", ")
         ));
     }
 
-    let keystore = env::var_os("NEXA_ANDROID_KEYSTORE")
-        .map(PathBuf::from)
-        .ok_or_else(|| "Android release signing requires NEXA_ANDROID_KEYSTORE".to_owned())?;
+    let value = |name: &str| {
+        values
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("Android release signing is missing {name}"))
+    };
+    let keystore = PathBuf::from(value("NEXA_ANDROID_KEYSTORE")?);
     let keystore = if keystore.is_absolute() {
         keystore
     } else {
@@ -1145,7 +1202,66 @@ fn validate_android_release_signing() -> Result<PathBuf, String> {
             keystore.display()
         ));
     }
-    Ok(keystore)
+    Ok(AndroidReleaseSigning {
+        keystore,
+        key_alias: value("NEXA_ANDROID_KEY_ALIAS")?,
+        store_password: value("NEXA_ANDROID_STORE_PASSWORD")?,
+        key_password: value("NEXA_ANDROID_KEY_PASSWORD")?,
+    })
+}
+
+fn parse_android_signing_properties(path: &Path) -> Result<BTreeMap<String, String>, String> {
+    let source =
+        fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let allowed = [
+        "NEXA_ANDROID_KEYSTORE",
+        "NEXA_ANDROID_KEY_ALIAS",
+        "NEXA_ANDROID_STORE_PASSWORD",
+        "NEXA_ANDROID_KEY_PASSWORD",
+    ];
+    let mut values = BTreeMap::new();
+    for (index, line) in source.lines().enumerate() {
+        let line_number = index + 1;
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (key, raw_value) = line
+            .split_once('=')
+            .ok_or_else(|| format!("{}:{line_number}: expected `KEY=value`", path.display()))?;
+        let key = key.trim();
+        if !allowed.contains(&key) {
+            return Err(format!(
+                "{}:{line_number}: unknown Android signing key `{key}`",
+                path.display()
+            ));
+        }
+        let raw_value = raw_value.trim();
+        let value = if raw_value.len() >= 2
+            && ((raw_value.starts_with('"') && raw_value.ends_with('"'))
+                || (raw_value.starts_with('\'') && raw_value.ends_with('\'')))
+        {
+            &raw_value[1..raw_value.len() - 1]
+        } else if raw_value.starts_with('"')
+            || raw_value.starts_with('\'')
+            || raw_value.ends_with('"')
+            || raw_value.ends_with('\'')
+        {
+            return Err(format!(
+                "{}:{line_number}: unmatched quote in signing value",
+                path.display()
+            ));
+        } else {
+            raw_value
+        };
+        if values.insert(key.to_owned(), value.to_owned()).is_some() {
+            return Err(format!(
+                "{}:{line_number}: duplicate Android signing key `{key}`",
+                path.display()
+            ));
+        }
+    }
+    Ok(values)
 }
 
 fn doctor() -> Result<(), String> {
@@ -1419,7 +1535,7 @@ fn print_command_help(command: &str) {
             )
         }
         "release" => println!(
-            "Usage: nexa release [--ios | --android] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]\nBuilds an iOS archive or Android AAB. Configure signing through Xcode or the native Gradle project."
+            "Usage: nexa release [--ios | --android] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]\nBuilds an iOS archive or Android AAB. Android signing uses .nexa/signing.properties or NEXA_ANDROID_* environment variables; iOS signing uses Xcode."
         ),
         "plugin" => println!(
             "Usage:\n  nexa plugin init <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure]\n  nexa plugin check <package-directory|native.nxid>\n  nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <directory>]"

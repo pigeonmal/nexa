@@ -22,7 +22,7 @@ fn android_release_validates_signing_and_reports_only_verified_aabs() {
     let fake_java = fake_bin.join("java");
     fs::write(
         &fake_java,
-        "#!/bin/sh\nprintf '%s' \"$NEXA_ANDROID_KEYSTORE\" > \"$NEXA_FAKE_ANDROID_MARKER\"\nif [ \"${NEXA_FAKE_ANDROID_NO_ARTIFACT:-0}\" = 1 ]; then exit 0; fi\nmkdir -p app/build/outputs/bundle/release\nprintf 'signed bundle' > app/build/outputs/bundle/release/app-release.aab\nexit 0\n",
+        "#!/bin/sh\nprintf '%s|%s|%s|%s' \"$NEXA_ANDROID_KEYSTORE\" \"$NEXA_ANDROID_KEY_ALIAS\" \"$NEXA_ANDROID_STORE_PASSWORD\" \"$NEXA_ANDROID_KEY_PASSWORD\" > \"$NEXA_FAKE_ANDROID_MARKER\"\nif [ \"${NEXA_FAKE_ANDROID_NO_ARTIFACT:-0}\" = 1 ]; then exit 0; fi\nmkdir -p app/build/outputs/bundle/release\nprintf 'signed bundle' > app/build/outputs/bundle/release/app-release.aab\nexit 0\n",
     )
     .expect("write fake Java tool");
     let mut permissions = fs::metadata(&fake_java)
@@ -175,10 +175,37 @@ fn android_release_validates_signing_and_reports_only_verified_aabs() {
     );
     assert_eq!(
         fs::read_to_string(&marker).expect("read Gradle keystore path"),
-        keystore
-            .canonicalize()
-            .expect("resolve project-relative keystore")
-            .to_string_lossy()
+        format!(
+            "{}|release|test-password|test-password",
+            keystore
+                .canonicalize()
+                .expect("resolve project-relative keystore")
+                .to_string_lossy()
+        )
+    );
+
+    fs::write(
+        project.join(".nexa/signing.properties"),
+        "NEXA_ANDROID_KEYSTORE=keys/release.jks\nNEXA_ANDROID_KEY_ALIAS=release\nNEXA_ANDROID_STORE_PASSWORD=test-password\nNEXA_ANDROID_KEY_PASSWORD=test-password\n",
+    )
+    .expect("write local Android signing settings");
+    fs::remove_file(&marker).expect("remove Gradle marker before local settings run");
+    let local_signing = release(&[], false, "valid");
+    assert!(
+        local_signing.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&local_signing.stdout),
+        String::from_utf8_lossy(&local_signing.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&marker).expect("read Gradle credentials from local settings"),
+        format!(
+            "{}|release|test-password|test-password",
+            keystore
+                .canonicalize()
+                .expect("resolve project-relative keystore")
+                .to_string_lossy()
+        )
     );
 
     let unsigned = release(&credentials, false, "unsigned");

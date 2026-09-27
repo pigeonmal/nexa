@@ -35,7 +35,16 @@ Use `nexa dev --compile-only` to compile the debug development host, including N
 
 `nexa test` generates and compiles the native projects without launching the app. `nexa release` creates an iOS archive and exported IPA plus a signed Android AAB. Use `--ios` or `--android` to build one platform. Pass `--arch arm64` to select ARM64; Android applies the `arm64-v8a` ABI filter. Set one or multiple architectures per platform in `nexa.config.nx`, such as `ios { arch: ["arm64", "x86_64"] }` or `android { arch: ["arm64", "x86_64"] }`. A single string like `arch: "arm64"` remains accepted. iOS supports simulator `x86_64`; Android supports `armv7`, `x86`, and `x86_64` in addition to `arm64`. Add `--flavor staging` to `dev`, `test`, or `release` for a separate app identity such as `dev.nexa.myapp.staging`; `--staging` is a shorthand. Define flavors in `nexa.config.nx`, for example `flavors { staging { suffix: "staging" }, production { suffix: "" } }`. A missing suffix defaults to the flavor name, while an empty suffix keeps the configured base app ID. `nexa doctor` checks the required toolchains.
 
-Android releases require non-empty `NEXA_ANDROID_KEYSTORE`, `NEXA_ANDROID_KEY_ALIAS`, `NEXA_ANDROID_STORE_PASSWORD`, and `NEXA_ANDROID_KEY_PASSWORD` environment variables. The keystore path may be absolute or relative to the project directory, and must identify an existing file. Nexa validates these inputs before building, passes Gradle the resolved keystore path, and verifies the generated AAB signature before reporting success.
+Android releases read signing settings from `.nexa/signing.properties`, which `nexa create` adds as a Git-ignored local file (owner-readable on Unix). Fill it in once:
+
+```properties
+NEXA_ANDROID_KEYSTORE=keys/release.jks
+NEXA_ANDROID_KEY_ALIAS=release
+NEXA_ANDROID_STORE_PASSWORD=your-store-password
+NEXA_ANDROID_KEY_PASSWORD=your-key-password
+```
+
+The keystore path may be absolute or relative to the project directory, and must identify an existing file. Nexa validates the settings before building, passes them to Gradle only for the release build, and verifies the generated AAB signature before reporting success. Environment variables with the same names override the local file, so CI can continue to provide credentials through its secret store. Keep signing secrets out of `nexa.config.nx` and source control.
 
 Declare local or Git-pinned native plugin packages under `dependencies` in
 `nexa.config.nx`, then use each package ID in a `plugin "package.id" as Alias`
@@ -80,7 +89,7 @@ config {
 }
 ```
 
-The shared icon source generates an iOS AppIcon asset and Android density icons, adaptive and round launcher icons, and a monochrome adaptive layer for themed icons. Platform-specific `ios.icon` or `android.icon` paths override the shared source; iOS accepts an Xcode asset-catalog icon directory or an Icon Composer `.icon` asset, while Android accepts a resource directory. Signing secrets belong in Xcode or CI and the Android signing environment variables, never in `nexa.config.nx`.
+The shared icon source generates an iOS AppIcon asset and Android density icons, adaptive and round launcher icons, and a monochrome adaptive layer for themed icons. Platform-specific `ios.icon` or `android.icon` paths override the shared source; iOS accepts an Xcode asset-catalog icon directory or an Icon Composer `.icon` asset, while Android accepts a resource directory. iOS signing remains managed by Xcode; Android signing secrets belong in `.nexa/signing.properties` locally or CI secrets, never in `nexa.config.nx`.
 
 ## Example app
 
