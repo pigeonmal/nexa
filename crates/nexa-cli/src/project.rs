@@ -893,7 +893,7 @@ fn generate_android(
         format!("{core_package_path}/NexaRuntimeCore.kt"),
         nexa_codegen::value::kotlin_core_runtime_source(),
     )];
-    if !nexa_codegen::value::collect(&module).is_empty() {
+    if !nexa_codegen::value::collect(module).is_empty() {
         value_codec_files.push((
             format!("{core_package_path}/NexaValue.kt"),
             nexa_codegen::value::kotlin_runtime_source(),
