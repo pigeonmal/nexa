@@ -5,7 +5,7 @@ mod api;
 mod components;
 mod engine;
 
-pub(super) use api::{network, permissions};
+pub(super) use api::{network, permissions, time};
 use components::components as component_renderer;
 pub(super) use components::{
     accessibility, bottom_bar, controls, custom_components, direction, images, input, keyboard,
@@ -196,6 +196,11 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Gene
                 features.dynamic_permission,
                 features.expose_permissions_to_dev_runtime,
             );
+        });
+    }
+    if features.facts.capabilities.uses_time {
+        units.write("time", |out| {
+            time::render(out);
         });
     }
     units.write("functions", |out| {

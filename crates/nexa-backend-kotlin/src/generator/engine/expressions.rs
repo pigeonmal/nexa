@@ -1,7 +1,7 @@
 use nexa_codegen::names::{function_name, state_name};
 use nexa_ir::{
     BinaryOp, CollectionTransform, Expr, InterpolatedPart, MemberKind, NetworkRequest, NumericType,
-    PermissionOpKind, PluginCodec, TuplePosition, Type,
+    PermissionOpKind, PluginCodec, TimeMethod, TuplePosition, Type,
 };
 
 use super::utils::{kotlin_string, kotlin_string_content};
@@ -177,6 +177,11 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 ),
             }
         }
+        Expr::TimeCall {
+            method,
+            arguments,
+            ..
+        } => time_call(*method, arguments, locals),
         Expr::Closure { parameters, body } => {
             let body = expression_with_locals(body, parameters);
             format!("{{ {} -> {} }}", parameters.join(", "), body)
@@ -250,6 +255,23 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         Expr::ResultOk { value, .. } => format!("NexaResult.Success({})", render(value)),
         Expr::ResultErr { error, .. } => format!("NexaResult.Failure({})", render(error)),
         Expr::Try { expr, .. } => format!("{}.getOrThrow()", render(expr)),
+    }
+}
+
+/// A core clock call. Every one is a direct platform call: a system clock, a
+/// monotonic counter, a coroutine delay, or the generated ISO 8601 helpers.
+fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> String {
+    let rendered = arguments
+        .iter()
+        .map(|argument| expression_with_locals(argument, locals))
+        .collect::<Vec<_>>();
+    let first = rendered.first().cloned().unwrap_or_else(|| "0L".to_owned());
+    match method {
+        TimeMethod::Now => "System.currentTimeMillis()".to_owned(),
+        TimeMethod::Monotonic => "System.nanoTime()".to_owned(),
+        TimeMethod::Sleep => format!("kotlinx.coroutines.delay({first})"),
+        TimeMethod::Iso8601 => format!("nexaIso8601({first})"),
+        TimeMethod::Iso8601ToMillis => format!("nexaIso8601ToMillis({first})"),
     }
 }
 
@@ -424,7 +446,7 @@ pub(crate) fn text_expression(expr: &Expr) -> String {
 #[cfg(test)]
 mod tests {
     use super::expression;
-    use nexa_ir::{Expr, Type};
+    use nexa_ir::{Expr, NumericType, TimeMethod, Type};
 
     #[test]
     fn file_calls_use_the_generated_native_helper_names_and_argument_order() {
@@ -442,6 +464,62 @@ mod tests {
             "NexaFile.writeText(\"saved\", \"notes.txt\")"
         );
         assert_eq!(expression(&delete), "NexaFile.delete(\"notes.txt\")");
+    }
+
+    #[test]
+    fn clock_calls_render_direct_platform_calls() {
+        assert_eq!(
+            expression(&Expr::TimeCall {
+                method: TimeMethod::Now,
+                arguments: Vec::new(),
+                return_type: Type::Numeric(NumericType::Int64),
+                is_async: false,
+            }),
+            "System.currentTimeMillis()"
+        );
+        assert_eq!(
+            expression(&Expr::TimeCall {
+                method: TimeMethod::Monotonic,
+                arguments: Vec::new(),
+                return_type: Type::Numeric(NumericType::Int64),
+                is_async: false,
+            }),
+            "System.nanoTime()"
+        );
+        // Kotlin's `await` is transparent, so a sleep is the bare call.
+        assert_eq!(
+            expression(&Expr::Await(Box::new(Expr::TimeCall {
+                method: TimeMethod::Sleep,
+                arguments: vec![Expr::Number {
+                    raw: "5L".to_owned(),
+                    ty: NumericType::Int64,
+                }],
+                return_type: Type::Void,
+                is_async: true,
+            }))),
+            "kotlinx.coroutines.delay(5LL)"
+        );
+        assert_eq!(
+            expression(&Expr::TimeCall {
+                method: TimeMethod::Iso8601,
+                arguments: vec![Expr::Number {
+                    raw: "1700000000000".to_owned(),
+                    ty: NumericType::Int64,
+                }],
+                return_type: Type::String,
+                is_async: false,
+            }),
+            "nexaIso8601(1700000000000L)"
+        );
+        assert_eq!(
+            expression(&Expr::TimeCall {
+                method: TimeMethod::Iso8601ToMillis,
+                arguments: vec![Expr::String("2026-09-27T09:41:02.123Z".to_owned())],
+                return_type: Type::Optional(Box::new(Type::Numeric(NumericType::Int64))),
+                is_async: false,
+            }),
+            "nexaIso8601ToMillis(\"2026-09-27T09:41:02.123Z\")"
+        );
     }
 
     #[test]

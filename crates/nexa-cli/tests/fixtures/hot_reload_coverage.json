@@ -461,6 +461,11 @@
         "name": "BytesCount",
         "ios": "covered",
         "android": "covered"
+      },
+      {
+        "name": "TimeCall",
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "CollectionTransform": [
@@ -1071,6 +1076,33 @@
       },
       {
         "name": "Request",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "TimeMethod": [
+      {
+        "name": "Now",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Monotonic",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Sleep",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Iso8601",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Iso8601ToMillis",
         "ios": "covered",
         "android": "covered"
       }

@@ -1,7 +1,7 @@
 use nexa_codegen::names::{function_name, state_name};
 use nexa_ir::{
     BinaryOp, CollectionTransform, Expr, InterpolatedPart, MemberKind, NetworkRequest, NumericType,
-    PermissionOpKind, PluginCodec, TuplePosition, Type,
+    PermissionOpKind, PluginCodec, TimeMethod, TuplePosition, Type,
 };
 
 use super::utils::{swift_string, swift_string_content};
@@ -208,6 +208,11 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 ),
             }
         }
+        Expr::TimeCall {
+            method,
+            arguments,
+            ..
+        } => time_call(*method, arguments, locals),
         Expr::Closure { parameters, body } => {
             let body = expression_with_locals(body, parameters);
             format!("{{ {} in {} }}", parameters.join(", "), body)
@@ -293,6 +298,33 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         Expr::ResultOk { value, .. } => format!(".success({})", render(value)),
         Expr::ResultErr { error, .. } => format!(".failure({})", render(error)),
         Expr::Try { expr, .. } => format!("try {}.get()", render(expr)),
+    }
+}
+
+/// A core clock call. Every one is a direct platform call: a system clock, a
+/// monotonic counter, or the generated ISO 8601 helpers.
+fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> String {
+    let rendered = arguments
+        .iter()
+        .map(|argument| expression_with_locals(argument, locals))
+        .collect::<Vec<_>>();
+    match method {
+        TimeMethod::Now => "Int64((Date().timeIntervalSince1970 * 1000).rounded())".to_owned(),
+        // `uptimeNanoseconds` is a `UInt64` that only overflows after ~584
+        // years of uptime, so the reinterpretation is the direct spelling.
+        TimeMethod::Monotonic => "Int64(bitPattern: DispatchTime.now().uptimeNanoseconds)".to_owned(),
+        // The surrounding `Await` writes `try await`; a sleep is the one method
+        // that needs it, because cancelling the task throws out of `Task.sleep`.
+        TimeMethod::Sleep => {
+            let milliseconds = rendered.first().cloned().unwrap_or_else(|| "0".to_owned());
+            format!("Task.sleep(nanoseconds: {milliseconds} &* 1_000_000)")
+        }
+        TimeMethod::Iso8601 => {
+            format!("nexaIso8601({})", rendered.first().cloned().unwrap_or_default())
+        }
+        TimeMethod::Iso8601ToMillis => {
+            format!("nexaIso8601ToMillis({})", rendered.first().cloned().unwrap_or_default())
+        }
     }
 }
 
@@ -437,7 +469,7 @@ pub(crate) fn text_expression(expr: &Expr) -> String {
 #[cfg(test)]
 mod tests {
     use super::expression;
-    use nexa_ir::{Expr, Type};
+    use nexa_ir::{Expr, NumericType, TimeMethod, Type};
 
     #[test]
     fn throwing_native_calls_preserve_errors_for_explicit_recovery() {
@@ -479,6 +511,64 @@ mod tests {
             "try await NexaFile.delete(\"notes.txt\")"
         );
         assert_eq!(expression(&exists), "await NexaFile.exists(\"notes.txt\")");
+    }
+
+    #[test]
+    fn clock_calls_render_direct_platform_calls() {
+        let now = Expr::TimeCall {
+            method: TimeMethod::Now,
+            arguments: Vec::new(),
+            return_type: Type::Numeric(NumericType::Int64),
+            is_async: false,
+        };
+        assert_eq!(
+            expression(&now),
+            "Int64((Date().timeIntervalSince1970 * 1000).rounded())"
+        );
+        assert_eq!(
+            expression(&Expr::TimeCall {
+                method: TimeMethod::Monotonic,
+                arguments: Vec::new(),
+                return_type: Type::Numeric(NumericType::Int64),
+                is_async: false,
+            }),
+            "Int64(bitPattern: DispatchTime.now().uptimeNanoseconds)"
+        );
+        // A sleep is the one clock call that can throw, so the `Await` node is
+        // what writes `try`.
+        assert_eq!(
+            expression(&Expr::Await(Box::new(Expr::TimeCall {
+                method: TimeMethod::Sleep,
+                arguments: vec![Expr::Number {
+                    raw: "5".to_owned(),
+                    ty: NumericType::Int64,
+                }],
+                return_type: Type::Void,
+                is_async: true,
+            }))),
+            "try await Task.sleep(nanoseconds: 5 &* 1_000_000)"
+        );
+        assert_eq!(
+            expression(&Expr::TimeCall {
+                method: TimeMethod::Iso8601,
+                arguments: vec![Expr::Number {
+                    raw: "1700000000000".to_owned(),
+                    ty: NumericType::Int64,
+                }],
+                return_type: Type::String,
+                is_async: false,
+            }),
+            "nexaIso8601(1700000000000)"
+        );
+        assert_eq!(
+            expression(&Expr::TimeCall {
+                method: TimeMethod::Iso8601ToMillis,
+                arguments: vec![Expr::String("2026-09-27T09:41:02.123Z".to_owned())],
+                return_type: Type::Optional(Box::new(Type::Numeric(NumericType::Int64))),
+                is_async: false,
+            }),
+            "nexaIso8601ToMillis(\"2026-09-27T09:41:02.123Z\")"
+        );
     }
 
     #[test]

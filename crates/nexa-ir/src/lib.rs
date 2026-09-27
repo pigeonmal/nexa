@@ -357,6 +357,17 @@ pub enum Expr {
     BytesCount {
         bytes: Box<Expr>,
     },
+    /// Validated `Time.*` call.
+    ///
+    /// The clock is a core API, not a plugin, so it has its own variant rather
+    /// than borrowing the plugin call shape: both backends render a direct
+    /// platform call, and the hot-reload interpreter can evaluate it.
+    TimeCall {
+        method: TimeMethod,
+        arguments: Vec<Expr>,
+        return_type: Type,
+        is_async: bool,
+    },
     /// Validated permission query: `Status` renders `status`, `Request`
     /// renders `request`.
     PermissionOp {
@@ -829,6 +840,39 @@ pub struct PluginCodec {
     pub decodes: bool,
 }
 
+/// A core clock operation.
+///
+/// The two clocks are deliberately separate: `Now` is a wall clock that can
+/// jump, so it is for *when* something happened, and `Monotonic` never moves
+/// backwards, so it is for *how long* something took.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TimeMethod {
+    /// `Time.now()`: milliseconds since the Unix epoch, UTC.
+    Now,
+    /// `Time.monotonic()`: nanoseconds from an arbitrary fixed origin. Only
+    /// differences between two readings mean anything.
+    Monotonic,
+    /// `Time.sleep(milliseconds:)`: suspends the caller.
+    Sleep,
+    /// `Time.iso8601(timestamp:)`: the UTC instant as an ISO 8601 string.
+    Iso8601,
+    /// `Time.iso8601ToMillis(text:)`: the inverse, or null when malformed.
+    Iso8601ToMillis,
+}
+
+impl TimeMethod {
+    /// The IDL-level name of the method, as `.nx` spells it.
+    pub fn idl_name(self) -> &'static str {
+        match self {
+            TimeMethod::Now => "now",
+            TimeMethod::Monotonic => "monotonic",
+            TimeMethod::Sleep => "sleep",
+            TimeMethod::Iso8601 => "iso8601",
+            TimeMethod::Iso8601ToMillis => "iso8601ToMillis",
+        }
+    }
+}
+
 /// Validated permission query kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PermissionOpKind {
@@ -1062,6 +1106,10 @@ impl Expr {
                 | Expr::FileReadText { .. }
                 | Expr::FileWriteText { .. }
                 | Expr::FileDelete { .. }
+                | Expr::TimeCall {
+                    method: TimeMethod::Sleep,
+                    ..
+                }
         )
     }
 }

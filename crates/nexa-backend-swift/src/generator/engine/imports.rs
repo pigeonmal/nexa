@@ -34,6 +34,7 @@ pub(crate) fn render(features: &Features) -> String {
     crate::generator::components::links::imports(features, &mut imports);
     crate::generator::api::network::imports(features, &mut imports);
     crate::generator::api::permissions::imports(features, &mut imports);
+    crate::generator::api::time::imports(features, &mut imports);
     imports.render()
 }
 

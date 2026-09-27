@@ -15,6 +15,7 @@ pub struct Capabilities {
     pub uses_file_api: bool,
     pub uses_file_async: bool,
     pub uses_result: bool,
+    pub uses_time: bool,
 }
 
 impl Capabilities {

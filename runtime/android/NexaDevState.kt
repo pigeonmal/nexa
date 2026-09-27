@@ -450,6 +450,7 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val decoded = (bytes as? String ?: "").fromBase64()
                 decoded.size
             }
+            "TimeCall" -> evaluateTimeCall(payload as? JSONObject, locals, scope)
             "Coalesce" -> {
                 val parts = payload as? JSONArray ?: JSONArray()
                 val first = evaluate(parts.opt(0), locals, scope)
@@ -499,6 +500,22 @@ internal class NexaDevStateStore(internal val context: Context) {
         val payload = expression.opt(kind)
         return when (kind) {
             "Await", "TryAwait" -> evaluateAsync(payload, locals, scope)
+            "TimeCall" -> {
+                val call = payload as? JSONObject ?: JSONObject()
+                if (call.optString("method") == "Sleep") {
+                    // A real suspend: the dev runtime can await, so a
+                    // hot-reloaded app sleeps the way a released one does.
+                    val milliseconds = evaluate(
+                        call.optJSONArray("arguments")?.opt(0),
+                        locals,
+                        scope,
+                    ) as? Number
+                    kotlinx.coroutines.delay(milliseconds?.toLong() ?: 0L)
+                    JSONObject.NULL
+                } else {
+                    evaluateTimeCall(payload as? JSONObject, locals, scope)
+                }
+            }
             "Call" -> invokeFunctionAsync(payload as? JSONObject ?: JSONObject(), locals, scope)
             "NativeCall" -> invokeNativeAsync(payload as? JSONObject ?: JSONObject(), locals, scope)
             "NetworkFetch", "NetworkDownload" -> {
@@ -711,4 +728,162 @@ internal class NexaDevStateStore(internal val context: Context) {
         is String -> value.toDoubleOrNull() ?: 0.0
         else -> 0.0
     }
+}
+
+/**
+ * A core clock call, evaluated the same way the generated code renders it: a
+ * system clock, a monotonic counter, or the ISO 8601 helpers the app carries.
+ */
+private fun evaluateTimeCall(
+    call: JSONObject?,
+    locals: Map<String, Any>,
+    scope: String,
+): Any {
+    val method = call?.optString("method") ?: return JSONObject.NULL
+    val arguments = call.optJSONArray("arguments") ?: JSONArray()
+    val first = evaluate(arguments.opt(0), locals, scope)
+    return when (method) {
+        "Now" -> System.currentTimeMillis()
+        "Monotonic" -> System.nanoTime()
+        // A synchronous evaluator cannot suspend. The async path handles a real
+        // sleep; here the request is reported and evaluation moves on rather than
+        // blocking the thread it runs on.
+        "Sleep" -> JSONObject.NULL
+        "Iso8601" -> (first as? Number)?.toLong()?.let { nexaDevIso8601(it) } ?: JSONObject.NULL
+        "Iso8601ToMillis" -> (first as? String)?.let { nexaDevIso8601ToMillis(it) } ?: JSONObject.NULL
+        else -> JSONObject.NULL
+    }
+}
+
+/**
+ * The ISO 8601 layout the generated code implements, kept in one place so the
+ * two cannot drift.
+ */
+private const val NEXA_DEV_EPOCH_DAYS = 719_468L
+private const val NEXA_DEV_DAYS_IN_400_YEARS = 146_097L
+
+private fun nexaDevIso8601(milliseconds: Long): String {
+    var days = Math.floorDiv(milliseconds, 86_400_000L)
+    var remainder = Math.floorMod(milliseconds, 86_400_000L)
+    if (remainder < 0) {
+        remainder += 86_400_000L
+        days -= 1
+    }
+    val (year, month, day) = nexaDevCivilDate(days)
+    val hour = remainder / 3_600_000L
+    remainder %= 3_600_000L
+    val minute = remainder / 60_000L
+    remainder %= 60_000L
+    val second = remainder / 1000L
+    val millisecond = remainder % 1000L
+    return String.format(
+        java.util.Locale.ROOT,
+        "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        millisecond,
+    )
+}
+
+private fun nexaDevIso8601ToMillis(text: String): Any {
+    if (text.length != 20 && text.length != 24) {
+        return JSONObject.NULL
+    }
+    if (text[4] != '-' || text[7] != '-' || text[10] != 'T' ||
+        text[13] != ':' || text[16] != ':' || text[text.length - 1] != 'Z'
+    ) {
+        return JSONObject.NULL
+    }
+    if (text.length == 24 && text[19] != '.') {
+        return JSONObject.NULL
+    }
+    // Digit runs in layout order. A run is read left to right, so its first
+    // digit is the most significant one.
+    val runs = listOf(0..3, 5..6, 8..9, 11..12, 14..15, 17..18)
+    val values = LongArray(runs.size + 1)
+    for (index in runs.indices) {
+        val value = nexaDevDigits(text, runs[index]) ?: return JSONObject.NULL
+        values[index] = value
+    }
+    if (text.length == 24) {
+        values[6] = nexaDevDigits(text, 20..22) ?: return JSONObject.NULL
+    }
+    val year = values[0]
+    val month = values[1]
+    val day = values[2]
+    val hour = values[3]
+    val minute = values[4]
+    val second = values[5]
+    if (month < 1 || month > 12 || day < 1) {
+        return JSONObject.NULL
+    }
+    if (day > nexaDevMonthLength(year, month)) {
+        return JSONObject.NULL
+    }
+    if (hour >= 24 || minute >= 60 || second > 60) {
+        return JSONObject.NULL
+    }
+    val millisecond = if (values.size > 6) values[6] else 0L
+    if (millisecond >= 1000) {
+        return JSONObject.NULL
+    }
+    val days = nexaDevDaysFromCivil(year, month, day)
+    return (((days * 24 + hour) * 60 + minute) * 60 + second) * 1000 + millisecond
+}
+
+private fun nexaDevCivilDate(daysSinceEpoch: Long): Triple<Long, Long, Long> {
+    val shifted = daysSinceEpoch + NEXA_DEV_EPOCH_DAYS
+    val era = if (shifted >= 0) shifted / NEXA_DEV_DAYS_IN_400_YEARS
+    else (shifted - (NEXA_DEV_DAYS_IN_400_YEARS - 1)) / NEXA_DEV_DAYS_IN_400_YEARS
+    val dayOfEra = shifted - era * NEXA_DEV_DAYS_IN_400_YEARS
+    val yearOfEra = (dayOfEra - dayOfEra / 1460 + dayOfEra / 36524 - dayOfEra / 146096) / 365
+    val year = yearOfEra + era * 400
+    val dayOfYear = dayOfEra - (365 * yearOfEra + yearOfEra / 4 - yearOfEra / 100)
+    val monthIndex = (5 * dayOfYear + 2) / 153
+    val day = dayOfYear - (153 * monthIndex + 2) / 5 + 1
+    val month = monthIndex + if (monthIndex < 10) 3 else -9
+    return Triple(if (month <= 2) year + 1 else year, month, day)
+}
+
+private fun nexaDevDaysFromCivil(year: Long, month: Long, day: Long): Long {
+    val adjustedYear = year - if (month <= 2) 1 else 0
+    val era = if (adjustedYear >= 0) adjustedYear / 400 else (adjustedYear - 399) / 400
+    val yearOfEra = adjustedYear - era * 400
+    val monthIndex = if (month > 2) month - 3 else month + 9
+    val dayOfYear = (153 * monthIndex + 2) / 5 + day - 1
+    val dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+    return era * NEXA_DEV_DAYS_IN_400_YEARS + dayOfEra - NEXA_DEV_EPOCH_DAYS
+}
+
+/** A run of ASCII digits as a number, or null when anything else is in it. */
+private fun nexaDevDigits(text: String, range: IntRange): Long? {
+    var value = 0L
+    for (index in range) {
+        val digit = text[index]
+        if (digit < '0' || digit > '9') {
+            return null
+        }
+        value = value * 10 + (digit - '0').toLong()
+    }
+    return value
+}
+
+/**
+ * The number of days in a proleptic Gregorian month. February is the only one that
+ * depends on the year, and 31 February has to be rejected rather than rolled
+ * forward into March.
+ */
+fun nexaDevMonthLength(year: Long, month: Long): Long {
+    if (month == 2L) {
+        val leap = year % 4L == 0L && (year % 100L != 0L || year % 400L == 0L)
+        return if (leap) 29L else 28L
+    }
+    if (month == 4L || month == 6L || month == 9L || month == 11L) {
+        return 30L
+    }
+    return 31L
 }

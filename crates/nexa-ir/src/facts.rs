@@ -844,6 +844,10 @@ fn observe_expr(
         Expr::PathJoin { .. } => {
             capabilities.uses_path_api = true;
         }
+        Expr::TimeCall { is_async, .. } => {
+            capabilities.uses_time = true;
+            capabilities.uses_result |= *is_async;
+        }
         _ => {}
     }
     if let Expr::NativeCall {

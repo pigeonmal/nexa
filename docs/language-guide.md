@@ -124,6 +124,50 @@ app ResultExample {
 
 `Ok(value)` and `Err(error)` construct results. On Swift, postfix `?` generates `try result.get()`, which throws the typed failure. On Kotlin, Nexa emits the sealed `NexaResult<T, E>` type; postfix `?` currently calls `getOrThrow()`, which turns a failure into a `RuntimeException`. It does not return `nil` on either target.
 
+## Time
+
+`Time` is a core API, available on every target without a plugin:
+
+| Call | Returns | Meaning |
+|---|---|---|
+| `Time.now()` | `Int64` | Milliseconds since the Unix epoch, UTC |
+| `Time.monotonic()` | `Int64` | Nanoseconds from a fixed origin; only differences are meaningful |
+| `Time.sleep(milliseconds: Int64)` | `Void` | Suspends the caller |
+| `Time.iso8601(timestamp: Int64)` | `String` | The instant as `yyyy-MM-ddTHH:mm:ss.SSSZ` in UTC |
+| `Time.iso8601ToMillis(text: String)` | `Int64?` | The inverse, or `null` when the text is not that layout |
+
+The two clocks are separate on purpose. `Time.now()` is a wall clock: it can jump when the system time is corrected, so it answers *when* something happened. `Time.monotonic()` never moves backwards, so it is the only one that can answer *how long* something took:
+
+```nexa
+app TimerExample {
+    state startedAt: Int64 = 0
+    state finishedAt: Int64 = 0
+    state stamp: String = ""
+
+    body {
+        Column(spacing: 16) {
+            Text(stamp)
+        }
+
+        OnAppear async {
+            startedAt = Time.monotonic()
+            stamp = Time.iso8601(timestamp: Time.now())
+            try {
+                await Time.sleep(milliseconds: 50)
+            } catch {
+            }
+            finishedAt = Time.monotonic()
+        }
+    }
+}
+```
+
+`Time.sleep` is the one clock call that can throw, because the surrounding task can be cancelled while it is suspended, so `await Time.sleep(...)` needs a `try { ... } catch { ... }` block or a throwing function, exactly like an awaited `File` or `Network` call. Awaiting a clock *reading* is an error: only `sleep` suspends.
+
+Two readings are two values, not a duration: `+` is the language's only binary operator, so there is no subtraction to combine them with. Store both readings, or take the difference where the numbers are compared - a test, a host harness, or the platform you send them to.
+
+`Time.iso8601` and `Time.iso8601ToMillis` are hand-implemented on both platforms with the same leap-year rules rather than a formatter, so a timestamp written on one target reads on the other. The layout is UTC and locale-independent, and the fractional part is optional when parsing. This is deliberately not a display format: there is no localized or timezone-aware date formatting, because its output would differ between devices and between platforms.
+
 ## Platform-specific UI
 
 Use `platform ios { ... }` and `platform android { ... }` for target-specific views. Nexa removes the inactive block before checking and generating the selected target:

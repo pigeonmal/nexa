@@ -7,3 +7,6 @@ license.workspace = true
 [dependencies]
 nexa-codegen = { path = "../nexa-codegen" }
 nexa-ir = { path = "../nexa-ir" }
+
+[dev-dependencies]
+nexa-testkit = { path = "../nexa-testkit" }

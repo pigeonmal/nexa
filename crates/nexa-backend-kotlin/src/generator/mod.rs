@@ -370,6 +370,11 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             );
         });
     }
+    if features.facts.capabilities.uses_time {
+        units.write("time", |out| {
+            api::time::render(out);
+        });
+    }
     units.write("functions", |out| {
         functions::render(module, out);
     });

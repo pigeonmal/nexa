@@ -1703,6 +1703,31 @@ fn lower_native_call(
             true,
             vec![("permission", Type::Enum("Permission".to_owned()), None)],
         ),
+        "Time.now" => (
+            Type::Numeric(NumericType::Int64),
+            false,
+            Vec::new(),
+        ),
+        "Time.monotonic" => (
+            Type::Numeric(NumericType::Int64),
+            false,
+            Vec::new(),
+        ),
+        "Time.sleep" => (
+            Type::Void,
+            true,
+            vec![("milliseconds", Type::Numeric(NumericType::Int64), None)],
+        ),
+        "Time.iso8601" => (
+            Type::String,
+            false,
+            vec![("timestamp", Type::Numeric(NumericType::Int64), None)],
+        ),
+        "Time.iso8601ToMillis" => (
+            Type::Optional(Box::new(Type::Numeric(NumericType::Int64))),
+            false,
+            vec![("text", Type::String, None)],
+        ),
         _ => {
             return Err(CompileError::new(
                 span,
@@ -1832,6 +1857,36 @@ fn native_plan(
         "Bytes.count" => Ok(Expr::BytesCount {
             bytes: Box::new(take("bytes")?),
         }),
+        "Time.now" => Ok(Expr::TimeCall {
+            method: nexa_ir::TimeMethod::Now,
+            arguments: Vec::new(),
+            return_type: Type::Numeric(NumericType::Int64),
+            is_async: false,
+        }),
+        "Time.monotonic" => Ok(Expr::TimeCall {
+            method: nexa_ir::TimeMethod::Monotonic,
+            arguments: Vec::new(),
+            return_type: Type::Numeric(NumericType::Int64),
+            is_async: false,
+        }),
+        "Time.sleep" => Ok(Expr::TimeCall {
+            method: nexa_ir::TimeMethod::Sleep,
+            arguments: vec![take("milliseconds")?],
+            return_type: Type::Void,
+            is_async: true,
+        }),
+        "Time.iso8601" => Ok(Expr::TimeCall {
+            method: nexa_ir::TimeMethod::Iso8601,
+            arguments: vec![take("timestamp")?],
+            return_type: Type::String,
+            is_async: false,
+        }),
+        "Time.iso8601ToMillis" => Ok(Expr::TimeCall {
+            method: nexa_ir::TimeMethod::Iso8601ToMillis,
+            arguments: vec![take("text")?],
+            return_type: Type::Optional(Box::new(Type::Numeric(NumericType::Int64))),
+            is_async: false,
+        }),
         _ => Err(CompileError::new(
             span,
             format!("unknown native API `{qualified_name}`"),
@@ -1842,7 +1897,7 @@ fn native_plan(
 fn is_core_native_namespace(namespace: &str) -> bool {
     matches!(
         namespace,
-        "Network" | "Path" | "File" | "Permissions" | "Bytes"
+        "Network" | "Path" | "File" | "Permissions" | "Bytes" | "Time"
     )
 }
 
@@ -2439,6 +2494,12 @@ pub(super) fn infer_expr_type(
             | ("File", "readText") => Some(Type::String),
             ("Bytes", "fromText") | ("Bytes", "fromArray") => Some(Type::Bytes),
             ("Bytes", "count") => Some(Type::Numeric(NumericType::Int32)),
+            ("Time", "now") | ("Time", "monotonic") => Some(Type::Numeric(NumericType::Int64)),
+            ("Time", "sleep") => Some(Type::Void),
+            ("Time", "iso8601") => Some(Type::String),
+            ("Time", "iso8601ToMillis") => {
+                Some(Type::Optional(Box::new(Type::Numeric(NumericType::Int64))))
+            }
             ("Permissions", "status") => Some(Type::Enum("PermissionStatus".to_owned())),
             ("Permissions", "request") => Some(Type::Enum("PermissionStatus".to_owned())),
             _ => functions

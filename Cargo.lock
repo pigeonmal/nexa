@@ -368,6 +368,7 @@ version = "0.1.0"
 dependencies = [
  "nexa-codegen",
  "nexa-ir",
+ "nexa-testkit",
 ]
 
 [[package]]

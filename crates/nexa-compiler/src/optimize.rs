@@ -193,7 +193,17 @@ fn is_pure_expression(expression: &Expr) -> bool {
         | Expr::IsRegularWidth
         | Expr::IsCompactWidth
         | Expr::IsRegularHeight
-        | Expr::IsCompactHeight => true,
+        | Expr::IsCompactHeight
+        | Expr::TimeCall {
+            method: nexa_ir::TimeMethod::Now
+                | nexa_ir::TimeMethod::Monotonic
+                | nexa_ir::TimeMethod::Iso8601
+                | nexa_ir::TimeMethod::Iso8601ToMillis,
+            ..
+        } => true,
+        // Suspending changes when the rest of the action runs, so it is not
+        // folded away.
+        Expr::TimeCall { .. } => false,
     }
 }
 
@@ -573,6 +583,7 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         Expr::State(_, ty) | Expr::Null(ty) => collect_type_struct_names(ty, used),
         Expr::Call { return_type, .. } => collect_type_struct_names(return_type, used),
         Expr::NativeCall { return_type, .. } => collect_type_struct_names(return_type, used),
+        Expr::TimeCall { return_type, .. } => collect_type_struct_names(return_type, used),
         Expr::NetworkFetch(_)
         | Expr::NetworkDownload { .. }
         | Expr::PathJoin { .. }

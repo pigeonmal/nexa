@@ -186,6 +186,7 @@ public enum NexaDevExprKind {
     public static let fileWriteText = "FileWriteText"
     public static let fileDelete = "FileDelete"
     public static let permissionOp = "PermissionOp"
+    public static let timeCall = "TimeCall"
     public static let awaitExpr = "Await"
     public static let tryAwait = "TryAwait"
 }

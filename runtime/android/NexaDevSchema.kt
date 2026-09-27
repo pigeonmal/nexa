@@ -181,6 +181,7 @@ internal object NexaDevExprKind {
     const val FILE_WRITE_TEXT = "FileWriteText"
     const val FILE_DELETE = "FileDelete"
     const val PERMISSION_OP = "PermissionOp"
+    const val TIME_CALL = "TimeCall"
     const val AWAIT = "Await"
     const val TRY_AWAIT = "TryAwait"
 }
