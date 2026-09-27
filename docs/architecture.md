@@ -54,7 +54,7 @@ C++ native plugins use generated bindings and standard C++ types such as `std::i
 
 ## 3. Generated Source Cache
 
-The CLI fingerprints the source graph and a generator schema version before reusing generated native output. The schema is advanced when compiler or backend behavior changes without a source edit, so cached projects cannot retain stale generated code. `build-v92` includes the development host's first-party File and Path helpers required when those APIs are added by hot reload.
+The CLI fingerprints the source graph and a generator schema version before reusing generated native output. The schema is advanced when compiler or backend behavior changes without a source edit, so cached projects cannot retain stale generated code. `build-v94` iterates Compose state collections through their zero-copy immutable backing snapshots, avoiding a snapshot-state read for every loop element. `build-v93` binds the Android runtime context before native plugin initialization and emits the corresponding context import/runtime helper only for modules with reachable plugins. `build-v92` included the development host's first-party File and Path helpers required when those APIs are added by hot reload.
 
 ## 4. Host Project Generation
 

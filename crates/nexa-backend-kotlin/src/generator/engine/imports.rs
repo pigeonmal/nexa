@@ -4,6 +4,7 @@ use super::features::Features;
 /// imports; this type carries only cross-cutting placement facts.
 pub(crate) struct ImportContext<'a> {
     pub(crate) features: &'a Features,
+    pub(crate) uses_plugins: bool,
     pub(crate) has_navigation: bool,
     pub(crate) has_direction: bool,
     pub(crate) has_on_appear: bool,
@@ -39,6 +40,10 @@ impl ImportSet {
 pub(crate) fn render(context: ImportContext<'_>) -> String {
     let mut imports = ImportSet::default();
     imports.add(true, "androidx.compose.runtime.Composable");
+    imports.add(
+        context.uses_plugins,
+        "androidx.compose.ui.platform.LocalContext",
+    );
 
     crate::generator::components::direction::imports(&context, &mut imports);
     crate::generator::components::lifecycle::imports(&context, &mut imports);
@@ -73,6 +78,7 @@ mod tests {
     fn render_features(features: &Features) -> String {
         render(ImportContext {
             features,
+            uses_plugins: false,
             has_navigation: false,
             has_direction: false,
             has_on_appear: false,

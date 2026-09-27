@@ -155,10 +155,23 @@ internal fun <K, V> nexaReplace(target: MutableMap<K, V>, value: Map<K, V>) {
 
 "#;
 
+/// Compose's state collections expose their immutable backing collection in
+/// O(1). Snapshot it once before a loop instead of reading snapshot state for
+/// every element through the collection iterator. Ordinary Kotlin collections
+/// pass through unchanged.
+const COLLECTION_ITERATION_HELPERS: &str = r#"private inline fun <T> nexaSnapshotValues(values: Iterable<T>): Iterable<T> = values
+private inline fun <T> nexaSnapshotValues(values: androidx.compose.runtime.snapshots.SnapshotStateList<T>): List<T> = values.toList()
+
+private inline fun <K, V> nexaSnapshotEntries(values: Map<K, V>): Map<K, V> = values
+private inline fun <K, V> nexaSnapshotEntries(values: androidx.compose.runtime.snapshots.SnapshotStateMap<K, V>): Map<K, V> = values.toMap()
+
+"#;
+
 fn generate_with_analysis(module: &Module, features: &features::Features) -> GeneratedSources {
     let focus_bindings = features.facts.focus_bindings.app.clone();
     let imports = engine::imports::render(engine::imports::ImportContext {
         features,
+        uses_plugins: !module.plugins.is_empty(),
         has_navigation: !module.screens.is_empty(),
         has_direction: module.direction.is_some(),
         has_on_appear: module.on_appear.is_some()
@@ -252,7 +265,11 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                     "    val nexaPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->\n        NexaRuntime.dispatchPermissionResult(result)\n    }\n    NexaRuntime.bindPermissionLauncher(nexaPermissionLauncher)\n",
                 );
             }
-            if features.uses_network_api || features.uses_path_api || features.uses_permissions {
+            if features.uses_network_api
+                || features.uses_path_api
+                || features.uses_permissions
+                || !module.plugins.is_empty()
+            {
                 out.push_str("    NexaRuntime.bind(LocalContext.current)\n");
             }
             if features.app_uses_haptic {
@@ -332,8 +349,13 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
 
     units.write("components", |out| {
         custom_components::render(module, features, out);
+        out.push_str(COLLECTION_ITERATION_HELPERS);
     });
-    if features.uses_network_api || features.uses_path_api || features.uses_permissions {
+    if features.uses_network_api
+        || features.uses_path_api
+        || features.uses_permissions
+        || !module.plugins.is_empty()
+    {
         units.write("runtime", |out| {
             runtime::render(out, features.uses_permission_request);
         });

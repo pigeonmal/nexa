@@ -333,7 +333,11 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
             } => {
                 out.line_at(
                     depth,
-                    format_args!("for ({} in {}) {{", state_name(name), expression(iterable)),
+                    format_args!(
+                        "for ({} in nexaSnapshotValues({})) {{",
+                        state_name(name),
+                        expression(iterable)
+                    ),
                 );
                 render_actions(body, depth + 1, out);
                 indent(out, depth);
@@ -348,7 +352,7 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                 out.line_at(
                     depth,
                     format_args!(
-                        "for (({}, {}) in {}) {{",
+                        "for (({}, {}) in nexaSnapshotEntries({})) {{",
                         state_name(key_name),
                         state_name(value_name),
                         expression(iterable)
