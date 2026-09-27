@@ -13,7 +13,17 @@ let devTerminal: vscode.Terminal | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration("nexa");
-  const serverPath = config.get<string>("lsp.serverPath") || "nexa-lsp";
+  const binarySuffix = process.platform === "win32" ? ".exe" : "";
+  const bundledBinaryDir = path.join(
+    "bin",
+    `${process.platform}-${process.arch}`
+  );
+  const bundledServerPath = context.asAbsolutePath(
+    path.join(bundledBinaryDir, `nexa-lsp${binarySuffix}`)
+  );
+  const serverPath =
+    config.get<string>("lsp.serverPath") ||
+    (fs.existsSync(bundledServerPath) ? bundledServerPath : "nexa-lsp");
 
   const serverOptions: ServerOptions = {
     run: {
@@ -71,7 +81,12 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      const cliPath = vscode.workspace.getConfiguration("nexa.cli").get<string>("path") || "nexa";
+      const bundledCliPath = context.asAbsolutePath(
+        path.join(bundledBinaryDir, `nexa${binarySuffix}`)
+      );
+      const cliPath =
+        vscode.workspace.getConfiguration("nexa.cli").get<string>("path") ||
+        (fs.existsSync(bundledCliPath) ? bundledCliPath : "nexa");
       const escapedCliPath = cliPath.replaceAll('"', '\\"');
       devTerminal = vscode.window.createTerminal({
         name: "Nexa Dev",

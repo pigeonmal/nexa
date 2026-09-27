@@ -268,6 +268,34 @@ app TodoApp {
     let result = resp.result.expect("result should exist");
     let symbols = result.as_array().expect("symbols is an array");
 
+    fn assert_document_symbol_shape(symbols: &[serde_json::Value]) {
+        for symbol in symbols {
+            assert!(
+                symbol
+                    .get("kind")
+                    .and_then(serde_json::Value::as_u64)
+                    .is_some()
+            );
+            assert!(
+                symbol
+                    .get("range")
+                    .and_then(serde_json::Value::as_object)
+                    .is_some()
+            );
+            assert!(
+                symbol
+                    .get("selectionRange")
+                    .and_then(serde_json::Value::as_object)
+                    .is_some()
+            );
+            if let Some(children) = symbol.get("children").and_then(serde_json::Value::as_array) {
+                assert_document_symbol_shape(children);
+            }
+        }
+    }
+
+    assert_document_symbol_shape(symbols);
+
     fn collect_names<'a>(vals: &'a [serde_json::Value], acc: &mut Vec<&'a str>) {
         for v in vals {
             if let Some(name) = v.get("name").and_then(|n| n.as_str()) {

@@ -2,9 +2,14 @@
   "name": "nexa-vscode",
   "displayName": "Nexa Language Support",
   "description": "Language support and Language Server Protocol integration for Nexa (.nx)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MPL-2.0",
   "publisher": "nexa-lang",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pigeonmal/nexa.git",
+    "directory": "editors/vscode"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -100,13 +105,13 @@
       "properties": {
         "nexa.cli.path": {
           "type": "string",
-          "default": "nexa",
-          "description": "Path to the Nexa CLI executable used by Nexa: Start Dev."
+          "default": "",
+          "description": "Optional path to a Nexa CLI executable. The bundled CLI is used by default."
         },
         "nexa.lsp.serverPath": {
           "type": "string",
-          "default": "nexa-lsp",
-          "description": "Path to the nexa-lsp language server binary."
+          "default": "",
+          "description": "Optional path to a Nexa language server executable. The bundled server is used by default."
         },
         "nexa.lsp.trace.server": {
           "type": "string",
@@ -124,7 +129,8 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -b",
-    "watch": "tsc -b -w"
+    "watch": "tsc -b -w",
+    "package:extension": "node scripts/package-extension.cjs"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
@@ -132,6 +138,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.75.0",
+    "@vscode/vsce": "^3.2.1",
     "typescript": "^5.3.3"
   }
 }

@@ -1,5 +1,34 @@
 use serde::{Deserialize, Serialize};
 
+macro_rules! lsp_numeric_enum {
+    ($name:ident { $($variant:ident = $value:literal),+ $(,)? }) => {
+        impl Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                serializer.serialize_u32(*self as u32)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let value = u32::deserialize(deserializer)?;
+                match value {
+                    $($value => Ok(Self::$variant),)+
+                    _ => Err(serde::de::Error::custom(format!(
+                        "invalid {} value {value}",
+                        stringify!($name)
+                    ))),
+                }
+            }
+        }
+    };
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Position {
     pub line: u32,
@@ -12,7 +41,7 @@ pub struct Range {
     pub end: Position,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum DiagnosticSeverity {
     Error = 1,
@@ -20,6 +49,13 @@ pub enum DiagnosticSeverity {
     Information = 3,
     Hint = 4,
 }
+
+lsp_numeric_enum!(DiagnosticSeverity {
+    Error = 1,
+    Warning = 2,
+    Information = 3,
+    Hint = 4,
+});
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Diagnostic {
@@ -37,7 +73,7 @@ pub struct PublishDiagnosticsParams {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum CompletionItemKind {
     Text = 1,
@@ -67,6 +103,34 @@ pub enum CompletionItemKind {
     TypeParameter = 25,
 }
 
+lsp_numeric_enum!(CompletionItemKind {
+    Text = 1,
+    Method = 2,
+    Function = 3,
+    Constructor = 4,
+    Field = 5,
+    Variable = 6,
+    Class = 7,
+    Interface = 8,
+    Module = 9,
+    Property = 10,
+    Unit = 11,
+    Value = 12,
+    Enum = 13,
+    Keyword = 14,
+    Snippet = 15,
+    Color = 16,
+    File = 17,
+    Reference = 18,
+    Folder = 19,
+    EnumMember = 20,
+    Constant = 21,
+    Struct = 22,
+    Event = 23,
+    Operator = 24,
+    TypeParameter = 25,
+});
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompletionItem {
     pub label: String,
@@ -93,7 +157,7 @@ pub struct Hover {
     pub range: Option<Range>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum SymbolKind {
     File = 1,
@@ -123,6 +187,35 @@ pub enum SymbolKind {
     Operator = 25,
     TypeParameter = 26,
 }
+
+lsp_numeric_enum!(SymbolKind {
+    File = 1,
+    Module = 2,
+    Namespace = 3,
+    Package = 4,
+    Class = 5,
+    Method = 6,
+    Property = 7,
+    Field = 8,
+    Constructor = 9,
+    Enum = 10,
+    Interface = 11,
+    Function = 12,
+    Variable = 13,
+    Constant = 14,
+    String = 15,
+    Number = 16,
+    Boolean = 17,
+    Array = 18,
+    Object = 19,
+    Key = 20,
+    Null = 21,
+    EnumMember = 22,
+    Struct = 23,
+    Event = 24,
+    Operator = 25,
+    TypeParameter = 26,
+});
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DocumentSymbol {
