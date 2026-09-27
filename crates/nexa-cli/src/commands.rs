@@ -21,6 +21,7 @@ pub(super) fn run(args: Vec<String>) -> Result<(), String> {
         Some("test") => native_command("test", &args[1..]),
         Some("release") => native_command("release", &args[1..]),
         Some("doctor") => doctor(),
+        Some("plugin") => crate::plugin_cli::run(&args[1..]),
         Some("--help" | "-h") | None => {
             print_help();
             Ok(())
@@ -1355,7 +1356,7 @@ fn ensure_success(status: ExitStatus, label: &str) -> Result<(), String> {
 
 fn print_help() {
     println!(
-        "Nexa — native iOS and Android apps from one .nx project\n\nUsage:\n  nexa create <ProjectName>\n  nexa check [--ios | --android] [--locked]\n  nexa dev [--ios | --android] [--locked]\n  nexa test [--ios | --android] [--locked]\n  nexa release [--ios | --android] [--locked]\n  nexa doctor\n\nRun `nexa <command> --help` for command options."
+        "Nexa — native iOS and Android apps from one .nx project\n\nUsage:\n  nexa create <ProjectName>\n  nexa check [--ios | --android] [--locked]\n  nexa dev [--ios | --android] [--locked]\n  nexa test [--ios | --android] [--locked]\n  nexa release [--ios | --android] [--locked]\n  nexa doctor\n  nexa plugin init | check | generate\n\nRun `nexa <command> --help` for command options."
     );
 }
 
@@ -1375,6 +1376,9 @@ fn print_command_help(command: &str) {
         }
         "release" => println!(
             "Usage: nexa release [--ios | --android] [--flavor <name>] [--out <directory>] [--locked]\nBuilds an iOS archive or Android AAB. Configure signing through Xcode or the native Gradle project."
+        ),
+        "plugin" => println!(
+            "Usage:\n  nexa plugin init <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure]\n  nexa plugin check <package-directory|native.nxid>\n  nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <directory>]"
         ),
         _ => print_help(),
     }

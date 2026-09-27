@@ -300,6 +300,21 @@ final class NexaDevStateStore: ObservableObject {
             let boundary = Int(end) + ((inclusive && end >= start) ? 1 : 0)
             return Array(stride(from: Int(start), to: boundary, by: step))
         case "Null": return NSNull()
+        // A byte buffer crosses the hot-reload boundary as base64 text, which
+        // is the one representation both dev runtimes agree on.
+        case "BytesFromText":
+            let text = evaluate((payload as? [String: Any])?["text"] ?? NSNull(), locals: locals, scope: scope)
+            return Data((text as? String ?? "").utf8).base64EncodedString()
+        case "BytesFromArray":
+            let values = evaluate((payload as? [String: Any])?["values"] ?? NSNull(), locals: locals, scope: scope)
+            let bytes = (values as? [Any] ?? []).map { value in
+                UInt8(truncatingIfNeeded: Int64(stringify(value)) ?? 0)
+            }
+            return Data(bytes).base64EncodedString()
+        case "BytesCount":
+            let bytes = evaluate((payload as? [String: Any])?["bytes"] ?? NSNull(), locals: locals, scope: scope)
+            guard let text = bytes as? String, let data = Data(base64Encoded: text) else { return 0 }
+            return data.count
         case "Coalesce":
             let parts = payload as? [Any] ?? []
             guard parts.count >= 2 else { return NSNull() }

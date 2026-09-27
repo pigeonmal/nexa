@@ -201,10 +201,10 @@ fn merge_swift_packages(plugins: &[PluginPackage]) -> Result<Vec<SwiftPackage>, 
     for plugin in plugins {
         for package in &plugin.artifacts.swift_packages {
             if let Some(existing) = packages.iter_mut().find(|value| value.url == package.url) {
-                if existing.from != package.from {
+                if existing.requirement != package.requirement {
                     return Err(format!(
-                        "Swift package `{}` has conflicting minimum versions `{}` and `{}`",
-                        package.url, existing.from, package.from
+                        "Swift package `{}` has conflicting version requirements",
+                        package.url
                     ));
                 }
                 for product in &package.products {
@@ -810,7 +810,7 @@ pub(super) fn ios_project_file_with_config(
     for (package, reference_id) in packages.iter().zip(package_reference_ids.iter()) {
         pbx.insert(
             reference_id.clone(),
-            remote_package_reference_object(&package.url, &package.from),
+            remote_package_reference_object(&package.url, &package.requirement),
         )?;
     }
     {

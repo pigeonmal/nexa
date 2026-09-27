@@ -106,9 +106,22 @@ pub fn event_callback_property(event_name: &str) -> String {
 pub struct Method {
     pub name: String,
     pub is_async: bool,
+    /// Declared value type parameters, in declaration order. A parameter of
+    /// this kind is bound per call site, and the generated contract receives
+    /// the matching value codec.
+    pub type_parameters: Vec<String>,
     pub parameters: Vec<Parameter>,
     pub return_type: TypeRef,
     pub throws: Option<TypeRef>,
+}
+
+/// Whether a type reference mentions any of `names`, at any depth.
+pub fn mentions_type_parameter(ty: &TypeRef, names: &[String]) -> bool {
+    names.contains(&ty.name)
+        || ty
+            .arguments
+            .iter()
+            .any(|argument| mentions_type_parameter(argument, names))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -685,6 +698,7 @@ impl Parser {
         let is_async = self.consume_identifier("async");
         self.expect_identifier("fn")?;
         let name = self.expect_name("method name")?;
+        let type_parameters = self.parse_type_parameters()?;
         let parameters = self.parse_parameters()?;
         let return_type = if self.consume(TokenKind::Arrow) {
             self.parse_type()?
@@ -700,13 +714,72 @@ impl Parser {
         if (return_type.name == "Result" || throws.is_some()) && !is_async {
             return self.error("`Result<Success, Failure>` methods must be async");
         }
-        Ok(Method {
+        let method = Method {
             name,
             is_async,
+            type_parameters,
             parameters,
             return_type,
             throws,
-        })
+        };
+        self.validate_method(&method)?;
+        Ok(method)
+    }
+
+    /// `<T>` or `<K, V>` on a method name. A type parameter stands for a value
+    /// the host language can pass: a scalar, a buffer, a collection, an enum,
+    /// or a value struct. The generated contract carries the value codec for
+    /// it, so a plugin implements one generic body instead of one method per
+    /// type.
+    fn parse_type_parameters(&mut self) -> Result<Vec<String>, String> {
+        if !self.peek_kind(TokenKind::Less) {
+            return Ok(Vec::new());
+        }
+        self.expect(TokenKind::Less, "`<`")?;
+        let mut names: Vec<String> = Vec::new();
+        loop {
+            let name = self.expect_name("type parameter")?;
+            if names.contains(&name) {
+                return self.error(format!("type parameter `{name}` is declared twice"));
+            }
+            names.push(name);
+            if self.consume(TokenKind::Greater) {
+                break;
+            }
+            self.expect(TokenKind::Comma, "`,` or `>`")?;
+        }
+        Ok(names)
+    }
+
+    /// A type parameter is only useful when the method mentions it, and it may
+    /// not shadow a value parameter.
+    fn validate_method(&self, method: &Method) -> Result<(), String> {
+        if method.type_parameters.is_empty() {
+            return Ok(());
+        }
+        if let Some(parameter) = method
+            .parameters
+            .iter()
+            .find(|parameter| method.type_parameters.contains(&parameter.name))
+        {
+            return self.error(format!(
+                "type parameter `{}` collides with value parameter `{}` in `{}`",
+                parameter.name, parameter.name, method.name
+            ));
+        }
+        let mentioned = method
+            .parameters
+            .iter()
+            .any(|parameter| mentions_type_parameter(&parameter.ty, &method.type_parameters))
+            || mentions_type_parameter(&method.return_type, &method.type_parameters);
+        if !mentioned {
+            return self.error(format!(
+                "method `{}` declares type parameter(s) {} it never uses",
+                method.name,
+                method.type_parameters.join(", ")
+            ));
+        }
+        Ok(())
     }
 
     fn parse_type(&mut self) -> Result<TypeRef, String> {
@@ -784,7 +857,7 @@ impl Parser {
         }
         for ty in &idl.types {
             for field in &ty.fields {
-                validate_type_ref(&field.ty, &field.name, &types, &interfaces, false)?;
+                validate_type_ref(&field.ty, &field.name, &types, &interfaces, false, &[])?;
                 if let Some(default) = &field.default
                     && !literal_matches_type(default, &field.ty)
                 {
@@ -827,7 +900,7 @@ impl Parser {
                         property.name, interface.name
                     ));
                 }
-                validate_type_ref(&property.ty, &property.name, &types, &interfaces, false)?;
+                validate_type_ref(&property.ty, &property.name, &types, &interfaces, false, &[])?;
                 if let Some(default) = &property.default {
                     if interface.kind != InterfaceKind::NativeComponent {
                         return Err(format!(
@@ -891,7 +964,14 @@ impl Parser {
                         method.name
                     ));
                 }
-                validate_type_ref(&method.return_type, &method.name, &types, &interfaces, true)?;
+                validate_type_ref(
+                    &method.return_type,
+                    &method.name,
+                    &types,
+                    &interfaces,
+                    true,
+                    &method.type_parameters,
+                )?;
                 if method.return_type.name == "Result" {
                     if method.throws.is_some() {
                         return Err(format!(
@@ -908,10 +988,17 @@ impl Parser {
                     }
                 }
                 for parameter in &method.parameters {
-                    validate_type_ref(&parameter.ty, &parameter.name, &types, &interfaces, false)?;
+                    validate_type_ref(
+                        &parameter.ty,
+                        &parameter.name,
+                        &types,
+                        &interfaces,
+                        false,
+                        &method.type_parameters,
+                    )?;
                 }
                 if let Some(error) = &method.throws {
-                    validate_type_ref(error, &method.name, &types, &interfaces, false)?;
+                    validate_type_ref(error, &method.name, &types, &interfaces, false, &[])?;
                     if error.optional || !error_types.contains(error.name.as_str()) {
                         return Err(format!(
                             "throws type `{}` in method `{}` must be a declared error type",
@@ -1107,6 +1194,7 @@ fn validate_type_ref(
     declared_types: &std::collections::HashSet<&str>,
     declared_interfaces: &std::collections::HashSet<&str>,
     allow_result: bool,
+    type_parameters: &[String],
 ) -> Result<(), String> {
     let expected = match ty.name.as_str() {
         "Array" | "Set" => Some(1),
@@ -1135,6 +1223,13 @@ fn validate_type_ref(
                 ty.name
             ));
         }
+    } else if type_parameters.iter().any(|parameter| parameter == &ty.name) {
+        if !ty.arguments.is_empty() {
+            return Err(format!(
+                "{context} uses type parameter `{}` with unexpected type arguments",
+                ty.name
+            ));
+        }
     } else if !declared_types.contains(ty.name.as_str())
         && !declared_interfaces.contains(ty.name.as_str())
     {
@@ -1155,6 +1250,7 @@ fn validate_type_ref(
             declared_types,
             declared_interfaces,
             false,
+            type_parameters,
         )?;
     }
     Ok(())
@@ -1180,6 +1276,7 @@ fn validate_parameters(
             declared_types,
             declared_interfaces,
             false,
+            &[],
         )?;
     }
     Ok(())
@@ -1444,5 +1541,21 @@ mod tests {
         let error = parse("service Clipboard { event copied(text: String) }")
             .expect_err("events on stateless services would require a global event bus");
         assert!(error.contains("events are supported only by native classes"));
+    }
+}
+
+#[cfg(test)]
+mod type_parameter_tests {
+    use super::parse;
+
+    #[test]
+    fn parses_method_type_parameters() {
+        let idl = parse(
+            "native class Store {\n    fn setObject<T>(key: String, value: T) -> Bool\n    fn getMap<K, V>(key: String) -> Map<K, V>?\n}\n",
+        )
+        .expect("generic methods should parse");
+        let methods = &idl.interfaces[0].methods;
+        assert_eq!(methods[0].type_parameters, vec!["T".to_owned()]);
+        assert_eq!(methods[1].type_parameters, vec!["K".to_owned(), "V".to_owned()]);
     }
 }

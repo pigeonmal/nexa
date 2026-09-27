@@ -292,6 +292,9 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                     CollectionMutation::MapRemove => {
                         out.push_str(&format!("{state}.removeValue(forKey: {})\n", rendered[0]));
                     }
+                    CollectionMutation::Replace => {
+                        out.push_str(&format!("{state} = {}\n", rendered[0]));
+                    }
                 }
             }
             Action::If {
@@ -475,6 +478,7 @@ mod tests {
                     namespace: "Camera".to_owned(),
                     name: "capture".to_owned(),
                     arguments: Vec::new(),
+                    codecs: Vec::new(),
                     return_type: Type::Void,
                     is_async: true,
                     is_throwing: true,
@@ -504,6 +508,7 @@ mod tests {
                     namespace: "Video".to_owned(),
                     name: "prepare".to_owned(),
                     arguments: Vec::new(),
+                    codecs: Vec::new(),
                     return_type: Type::Void,
                     is_async: true,
                     is_throwing: true,

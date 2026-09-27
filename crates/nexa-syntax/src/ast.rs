@@ -467,7 +467,7 @@ pub enum ImageSource {
 /// parser remains purely syntactic.
 pub fn split_navigation_target(target: Expr) -> (Expr, Vec<Expr>) {
     match target {
-        Expr::Call(name, arguments, span) => (Expr::Name(name, span), arguments),
+        Expr::Call(name, _, arguments, span) => (Expr::Name(name, span), arguments),
         target => (target, Vec::new()),
     }
 }
@@ -496,10 +496,14 @@ pub enum Expr {
     Map(Vec<(Expr, Expr)>, Span),
     Pair(Box<Expr>, Box<Expr>, Span),
     Triple(Box<Expr>, Box<Expr>, Box<Expr>, Span),
-    Call(String, Vec<Expr>, Span),
+    /// `Call(String, Vec<Expr>, Span)` plus explicit value type arguments,
+    /// as in `getObject<PlayerOptions>("key")`.
+    Call(String, Vec<TypeSyntax>, Vec<Expr>, Span),
     MethodCall {
         base: Box<Expr>,
         name: String,
+        /// Explicit value type arguments on a plugin method call.
+        type_arguments: Vec<TypeSyntax>,
         arguments: Vec<Expr>,
         named_arguments: BTreeMap<String, Expr>,
         span: Span,
@@ -512,6 +516,8 @@ pub enum Expr {
     QualifiedCall {
         namespace: String,
         name: String,
+        /// Explicit value type arguments on a plugin service call.
+        type_arguments: Vec<TypeSyntax>,
         arguments: Vec<Expr>,
         named_arguments: BTreeMap<String, Expr>,
         span: Span,
@@ -585,7 +591,7 @@ impl Expr {
             | Self::Map(_, s)
             | Self::Pair(_, _, s)
             | Self::Triple(_, _, _, s)
-            | Self::Call(_, _, s)
+            | Self::Call(_, _, _, s)
             | Self::MethodCall { span: s, .. }
             | Self::Closure { span: s, .. }
             | Self::QualifiedCall { span: s, .. }
@@ -633,6 +639,9 @@ pub enum Stmt {
     CollectionMutation {
         name: String,
         method: String,
+        /// Explicit value type arguments, as in `store.getObject<PlayerOptions>(k)`.
+        /// Only a plugin method call can carry them; the compiler reports it.
+        type_arguments: Vec<TypeSyntax>,
         arguments: Vec<Expr>,
         span: Span,
     },

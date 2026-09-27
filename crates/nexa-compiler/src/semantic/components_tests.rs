@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use nexa_diagnostics::Span;
 use nexa_ir::{Action, Expr, NativeComponentEventHandler, NumericType, Type};
@@ -8,12 +8,13 @@ use super::{
     FunctionSignatures, SemanticContext, lower_actions_with_aliases, lower_actions_with_depth,
     lower_node,
 };
+use crate::semantic::context::TypeRegistries;
 use crate::Target;
 use crate::semantic::custom_components::{
     ComponentEventSignature, ComponentSignature, ComponentSignatures,
 };
 use crate::semantic::expressions::{
-    FunctionSignature, PluginErrorType, PluginErrorVariant, record_native_alias,
+    FunctionSignature, PluginErrorType, PluginErrorVariant, StructTypes, record_native_alias,
 };
 use crate::semantic::themes::ThemeSymbols;
 
@@ -24,6 +25,7 @@ fn fixture(mutable: bool) -> (HashMap<String, (Type, bool)>, FunctionSignatures)
     };
     let symbols = HashMap::from([("player".to_owned(), (player_type.clone(), false))]);
     let signature = FunctionSignature {
+        type_parameters: Vec::new(),
         parameters: Vec::new(),
         return_type: Type::Numeric(NumericType::Float64),
         is_async: false,
@@ -65,6 +67,7 @@ fn event_fixture() -> (HashMap<String, (Type, bool)>, FunctionSignatures) {
     let functions = HashMap::from([(
         "VideoPlayer.#event.progressChanged".to_owned(),
         FunctionSignature {
+            type_parameters: Vec::new(),
             parameters: vec![
                 ("position".to_owned(), Type::Numeric(NumericType::Float64)),
                 ("duration".to_owned(), Type::Numeric(NumericType::Float64)),
@@ -143,6 +146,8 @@ fn lower_native_component_event(
     let signatures = native_component_signatures();
     let functions = HashMap::new();
     let aliases = HashMap::new();
+    let empty_structs = StructTypes::default();
+    let empty_enums = HashSet::new();
     let cx = SemanticContext::new(
         &symbols,
         &screens,
@@ -150,6 +155,8 @@ fn lower_native_component_event(
         &signatures,
         &functions,
         &aliases,
+        &empty_structs,
+        &empty_enums,
         Target::Swift,
     )
     .with_navigation(false, false);
@@ -163,6 +170,7 @@ fn disposal_fixture() -> (HashMap<String, (Type, bool)>, FunctionSignatures) {
     };
     let symbols = HashMap::from([("player".to_owned(), (player_type.clone(), false))]);
     let method = |return_type| FunctionSignature {
+        type_parameters: Vec::new(),
         parameters: Vec::new(),
         return_type,
         is_async: false,
@@ -188,6 +196,7 @@ fn native_method_call_on(name: &str, method: &str) -> ast::Stmt {
     ast::Stmt::CollectionMutation {
         name: name.to_owned(),
         method: method.to_owned(),
+        type_arguments: Vec::new(),
         arguments: Vec::new(),
         span: Span::default(),
     }
@@ -196,6 +205,7 @@ fn native_method_call_on(name: &str, method: &str) -> ast::Stmt {
 fn throwing_prepare() -> ast::Expr {
     ast::Expr::Await(
         Box::new(ast::Expr::MethodCall {
+            type_arguments: Vec::new(),
             base: Box::new(ast::Expr::Name("player".to_owned(), Span::default())),
             name: "prepare".to_owned(),
             arguments: Vec::new(),
@@ -210,6 +220,7 @@ fn throwing_file_read() -> ast::Expr {
     let span = Span::default();
     ast::Expr::Await(
         Box::new(ast::Expr::QualifiedCall {
+            type_arguments: Vec::new(),
             namespace: "File".to_owned(),
             name: "readText".to_owned(),
             arguments: Vec::new(),
@@ -243,6 +254,7 @@ fn throwing_fixture() -> (HashMap<String, (Type, bool)>, FunctionSignatures) {
         ],
     };
     let signature = |receiver| FunctionSignature {
+        type_parameters: Vec::new(),
         parameters: Vec::new(),
         return_type: Type::Void,
         is_async: true,
@@ -268,7 +280,15 @@ fn throwing_fixture() -> (HashMap<String, (Type, bool)>, FunctionSignatures) {
 #[test]
 fn lowers_mutable_native_property_assignment() {
     let (symbols, functions) = fixture(true);
-    let actions = lower_actions_with_depth(vec![assignment()], &symbols, &functions, false, 0)
+    let registries = TypeRegistries::default();
+    let actions = lower_actions_with_depth(
+        vec![assignment()],
+        &symbols,
+        &functions,
+        false,
+        0,
+        registries,
+    )
         .expect("mutable plugin property should be assignable");
 
     assert!(matches!(
@@ -284,16 +304,25 @@ fn lowers_mutable_native_property_assignment() {
 #[test]
 fn rejects_assignment_to_readonly_native_property() {
     let (symbols, functions) = fixture(false);
-    let error = lower_actions_with_depth(vec![assignment()], &symbols, &functions, false, 0)
+    let registries = TypeRegistries::default();
+    let error = lower_actions_with_depth(
+        vec![assignment()],
+        &symbols,
+        &functions,
+        false,
+        0,
+        registries,
+    )
         .expect_err("readonly plugin property must not be assignable");
     assert!(error.to_string().contains("read-only"));
 }
 
 #[test]
 fn rejects_native_property_assignment_with_the_wrong_type() {
+    let registries = TypeRegistries::default();
     let (symbols, functions) = fixture(true);
     let statement = assignment_with_value(ast::Expr::Bool(true, Span::default()));
-    let error = lower_actions_with_depth(vec![statement], &symbols, &functions, false, 0)
+    let error = lower_actions_with_depth(vec![statement], &symbols, &functions, false, 0, registries)
         .expect_err("a Bool must not be assigned to a Float64 property");
     assert!(error.to_string().contains("Bool"));
     assert!(error.to_string().contains("Float64"));
@@ -302,6 +331,7 @@ fn rejects_native_property_assignment_with_the_wrong_type() {
 #[test]
 fn lowers_instance_event_with_typed_payload_bindings() {
     let (symbols, functions) = event_fixture();
+    let registries = TypeRegistries::default();
     let actions = lower_actions_with_depth(
         vec![progress_event(vec![
             "position".to_owned(),
@@ -311,6 +341,7 @@ fn lowers_instance_event_with_typed_payload_bindings() {
         &functions,
         false,
         0,
+        registries,
     )
     .expect("declared native event should lower");
 
@@ -335,12 +366,14 @@ fn lowers_instance_event_with_typed_payload_bindings() {
 #[test]
 fn rejects_event_handlers_with_the_wrong_payload_arity() {
     let (symbols, functions) = event_fixture();
+    let registries = TypeRegistries::default();
     let error = lower_actions_with_depth(
         vec![progress_event(vec!["position".to_owned()])],
         &symbols,
         &functions,
         false,
         0,
+        registries,
     )
     .expect_err("a two-value event must not accept one handler binding");
     assert!(error.to_string().contains("provides 2 value(s)"));
@@ -348,6 +381,7 @@ fn rejects_event_handlers_with_the_wrong_payload_arity() {
 
 #[test]
 fn rejects_event_payload_bindings_that_shadow_existing_values() {
+    let registries = TypeRegistries::default();
     let (mut symbols, functions) = event_fixture();
     symbols.insert("position".to_owned(), (Type::String, false));
     let error = lower_actions_with_depth(
@@ -359,6 +393,7 @@ fn rejects_event_payload_bindings_that_shadow_existing_values() {
         &functions,
         false,
         0,
+        registries,
     )
     .expect_err("event bindings must not capture an existing value ambiguously");
     assert!(error.to_string().contains("shadows an existing value"));
@@ -415,6 +450,7 @@ fn rejects_native_component_events_with_invalid_declarations() {
 
 #[test]
 fn throwing_native_calls_need_and_use_an_explicit_recovery_block() {
+    let registries = TypeRegistries::default();
     let (symbols, functions) = throwing_fixture();
     let actions = lower_actions_with_depth(
         vec![ast::Stmt::TryCatch {
@@ -434,6 +470,7 @@ fn throwing_native_calls_need_and_use_an_explicit_recovery_block() {
         &functions,
         true,
         0,
+        registries,
     )
     .expect("a try block should lower a throwing native call");
 
@@ -460,6 +497,7 @@ fn throwing_native_calls_need_and_use_an_explicit_recovery_block() {
         &functions,
         true,
         0,
+        registries,
     )
     .expect_err("a throwing call outside try/catch must remain a semantic error");
     assert!(unhandled.to_string().contains("may throw"));
@@ -467,6 +505,7 @@ fn throwing_native_calls_need_and_use_an_explicit_recovery_block() {
 
 #[test]
 fn typed_catch_cases_bind_declared_error_payloads_with_native_types() {
+    let registries = TypeRegistries::default();
     let (mut symbols, functions) = throwing_fixture();
     symbols.insert("messageOut".to_owned(), (Type::String, true));
     let actions = lower_actions_with_depth(
@@ -508,6 +547,7 @@ fn typed_catch_cases_bind_declared_error_payloads_with_native_types() {
         &functions,
         true,
         0,
+        registries,
     )
     .expect("declared plugin error cases and payloads should lower");
 
@@ -533,6 +573,7 @@ fn typed_catch_cases_bind_declared_error_payloads_with_native_types() {
 
 #[test]
 fn typed_catch_cases_must_be_exhaustive_without_an_else_branch() {
+    let registries = TypeRegistries::default();
     let (symbols, functions) = throwing_fixture();
     let error = lower_actions_with_depth(
         vec![ast::Stmt::TryCatch {
@@ -555,6 +596,7 @@ fn typed_catch_cases_must_be_exhaustive_without_an_else_branch() {
         &functions,
         true,
         0,
+        registries,
     )
     .expect_err("unmatched typed error variants need an explicit fallback");
 
@@ -567,6 +609,7 @@ fn typed_catch_cases_must_be_exhaustive_without_an_else_branch() {
 
 #[test]
 fn typed_catch_cases_require_else_for_untyped_failures() {
+    let registries = TypeRegistries::default();
     let (symbols, functions) = throwing_fixture();
     let error = lower_actions_with_depth(
         vec![ast::Stmt::TryCatch {
@@ -605,6 +648,7 @@ fn typed_catch_cases_require_else_for_untyped_failures() {
         &functions,
         true,
         0,
+        registries,
     )
     .expect_err("typed cases cannot handle a built-in untyped error");
 
@@ -617,6 +661,7 @@ fn typed_catch_cases_require_else_for_untyped_failures() {
 
 #[test]
 fn typed_catch_cases_reject_unknown_variants_and_wrong_payload_arity() {
+    let registries = TypeRegistries::default();
     let (symbols, functions) = throwing_fixture();
     let catch = |variant: &str, bindings: Vec<String>| ast::Stmt::TryCatch {
         body: vec![ast::Stmt::Expression {
@@ -641,6 +686,7 @@ fn typed_catch_cases_reject_unknown_variants_and_wrong_payload_arity() {
         &functions,
         true,
         0,
+        registries,
     )
     .expect_err("error patterns must reference a declared error variant");
     assert!(unknown.to_string().contains("unknown plugin error variant"));
@@ -651,6 +697,7 @@ fn typed_catch_cases_reject_unknown_variants_and_wrong_payload_arity() {
         &functions,
         true,
         0,
+        registries,
     )
     .expect_err("payload variants must bind their declared values");
     assert!(
@@ -662,6 +709,7 @@ fn typed_catch_cases_reject_unknown_variants_and_wrong_payload_arity() {
 
 #[test]
 fn throwing_file_calls_preserve_failures_only_inside_recovery_blocks() {
+    let registries = TypeRegistries::default();
     let symbols = HashMap::new();
     let functions = FunctionSignatures::new();
     let actions = lower_actions_with_depth(
@@ -678,6 +726,7 @@ fn throwing_file_calls_preserve_failures_only_inside_recovery_blocks() {
         &functions,
         true,
         0,
+        registries,
     )
     .expect("File.readText should preserve its native error inside try/catch");
 
@@ -700,6 +749,7 @@ fn throwing_file_calls_preserve_failures_only_inside_recovery_blocks() {
         &functions,
         true,
         0,
+        registries,
     )
     .expect_err("File.readText must not silently discard native failures");
     assert!(unhandled.to_string().contains("may throw"));
@@ -707,11 +757,13 @@ fn throwing_file_calls_preserve_failures_only_inside_recovery_blocks() {
 
 #[test]
 fn try_catch_does_not_handle_errors_from_later_native_callbacks() {
+    let registries = TypeRegistries::default();
     let (symbols, mut functions) = throwing_fixture();
     let player_type = symbols["player"].0.clone();
     functions.insert(
         "VideoPlayer.#event.ended".to_owned(),
         FunctionSignature {
+            type_parameters: Vec::new(),
             parameters: Vec::new(),
             return_type: Type::Void,
             is_async: false,
@@ -738,7 +790,7 @@ fn try_catch_does_not_handle_errors_from_later_native_callbacks() {
         catch_body: Some(Vec::new()),
         span: Span::default(),
     }];
-    let error = lower_actions_with_depth(actions, &symbols, &functions, true, 0)
+    let error = lower_actions_with_depth(actions, &symbols, &functions, true, 0, registries)
         .expect_err("an outer try block cannot catch a later callback failure");
     assert!(
         error
@@ -759,6 +811,8 @@ fn native_component_content_blocks_must_match_the_declared_slot() {
     let themes = ThemeSymbols::default();
     let functions = HashMap::new();
     let aliases = HashMap::new();
+    let empty_structs = StructTypes::default();
+    let empty_enums = HashSet::new();
     let cx = SemanticContext::new(
         &symbols,
         &screens,
@@ -766,6 +820,8 @@ fn native_component_content_blocks_must_match_the_declared_slot() {
         &signatures,
         &functions,
         &aliases,
+        &empty_structs,
+        &empty_enums,
         Target::Swift,
     )
     .with_navigation(false, false);
@@ -787,6 +843,8 @@ fn native_component_content_blocks_must_match_the_declared_slot() {
         *children = Some(Vec::new());
     }
     let default_signatures = native_component_signatures();
+    let empty_structs = StructTypes::default();
+    let empty_enums = HashSet::new();
     let default_cx = SemanticContext::new(
         &symbols,
         &screens,
@@ -794,6 +852,8 @@ fn native_component_content_blocks_must_match_the_declared_slot() {
         &default_signatures,
         &functions,
         &aliases,
+        &empty_structs,
+        &empty_enums,
         Target::Swift,
     )
     .with_navigation(false, false);
@@ -808,6 +868,7 @@ fn native_component_content_blocks_must_match_the_declared_slot() {
 
 #[test]
 fn rejects_invalid_disposal_sequences() {
+    let registries = TypeRegistries::default();
     let cases: [(&str, Vec<ast::Stmt>, &str); 3] = [
         (
             "use after disposal",
@@ -836,7 +897,7 @@ fn rejects_invalid_disposal_sequences() {
 
     for (scenario, stmts, expected_message) in cases {
         let (symbols, functions) = disposal_fixture();
-        let error = lower_actions_with_depth(stmts, &symbols, &functions, false, 0)
+        let error = lower_actions_with_depth(stmts, &symbols, &functions, false, 0, registries)
             .expect_err("expected invalid disposal sequence to fail");
         assert!(
             error.to_string().contains(expected_message),
@@ -847,6 +908,7 @@ fn rejects_invalid_disposal_sequences() {
 
 #[test]
 fn disposal_analysis_tracks_aliases_to_the_same_native_instance() {
+    let registries = TypeRegistries::default();
     let (mut symbols, functions) = disposal_fixture();
     let player_type = symbols["player"].0.clone();
     symbols.insert("playerAlias".to_owned(), (player_type, false));
@@ -878,6 +940,7 @@ fn disposal_analysis_tracks_aliases_to_the_same_native_instance() {
         &functions,
         false,
         &aliases,
+        registries,
     )
     .expect_err("disposing an object must invalidate every binding alias");
     assert!(
@@ -895,6 +958,7 @@ fn disposal_analysis_tracks_aliases_to_the_same_native_instance() {
         &functions,
         false,
         &aliases,
+        registries,
     )
     .expect_err("disposing through an alias must count as a second disposal");
     assert!(
@@ -906,6 +970,7 @@ fn disposal_analysis_tracks_aliases_to_the_same_native_instance() {
 
 #[test]
 fn native_binding_with_alias_cannot_be_replaced_after_disposal() {
+    let registries = TypeRegistries::default();
     let (mut symbols, mut functions) = disposal_fixture();
     symbols.get_mut("player").expect("fixture state").1 = true;
     let player_type = symbols["player"].0.clone();
@@ -916,6 +981,7 @@ fn native_binding_with_alias_cannot_be_replaced_after_disposal() {
     functions.insert(
         "Video.VideoPlayer".to_owned(),
         FunctionSignature {
+            type_parameters: Vec::new(),
             parameters: Vec::new(),
             return_type: player_type,
             is_async: false,
@@ -928,6 +994,7 @@ fn native_binding_with_alias_cannot_be_replaced_after_disposal() {
         },
     );
     let fresh_player = ast::Expr::QualifiedCall {
+        type_arguments: Vec::new(),
         namespace: "Video".to_owned(),
         name: "VideoPlayer".to_owned(),
         arguments: Vec::new(),
@@ -945,6 +1012,7 @@ fn native_binding_with_alias_cannot_be_replaced_after_disposal() {
         &functions,
         false,
         &aliases,
+        registries,
     )
     .expect_err("replacing the source binding would leave its alias stale");
     assert!(error.to_string().contains("cannot be replaced while alias"));

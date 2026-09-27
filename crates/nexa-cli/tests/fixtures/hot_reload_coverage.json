@@ -229,6 +229,16 @@
         "name": "Struct",
         "ios": "covered",
         "android": "covered"
+      },
+      {
+        "name": "Bytes",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "TypeParam",
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "Expr": [
@@ -434,6 +444,21 @@
       },
       {
         "name": "PermissionOp",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "BytesFromText",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "BytesFromArray",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "BytesCount",
         "ios": "covered",
         "android": "covered"
       }
@@ -980,6 +1005,11 @@
       },
       {
         "name": "MapRemove",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Replace",
         "ios": "covered",
         "android": "covered"
       }

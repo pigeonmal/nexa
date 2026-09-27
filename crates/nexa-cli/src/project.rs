@@ -884,6 +884,22 @@ fn generate_android(
         .map(|unit| unit.name.clone())
         .collect::<Vec<_>>();
 
+    // The generated core runtime is written outside the app's package: a
+    // plugin lives in its own package and still has to reach the application
+    // context, and a generic plugin contract names the value codec. The codec
+    // is only generated when the app actually uses one.
+    let core_package_path = nexa_codegen::value::KOTLIN_CORE_PACKAGE.replace('.', "/");
+    let mut value_codec_files = vec![(
+        format!("{core_package_path}/NexaRuntimeCore.kt"),
+        nexa_codegen::value::kotlin_core_runtime_source(),
+    )];
+    if !nexa_codegen::value::collect(&module).is_empty() {
+        value_codec_files.push((
+            format!("{core_package_path}/NexaValue.kt"),
+            nexa_codegen::value::kotlin_runtime_source(),
+        ));
+    }
+
     let plan = android_plan(
         app_name,
         nexa_codegen::names::screen_name(&module.app_name),
@@ -897,12 +913,33 @@ fn generate_android(
         &local_aars,
         &resources,
     )?;
+    let plan = plan.with_files(
+        value_codec_files
+            .iter()
+            .map(|(path, contents)| {
+                (
+                    format!("android/app/src/main/java/{path}"),
+                    contents.clone(),
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
     writers::write_plan(root, &plan)?;
     let mut keep = generated_names;
     if dev_session.is_some() {
         for (filename, _) in ANDROID_DEV_RUNTIME_FILES {
             keep.push((*filename).to_owned());
         }
+    }
+    // The core runtime lives outside the app's source directory, so the unit
+    // sweep never sees it. An app that stopped using generic plugin calls must
+    // not keep compiling a value codec nothing references.
+    if value_codec_files.len() == 1 {
+        let _ = fs::remove_file(
+            root.join("android/app/src/main/java")
+                .join(&core_package_path)
+                .join("NexaValue.kt"),
+        );
     }
     writers::remove_stale_units(&source_dir, &keep, plan.platform().unit_extension())
 }

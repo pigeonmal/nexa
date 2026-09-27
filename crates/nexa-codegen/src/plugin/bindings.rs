@@ -488,14 +488,16 @@ fn kotlin_named_type(ty: &BridgeNamedType) -> String {
 }
 
 fn swift_method(method: &BridgeMethod) -> String {
-    let parameters = swift_parameters(&method.parameters);
+    let mut parameters = swift_parameters(&method.parameters);
+    parameters.push_str(&swift_codec_parameters(method));
     let return_type = method.success_type();
     let throws = method
         .error_type()
         .map(|error| format!(" throws({error})"))
         .unwrap_or_default();
+    let generics = swift_generics(method);
     format!(
-        "func {}({}){}{} -> {}",
+        "func {}{generics}({}){}{} -> {}",
         method.name,
         parameters,
         if method.is_async { " async" } else { "" },
@@ -504,21 +506,103 @@ fn swift_method(method: &BridgeMethod) -> String {
     )
 }
 
+/// A generic method's value codecs, rendered as trailing closure parameters.
+/// One closure per parameter that mentions a type parameter, plus one for the
+/// return value, so a plugin implements the method once for every value type
+/// the caller binds.
+fn swift_codec_parameters(method: &BridgeMethod) -> String {
+    let mut rendered = String::new();
+    for (ty, decodes) in codec_types(method) {
+        if decodes {
+            rendered.push_str(&format!(
+                ", _ decode: (NexaValueReader) -> {}?",
+                swift_type(ty)
+            ));
+        } else {
+            rendered.push_str(&format!(
+                ", _ encode: ({}, NexaValueWriter) -> Void",
+                swift_type(ty)
+            ));
+        }
+    }
+    rendered
+}
+
+/// Codec types in parameter order, then the return value. Each entry is the
+/// concrete value type the closure handles and whether it decodes.
+fn codec_types(method: &BridgeMethod) -> Vec<(&BridgeType, bool)> {
+    let mut codecs: Vec<(&BridgeType, bool)> = method
+        .parameters
+        .iter()
+        .map(|parameter| &parameter.ty)
+        .filter(|ty| super::bridge_plan::contains_type_parameter(ty))
+        .map(|ty| (ty, false))
+        .collect();
+    let success = method.success_type();
+    if super::bridge_plan::contains_type_parameter(success) {
+        codecs.push((
+            match success {
+                BridgeType::Optional(inner) => inner.as_ref(),
+                other => other,
+            },
+            true,
+        ));
+    }
+    codecs
+}
+
+fn swift_generics(method: &BridgeMethod) -> String {
+    if method.type_parameters.is_empty() {
+        return String::new();
+    }
+    format!("<{}>", method.type_parameters.join(", "))
+}
+
 fn kotlin_method(method: &BridgeMethod) -> String {
-    let parameters = kotlin_parameters(&method.parameters);
+    let mut parameters = kotlin_parameters(&method.parameters);
+    parameters.push_str(&kotlin_codec_parameters(method));
     let return_type = method.success_type();
     let annotation = method
         .error_type()
         .map(|error| format!("@Throws({error}::class)\n"))
         .unwrap_or_default();
+    let generics = if method.type_parameters.is_empty() {
+        String::new()
+    } else {
+        format!("<{}> ", method.type_parameters.join(", "))
+    };
     format!(
-        "{}{}fun {}({}): {}",
+        "{}{}fun {generics}{}({}): {}",
         annotation,
         if method.is_async { "suspend " } else { "" },
         method.name,
         parameters,
         kotlin_type(return_type)
     )
+}
+
+/// The Kotlin mirror of [`swift_codec_parameters`]: a writer takes the value
+/// and the writer, a reader takes only the reader and returns the value.
+fn kotlin_codec_parameters(method: &BridgeMethod) -> String {
+    // A contract is generated into the *plugin's* package, so the codec types
+    // are named through the fixed core package every generated app carries.
+    let reader = format!("{}.NexaValueReader", crate::value::KOTLIN_CORE_PACKAGE);
+    let writer = format!("{}.NexaValueWriter", crate::value::KOTLIN_CORE_PACKAGE);
+    let mut rendered = String::new();
+    for (ty, decodes) in codec_types(method) {
+        if decodes {
+            rendered.push_str(&format!(
+                ", decode: ({reader}) -> {}?",
+                kotlin_type(ty)
+            ));
+        } else {
+            rendered.push_str(&format!(
+                ", encode: ({}, {writer}) -> Unit",
+                kotlin_type(ty)
+            ));
+        }
+    }
+    rendered
 }
 
 fn swift_contract_name(interface: &BridgeInterface) -> String {
@@ -617,6 +701,67 @@ mod tests {
     fn validate(source: &str) -> BridgePlan {
         let idl = nexa_plugin_idl::parse(source).expect("IDL should parse");
         BridgePlan::validate_contract(&idl).expect("contract should validate")
+    }
+
+    fn validate_swift_and_kotlin(source: &str) -> BridgePlan {
+        let idl = nexa_plugin_idl::parse(source).expect("IDL should parse");
+        BridgePlan::validate_swift_contract(&idl).expect("Swift and Kotlin contract should validate")
+    }
+
+    /// A generic method's contract carries one value codec per parameter or
+    /// return that mentions a type parameter, so a plugin implements the method
+    /// once instead of once per value type.
+    #[test]
+    fn generic_methods_carry_a_value_codec_per_bound_type() {
+        let plan = validate_swift_and_kotlin(
+            r#"
+            native class Store {
+                init()
+                fn setObject<T>(key: String, value: T) -> Bool
+                fn getObject<T>(key: String) -> T?
+                fn getMap<K, V>(key: String) -> Map<K, V>?
+                fn dispose()
+            }
+            "#,
+        );
+        let swift = swift(&plan);
+        assert!(swift.contains(
+            "func setObject<T>(_ key: String, _ value: T, _ encode: (T, NexaValueWriter) -> Void) -> Bool"
+        ));
+        assert!(swift.contains("func getObject<T>(_ key: String, _ decode: (NexaValueReader) -> T?) -> T?"));
+        // The map codec covers the whole map, not its two type parameters.
+        assert!(
+            swift.contains("func getMap<K, V>(_ key: String, _ decode: (NexaValueReader) -> [K: V]?) -> [K: V]?")
+        );
+
+        let kotlin = kotlin(&plan, "dev.example.store");
+        assert!(kotlin.contains("fun <T> setObject(key: String, value: T, encode: (T, dev.nexa.core.NexaValueWriter) -> Unit): Boolean"));
+        assert!(kotlin.contains("fun <T> getObject(key: String, decode: (dev.nexa.core.NexaValueReader) -> T?): T?"));
+        assert!(kotlin.contains(
+            "fun <K, V> getMap(key: String, decode: (dev.nexa.core.NexaValueReader) -> Map<K, V>?): Map<K, V>?"
+        ));
+    }
+
+    /// The C++ bridge has no spelling for a per-call-site value type, so a
+    /// plugin that reaches for it on that surface gets a clear error instead of
+    /// a contract that cannot be implemented.
+    #[test]
+    fn the_cpp_bridge_rejects_value_type_parameters() {
+        let idl = nexa_plugin_idl::parse(
+            r#"
+            native class Store {
+                init()
+                fn setObject<T>(key: String, value: T) -> Bool
+                fn dispose()
+            }
+            "#,
+        )
+        .expect("IDL should parse");
+        let error = BridgePlan::validate_contract(&idl).expect_err("generics are Swift and Kotlin only");
+        assert!(
+            error.contains("does not support value type parameters"),
+            "unexpected diagnostic: {error}"
+        );
     }
 
     #[test]
@@ -809,6 +954,7 @@ fn swift_type(ty: &BridgeType) -> String {
         BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
         BridgeType::Scalar(BridgeScalar::Bytes) => "Data".to_owned(),
         BridgeType::Named { name, .. } => name.clone(),
+        BridgeType::TypeParameter(name) => name.clone(),
         BridgeType::Array(element) => format!("[{}]", swift_type(element)),
         BridgeType::Set(element) => format!("Set<{}>", swift_type(element)),
         BridgeType::Map(key, value) => {
@@ -847,6 +993,7 @@ fn kotlin_type(ty: &BridgeType) -> String {
         BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
         BridgeType::Scalar(BridgeScalar::Bytes) => "ByteArray".to_owned(),
         BridgeType::Named { name, .. } => name.clone(),
+        BridgeType::TypeParameter(name) => name.clone(),
         BridgeType::Array(element) => format!("List<{}>", kotlin_type(element)),
         BridgeType::Set(element) => format!("Set<{}>", kotlin_type(element)),
         BridgeType::Map(key, value) => {

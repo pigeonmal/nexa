@@ -8,11 +8,14 @@ use nexa_ir::{
 use nexa_plugin_idl::TypeRef;
 use nexa_syntax::ast;
 
-use super::context::ExprContext;
+use super::context::{ExprContext, TypeRegistries};
 
 #[derive(Clone)]
 pub(super) struct FunctionSignature {
     pub(super) parameters: Vec<(String, Type)>,
+    /// Declared plugin value type parameters, in declaration order. A call
+    /// binds every one of them to a concrete value type.
+    pub(super) type_parameters: Vec<String>,
     pub(super) return_type: Type,
     pub(super) is_async: bool,
     pub(super) is_throwing: bool,
@@ -90,7 +93,7 @@ pub(super) fn collect_plugin_components(
                 .properties
                 .iter()
                 .map(|property| {
-                    plugin_type(&plugin.namespace, &property.ty, false)
+                    plugin_type(&plugin.namespace, &property.ty, false, &[])
                         .map(|ty| (property.name.clone(), ty))
                         .map_err(|message| CompileError::new(plugin.span, message))
                 })
@@ -113,7 +116,7 @@ pub(super) fn collect_plugin_components(
                         .parameters
                         .iter()
                         .map(|parameter| {
-                            plugin_type(&plugin.namespace, &parameter.ty, false)
+                            plugin_type(&plugin.namespace, &parameter.ty, false, &[])
                                 .map(|ty| (parameter.name.clone(), ty))
                                 .map_err(|message| CompileError::new(plugin.span, message))
                         })
@@ -214,7 +217,7 @@ pub(super) fn collect_plugin_signatures(
                             .parameters
                             .iter()
                             .map(|parameter| {
-                                plugin_type(&plugin.namespace, &parameter.ty, false)
+                                plugin_type(&plugin.namespace, &parameter.ty, false, &[])
                                     .map(|ty| (parameter.name.clone(), ty))
                                     .map_err(|message| CompileError::new(plugin.span, message))
                             })
@@ -229,6 +232,7 @@ pub(super) fn collect_plugin_signatures(
                 let qualified_key = format!("{}.{}", plugin.namespace, interface.name);
                 let signature = FunctionSignature {
                     parameters,
+                    type_parameters: Vec::new(),
                     return_type: class_type.clone(),
                     is_async: false,
                     is_throwing: false,
@@ -282,15 +286,25 @@ pub(super) fn collect_plugin_signatures(
                         format!("plugin method `{key}` is declared more than once"),
                     ));
                 }
-                let return_type = plugin_type(&plugin.namespace, &method.return_type, true)
-                    .map_err(|message| CompileError::new(plugin.span, message))?;
+                let return_type = plugin_type(
+                    &plugin.namespace,
+                    &method.return_type,
+                    true,
+                    &method.type_parameters,
+                )
+                .map_err(|message| CompileError::new(plugin.span, message))?;
                 let parameters = method
                     .parameters
                     .iter()
                     .map(|parameter| {
-                        plugin_type(&plugin.namespace, &parameter.ty, false)
-                            .map(|ty| (parameter.name.clone(), ty))
-                            .map_err(|message| CompileError::new(plugin.span, message))
+                        plugin_type(
+                            &plugin.namespace,
+                            &parameter.ty,
+                            false,
+                            &method.type_parameters,
+                        )
+                        .map(|ty| (parameter.name.clone(), ty))
+                        .map_err(|message| CompileError::new(plugin.span, message))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 let error_reference = method.throws.as_ref().or_else(|| {
@@ -306,6 +320,7 @@ pub(super) fn collect_plugin_signatures(
                     key,
                     FunctionSignature {
                         parameters,
+                        type_parameters: method.type_parameters.clone(),
                         return_type,
                         is_async: method.is_async,
                         is_throwing: method.return_type.name == "Result" || method.throws.is_some(),
@@ -332,12 +347,13 @@ pub(super) fn collect_plugin_signatures(
                             ),
                         ));
                     }
-                    let return_type = plugin_type(&plugin.namespace, &property.ty, false)
+                    let return_type = plugin_type(&plugin.namespace, &property.ty, false, &[])
                         .map_err(|message| CompileError::new(plugin.span, message))?;
                     signatures.insert(
                         key,
                         FunctionSignature {
                             parameters: Vec::new(),
+                            type_parameters: Vec::new(),
                             return_type,
                             is_async: false,
                             is_throwing: false,
@@ -367,7 +383,7 @@ pub(super) fn collect_plugin_signatures(
                         .parameters
                         .iter()
                         .map(|parameter| {
-                            plugin_type(&plugin.namespace, &parameter.ty, false)
+                            plugin_type(&plugin.namespace, &parameter.ty, false, &[])
                                 .map(|ty| (parameter.name.clone(), ty))
                                 .map_err(|message| CompileError::new(plugin.span, message))
                         })
@@ -376,6 +392,7 @@ pub(super) fn collect_plugin_signatures(
                         key,
                         FunctionSignature {
                             parameters,
+                            type_parameters: Vec::new(),
                             return_type: Type::Void,
                             is_async: false,
                             is_throwing: false,
@@ -396,7 +413,16 @@ pub(super) fn collect_plugin_signatures(
     Ok(signatures)
 }
 
-fn plugin_type(namespace: &str, ty: &TypeRef, return_position: bool) -> Result<Type, String> {
+/// Resolves an IDL type reference to a language type. `scope` holds the
+/// method's value type parameters; a name in scope becomes
+/// [`Type::TypeParam`], which every call site must bind before code
+/// generation.
+fn plugin_type(
+    namespace: &str,
+    ty: &TypeRef,
+    return_position: bool,
+    scope: &[String],
+) -> Result<Type, String> {
     let mut result = match ty.name.as_str() {
         "Void" if return_position => Type::Void,
         "Void" => return Err("`Void` is only valid as a native method return type".to_owned()),
@@ -412,33 +438,47 @@ fn plugin_type(namespace: &str, ty: &TypeRef, return_position: bool) -> Result<T
         "UInt64" => Type::Numeric(NumericType::UInt64),
         "Float32" => Type::Numeric(NumericType::Float32),
         "Float64" => Type::Numeric(NumericType::Float64),
-        "Bytes" => Type::Array(Box::new(Type::Numeric(NumericType::UInt8))),
-        "Array" if ty.arguments.len() == 1 => {
-            Type::Array(Box::new(plugin_type(namespace, &ty.arguments[0], false)?))
-        }
-        "Set" if ty.arguments.len() == 1 => {
-            Type::Set(Box::new(plugin_type(namespace, &ty.arguments[0], false)?))
-        }
+        "Bytes" => Type::Bytes,
+        "Array" if ty.arguments.len() == 1 => Type::Array(Box::new(plugin_type(
+            namespace,
+            &ty.arguments[0],
+            false,
+            scope,
+        )?)),
+        "Set" if ty.arguments.len() == 1 => Type::Set(Box::new(plugin_type(
+            namespace,
+            &ty.arguments[0],
+            false,
+            scope,
+        )?)),
         "Map" if ty.arguments.len() == 2 => Type::Map(
-            Box::new(plugin_type(namespace, &ty.arguments[0], false)?),
-            Box::new(plugin_type(namespace, &ty.arguments[1], false)?),
+            Box::new(plugin_type(namespace, &ty.arguments[0], false, scope)?),
+            Box::new(plugin_type(namespace, &ty.arguments[1], false, scope)?),
         ),
         "Pair" if ty.arguments.len() == 2 => Type::Pair(
-            Box::new(plugin_type(namespace, &ty.arguments[0], false)?),
-            Box::new(plugin_type(namespace, &ty.arguments[1], false)?),
+            Box::new(plugin_type(namespace, &ty.arguments[0], false, scope)?),
+            Box::new(plugin_type(namespace, &ty.arguments[1], false, scope)?),
         ),
         "Triple" if ty.arguments.len() == 3 => Type::Triple(
-            Box::new(plugin_type(namespace, &ty.arguments[0], false)?),
-            Box::new(plugin_type(namespace, &ty.arguments[1], false)?),
-            Box::new(plugin_type(namespace, &ty.arguments[2], false)?),
+            Box::new(plugin_type(namespace, &ty.arguments[0], false, scope)?),
+            Box::new(plugin_type(namespace, &ty.arguments[1], false, scope)?),
+            Box::new(plugin_type(namespace, &ty.arguments[2], false, scope)?),
         ),
         "Result" if return_position && ty.arguments.len() == 2 => {
-            plugin_type(namespace, &ty.arguments[0], false)?
+            plugin_type(namespace, &ty.arguments[0], false, scope)?
         }
         "Result" => {
             return Err(
                 "`Result<Success, Failure>` is only valid as a plugin return type".to_owned(),
             );
+        }
+        name if scope.iter().any(|parameter| parameter == name) => {
+            if !ty.arguments.is_empty() {
+                return Err(format!(
+                    "type parameter `{name}` cannot take type arguments"
+                ));
+            }
+            Type::TypeParam(name.to_owned())
         }
         name => Type::Plugin {
             namespace: namespace.to_owned(),
@@ -472,7 +512,7 @@ fn plugin_error_type(
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    plugin_type(namespace, &parameter.ty, false)
+                    plugin_type(namespace, &parameter.ty, false, &[])
                         .map(|ty| (parameter.name.clone(), ty))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -522,6 +562,7 @@ pub(super) fn collect_function_signatures(
             declaration.name.clone(),
             FunctionSignature {
                 parameters,
+                type_parameters: Vec::new(),
                 return_type: resolve_struct_type(&parse_type(&declaration.return_type)?, structs),
                 is_async: declaration.is_async,
                 is_throwing: false,
@@ -552,7 +593,7 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
         ast::Expr::Triple(first, second, third, _) => {
             references_state(first) || references_state(second) || references_state(third)
         }
-        ast::Expr::Call(_, arguments, _) => arguments.iter().any(references_state),
+        ast::Expr::Call(_, _, arguments, _) => arguments.iter().any(references_state),
         ast::Expr::MethodCall {
             base,
             arguments,
@@ -893,12 +934,13 @@ pub(super) fn lower_expr(
         ast::Expr::Binary(left, operator, right, span) => {
             lower_binary(left, *operator, right, *span, expected, ctx)
         }
-        ast::Expr::Call(name, arguments, span) => {
-            lower_call(name, arguments, *span, expected, ctx, false)
+        ast::Expr::Call(name, type_arguments, arguments, span) => {
+            lower_call(name, type_arguments, arguments, *span, expected, ctx, false)
         }
         ast::Expr::MethodCall {
             base,
             name,
+            type_arguments,
             arguments,
             named_arguments,
             span,
@@ -910,6 +952,7 @@ pub(super) fn lower_expr(
                 lower_plugin_method_call(
                     base,
                     name,
+                    type_arguments,
                     arguments,
                     named_arguments,
                     *span,
@@ -918,6 +961,12 @@ pub(super) fn lower_expr(
                     false,
                 )
             } else {
+                if !type_arguments.is_empty() {
+                    return Err(CompileError::new(
+                        *span,
+                        "type arguments are only supported on plugin methods",
+                    ));
+                }
                 if !named_arguments.is_empty() {
                     return Err(CompileError::new(
                         *span,
@@ -934,12 +983,14 @@ pub(super) fn lower_expr(
         ast::Expr::QualifiedCall {
             namespace,
             name,
+            type_arguments,
             arguments,
             named_arguments,
             span,
         } => lower_native_call(
             namespace,
             name,
+            type_arguments,
             arguments,
             named_arguments,
             *span,
@@ -1141,6 +1192,13 @@ pub(super) fn lower_expr(
             };
             let optional_type = Type::Optional(inner.clone());
             let lowered_left = lower_expr(left, Some(&optional_type), ctx)?;
+            // A generic plugin call reports its *unsubstituted* signature type
+            // to inference, so the concrete value type comes from the lowered
+            // call: the right side must see the type the left actually bound.
+            let inner = match lowered_type(&lowered_left) {
+                Some(Type::Optional(resolved)) => *resolved,
+                _ => *inner,
+            };
             let lowered_right = lower_expr(right, Some(&inner), ctx)?;
             require_expected(expected, &inner, *span)?;
             Ok(Expr::Coalesce(
@@ -1156,18 +1214,20 @@ pub(super) fn lower_expr(
                 ));
             }
             let call = match value.as_ref() {
-                ast::Expr::Call(name, arguments, call_span) => {
-                    lower_call(name, arguments, *call_span, expected, ctx, true)?
+                ast::Expr::Call(name, type_arguments, arguments, call_span) => {
+                    lower_call(name, type_arguments, arguments, *call_span, expected, ctx, true)?
                 }
                 ast::Expr::QualifiedCall {
                     namespace,
                     name,
+                    type_arguments,
                     arguments,
                     named_arguments,
                     span: call_span,
                 } => lower_native_call(
                     namespace,
                     name,
+                    type_arguments,
                     arguments,
                     named_arguments,
                     *call_span,
@@ -1178,6 +1238,7 @@ pub(super) fn lower_expr(
                 ast::Expr::MethodCall {
                     base,
                     name,
+                    type_arguments,
                     arguments,
                     named_arguments,
                     span: call_span,
@@ -1189,6 +1250,7 @@ pub(super) fn lower_expr(
                     lower_plugin_method_call(
                         base,
                         name,
+                        type_arguments,
                         arguments,
                         named_arguments,
                         *call_span,
@@ -1447,12 +1509,19 @@ fn infer_collection_transform_type(
 
 fn lower_call(
     name: &str,
+    type_arguments: &[ast::TypeSyntax],
     arguments: &[ast::Expr],
     span: Span,
     expected: Option<&Type>,
     ctx: &ExprContext<'_>,
     awaited: bool,
 ) -> Result<Expr, CompileError> {
+    if !type_arguments.is_empty() {
+        return Err(CompileError::new(
+            span,
+            "type arguments are only supported on plugin methods",
+        ));
+    }
     if name == "Ok" {
         if arguments.len() != 1 {
             return Err(CompileError::new(span, "`Ok` expects exactly 1 argument"));
@@ -1552,6 +1621,7 @@ fn lower_call(
 fn lower_native_call(
     namespace: &str,
     name: &str,
+    type_arguments: &[ast::TypeSyntax],
     arguments: &[ast::Expr],
     named_arguments: &BTreeMap<String, ast::Expr>,
     span: Span,
@@ -1564,6 +1634,7 @@ fn lower_native_call(
         return lower_plugin_call(
             namespace,
             name,
+            type_arguments,
             arguments,
             named_arguments,
             span,
@@ -1607,6 +1678,21 @@ fn lower_native_call(
             ],
         ),
         "File.delete" => (Type::Bool, true, vec![("path", Type::String, None)]),
+        "Bytes.fromText" => (Type::Bytes, false, vec![("text", Type::String, None)]),
+        "Bytes.fromArray" => (
+            Type::Bytes,
+            false,
+            vec![(
+                "values",
+                Type::Array(Box::new(Type::Numeric(NumericType::UInt8))),
+                None,
+            )],
+        ),
+        "Bytes.count" => (
+            Type::Numeric(NumericType::Int32),
+            false,
+            vec![("bytes", Type::Bytes, None)],
+        ),
         "Permissions.status" => (
             Type::Enum("PermissionStatus".to_owned()),
             true,
@@ -1737,6 +1823,15 @@ fn native_plan(
             op: nexa_ir::PermissionOpKind::Request,
             permission: Box::new(take("permission")?),
         }),
+        "Bytes.fromText" => Ok(Expr::BytesFromText {
+            text: Box::new(take("text")?),
+        }),
+        "Bytes.fromArray" => Ok(Expr::BytesFromArray {
+            values: Box::new(take("values")?),
+        }),
+        "Bytes.count" => Ok(Expr::BytesCount {
+            bytes: Box::new(take("bytes")?),
+        }),
         _ => Err(CompileError::new(
             span,
             format!("unknown native API `{qualified_name}`"),
@@ -1745,12 +1840,16 @@ fn native_plan(
 }
 
 fn is_core_native_namespace(namespace: &str) -> bool {
-    matches!(namespace, "Network" | "Path" | "File" | "Permissions")
+    matches!(
+        namespace,
+        "Network" | "Path" | "File" | "Permissions" | "Bytes"
+    )
 }
 
 fn lower_plugin_call(
     namespace: &str,
     name: &str,
+    type_arguments: &[ast::TypeSyntax],
     arguments: &[ast::Expr],
     named_arguments: &BTreeMap<String, ast::Expr>,
     span: Span,
@@ -1782,26 +1881,55 @@ fn lower_plugin_call(
             "`await` is only allowed in an async function or `OnAppear async` block",
         ));
     }
-    require_expected(expected, &signature.return_type, span)?;
+    let argument_types = arguments
+        .iter()
+        .map(|argument| infer_expr_type(argument, ctx.symbols, ctx.functions))
+        .collect::<Vec<_>>();
+    let resolved = super::generics::resolve(
+        &qualified_name,
+        signature,
+        type_arguments,
+        &argument_types,
+        expected,
+        TypeRegistries {
+            structs: ctx.structs,
+            enums: ctx.enums,
+        },
+        span,
+    )?;
+    let (parameter_types, return_type, codecs) = match resolved {
+        Some(resolved) => (
+            resolved.parameters,
+            resolved.return_type,
+            resolved.codecs,
+        ),
+        None => (
+            signature.parameters.clone(),
+            signature.return_type.clone(),
+            Vec::new(),
+        ),
+    };
+    if !expected.is_some_and(crate::semantic::generics::mentions_type_parameter) {
+        require_expected(expected, &return_type, span)?;
+    }
     if !named_arguments.is_empty() {
         return Err(CompileError::new(
             span,
             "Nexa plugin calls use positional arguments in declaration order",
         ));
     }
-    if arguments.len() != signature.parameters.len() {
+    if arguments.len() != parameter_types.len() {
         return Err(CompileError::new(
             span,
             format!(
                 "plugin method `{qualified_name}` expects {} argument(s), found {}",
-                signature.parameters.len(),
+                parameter_types.len(),
                 arguments.len()
             ),
         ));
     }
-    let mut lowered = Vec::with_capacity(signature.parameters.len());
-    for ((argument_name, argument_type), argument) in
-        signature.parameters.iter().zip(arguments.iter())
+    let mut lowered = Vec::with_capacity(parameter_types.len());
+    for ((argument_name, argument_type), argument) in parameter_types.iter().zip(arguments.iter())
     {
         lowered.push((
             argument_name.clone(),
@@ -1831,7 +1959,8 @@ fn lower_plugin_call(
         namespace: namespace.to_owned(),
         name: name.to_owned(),
         arguments: lowered,
-        return_type: signature.return_type.clone(),
+        codecs,
+        return_type,
         is_async: signature.is_async,
         is_throwing: signature.is_throwing,
     })
@@ -1840,6 +1969,7 @@ fn lower_plugin_call(
 fn lower_plugin_method_call(
     base: &ast::Expr,
     name: &str,
+    type_arguments: &[ast::TypeSyntax],
     arguments: &[ast::Expr],
     named_arguments: &BTreeMap<String, ast::Expr>,
     span: Span,
@@ -1911,10 +2041,39 @@ fn lower_plugin_method_call(
             "`await` is only allowed in an async function or `OnAppear async` block",
         ));
     }
-    require_expected(expected, &signature.return_type, span)?;
+    let argument_types = arguments
+        .iter()
+        .map(|argument| infer_expr_type(argument, ctx.symbols, ctx.functions))
+        .collect::<Vec<_>>();
+    let resolved = super::generics::resolve(
+        &qualified_name,
+        signature,
+        type_arguments,
+        &argument_types,
+        expected,
+        TypeRegistries {
+            structs: ctx.structs,
+            enums: ctx.enums,
+        },
+        span,
+    )?;
+    let (parameter_types, return_type, codecs) = match resolved {
+        Some(resolved) => (
+            resolved.parameters,
+            resolved.return_type,
+            resolved.codecs,
+        ),
+        None => (
+            signature.parameters.clone(),
+            signature.return_type.clone(),
+            Vec::new(),
+        ),
+    };
+    if !expected.is_some_and(crate::semantic::generics::mentions_type_parameter) {
+        require_expected(expected, &return_type, span)?;
+    }
     let receiver = lower_expr(base, Some(&base_type), ctx)?;
-    let lowered = signature
-        .parameters
+    let lowered = parameter_types
         .iter()
         .zip(arguments.iter())
         .map(|((_, ty), argument)| lower_expr(argument, Some(ty), ctx))
@@ -1923,13 +2082,13 @@ fn lower_plugin_method_call(
         receiver: Some(Box::new(receiver)),
         namespace: namespace.clone(),
         name: name.to_owned(),
-        arguments: signature
-            .parameters
+        codecs,
+        return_type,
+        arguments: parameter_types
             .iter()
             .map(|(name, _)| name.clone())
             .zip(lowered)
             .collect(),
-        return_type: signature.return_type.clone(),
         is_async: signature.is_async,
         is_throwing: signature.is_throwing,
     })
@@ -1972,6 +2131,7 @@ pub(super) fn functions_with_error_handling(
             ERROR_HANDLING_SCOPE_KEY.to_owned(),
             FunctionSignature {
                 parameters: Vec::new(),
+                type_parameters: Vec::new(),
                 return_type: Type::Void,
                 is_async: false,
                 is_throwing: true,
@@ -2196,6 +2356,9 @@ fn lower_binary(
 fn is_equatable_type(ty: &Type) -> bool {
     match ty {
         Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_) => true,
+        // A type parameter is only ever compared after it is bound, and a
+        // bound value type is checked on its own.
+        Type::TypeParam(_) => false,
         Type::Optional(inner) => is_equatable_type(inner),
         Type::Array(element) | Type::Set(element) => is_equatable_type(element),
         Type::Map(key, value) => is_equatable_type(key) && is_equatable_type(value),
@@ -2208,7 +2371,7 @@ fn is_equatable_type(ty: &Type) -> bool {
         Type::Struct { fields, .. } => {
             !fields.is_empty() && fields.iter().all(|(_, field)| is_equatable_type(field))
         }
-        Type::Void | Type::Plugin { .. } | Type::NetworkResponse => false,
+        Type::Void | Type::Bytes | Type::Plugin { .. } | Type::NetworkResponse => false,
     }
 }
 
@@ -2247,7 +2410,7 @@ pub(super) fn infer_expr_type(
                     .map(|(ty, _)| ty.clone())
             }
         }
-        ast::Expr::Call(name, args, _) => {
+        ast::Expr::Call(name, _, args, _) => {
             if name == "Ok" && args.len() == 1 {
                 infer_expr_type(&args[0], symbols, functions)
                     .map(|v| Type::Result(Box::new(v), Box::new(Type::String)))
@@ -2274,6 +2437,8 @@ pub(super) fn infer_expr_type(
             | ("Path", "appSupport")
             | ("Path", "join")
             | ("File", "readText") => Some(Type::String),
+            ("Bytes", "fromText") | ("Bytes", "fromArray") => Some(Type::Bytes),
+            ("Bytes", "count") => Some(Type::Numeric(NumericType::Int32)),
             ("Permissions", "status") => Some(Type::Enum("PermissionStatus".to_owned())),
             ("Permissions", "request") => Some(Type::Enum("PermissionStatus".to_owned())),
             _ => functions
@@ -2555,7 +2720,9 @@ pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
             Box::new(resolve_struct_type(third, structs)),
         ),
         Type::Void
+        | Type::TypeParam(_)
         | Type::String
+        | Type::Bytes
         | Type::Bool
         | Type::Numeric(_)
         | Type::Plugin { .. }
@@ -2606,6 +2773,7 @@ pub(super) fn resolve_value_type(
 
 fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> {
     match ty {
+        Type::TypeParam(_) => Ok(()),
         Type::Array(element) | Type::Set(element) => {
             if matches!(ty, Type::Set(_)) {
                 require_hashable_key(element, span, "Set elements")?;
@@ -2628,6 +2796,7 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
         Type::Optional(inner) => validate_type_constraints(inner, span),
         Type::Void
         | Type::String
+        | Type::Bytes
         | Type::Bool
         | Type::Numeric(_)
         | Type::Enum(_)
@@ -2669,6 +2838,9 @@ fn parse_named_type(name: &str, _span: Span) -> Result<Type, CompileError> {
         "UInt64" => Type::Numeric(NumericType::UInt64),
         "Float32" => Type::Numeric(NumericType::Float32),
         "Float64" => Type::Numeric(NumericType::Float64),
+        // A byte buffer is a first-class value type: it can be a state, a
+        // struct field, and a plugin parameter.
+        "Bytes" => Type::Bytes,
         _ => Type::Enum(name.to_owned()),
     };
     Ok(ty)
@@ -2750,10 +2922,30 @@ fn require_expected(
     }
     Ok(())
 }
+/// The type of an already-lowered expression, when the IR node carries one.
+///
+/// Semantic lowering resolves a generic plugin call's type parameters at the
+/// call site, so the lowered node knows more than the source-level inference
+/// pass can: reading the type back from the node is how a surrounding
+/// expression sees the concrete value type.
+pub(super) fn lowered_type(expr: &Expr) -> Option<Type> {
+    match expr {
+        Expr::Call { return_type, .. } | Expr::NativeCall { return_type, .. } => {
+            Some(return_type.clone())
+        }
+        Expr::State(_, ty) => Some(ty.clone()),
+        Expr::Null(ty) => Some(ty.clone()),
+        Expr::Member { field_type, .. } => Some(field_type.clone()),
+        Expr::Index { element_type, .. } => Some(element_type.clone()),
+        _ => None,
+    }
+}
+
 pub(super) fn type_name(ty: &Type) -> String {
     match ty {
         Type::Void => "Void".to_owned(),
         Type::String => "String".to_owned(),
+        Type::Bytes => "Bytes".to_owned(),
         Type::Bool => "Bool".to_owned(),
         Type::Numeric(num) => numeric_name(*num).to_owned(),
         Type::Array(element) => format!("Array<{}>", type_name(element)),
@@ -2770,6 +2962,7 @@ pub(super) fn type_name(ty: &Type) -> String {
         ),
         Type::Enum(name) => name.clone(),
         Type::Plugin { namespace, name } => format!("{namespace}.{name}"),
+        Type::TypeParam(name) => name.clone(),
         Type::NetworkResponse => "NetworkResponse".to_owned(),
         Type::Struct { name, .. } => name.clone(),
         Type::Result(value, error) => {
@@ -2809,6 +3002,7 @@ mod tests {
 
     fn throwing_signature(receiver: Option<Type>) -> FunctionSignature {
         FunctionSignature {
+            type_parameters: Vec::new(),
             parameters: Vec::new(),
             return_type: Type::Void,
             is_async: true,
@@ -2828,6 +3022,7 @@ mod tests {
         let error = lower_plugin_call(
             "Camera",
             "capture",
+            &[],
             &[],
             &BTreeMap::new(),
             Span::default(),
@@ -2853,6 +3048,7 @@ mod tests {
         let error = lower_plugin_method_call(
             &ast::Expr::Name("player".to_owned(), Span::default()),
             "prepare",
+            &[],
             &[],
             &BTreeMap::new(),
             Span::default(),

@@ -295,7 +295,7 @@ mod template_generation {
             .swift_packages
             .push(nexa_plugin_idl::manifest::SwiftPackage {
                 url: "https://example.com/media.git".to_owned(),
-                from: "2.3.0".to_owned(),
+                requirement: nexa_plugin_idl::manifest::SwiftPackageRequirement::From("2.3.0".to_owned()),
                 products: vec!["MediaKit".to_owned(), "MediaUI".to_owned()],
             });
         let mut maps_plugin = plugin("Maps");
@@ -305,7 +305,7 @@ mod template_generation {
             .swift_packages
             .push(nexa_plugin_idl::manifest::SwiftPackage {
                 url: "https://example.com/maps.git".to_owned(),
-                from: "1.0.0".to_owned(),
+                requirement: nexa_plugin_idl::manifest::SwiftPackageRequirement::From("1.0.0".to_owned()),
                 products: vec!["MapsKit".to_owned()],
             });
         let plugins = [media_plugin, maps_plugin];
@@ -554,7 +554,7 @@ mod template_generation {
             .swift_packages
             .push(nexa_plugin_idl::manifest::SwiftPackage {
                 url: "https://example.com/media.git".to_owned(),
-                from: "2.3.0".to_owned(),
+                requirement: nexa_plugin_idl::manifest::SwiftPackageRequirement::From("2.3.0".to_owned()),
                 products: vec!["MediaKit".to_owned()],
             });
         media_plugin

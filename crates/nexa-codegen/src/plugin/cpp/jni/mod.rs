@@ -118,6 +118,7 @@ pub fn render_android_adapters(
                             .unwrap_or_default(),
                         return_type: BridgeType::Scalar(BridgeScalar::Int64),
                         is_async: false,
+                        type_parameters: Vec::new(),
                         throws: None,
                     },
                     &create_name,

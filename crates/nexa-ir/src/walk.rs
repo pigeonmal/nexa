@@ -377,6 +377,9 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
         Expr::FileExists { path } | Expr::FileReadText { path } | Expr::FileDelete { path } => {
             walk_expression(path, visit);
         }
+        Expr::BytesFromText { text } => walk_expression(text, visit),
+        Expr::BytesFromArray { values } => walk_expression(values, visit),
+        Expr::BytesCount { bytes } => walk_expression(bytes, visit),
         Expr::FileWriteText { path, contents } => {
             walk_expression(path, visit);
             walk_expression(contents, visit);
@@ -929,6 +932,9 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
         Expr::FileExists { path } | Expr::FileReadText { path } | Expr::FileDelete { path } => {
             visitor.visit_expr(path);
         }
+        Expr::BytesFromText { text } => visitor.visit_expr(text),
+        Expr::BytesFromArray { values } => visitor.visit_expr(values),
+        Expr::BytesCount { bytes } => visitor.visit_expr(bytes),
         Expr::FileWriteText { path, contents } => {
             visitor.visit_expr(path);
             visitor.visit_expr(contents);
@@ -1433,6 +1439,7 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
             name,
             receiver,
             arguments,
+            codecs,
             return_type,
             is_async,
             is_throwing,
@@ -1444,6 +1451,7 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
                 .into_iter()
                 .map(|(param, arg)| (param, folder.fold_expr(arg)))
                 .collect(),
+            codecs: codecs.clone(),
             return_type,
             is_async,
             is_throwing,
@@ -1474,6 +1482,15 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
         },
         Expr::FileDelete { path } => Expr::FileDelete {
             path: Box::new(folder.fold_expr(*path)),
+        },
+        Expr::BytesFromText { text } => Expr::BytesFromText {
+            text: Box::new(folder.fold_expr(*text)),
+        },
+        Expr::BytesFromArray { values } => Expr::BytesFromArray {
+            values: Box::new(folder.fold_expr(*values)),
+        },
+        Expr::BytesCount { bytes } => Expr::BytesCount {
+            bytes: Box::new(folder.fold_expr(*bytes)),
         },
         Expr::PermissionOp { op, permission } => Expr::PermissionOp {
             op,

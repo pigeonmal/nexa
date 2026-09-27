@@ -68,6 +68,10 @@ pub enum BridgeType {
         name: String,
         kind: BridgeNamedKind,
     },
+    /// A method type parameter, bound to a concrete value type at each call
+    /// site. Never reaches generated output as a bare name: renderers spell
+    /// the bound value codec instead.
+    TypeParameter(String),
     Array(Box<BridgeType>),
     Set(Box<BridgeType>),
     Map(Box<BridgeType>, Box<BridgeType>),
@@ -130,6 +134,8 @@ pub struct BridgeNamedType {
 pub struct BridgeMethod {
     pub name: String,
     pub is_async: bool,
+    /// Declared value type parameters, in declaration order.
+    pub type_parameters: Vec<String>,
     pub parameters: Vec<BridgeParameter>,
     pub return_type: BridgeType,
     /// Declared error type name for `throws` methods.
@@ -153,6 +159,29 @@ impl BridgeMethod {
             BridgeType::Result { failure, .. } => Some(failure),
             _ => None,
         })
+    }
+}
+
+/// Whether a resolved type mentions a type parameter at any depth.
+pub fn contains_type_parameter(ty: &BridgeType) -> bool {
+    match ty {
+        BridgeType::TypeParameter(_) => true,
+        BridgeType::Array(element) | BridgeType::Set(element) | BridgeType::Optional(element) => {
+            contains_type_parameter(element)
+        }
+        BridgeType::Map(key, value) => {
+            contains_type_parameter(key) || contains_type_parameter(value)
+        }
+        BridgeType::Pair(first, second) => {
+            contains_type_parameter(first) || contains_type_parameter(second)
+        }
+        BridgeType::Triple(first, second, third) => {
+            contains_type_parameter(first)
+                || contains_type_parameter(second)
+                || contains_type_parameter(third)
+        }
+        BridgeType::Result { success, .. } => contains_type_parameter(success),
+        BridgeType::Scalar(_) | BridgeType::Named { .. } => false,
     }
 }
 
@@ -269,7 +298,7 @@ fn validate(idl: &PluginIdl, target: Target) -> Result<BridgePlan, String> {
     for option in &idl.config {
         config.push(BridgeConfigOption {
             name: option.name.clone(),
-            ty: resolver.resolve(&option.ty, &option.name, Position::Value)?,
+            ty: resolver.resolve(&option.ty, &option.name, Position::Value, &[])?,
             default: option.default.clone(),
         });
     }
@@ -292,6 +321,22 @@ fn validate(idl: &PluginIdl, target: Target) -> Result<BridgePlan, String> {
 /// emitting. Like value support, these are checked once during validation
 /// so rendering stays total.
 fn check_target_structure(plan: &BridgePlan, target: Target) -> Result<(), String> {
+    // A method type parameter is bound per call site and carried by a value
+    // codec the host compiler generates, so the C++ surface - the pure
+    // contract and both host adapters - has no spelling for it.
+    if matches!(target, Target::Contract | Target::SwiftCpp | Target::Android) {
+        for interface in &plan.interfaces {
+            for method in &interface.methods {
+                if !method.type_parameters.is_empty() {
+                    return Err(format!(
+                        "the C++ bridge does not support value type parameters; `{}` declares `{}`",
+                        method.name,
+                        method.type_parameters.join(", ")
+                    ));
+                }
+            }
+        }
+    }
     if !matches!(target, Target::Android) {
         return Ok(());
     }
@@ -386,7 +431,7 @@ impl<'a> Resolver<'a> {
         for field in &ty.fields {
             fields.push(BridgeField {
                 name: field.name.clone(),
-                ty: self.resolve(&field.ty, &field.name, Position::Value)?,
+                ty: self.resolve(&field.ty, &field.name, Position::Value, &[])?,
                 default: field.default.clone(),
             });
         }
@@ -394,7 +439,7 @@ impl<'a> Resolver<'a> {
         for case in &ty.cases {
             cases.push(BridgeVariant {
                 name: case.name.clone(),
-                parameters: self.parameters(&case.parameters)?,
+                parameters: self.parameters(&case.parameters, &[])?,
             });
         }
         Ok(BridgeNamedType {
@@ -409,7 +454,7 @@ impl<'a> Resolver<'a> {
         let mut constructors = Vec::with_capacity(interface.constructors.len());
         for constructor in &interface.constructors {
             constructors.push(BridgeConstructor {
-                parameters: self.parameters(&constructor.parameters)?,
+                parameters: self.parameters(&constructor.parameters, &[])?,
             });
         }
         let mut methods = Vec::with_capacity(interface.methods.len());
@@ -420,7 +465,7 @@ impl<'a> Resolver<'a> {
         for property in &interface.properties {
             properties.push(BridgeProperty {
                 name: property.name.clone(),
-                ty: self.resolve(&property.ty, &property.name, Position::Value)?,
+                ty: self.resolve(&property.ty, &property.name, Position::Value, &[])?,
                 mutable: property.mutable,
                 default: property.default.clone(),
             });
@@ -429,7 +474,7 @@ impl<'a> Resolver<'a> {
         for event in &interface.events {
             events.push(BridgeEvent {
                 name: event.name.clone(),
-                parameters: self.parameters(&event.parameters)?,
+                parameters: self.parameters(&event.parameters, &[])?,
             });
         }
         Ok(BridgeInterface {
@@ -444,8 +489,9 @@ impl<'a> Resolver<'a> {
     }
 
     fn method(&self, method: &Method) -> Result<BridgeMethod, String> {
+        let scope = &method.type_parameters;
         let return_type =
-            self.resolve(&method.return_type, &method.name, Position::MethodReturn)?;
+            self.resolve(&method.return_type, &method.name, Position::MethodReturn, scope)?;
         if matches!(return_type, BridgeType::Result { .. }) && method.throws.is_some() {
             return Err(format!(
                 "method `{}` cannot combine `Result` with `throws`; declare one error type",
@@ -476,7 +522,8 @@ impl<'a> Resolver<'a> {
         Ok(BridgeMethod {
             name: method.name.clone(),
             is_async: method.is_async,
-            parameters: self.parameters(&method.parameters)?,
+            type_parameters: scope.clone(),
+            parameters: self.parameters(&method.parameters, scope)?,
             return_type,
             throws,
         })
@@ -499,13 +546,14 @@ impl<'a> Resolver<'a> {
     fn parameters(
         &self,
         parameters: &[nexa_plugin_idl::Parameter],
+        scope: &[String],
     ) -> Result<Vec<BridgeParameter>, String> {
         parameters
             .iter()
             .map(|parameter| {
                 Ok(BridgeParameter {
                     name: parameter.name.clone(),
-                    ty: self.resolve(&parameter.ty, &parameter.name, Position::Value)?,
+                    ty: self.resolve(&parameter.ty, &parameter.name, Position::Value, scope)?,
                 })
             })
             .collect()
@@ -516,6 +564,7 @@ impl<'a> Resolver<'a> {
         ty: &nexa_plugin_idl::TypeRef,
         context: &str,
         position: Position,
+        scope: &[String],
     ) -> Result<BridgeType, String> {
         let resolved = match ty.name.as_str() {
             "Void" => BridgeType::Scalar(BridgeScalar::Void),
@@ -538,6 +587,7 @@ impl<'a> Resolver<'a> {
                     &element,
                     context,
                     Position::Value,
+                    scope,
                 )?))
             }
             "Set" => {
@@ -546,6 +596,7 @@ impl<'a> Resolver<'a> {
                     &element,
                     context,
                     Position::Value,
+                    scope,
                 )?))
             }
             "Map" => {
@@ -553,8 +604,8 @@ impl<'a> Resolver<'a> {
                 let value = arguments.pop().expect("two map type arguments");
                 let key = arguments.pop().expect("two map type arguments");
                 BridgeType::Map(
-                    Box::new(self.resolve(&key, context, Position::Value)?),
-                    Box::new(self.resolve(&value, context, Position::Value)?),
+                    Box::new(self.resolve(&key, context, Position::Value, scope)?),
+                    Box::new(self.resolve(&value, context, Position::Value, scope)?),
                 )
             }
             "Pair" => {
@@ -562,8 +613,8 @@ impl<'a> Resolver<'a> {
                 let second = arguments.pop().expect("two pair type arguments");
                 let first = arguments.pop().expect("two pair type arguments");
                 BridgeType::Pair(
-                    Box::new(self.resolve(&first, context, Position::Value)?),
-                    Box::new(self.resolve(&second, context, Position::Value)?),
+                    Box::new(self.resolve(&first, context, Position::Value, scope)?),
+                    Box::new(self.resolve(&second, context, Position::Value, scope)?),
                 )
             }
             "Triple" => {
@@ -572,9 +623,9 @@ impl<'a> Resolver<'a> {
                 let second = arguments.pop().expect("three triple type arguments");
                 let first = arguments.pop().expect("three triple type arguments");
                 BridgeType::Triple(
-                    Box::new(self.resolve(&first, context, Position::Value)?),
-                    Box::new(self.resolve(&second, context, Position::Value)?),
-                    Box::new(self.resolve(&third, context, Position::Value)?),
+                    Box::new(self.resolve(&first, context, Position::Value, scope)?),
+                    Box::new(self.resolve(&second, context, Position::Value, scope)?),
+                    Box::new(self.resolve(&third, context, Position::Value, scope)?),
                 )
             }
             "Result" => {
@@ -596,9 +647,17 @@ impl<'a> Resolver<'a> {
                 }
                 let failure = self.plain_name(&failure, context)?;
                 BridgeType::Result {
-                    success: Box::new(self.resolve(&success, context, Position::Value)?),
+                    success: Box::new(self.resolve(&success, context, Position::Value, scope)?),
                     failure,
                 }
+            }
+            name if scope.iter().any(|parameter| parameter == name) => {
+                if !ty.arguments.is_empty() {
+                    return Err(format!(
+                        "{context} uses type parameter `{name}` with unsupported type arguments"
+                    ));
+                }
+                BridgeType::TypeParameter(name.to_owned())
             }
             name => {
                 if let Some(declared) = self.types.get(name) {
@@ -830,7 +889,7 @@ fn check_nested_value(plan: &BridgePlan, ty: &BridgeType, target: Target) -> Res
             check_nested_value(plan, third, target)
         }
         BridgeType::Result { success, .. } => check_nested_value(plan, success, target),
-        BridgeType::Scalar(_) | BridgeType::Named { .. } => Ok(()),
+        BridgeType::Scalar(_) | BridgeType::Named { .. } | BridgeType::TypeParameter(_) => Ok(()),
     }
 }
 
@@ -908,6 +967,7 @@ fn bridge_bare_name(ty: &BridgeType) -> &str {
     match ty {
         BridgeType::Scalar(scalar) => bridge_scalar_name(*scalar),
         BridgeType::Named { name, .. } => name,
+        BridgeType::TypeParameter(name) => name,
         BridgeType::Array(_) => "Array",
         BridgeType::Set(_) => "Set",
         BridgeType::Map(..) => "Map",
@@ -944,7 +1004,7 @@ pub(crate) fn bridge_scalar_name(scalar: BridgeScalar) -> &'static str {
 fn swift_cpp_supported(ty: &BridgeType) -> bool {
     match ty {
         BridgeType::Scalar(_) => true,
-        BridgeType::Named { .. } => true,
+        BridgeType::Named { .. } | BridgeType::TypeParameter(_) => true,
         BridgeType::Array(_) => swift_cpp_array_type_supported(ty),
         BridgeType::Set(_) => swift_cpp_supported_set(ty),
         BridgeType::Map(key, value) => {
@@ -1097,6 +1157,7 @@ fn android_requires_named(ty: &BridgeType) -> bool {
         | BridgeType::Map(..)
         | BridgeType::Pair(..)
         | BridgeType::Triple(..)
+        | BridgeType::TypeParameter(_)
         | BridgeType::Result { .. } => false,
         BridgeType::Optional(inner) => match inner.as_ref() {
             BridgeType::Scalar(BridgeScalar::Void) => true,
@@ -1162,7 +1223,7 @@ fn android_contains_named(plan: &BridgePlan, ty: &BridgeType) -> bool {
                 || android_contains_named(plan, third)
         }
         BridgeType::Result { success, .. } => android_contains_named(plan, success),
-        BridgeType::Scalar(_) | BridgeType::Named { .. } => false,
+        BridgeType::Scalar(_) | BridgeType::Named { .. } | BridgeType::TypeParameter(_) => false,
     }
 }
 
@@ -1231,7 +1292,7 @@ fn android_cpp_type_supported(plan: &BridgePlan, ty: &BridgeType) -> bool {
             BridgeType::Scalar(_) | BridgeType::Named { .. } => true,
             _ => false,
         },
-        BridgeType::Scalar(_) | BridgeType::Named { .. } => true,
+        BridgeType::Scalar(_) | BridgeType::Named { .. } | BridgeType::TypeParameter(_) => true,
         BridgeType::Pair(..) | BridgeType::Triple(..) | BridgeType::Result { .. } => false,
     }
 }

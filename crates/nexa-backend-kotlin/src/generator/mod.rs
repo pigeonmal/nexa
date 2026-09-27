@@ -12,7 +12,9 @@ pub(super) use components::{
     accessibility, assets, bottom_bar, controls, custom_components, images, input, keyboard,
     layout, links, lists, navigation, refresh, sheets,
 };
-pub(super) use engine::{colors, expressions, features, functions, runtime, state, structs, utils};
+pub(super) use engine::{
+    colors, expressions, features, functions, runtime, state, structs, utils, value,
+};
 
 fn project_features_from_analysis(
     module: &Module,
@@ -108,6 +110,51 @@ fn join_units(units: Vec<nexa_codegen::SourceUnit>) -> String {
     source
 }
 
+/// Whether the app declares a collection state, which is what makes a whole
+/// collection replaceable at runtime.
+fn has_collection_state(module: &Module) -> bool {
+    let is_collection = |ty: &nexa_ir::Type| {
+        matches!(
+            ty,
+            nexa_ir::Type::Array(_) | nexa_ir::Type::Set(_) | nexa_ir::Type::Map(..)
+        )
+    };
+    module
+        .states
+        .iter()
+        .chain(module.screens.iter().flat_map(|screen| screen.states.iter()))
+        .chain(
+            module
+                .components
+                .iter()
+                .flat_map(|component| component.states.iter()),
+        )
+        .any(|state| is_collection(&state.ty))
+}
+
+/// The overloads that replace a collection state's contents. One per
+/// collection kind, so the call site resolves by static type and the generated
+/// app carries no dynamic dispatch.
+const COLLECTION_REPLACE_HELPERS: &str = r#"/** Replaces a list state with a new value. */
+internal fun <T> nexaReplace(target: MutableList<T>, value: List<T>) {
+    target.clear()
+    target.addAll(value)
+}
+
+/** Replaces a set state with a new value. */
+internal fun <T> nexaReplace(target: MutableSet<T>, value: Set<T>) {
+    target.clear()
+    target.addAll(value)
+}
+
+/** Replaces a map state with a new value. */
+internal fun <K, V> nexaReplace(target: MutableMap<K, V>, value: Map<K, V>) {
+    target.clear()
+    target.putAll(value)
+}
+
+"#;
+
 fn generate_with_analysis(module: &Module, features: &features::Features) -> GeneratedSources {
     let focus_bindings = features.facts.focus_bindings.app.clone();
     let imports = engine::imports::render(engine::imports::ImportContext {
@@ -128,6 +175,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             || module.on_inactive.is_some()
             || module.on_background.is_some(),
     });
+    let value_codecs = nexa_codegen::value::collect(module);
     let mut units = SourceUnits::new("kt");
     units.set_imports(&imports);
     units.write("types", |out| {
@@ -161,12 +209,21 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
         }
         for declaration in &module.enums {
             out.push_str(&format!(
-                "private enum class {} {{ {} }}\n\n",
+                "enum class {} {{ {} }}\n\n",
                 nexa_codegen::names::enum_name(&declaration.name),
                 declaration.cases.join(", ")
             ));
         }
         structs::render(module, out);
+        // Value codecs live in the types file: app structs and enums are
+        // file-private, and a codec for one has to construct and read it.
+        value::render(&value_codecs, out);
+        if has_collection_state(module) {
+            // A collection state is a snapshot-state collection, so assigning a
+            // new value replaces the contents. One overload per collection kind
+            // lets the call site pick by static type.
+            out.push_str(COLLECTION_REPLACE_HELPERS);
+        }
     });
 
     units.write("app", |out| {
@@ -413,6 +470,7 @@ mod tests {
                             namespace: "Video".to_owned(),
                             name: "play".to_owned(),
                             arguments: Vec::new(),
+                            codecs: Vec::new(),
                             return_type: Type::Void,
                             is_async: false,
                             is_throwing: false,

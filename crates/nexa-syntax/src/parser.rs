@@ -1840,6 +1840,7 @@ impl Parser {
                     self.optional_semicolon();
                     continue;
                 }
+                let type_arguments = self.type_arguments()?;
                 self.expect(
                     Kind::LParen,
                     "expected `(` after collection mutation method",
@@ -1862,6 +1863,7 @@ impl Parser {
                 stmts.push(Stmt::CollectionMutation {
                     name,
                     method,
+                    type_arguments,
                     arguments,
                     span,
                 });
@@ -2039,6 +2041,7 @@ impl Parser {
                     end: name_span.end,
                     ..expression.span()
                 };
+                let type_arguments = self.type_arguments()?;
                 if self.take(&Kind::LParen) {
                     let (mut arguments, named_arguments) =
                         self.call_arguments_after_open_with_names()?;
@@ -2048,6 +2051,7 @@ impl Parser {
                     expression = Expr::MethodCall {
                         base: Box::new(expression),
                         name,
+                        type_arguments,
                         arguments,
                         named_arguments,
                         span,
@@ -2056,10 +2060,13 @@ impl Parser {
                     expression = Expr::MethodCall {
                         base: Box::new(expression),
                         name,
+                        type_arguments: Vec::new(),
                         arguments: vec![self.closure_expression()?],
                         named_arguments: BTreeMap::new(),
                         span,
                     };
+                } else if !type_arguments.is_empty() {
+                    return Err(CompileError::new(span, "type arguments require a call"));
                 } else {
                     expression = Expr::Member {
                         base: Box::new(expression),
@@ -2402,9 +2409,51 @@ impl Parser {
     }
 
     fn call_expression(&mut self, name: String, span: Span) -> Result<Expr, CompileError> {
+        let type_arguments = self.type_arguments()?;
         self.expect(Kind::LParen, "expected `(` after function name")?;
         let arguments = self.call_arguments_after_open()?;
-        Ok(Expr::Call(name, arguments, span))
+        Ok(Expr::Call(name, type_arguments, arguments, span))
+    }
+
+    /// Explicit value type arguments: `getObject<PlayerOptions>("key")`. Only
+    /// plugin methods that declare type parameters can take them; the compiler
+    /// reports the error, so the parser stays a shape parser.
+    ///
+    /// `<` after a member name is ambiguous with a comparison, so the parse is
+    /// only accepted when `(` follows: `store.count < 5` keeps comparing.
+    fn type_arguments(&mut self) -> Result<Vec<TypeSyntax>, CompileError> {
+        if !self.check(&Kind::Less) {
+            return Ok(Vec::new());
+        }
+        let mark = self.cursor;
+        let mut arguments = match self.type_arguments_after_open() {
+            Ok(arguments) => arguments,
+            Err(_) => {
+                self.cursor = mark;
+                return Ok(Vec::new());
+            }
+        };
+        if !self.check(&Kind::LParen) {
+            self.cursor = mark;
+            return Ok(Vec::new());
+        }
+        // A type argument list is only meaningful once per call; a second
+        // `<` belongs to the argument expression.
+        if arguments.is_empty() {
+            return Ok(Vec::new());
+        }
+        arguments.shrink_to_fit();
+        Ok(arguments)
+    }
+
+    fn type_arguments_after_open(&mut self) -> Result<Vec<TypeSyntax>, CompileError> {
+        self.expect(Kind::Less, "expected `<` to open type arguments")?;
+        let mut arguments = vec![self.type_syntax()?];
+        while self.take(&Kind::Comma) {
+            arguments.push(self.type_syntax()?);
+        }
+        self.expect(Kind::Greater, "expected `>` to close type arguments")?;
+        Ok(arguments)
     }
 
     fn call_arguments_after_open(&mut self) -> Result<Vec<Expr>, CompileError> {
@@ -2477,11 +2526,13 @@ impl Parser {
         name: String,
         span: Span,
     ) -> Result<Expr, CompileError> {
+        let type_arguments = self.type_arguments()?;
         self.expect(Kind::LParen, "expected `(` after qualified function name")?;
         let (arguments, named_arguments) = self.call_arguments_after_open_with_names()?;
         Ok(Expr::QualifiedCall {
             namespace,
             name,
+            type_arguments,
             arguments,
             named_arguments,
             span,

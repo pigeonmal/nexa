@@ -13,7 +13,9 @@ pub(super) use components::{
 };
 pub(super) use engine::state::{render_immutable_state, render_native_object_state};
 use engine::types::{self, swift_type};
-pub(super) use engine::{colors, expressions, features, functions, imports, structs, utils};
+pub(super) use engine::{
+    colors, expressions, features, functions, imports, structs, utils, value,
+};
 
 /// Generates the release source as one concatenated string.
 ///
@@ -51,10 +53,14 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Gene
     let mut units = SourceUnits::new("swift");
     units.set_imports(&imports::render(&features));
     units.set_preamble(&preamble);
+    // Value codecs live in the types file: app structs and enums are
+    // file-private, and a codec for one has to construct and read it.
+    let value_codecs = nexa_codegen::value::collect(module);
     units.write("types", |out| {
         types::render_enums(module, out);
         structs::render(module, out);
         types::render_navigation_routes(module, out);
+        value::render(&value_codecs, out);
     });
 
     units.write("app", |out| {
@@ -444,6 +450,7 @@ mod tests {
                             namespace: "Video".to_owned(),
                             name: "play".to_owned(),
                             arguments: Vec::new(),
+                            codecs: Vec::new(),
                             return_type: Type::Void,
                             is_async: false,
                             is_throwing: false,
@@ -616,7 +623,7 @@ mod tests {
         };
 
         let swift = generate(&module);
-        assert!(swift.contains("enum NexaAppError: String, Error {"));
+        assert!(swift.contains("enum NexaAppError: Int, Error {"));
         assert!(swift.contains("Result<Int32, NexaAppError>"));
         assert!(swift.contains(".success(42)"));
         assert!(swift.contains("try nexa_fn_fetchCode().get()"));

@@ -29,6 +29,7 @@ mod components;
 mod context;
 mod custom_components;
 mod expressions;
+mod generics;
 mod styles;
 mod themes;
 mod warnings;
@@ -46,6 +47,10 @@ pub fn lower_with_warnings(
         .iter()
         .map(|declaration| declaration.name.as_str())
         .collect::<std::collections::HashSet<_>>();
+    let owned_enum_names = enum_names
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect::<std::collections::HashSet<String>>();
     validate_declared_types(&app, &enum_names, &struct_types)?;
     for declaration in &struct_declarations {
         if enum_names.contains(declaration.name.as_str()) {
@@ -108,6 +113,7 @@ pub fn lower_with_warnings(
                     .iter()
                     .map(|field| (field.name.clone(), field.ty.clone()))
                     .collect(),
+                type_parameters: Vec::new(),
                 return_type: Type::Struct {
                     name: declaration.name.clone(),
                     fields: declaration
@@ -197,6 +203,7 @@ pub fn lower_with_warnings(
         &themes,
         &function_signatures,
         &struct_types,
+        &owned_enum_names,
         &enum_symbols,
         &native_component_signatures,
         target,
@@ -206,6 +213,7 @@ pub fn lower_with_warnings(
         std::mem::take(&mut app.functions),
         &function_signatures,
         &struct_types,
+        &owned_enum_names,
         &enum_symbols,
     )?;
 
@@ -230,7 +238,13 @@ pub fn lower_with_warnings(
         let initial = lower_expr(
             &declaration.initial,
             Some(&ty),
-            &ExprContext::new(&symbols, &function_signatures, false),
+            &ExprContext::with_types(
+                &symbols,
+                &function_signatures,
+                false,
+                &struct_types,
+                &owned_enum_names,
+            ),
         )?;
         if declaration.mutable && references_state(&declaration.initial) {
             return Err(CompileError::new(
@@ -304,7 +318,13 @@ pub fn lower_with_warnings(
             let initial = lower_expr(
                 &declaration.initial,
                 Some(&ty),
-                &ExprContext::new(&screen_symbols, &function_signatures, false),
+                &ExprContext::with_types(
+                    &screen_symbols,
+                    &function_signatures,
+                    false,
+                    &struct_types,
+                    &owned_enum_names,
+                ),
             )?;
             if declaration.mutable && references_state(&declaration.initial) {
                 return Err(CompileError::new(
@@ -328,6 +348,8 @@ pub fn lower_with_warnings(
             &component_signatures,
             &function_signatures,
             &screen_native_aliases,
+            &struct_types,
+            &owned_enum_names,
             target,
         )
         .with_navigation(false, true);
@@ -381,6 +403,8 @@ pub fn lower_with_warnings(
         &component_signatures,
         &function_signatures,
         &native_aliases,
+        &struct_types,
+        &owned_enum_names,
         target,
     )
     .with_navigation(true, false);
@@ -1214,6 +1238,7 @@ fn validate_type_names(
     span: nexa_diagnostics::Span,
 ) -> Result<(), CompileError> {
     match ty {
+        Type::TypeParam(_) => Ok(()),
         Type::Enum(name) if !enum_names.contains(name.as_str()) && !is_builtin_enum_name(name) => {
             Err(CompileError::new(span, format!("unknown type `{name}`")))
         }
@@ -1234,6 +1259,7 @@ fn validate_type_names(
             .try_for_each(|(_, field)| validate_type_names(field, enum_names, span)),
         Type::Void
         | Type::String
+        | Type::Bytes
         | Type::Bool
         | Type::Numeric(_)
         | Type::Enum(_)
@@ -1250,6 +1276,7 @@ fn lower_functions(
     declarations: Vec<ast::FunctionDecl>,
     signatures: &FunctionSignatures,
     structs: &StructTypes,
+    enums: &HashSet<String>,
     enum_symbols: &HashMap<String, (Type, bool)>,
 ) -> Result<Vec<Function>, CompileError> {
     declarations
@@ -1310,7 +1337,13 @@ fn lower_functions(
                         let lowered = lower_expr(
                             &initial,
                             Some(&local_type),
-                            &ExprContext::new(&symbols, signatures, signature.is_async),
+                            &ExprContext::with_types(
+                                &symbols,
+                                signatures,
+                                signature.is_async,
+                                structs,
+                                enums,
+                            ),
                         )?;
                         symbols.insert(name.clone(), (local_type.clone(), false));
                         locals.push(FunctionLocal {
@@ -1363,7 +1396,7 @@ fn lower_functions(
             let body = lower_expr(
                 &value,
                 Some(&signature.return_type),
-                &ExprContext::new(&symbols, signatures, signature.is_async),
+                &ExprContext::with_types(&symbols, signatures, signature.is_async, structs, enums),
             )?;
             Ok(Function {
                 name: declaration.name,
@@ -1722,6 +1755,7 @@ mod callback_disposal_tests {
             namespace: "Video".to_owned(),
             name: name.to_owned(),
             arguments: Vec::new(),
+            codecs: Vec::new(),
             return_type: Type::Void,
             is_async: false,
             is_throwing: false,
@@ -1801,6 +1835,7 @@ mod callback_disposal_tests {
         HashMap::from([(
             "VideoPlayer.dispose".to_owned(),
             FunctionSignature {
+                type_parameters: Vec::new(),
                 parameters: Vec::new(),
                 return_type: Type::Void,
                 is_async: false,

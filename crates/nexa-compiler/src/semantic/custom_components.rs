@@ -74,6 +74,7 @@ pub(super) fn lower_components(
     themes: &ThemeSymbols,
     functions: &FunctionSignatures,
     structs: &StructTypes,
+    enums: &HashSet<String>,
     enum_symbols: &HashMap<String, (Type, bool)>,
     external_signatures: &ComponentSignatures,
     target: Target,
@@ -105,6 +106,7 @@ pub(super) fn lower_components(
             themes,
             functions,
             structs,
+            enums,
             enum_symbols,
             target,
         );
@@ -210,6 +212,7 @@ fn lower_component(
     themes: &ThemeSymbols,
     functions: &FunctionSignatures,
     structs: &StructTypes,
+    enums: &HashSet<String>,
     enum_symbols: &HashMap<String, (Type, bool)>,
     target: Target,
 ) -> Result<Component, CompileError> {
@@ -252,7 +255,7 @@ fn lower_component(
         let initial = lower_expr(
             &state.initial,
             Some(&ty),
-            &ExprContext::new(&symbols, functions, false),
+            &ExprContext::with_types(&symbols, functions, false, structs, enums),
         )?;
         if state.mutable && references_state(&state.initial) {
             return Err(CompileError::new(
@@ -277,6 +280,8 @@ fn lower_component(
         signatures,
         functions,
         &native_aliases,
+        structs,
+        enums,
         target,
     )
     .with_navigation(false, false);
@@ -616,7 +621,7 @@ fn is_builtin_component(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::{BTreeMap, HashMap, HashSet};
 
     use nexa_diagnostics::Span;
     use nexa_ir::Type;
@@ -636,6 +641,7 @@ mod tests {
             (
                 "Video.VideoPlayer".to_owned(),
                 FunctionSignature {
+                    type_parameters: Vec::new(),
                     parameters: Vec::new(),
                     return_type: player_type.clone(),
                     is_async: false,
@@ -650,6 +656,7 @@ mod tests {
             (
                 "VideoPlayer.dispose".to_owned(),
                 FunctionSignature {
+                    type_parameters: Vec::new(),
                     parameters: Vec::new(),
                     return_type: Type::Void,
                     is_async: false,
@@ -678,6 +685,7 @@ mod tests {
                 flags: Vec::new(),
                 children: ast::ChildBody::Actions(vec![ast::Stmt::Expression {
                     expression: ast::Expr::MethodCall {
+                        type_arguments: Vec::new(),
                         base: Box::new(ast::Expr::Name("player".to_owned(), span)),
                         name: "dispose".to_owned(),
                         arguments: Vec::new(),
@@ -698,6 +706,7 @@ mod tests {
             &ThemeSymbols::default(),
             &functions,
             &HashMap::new(),
+            &HashSet::new(),
             &HashMap::new(),
             &HashMap::new(),
             Target::Swift,

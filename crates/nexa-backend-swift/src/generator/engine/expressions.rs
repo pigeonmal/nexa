@@ -1,7 +1,7 @@
 use nexa_codegen::names::{function_name, state_name};
 use nexa_ir::{
     BinaryOp, CollectionTransform, Expr, InterpolatedPart, MemberKind, NetworkRequest, NumericType,
-    PermissionOpKind, TuplePosition, Type,
+    PermissionOpKind, PluginCodec, TuplePosition, Type,
 };
 
 use super::utils::{swift_string, swift_string_content};
@@ -217,8 +217,16 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             namespace,
             name,
             arguments,
+            codecs,
             ..
-        } => native_call(receiver.as_deref(), namespace, name, arguments, locals),
+        } => native_call(
+            receiver.as_deref(),
+            namespace,
+            name,
+            arguments,
+            codecs,
+            locals,
+        ),
         Expr::NetworkFetch(request) => render_network_request(request, None, locals),
         Expr::NetworkDownload {
             destination,
@@ -235,6 +243,11 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             render(path)
         ),
         Expr::FileDelete { path } => format!("NexaFile.delete({})", render(path)),
+        // `Data` conversions stay in the standard library: no generated
+        // runtime support, and no intermediate array for `fromText`.
+        Expr::BytesFromText { text } => format!("Data({}.utf8)", render(text)),
+        Expr::BytesFromArray { values } => format!("Data({})", render(values)),
+        Expr::BytesCount { bytes } => format!("Int32({}.count)", render(bytes)),
         Expr::PermissionOp { op, permission } => {
             let method = match op {
                 PermissionOpKind::Status => "status",
@@ -288,18 +301,36 @@ fn native_call(
     namespace: &str,
     name: &str,
     arguments: &[(String, Expr)],
+    codecs: &[PluginCodec],
     locals: &[String],
 ) -> String {
+    let mut rendered = arguments
+        .iter()
+        .map(|(_, value)| expression_with_locals(value, locals))
+        .collect::<Vec<_>>();
+    // A generic plugin call carries its value codecs as trailing closures, so
+    // the bound type never appears as a string in the generated code.
+    for codec in codecs {
+        let function = nexa_codegen::value::codec_name(
+            &codec.ty,
+            if codec.decodes {
+                nexa_codegen::value::Direction::Read
+            } else {
+                nexa_codegen::value::Direction::Write
+            },
+        );
+        rendered.push(if codec.decodes {
+            format!("{{ reader in {function}(reader) }}")
+        } else {
+            format!("{{ item, writer in {function}(item, into: writer) }}")
+        });
+    }
     if let Some(receiver) = receiver {
         return format!(
             "{}.{}({})",
             expression_with_locals(receiver, locals),
             name,
-            arguments
-                .iter()
-                .map(|(_, value)| expression_with_locals(value, locals))
-                .collect::<Vec<_>>()
-                .join(", ")
+            rendered.join(", ")
         );
     }
     match (namespace, name) {
@@ -310,11 +341,7 @@ fn native_call(
             "{}Plugin.shared.{}({})",
             namespace,
             name,
-            arguments
-                .iter()
-                .map(|(_, value)| expression_with_locals(value, locals))
-                .collect::<Vec<_>>()
-                .join(", ")
+            rendered.join(", ")
         ),
     }
 }
@@ -419,6 +446,7 @@ mod tests {
             namespace: "Camera".to_owned(),
             name: "stop".to_owned(),
             arguments: Vec::new(),
+            codecs: Vec::new(),
             return_type: Type::Void,
             is_async: true,
             is_throwing: true,
@@ -466,6 +494,7 @@ mod tests {
             namespace: "Video".to_owned(),
             name: "prepare".to_owned(),
             arguments: vec![("url".to_owned(), Expr::String("clip.mp4".to_owned()))],
+            codecs: Vec::new(),
             return_type: Type::Void,
             is_async: true,
             is_throwing: false,

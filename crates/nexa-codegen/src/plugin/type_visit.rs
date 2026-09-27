@@ -117,6 +117,7 @@ pub fn walk_type(ty: &BridgeType, order: Order, visit: &mut impl FnMut(&BridgeTy
         }
         BridgeType::Scalar(_)
         | BridgeType::Named { .. }
+        | BridgeType::TypeParameter(_)
         | BridgeType::Optional(_)
         | BridgeType::Result { .. } => {}
     }

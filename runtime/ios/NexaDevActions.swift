@@ -112,6 +112,10 @@ extension NexaDevStateStore {
                 if mutation["operation"] as? String == "SetInsert" { set.insert(item) } else { set.remove(item) }
             }
             setValue(name, value: set, scope: scope)
+        case "Replace":
+            // A collection state keeps its identity: only the contents are
+            // replaced, which is what the generated code does too.
+            if let replacement = arguments.first { setValue(name, value: replacement, scope: scope) }
         case "MapSet", "MapRemove":
             var map = value(name, scope: scope) as? [String: Any] ?? [:]
             if let key = arguments.first.map(stringify) {

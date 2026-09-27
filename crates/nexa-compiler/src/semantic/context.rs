@@ -1,9 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nexa_ir::{ScreenId, Type};
 
 use super::{
-    custom_components::ComponentSignatures, expressions::FunctionSignatures, themes::ThemeSymbols,
+    custom_components::ComponentSignatures,
+    expressions::{FunctionSignatures, StructTypes},
+    themes::ThemeSymbols,
 };
 use crate::Target;
 
@@ -27,6 +29,12 @@ pub(super) type ScreenSignatures = HashMap<String, ScreenSignature>;
 pub(super) struct ExprContext<'a> {
     pub(super) symbols: &'a HashMap<String, (Type, bool)>,
     pub(super) functions: &'a FunctionSignatures,
+    /// Top-level value struct declarations, so an explicit plugin type
+    /// argument such as `getObject<PlayerOptions>` resolves to its fields.
+    pub(super) structs: &'a StructTypes,
+    /// Every declared enum name, so a bound plugin value type can prove the
+    /// enum it names exists.
+    pub(super) enums: &'a HashSet<String>,
     pub(super) allow_await: bool,
 }
 
@@ -36,12 +44,60 @@ impl<'a> ExprContext<'a> {
         functions: &'a FunctionSignatures,
         allow_await: bool,
     ) -> Self {
-        Self {
+        Self::with_types(
             symbols,
             functions,
             allow_await,
+            empty_struct_types(),
+            empty_enum_names(),
+        )
+    }
+
+    pub(super) fn with_types(
+        symbols: &'a HashMap<String, (Type, bool)>,
+        functions: &'a FunctionSignatures,
+        allow_await: bool,
+        structs: &'a StructTypes,
+        enums: &'a HashSet<String>,
+    ) -> Self {
+        Self {
+            symbols,
+            functions,
+            structs,
+            enums,
+            allow_await,
         }
     }
+}
+
+/// The app's value struct and enum declarations, bundled so expression
+/// lowering can resolve an explicit plugin type argument
+/// (`getObject<PlayerOptions>`) and prove a bound value type exists.
+#[derive(Clone, Copy)]
+pub(super) struct TypeRegistries<'a> {
+    pub structs: &'a StructTypes,
+    pub enums: &'a HashSet<String>,
+}
+
+impl Default for TypeRegistries<'_> {
+    fn default() -> Self {
+        Self {
+            structs: empty_struct_types(),
+            enums: empty_enum_names(),
+        }
+    }
+}
+
+/// Shared empty struct registry for contexts that cannot declare one.
+fn empty_struct_types() -> &'static StructTypes {
+    static EMPTY: std::sync::OnceLock<StructTypes> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(StructTypes::default)
+}
+
+/// Shared empty enum registry for contexts that cannot declare one.
+pub(super) fn empty_enum_names() -> &'static HashSet<String> {
+    static EMPTY: std::sync::OnceLock<HashSet<String>> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(HashSet::new)
 }
 
 #[derive(Clone, Copy)]
@@ -54,10 +110,16 @@ pub(super) struct SemanticContext<'a> {
     pub(super) native_aliases: &'a HashMap<String, String>,
     pub(super) allow_navigation_stack: bool,
     pub(super) allow_navigation_back: bool,
+    /// Top-level value struct declarations, in scope wherever expressions
+    /// are lowered, so an explicit plugin type argument resolves its fields.
+    pub(super) structs: &'a StructTypes,
+    /// Every declared enum name, for the same reason.
+    pub(super) enums: &'a HashSet<String>,
     pub(super) target: Target,
 }
 
 impl<'a> SemanticContext<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         symbols: &'a HashMap<String, (Type, bool)>,
         screen_ids: &'a ScreenSignatures,
@@ -65,6 +127,8 @@ impl<'a> SemanticContext<'a> {
         components: &'a ComponentSignatures,
         functions: &'a FunctionSignatures,
         native_aliases: &'a HashMap<String, String>,
+        structs: &'a StructTypes,
+        enums: &'a HashSet<String>,
         target: Target,
     ) -> Self {
         Self {
@@ -74,6 +138,8 @@ impl<'a> SemanticContext<'a> {
             components,
             functions,
             native_aliases,
+            structs,
+            enums,
             allow_navigation_stack: true,
             allow_navigation_back: false,
             target,
@@ -94,6 +160,8 @@ impl<'a> SemanticContext<'a> {
             components: self.components,
             functions: self.functions,
             native_aliases: self.native_aliases,
+            structs: self.structs,
+            enums: self.enums,
             allow_navigation_stack: self.allow_navigation_stack,
             allow_navigation_back: self.allow_navigation_back,
             target: self.target,
@@ -113,6 +181,8 @@ impl<'a> SemanticContext<'a> {
         ExprContext {
             symbols: self.symbols,
             functions: self.functions,
+            structs: self.structs,
+            enums: self.enums,
             allow_await,
         }
     }

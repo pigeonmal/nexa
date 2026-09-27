@@ -1041,6 +1041,7 @@ mod tests {
             namespace: namespace.to_owned(),
             name: name.to_owned(),
             arguments: Vec::new(),
+            codecs: Vec::new(),
             return_type: crate::Type::String,
             is_async: true,
             is_throwing: false,

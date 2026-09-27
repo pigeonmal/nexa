@@ -220,6 +220,14 @@ pub enum StatusBarStyle {
 pub enum Type {
     Void,
     String,
+    /// A raw byte buffer, spelled `Data` on Swift and `ByteArray` on Kotlin.
+    ///
+    /// `Bytes` is deliberately distinct from `Array<UInt8>`: the platform
+    /// byte containers are the only zero-conversion spellings of binary data
+    /// across a plugin boundary, and `Array<UInt8>` lowers to a boxed
+    /// element list on Kotlin. Keeping them separate means a contract, the
+    /// generated native code, and `.nx` code all agree on one spelling.
+    Bytes,
     Bool,
     Numeric(NumericType),
     Optional(Box<Type>),
@@ -230,6 +238,10 @@ pub enum Type {
     Pair(Box<Type>, Box<Type>),
     Triple(Box<Type>, Box<Type>, Box<Type>),
     Enum(String),
+    /// A plugin method type parameter, present only in signatures. Every call
+    /// site resolves it to a concrete value type before the IR is built, so
+    /// code generation never sees this variant.
+    TypeParam(String),
     Plugin {
         namespace: String,
         name: String,
@@ -294,6 +306,10 @@ pub enum Expr {
         namespace: String,
         name: String,
         arguments: Vec<(String, Expr)>,
+        /// Value codecs for a generic plugin call, in the order the generated
+        /// contract declares its codec parameters. Empty for every call whose
+        /// signature has no type parameters.
+        codecs: Vec<PluginCodec>,
         return_type: Type,
         is_async: bool,
         is_throwing: bool,
@@ -327,6 +343,19 @@ pub enum Expr {
     /// Validated `File.delete` call.
     FileDelete {
         path: Box<Expr>,
+    },
+    /// Validated `Bytes.fromText` call: a `String` rendered directly as the
+    /// platform byte container, so no intermediate array is allocated.
+    BytesFromText {
+        text: Box<Expr>,
+    },
+    /// Validated `Bytes.fromArray` call.
+    BytesFromArray {
+        values: Box<Expr>,
+    },
+    /// Validated `Bytes.count` call.
+    BytesCount {
+        bytes: Box<Expr>,
     },
     /// Validated permission query: `Status` renders `status`, `Request`
     /// renders `request`.
@@ -788,6 +817,18 @@ pub struct NetworkRequest {
     pub body: Option<Box<Expr>>,
 }
 
+/// One value codec a generic plugin call must supply.
+///
+/// `ty` is the concrete type the call site bound; the backends name its
+/// generated writer or reader from it. `decodes` distinguishes a read codec
+/// from a write codec, matching the order of the codec parameters the
+/// generated contract declares.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginCodec {
+    pub ty: Type,
+    pub decodes: bool,
+}
+
 /// Validated permission query kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PermissionOpKind {
@@ -995,6 +1036,14 @@ pub enum CollectionMutation {
     SetRemove,
     MapSet,
     MapRemove,
+    /// Replaces a whole collection state with a new value.
+    ///
+    /// A collection state is a snapshot-state collection on Kotlin, so the
+    /// value cannot simply be reassigned: the contents are replaced instead.
+    /// The distinction lives in the IR so each backend spells it the way its
+    /// platform requires, and so the hot-reload interpreter applies the same
+    /// semantics as generated code.
+    Replace,
 }
 
 impl Expr {

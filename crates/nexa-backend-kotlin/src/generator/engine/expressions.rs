@@ -1,7 +1,7 @@
 use nexa_codegen::names::{function_name, state_name};
 use nexa_ir::{
     BinaryOp, CollectionTransform, Expr, InterpolatedPart, MemberKind, NetworkRequest, NumericType,
-    PermissionOpKind, TuplePosition, Type,
+    PermissionOpKind, PluginCodec, TuplePosition, Type,
 };
 
 use super::utils::{kotlin_string, kotlin_string_content};
@@ -186,8 +186,16 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             namespace,
             name,
             arguments,
+            codecs,
             ..
-        } => native_call(receiver.as_deref(), namespace, name, arguments, locals),
+        } => native_call(
+            receiver.as_deref(),
+            namespace,
+            name,
+            arguments,
+            codecs,
+            locals,
+        ),
         Expr::NetworkFetch(request) => render_network_request(request, None, locals),
         Expr::NetworkDownload {
             destination,
@@ -202,6 +210,13 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             format!("NexaFile.writeText({}, {})", render(contents), render(path))
         }
         Expr::FileDelete { path } => format!("NexaFile.delete({})", render(path)),
+        // `ByteArray` conversions stay in the standard library; `fromText`
+        // encodes straight from the string instead of building a list.
+        Expr::BytesFromText { text } => format!("{}.toByteArray()", render(text)),
+        Expr::BytesFromArray { values } => {
+            format!("{}.map {{ it.toByte() }}.toByteArray()", render(values))
+        }
+        Expr::BytesCount { bytes } => format!("{}.size", render(bytes)),
         Expr::PermissionOp { op, permission } => {
             let method = match op {
                 PermissionOpKind::Status => "status",
@@ -243,18 +258,37 @@ fn native_call(
     namespace: &str,
     name: &str,
     arguments: &[(String, Expr)],
+    codecs: &[PluginCodec],
     locals: &[String],
 ) -> String {
+    let mut rendered = arguments
+        .iter()
+        .map(|(_, value)| expression_with_locals(value, locals))
+        .collect::<Vec<_>>();
+    // Kotlin spells plugin parameters by name, so a generic call passes its
+    // value codecs as named arguments. The bound type never appears as a
+    // string in the generated code.
+    for codec in codecs {
+        let function = nexa_codegen::value::codec_name(
+            &codec.ty,
+            if codec.decodes {
+                nexa_codegen::value::Direction::Read
+            } else {
+                nexa_codegen::value::Direction::Write
+            },
+        );
+        rendered.push(if codec.decodes {
+            format!("decode = {{ reader -> {function}(reader) }}")
+        } else {
+            format!("encode = {{ item, writer -> {function}(item, writer) }}")
+        });
+    }
     if let Some(receiver) = receiver {
         return format!(
             "{}.{}({})",
             expression_with_locals(receiver, locals),
             name,
-            arguments
-                .iter()
-                .map(|(_, value)| expression_with_locals(value, locals))
-                .collect::<Vec<_>>()
-                .join(", ")
+            rendered.join(", ")
         );
     }
     match (namespace, name) {
@@ -265,11 +299,7 @@ fn native_call(
             "{}Plugin.instance.{}({})",
             namespace,
             name,
-            arguments
-                .iter()
-                .map(|(_, value)| expression_with_locals(value, locals))
-                .collect::<Vec<_>>()
-                .join(", ")
+            rendered.join(", ")
         ),
     }
 }
@@ -427,6 +457,7 @@ mod tests {
             namespace: "Video".to_owned(),
             name: "prepare".to_owned(),
             arguments: vec![("url".to_owned(), Expr::String("clip.mp4".to_owned()))],
+            codecs: Vec::new(),
             return_type: Type::Void,
             is_async: true,
             is_throwing: false,

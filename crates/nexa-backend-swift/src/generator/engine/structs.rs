@@ -13,7 +13,7 @@ pub(crate) fn render(module: &Module, out: &mut SourceWriter) {
 
 fn render_struct(declaration: &StructDecl, out: &mut SourceWriter) {
     let native_name = nexa_codegen::names::struct_name(&declaration.name);
-    out.push_str(&format!("private struct {native_name}: Equatable {{\n"));
+    out.push_str(&format!("struct {native_name}: Equatable {{\n"));
     for field in &declaration.fields {
         out.push_str("    ");
         out.push_str(&format!(

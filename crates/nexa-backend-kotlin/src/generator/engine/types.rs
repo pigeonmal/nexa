@@ -28,6 +28,7 @@ pub(crate) fn kotlin_type(ty: &Type) -> String {
     match ty {
         Type::Void => "Unit".to_owned(),
         Type::String => "String".to_owned(),
+        Type::Bytes => "ByteArray".to_owned(),
         Type::Bool => "Boolean".to_owned(),
         Type::Numeric(numeric) => kotlin_numeric(*numeric).to_owned(),
         Type::Optional(inner) => format!("{}?", kotlin_type(inner)),
@@ -47,6 +48,12 @@ pub(crate) fn kotlin_type(ty: &Type) -> String {
             kotlin_type(third)
         ),
         Type::Enum(name) => enum_name(name),
+        // Every plugin type parameter is bound at its call site, so a bound
+        // value type is what reaches code generation.
+        Type::TypeParam(name) => {
+            debug_assert!(false, "unbound plugin value type parameter reached codegen");
+            name.clone()
+        }
         Type::Plugin { name, .. } => name.clone(),
         Type::NetworkResponse => "NexaNetworkResponse".to_owned(),
         Type::Struct { name, .. } => struct_name(name),

@@ -1,22 +1,21 @@
-/// Emits the tiny application-context holder shared by generated native APIs.
+/// Emits the app-facing runtime object.
+///
+/// The application context itself lives in the fixed core package, because a
+/// plugin lives in its own package and still has to reach the application. The
+/// object here is the app's view of it: generated code keeps calling
+/// `NexaRuntime`, and a plugin can call the core holder directly.
 use nexa_codegen::SourceWriter;
 pub(crate) fn render(out: &mut SourceWriter, include_permissions: bool) {
-    out.push_str(
+    let core = nexa_codegen::value::KOTLIN_CORE_PACKAGE;
+    out.push_str(&format!(
         r#"
-public object NexaRuntime {
-    @Volatile private var applicationContext: android.content.Context? = null
+public object NexaRuntime {{
+    public fun bind(context: android.content.Context) = {core}.NexaRuntimeCore.bind(context)
 
-    public fun bind(context: android.content.Context) {
-        val application = context.applicationContext
-        if (applicationContext !== application) applicationContext = application
-    }
+    public fun context(): android.content.Context = {core}.NexaRuntimeCore.context()
 
-    public fun context(): android.content.Context = requireNotNull(applicationContext) {
-        "NexaRuntime.bind must run before a native API call"
-    }
-
-"#,
-    );
+"#
+    ));
     if include_permissions {
         out.push_str(
             r#"    @Volatile private var permissionLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>? = null

@@ -31,6 +31,7 @@ pub(crate) fn swift_type(ty: &Type) -> String {
     match ty {
         Type::Void => "Void".to_owned(),
         Type::String => "String".to_owned(),
+        Type::Bytes => "Data".to_owned(),
         Type::Bool => "Bool".to_owned(),
         Type::Numeric(numeric) => swift_numeric(*numeric).to_owned(),
         Type::Optional(inner) => format!("{}?", swift_type(inner)),
@@ -50,6 +51,12 @@ pub(crate) fn swift_type(ty: &Type) -> String {
             swift_type(third)
         ),
         Type::Enum(name) => enum_name(name),
+        // Every plugin type parameter is bound at its call site, so a bound
+        // value type is what reaches code generation.
+        Type::TypeParam(name) => {
+            debug_assert!(false, "unbound plugin value type parameter reached codegen");
+            name.clone()
+        }
         Type::Plugin { name, .. } => name.clone(),
         Type::NetworkResponse => "NexaNetworkResponse".to_owned(),
         Type::Struct { name, .. } => struct_name(name),
@@ -63,12 +70,12 @@ pub(crate) fn swift_type(ty: &Type) -> String {
 /// boundary without any runtime type information.
 pub(crate) fn render_enums(module: &Module, out: &mut SourceWriter) {
     for declaration in &module.enums {
-        out.push_str(&format!(
-            "private enum {}: String, Error {{\n",
-            enum_name(&declaration.name)
-        ));
-        for case in &declaration.cases {
-            out.push_str(&format!("    case {case}\n"));
+        // `Int` raw values make a case's ordinal available, which is what a
+        // generated value codec stores; the cases themselves keep their
+        // source names.
+        out.push_str(&format!("enum {}: Int, Error {{\n", enum_name(&declaration.name)));
+        for (index, case) in declaration.cases.iter().enumerate() {
+            out.push_str(&format!("    case {case} = {index}\n"));
         }
         out.push_str("}\n\n");
     }

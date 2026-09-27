@@ -139,7 +139,7 @@ pub(crate) fn android_jni_class_descriptor(ty: &BridgeType) -> Option<String> {
             }
             .to_owned(),
         ),
-        BridgeType::Named { .. } => None,
+        BridgeType::Named { .. } | BridgeType::TypeParameter(_) => None,
         BridgeType::Optional(inner) => {
             if let Some(boxed) = android_boxed_primitive(bridge_type_name(inner)) {
                 return Some(format!("L{};", boxed.class_name));
@@ -210,6 +210,9 @@ pub(crate) fn android_cpp_type(ty: &BridgeType) -> String {
         BridgeType::Array(element) => format!("std::vector<{}>", android_cpp_type(element)),
         BridgeType::Set(element) => format!("std::set<{}>", android_cpp_type(element)),
         BridgeType::Optional(inner) => format!("std::optional<{}>", android_cpp_type(inner)),
+        // Validation rejects value type parameters on the C++ bridge, so this
+        // arm only keeps the spelling total.
+        BridgeType::TypeParameter(name) => name.clone(),
         BridgeType::Scalar(_) | BridgeType::Named { .. } => cpp_type(ty),
         BridgeType::Pair(first, second) => format!(
             "std::pair<{}, {}>",
@@ -446,7 +449,7 @@ pub(crate) fn android_jni_type(ty: &BridgeType) -> String {
             "jobject".to_owned()
         }
         BridgeType::Scalar(scalar) => android_scalar_value(*scalar, false).jni.to_owned(),
-        BridgeType::Named { .. } => "jobject".to_owned(),
+        BridgeType::Named { .. } | BridgeType::TypeParameter(_) => "jobject".to_owned(),
         BridgeType::Pair(..) | BridgeType::Triple(..) | BridgeType::Result { .. } => {
             debug_assert!(
                 false,
@@ -521,7 +524,7 @@ pub(crate) fn android_kotlin_type(ty: &BridgeType, jni_carrier: bool) -> String 
                 value.kotlin.to_owned()
             }
         }
-        BridgeType::Named { name, .. } => name.clone(),
+        BridgeType::Named { name, .. } | BridgeType::TypeParameter(name) => name.clone(),
         BridgeType::Pair(first, second) => format!(
             "Pair<{}, {}>",
             android_kotlin_type(first, jni_carrier),

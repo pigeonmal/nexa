@@ -303,6 +303,12 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                     CollectionMutation::MapRemove => {
                         out.push_str(&format!("{state}.remove({})\n", rendered[0]));
                     }
+                    // The state is a snapshot-state collection, so the value
+                    // is replaced by swapping the contents. The overload is
+                    // chosen from the static types.
+                    CollectionMutation::Replace => {
+                        out.push_str(&format!("nexaReplace({state}, {})\n", rendered[0]));
+                    }
                 }
             }
             Action::If {
@@ -476,6 +482,7 @@ mod tests {
                     namespace: "Camera".to_owned(),
                     name: "capture".to_owned(),
                     arguments: Vec::new(),
+                    codecs: Vec::new(),
                     return_type: Type::Void,
                     is_async: true,
                     is_throwing: true,
@@ -504,6 +511,7 @@ mod tests {
                     namespace: "Video".to_owned(),
                     name: "prepare".to_owned(),
                     arguments: Vec::new(),
+                    codecs: Vec::new(),
                     return_type: Type::Void,
                     is_async: true,
                     is_throwing: true,

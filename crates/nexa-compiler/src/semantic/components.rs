@@ -12,7 +12,7 @@ use nexa_ir::{
 use nexa_syntax::{ast, catalog};
 
 use super::{
-    context::{ExprContext, ScreenSignatures, SemanticContext},
+    context::{ExprContext, ScreenSignatures, SemanticContext, TypeRegistries},
     expressions::{
         FunctionSignatures, functions_with_error_handling, infer_expr_type, lower_expr,
         plugin_error_variant, type_name,
@@ -218,6 +218,10 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                     functions,
                     asynchronous,
                     native_aliases,
+                    TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
                 )?,
                 asynchronous,
             })
@@ -235,6 +239,10 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                     functions,
                     false,
                     native_aliases,
+                    TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
                 )?,
             })
         }
@@ -251,6 +259,10 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                     functions,
                     false,
                     native_aliases,
+                    TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
                 )?,
             })
         }
@@ -267,6 +279,10 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                     functions,
                     false,
                     native_aliases,
+                    TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
                 )?,
             })
         }
@@ -283,6 +299,10 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                     functions,
                     false,
                     native_aliases,
+                    TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
                 )?,
             })
         }
@@ -406,7 +426,17 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                 .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
                 .transpose()?;
             let lowered =
-                lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)?;
+                lower_actions_with_aliases(
+                    actions,
+                    symbols,
+                    functions,
+                    false,
+                    native_aliases,
+                    TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
+                )?;
             Ok(Node::Button {
                 label,
                 icon,
@@ -517,6 +547,10 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                     functions,
                     false,
                     native_aliases,
+                    TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
                 )?,
             })
         }
@@ -639,13 +673,27 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
             let haptic = lower_haptic(haptic)?;
             let lowered_children = lower_nodes(children, &child_cx)?;
             let actions =
-                lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)?;
+                lower_actions_with_aliases(
+                    actions,
+                    symbols,
+                    functions,
+                    false,
+                    native_aliases,
+                    TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
+                )?;
             let long_press_actions = lower_actions_with_aliases(
                 long_press_actions,
                 symbols,
                 functions,
                 false,
                 native_aliases,
+                TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
             )?;
             Ok(Node::Pressable {
                 disabled,
@@ -672,6 +720,10 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                 screen_ids,
                 symbols,
                 functions,
+                TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
                 "NavigationStack root",
             )?;
             Ok(Node::NavigationStack {
@@ -711,6 +763,10 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                 screen_ids,
                 symbols,
                 functions,
+                TypeRegistries {
+                    structs: cx.structs,
+                    enums: cx.enums,
+                },
                 "NavigationLink destination",
             )
             .map_err(|error| {
@@ -882,7 +938,17 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
             )?;
             let mut lowered_children = lower_nodes(children, &child_cx)?;
             let actions =
-                lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)?;
+                lower_actions_with_aliases(
+                    actions,
+                    symbols,
+                    functions,
+                    false,
+                    native_aliases,
+                    TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
+                )?;
             if lowered_children.len() == 1 {
                 let mut child = lowered_children.pop().expect("one lowered refresh child");
                 if let Node::FastList { plan } = &mut child {
@@ -997,7 +1063,7 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                         ));
                     }
                 },
-                Some(ast::Expr::Call(name, arguments, axis_span)) if name == "Grid" => {
+                Some(ast::Expr::Call(name, _, arguments, axis_span)) if name == "Grid" => {
                     match arguments.as_slice() {
                         [ast::Expr::Number(raw, columns_span)] => {
                             let Ok(columns) = raw.parse::<u32>() else {
@@ -1275,12 +1341,32 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
             }
             let on_end_reached = on_end_reached
                 .map(|actions| {
-                    lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)
+                    lower_actions_with_aliases(
+                    actions,
+                    symbols,
+                    functions,
+                    false,
+                    native_aliases,
+                    TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
+                )
                 })
                 .transpose()?;
             let on_scroll = on_scroll
                 .map(|actions| {
-                    lower_actions_with_aliases(actions, symbols, functions, false, native_aliases)
+                    lower_actions_with_aliases(
+                    actions,
+                    symbols,
+                    functions,
+                    false,
+                    native_aliases,
+                    TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
+                )
                 })
                 .transpose()?;
             let sticky_header = sticky_header
@@ -1640,7 +1726,17 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                     event_symbols.insert(parameter_name.clone(), (ty.clone(), false));
                 }
                 let actions =
-                    lower_actions_with_depth(handler.actions, &event_symbols, functions, false, 0)?;
+                    lower_actions_with_depth(
+                        handler.actions,
+                        &event_symbols,
+                        functions,
+                        false,
+                        0,
+                        TypeRegistries {
+                            structs: cx.structs,
+                            enums: cx.enums,
+                        },
+                    )?;
                 lowered_events.push(NativeComponentEventHandler {
                     property: handler.property,
                     parameters: handler.parameters,
@@ -1886,6 +1982,7 @@ fn lower_screen_target(
     screen_ids: &ScreenSignatures,
     symbols: &HashMap<String, (Type, bool)>,
     functions: &FunctionSignatures,
+    registries: TypeRegistries<'_>,
     role: &str,
 ) -> Result<(ScreenId, Vec<Expr>), CompileError> {
     let id = resolve_screen(screen, screen_ids, role)?;
@@ -1912,7 +2009,7 @@ fn lower_screen_target(
             lower_expr(
                 argument,
                 Some(&parameter.ty),
-                &ExprContext::new(symbols, functions, false),
+                &ExprContext::with_types(symbols, functions, false, registries.structs, registries.enums),
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -1925,8 +2022,17 @@ fn lower_actions_with_aliases(
     functions: &FunctionSignatures,
     allow_await: bool,
     native_aliases: &HashMap<String, String>,
+    registries: TypeRegistries<'_>,
 ) -> Result<Vec<Action>, CompileError> {
-    lower_actions_with_aliases_depth(actions, symbols, functions, allow_await, native_aliases, 0)
+    lower_actions_with_aliases_depth(
+        actions,
+        symbols,
+        functions,
+        allow_await,
+        native_aliases,
+        0,
+        registries,
+    )
 }
 
 fn lower_actions_with_depth(
@@ -1935,6 +2041,7 @@ fn lower_actions_with_depth(
     functions: &FunctionSignatures,
     allow_await: bool,
     loop_depth: usize,
+    registries: TypeRegistries<'_>,
 ) -> Result<Vec<Action>, CompileError> {
     lower_actions_with_aliases_depth(
         actions,
@@ -1943,6 +2050,7 @@ fn lower_actions_with_depth(
         allow_await,
         &HashMap::new(),
         loop_depth,
+        registries,
     )
 }
 
@@ -1953,6 +2061,7 @@ fn lower_actions_with_aliases_depth(
     allow_await: bool,
     native_aliases: &HashMap<String, String>,
     loop_depth: usize,
+    registries: TypeRegistries<'_>,
 ) -> Result<Vec<Action>, CompileError> {
     let mut disposed_instances = HashSet::new();
     lower_actions_with_disposal_state(
@@ -1963,9 +2072,11 @@ fn lower_actions_with_aliases_depth(
         native_aliases,
         loop_depth,
         &mut disposed_instances,
+        registries,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_actions_with_disposal_state(
     actions: Vec<ast::Stmt>,
     symbols: &HashMap<String, (Type, bool)>,
@@ -1974,6 +2085,7 @@ fn lower_actions_with_disposal_state(
     native_aliases: &HashMap<String, String>,
     loop_depth: usize,
     disposed_instances: &mut HashSet<String>,
+    registries: TypeRegistries<'_>,
 ) -> Result<Vec<Action>, CompileError> {
     let mut lowered = Vec::with_capacity(actions.len());
     for action in actions {
@@ -1982,7 +2094,7 @@ fn lower_actions_with_disposal_state(
                 let expression = lower_expr(
                     &expression,
                     None,
-                    &ExprContext::new(symbols, functions, allow_await),
+                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                 )?;
                 validate_and_record_native_disposal(
                     &expression,
@@ -2012,7 +2124,7 @@ fn lower_actions_with_disposal_state(
                 let value = lower_expr(
                     &value,
                     Some(ty),
-                    &ExprContext::new(symbols, functions, allow_await),
+                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                 )?;
                 validate_and_record_native_disposal(
                     &value,
@@ -2054,7 +2166,19 @@ fn lower_actions_with_disposal_state(
                         ));
                     }
                 }
-                lowered.push(Action::Assign { name, value });
+                // A collection state is a snapshot-state collection on Kotlin,
+                // where the binding itself is a `val`: replacing the value means
+                // replacing the contents. The IR records that so the backend and
+                // the hot-reload interpreter agree with Swift.
+                if matches!(ty, Type::Array(_) | Type::Set(_) | Type::Map(..)) {
+                    lowered.push(Action::CollectionMutation {
+                        name,
+                        operation: CollectionMutation::Replace,
+                        arguments: vec![value],
+                    });
+                } else {
+                    lowered.push(Action::Assign { name, value });
+                }
             }
             ast::Stmt::NativePropertyAssign {
                 receiver,
@@ -2096,7 +2220,7 @@ fn lower_actions_with_disposal_state(
                 let receiver = lower_expr(
                     &receiver,
                     Some(&receiver_type),
-                    &ExprContext::new(symbols, functions, allow_await),
+                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                 )?;
                 validate_and_record_native_disposal(
                     &receiver,
@@ -2108,7 +2232,7 @@ fn lower_actions_with_disposal_state(
                 let value = lower_expr(
                     &value,
                     Some(&signature.return_type),
-                    &ExprContext::new(symbols, functions, allow_await),
+                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                 )?;
                 validate_and_record_native_disposal(
                     &value,
@@ -2187,7 +2311,7 @@ fn lower_actions_with_disposal_state(
                 let receiver = lower_expr(
                     &receiver,
                     Some(&receiver_type),
-                    &ExprContext::new(symbols, functions, allow_await),
+                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                 )?;
                 validate_and_record_native_disposal(
                     &receiver,
@@ -2204,6 +2328,7 @@ fn lower_actions_with_disposal_state(
                     false,
                     native_aliases,
                     0,
+                    registries,
                 )?;
                 lowered.push(Action::NativeEventSubscribe {
                     receiver,
@@ -2215,6 +2340,7 @@ fn lower_actions_with_disposal_state(
             ast::Stmt::CollectionMutation {
                 name,
                 method,
+                type_arguments,
                 arguments,
                 span,
             } => {
@@ -2225,6 +2351,7 @@ fn lower_actions_with_disposal_state(
                     let expression = ast::Expr::MethodCall {
                         base: Box::new(ast::Expr::Name(name, span)),
                         name: method,
+                        type_arguments: type_arguments.clone(),
                         arguments,
                         named_arguments: std::collections::BTreeMap::new(),
                         span,
@@ -2232,7 +2359,7 @@ fn lower_actions_with_disposal_state(
                     let expression = lower_expr(
                         &expression,
                         None,
-                        &ExprContext::new(symbols, functions, allow_await),
+                        &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                     )?;
                     validate_and_record_native_disposal(
                         &expression,
@@ -2243,6 +2370,12 @@ fn lower_actions_with_disposal_state(
                     )?;
                     lowered.push(Action::Expression(expression));
                     continue;
+                }
+                if !type_arguments.is_empty() {
+                    return Err(CompileError::new(
+                        span,
+                        "type arguments are only supported on plugin methods",
+                    ));
                 }
                 if !mutable {
                     return Err(CompileError::new(
@@ -2317,7 +2450,7 @@ fn lower_actions_with_disposal_state(
                         lower_expr(
                             argument,
                             Some(expected),
-                            &ExprContext::new(symbols, functions, allow_await),
+                            &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -2345,7 +2478,7 @@ fn lower_actions_with_disposal_state(
                 let condition = lower_expr(
                     &condition,
                     Some(&Type::Bool),
-                    &ExprContext::new(symbols, functions, allow_await),
+                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                 )?;
                 validate_and_record_native_disposal(
                     &condition,
@@ -2363,6 +2496,7 @@ fn lower_actions_with_disposal_state(
                     native_aliases,
                     loop_depth,
                     &mut then_disposed,
+                    registries,
                 )?;
                 let mut else_disposed = disposed_instances.clone();
                 let else_branch = else_branch
@@ -2375,6 +2509,7 @@ fn lower_actions_with_disposal_state(
                             native_aliases,
                             loop_depth,
                             &mut else_disposed,
+                            registries,
                         )
                     })
                     .transpose()?;
@@ -2410,16 +2545,16 @@ fn lower_actions_with_disposal_state(
                     let start = lower_expr(
                         start,
                         Some(&int32),
-                        &ExprContext::new(symbols, functions, allow_await),
+                        &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                     )?;
                     let end = lower_expr(
                         end,
                         Some(&int32),
-                        &ExprContext::new(symbols, functions, allow_await),
+                        &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                     )?;
                     let step = step
                         .as_deref()
-                        .map(|step| lower_range_step(step, symbols, functions, allow_await))
+                        .map(|step| lower_range_step(step, symbols, functions, allow_await, registries))
                         .transpose()?
                         .map(Box::new);
                     (
@@ -2450,7 +2585,7 @@ fn lower_actions_with_disposal_state(
                     let iterable = lower_expr(
                         &iterable,
                         Some(&iterable_type),
-                        &ExprContext::new(symbols, functions, allow_await),
+                        &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                     )?;
                     (iterable, element_type)
                 };
@@ -2472,6 +2607,7 @@ fn lower_actions_with_disposal_state(
                     native_aliases,
                     loop_depth + 1,
                     &mut body_disposed,
+                    registries,
                 )?;
                 disposed_instances.extend(body_disposed);
                 lowered.push(Action::For {
@@ -2511,7 +2647,7 @@ fn lower_actions_with_disposal_state(
                 let iterable = lower_expr(
                     &iterable,
                     Some(&iterable_type),
-                    &ExprContext::new(symbols, functions, allow_await),
+                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                 )?;
                 validate_and_record_native_disposal(
                     &iterable,
@@ -2532,6 +2668,7 @@ fn lower_actions_with_disposal_state(
                     native_aliases,
                     loop_depth + 1,
                     &mut body_disposed,
+                    registries,
                 )?;
                 disposed_instances.extend(body_disposed);
                 lowered.push(Action::ForMap {
@@ -2549,7 +2686,7 @@ fn lower_actions_with_disposal_state(
                 let condition = lower_expr(
                     &condition,
                     Some(&Type::Bool),
-                    &ExprContext::new(symbols, functions, allow_await),
+                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
                 )?;
                 validate_and_record_native_disposal(
                     &condition,
@@ -2567,6 +2704,7 @@ fn lower_actions_with_disposal_state(
                     native_aliases,
                     loop_depth + 1,
                     &mut body_disposed,
+                    registries,
                 )?;
                 disposed_instances.extend(body_disposed);
                 lowered.push(Action::While { condition, body });
@@ -2587,6 +2725,7 @@ fn lower_actions_with_disposal_state(
                     native_aliases,
                     loop_depth,
                     &mut body_disposed,
+                    registries,
                 )?;
                 disposed_instances.extend(body_disposed);
                 let mut seen_error_variants = HashSet::with_capacity(error_catches.len());
@@ -2657,6 +2796,7 @@ fn lower_actions_with_disposal_state(
                         native_aliases,
                         loop_depth,
                         &mut arm_disposed,
+                        registries,
                     )?;
                     disposed_instances.extend(arm_disposed);
                     lowered_error_catches.push(nexa_ir::ErrorCatchArm {
@@ -2678,6 +2818,7 @@ fn lower_actions_with_disposal_state(
                             native_aliases,
                             loop_depth,
                             &mut catch_disposed,
+                            registries,
                         )?;
                         disposed_instances.extend(catch_disposed);
                         Ok(lowered)
@@ -2959,6 +3100,7 @@ fn lower_range_step(
     symbols: &HashMap<String, (Type, bool)>,
     functions: &FunctionSignatures,
     allow_await: bool,
+    registries: TypeRegistries<'_>,
 ) -> Result<Expr, CompileError> {
     let ast::Expr::Number(raw, span) = step else {
         return Err(CompileError::new(
@@ -2978,7 +3120,7 @@ fn lower_range_step(
     lower_expr(
         step,
         Some(&Type::Numeric(NumericType::Int32)),
-        &ExprContext::new(symbols, functions, allow_await),
+        &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
     )
 }
 

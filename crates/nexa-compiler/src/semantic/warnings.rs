@@ -901,7 +901,7 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
                 || expression_references_name(second, name)
                 || expression_references_name(third, name)
         }
-        ast::Expr::Call(_, arguments, _) => arguments
+        ast::Expr::Call(_, _, arguments, _) => arguments
             .iter()
             .any(|argument| expression_references_name(argument, name)),
         ast::Expr::MethodCall {
@@ -1012,7 +1012,7 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
             walk_expression(second, names, used);
             walk_expression(third, names, used);
         }
-        ast::Expr::Call(name, arguments, _) => {
+        ast::Expr::Call(name, _, arguments, _) => {
             if names.contains(name) {
                 used.insert(name.clone());
             }

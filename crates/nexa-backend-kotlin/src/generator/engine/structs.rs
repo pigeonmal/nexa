@@ -14,10 +14,10 @@ pub(crate) fn render(module: &Module, out: &mut SourceWriter) {
 fn render_struct(declaration: &StructDecl, out: &mut SourceWriter) {
     let native_name = nexa_codegen::names::struct_name(&declaration.name);
     if declaration.fields.is_empty() {
-        out.push_str(&format!("private class {native_name}\n\n"));
+        out.push_str(&format!("class {native_name}\n\n"));
         return;
     }
-    out.push_str(&format!("private data class {native_name}("));
+    out.push_str(&format!("data class {native_name}("));
     for (index, field) in declaration.fields.iter().enumerate() {
         if index > 0 {
             out.push_str(", ");

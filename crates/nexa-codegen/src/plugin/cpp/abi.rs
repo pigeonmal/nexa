@@ -144,7 +144,7 @@ pub(crate) fn bridge_type_name(ty: &BridgeType) -> &str {
             BridgeScalar::String => "String",
             BridgeScalar::Bytes => "Bytes",
         },
-        BridgeType::Named { name, .. } => name,
+        BridgeType::Named { name, .. } | BridgeType::TypeParameter(name) => name,
         BridgeType::Array(_) => "Array",
         BridgeType::Set(_) => "Set",
         BridgeType::Map(..) => "Map",
@@ -164,7 +164,10 @@ pub(crate) fn bridge_type_arguments(ty: &BridgeType) -> Vec<&BridgeType> {
         BridgeType::Map(key, value) | BridgeType::Pair(key, value) => vec![key, value],
         BridgeType::Triple(first, second, third) => vec![first, second, third],
         BridgeType::Result { success, .. } => vec![success],
-        BridgeType::Scalar(_) | BridgeType::Named { .. } | BridgeType::Optional(_) => Vec::new(),
+        BridgeType::Scalar(_)
+        | BridgeType::Named { .. }
+        | BridgeType::TypeParameter(_)
+        | BridgeType::Optional(_) => Vec::new(),
     }
 }
 
@@ -215,7 +218,7 @@ fn render_optional_bridge(out: &mut SourceWriter, plan: &BridgePlan) {
 fn bridge_value_base_name(ty: &BridgeType) -> &str {
     match ty {
         BridgeType::Scalar(scalar) => bridge_plan::bridge_scalar_name(*scalar),
-        BridgeType::Named { name, .. } => name,
+        BridgeType::Named { name, .. } | BridgeType::TypeParameter(name) => name,
         _ => {
             debug_assert!(
                 false,
@@ -828,7 +831,9 @@ fn cpp_type_base(ty: &BridgeType) -> String {
             cpp_type(success),
             cpp_identifier(failure)
         ),
-        BridgeType::Named { name, .. } => cpp_identifier(name),
+        BridgeType::Named { name, .. } | BridgeType::TypeParameter(name) => {
+            cpp_identifier(name)
+        }
         BridgeType::Optional(inner) => cpp_type_base(inner),
     }
 }

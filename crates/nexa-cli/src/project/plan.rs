@@ -187,6 +187,16 @@ impl ProjectPlan {
         self
     }
 
+    /// Adds several text files to the plan at once.
+    pub fn with_files(
+        mut self,
+        files: impl IntoIterator<Item = (String, String)>,
+    ) -> Self {
+        self.files
+            .extend(files.into_iter().map(|(path, contents)| PlannedFile::new(path, contents)));
+        self
+    }
+
     /// Adds a binary file to the plan.
     ///
     /// Vendored build tooling, such as the Gradle wrapper jar, is not text and

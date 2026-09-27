@@ -146,6 +146,7 @@ public enum NexaDevCollectionMutationKind {
     public static let setRemove = "SetRemove"
     public static let mapSet = "MapSet"
     public static let mapRemove = "MapRemove"
+    public static let replace = "Replace"
 }
 
 /// Known expression kinds in Nexa Dev IR.

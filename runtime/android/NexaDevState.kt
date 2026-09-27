@@ -432,6 +432,24 @@ internal class NexaDevStateStore(internal val context: Context) {
                 (start until boundary step step).map { it.toDouble() }
             }
             "Null" -> JSONObject.NULL
+            // A byte buffer crosses the hot-reload boundary as base64 text,
+            // which is the one representation both dev runtimes agree on.
+            "BytesFromText" -> {
+                val text = evaluate((payload as? JSONObject)?.opt("text"), locals, scope)
+                (text as? String ?: "").toByteArray(Charsets.UTF_8).toBase64()
+            }
+            "BytesFromArray" -> {
+                val values = evaluate((payload as? JSONObject)?.opt("values"), locals, scope) as? JSONArray ?: JSONArray()
+                val bytes = ByteArray(values.length()) { index ->
+                    number(values.opt(index)).toInt().toByte()
+                }
+                bytes.toBase64()
+            }
+            "BytesCount" -> {
+                val bytes = evaluate((payload as? JSONObject)?.opt("bytes"), locals, scope)
+                val decoded = (bytes as? String ?: "").fromBase64()
+                decoded.size
+            }
             "Coalesce" -> {
                 val parts = payload as? JSONArray ?: JSONArray()
                 val first = evaluate(parts.opt(0), locals, scope)
@@ -652,6 +670,12 @@ internal class NexaDevStateStore(internal val context: Context) {
         is Number -> if (value.toDouble() == value.toLong().toDouble()) value.toLong().toString() else value.toString()
         else -> value.toString()
     }
+
+    private fun ByteArray.toBase64(): String =
+        android.util.Base64.encodeToString(this, android.util.Base64.NO_WRAP)
+
+    private fun String.fromBase64(): ByteArray =
+        android.util.Base64.decode(this, android.util.Base64.NO_WRAP)
 
     internal fun compare(op: String, left: Any, right: Any): Boolean = when (op) {
         "And" -> truthy(left) && truthy(right)

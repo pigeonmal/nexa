@@ -66,6 +66,7 @@ pub mod names {
 pub mod plugin;
 pub mod source_units;
 pub mod source_writer;
+pub mod value;
 
 pub use source_units::{GeneratedSources, SourceUnit, SourceUnits};
 pub use source_writer::SourceWriter;

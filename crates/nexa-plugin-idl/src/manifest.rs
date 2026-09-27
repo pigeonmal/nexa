@@ -70,10 +70,22 @@ pub enum EntitlementValue {
     Strings(Vec<String>),
 }
 
+/// How a Swift package is versioned for resolution.
+///
+/// Exactly one requirement is declared. `from` is the usual semantic-version
+/// range; `branch` and `revision` exist because a plugin's upstream may not
+/// tag its releases, and an untagged upstream still has to resolve.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SwiftPackageRequirement {
+    From(String),
+    Branch(String),
+    Revision(String),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SwiftPackage {
     pub url: String,
-    pub from: String,
+    pub requirement: SwiftPackageRequirement,
     pub products: Vec<String>,
 }
 
@@ -473,6 +485,8 @@ impl Parser {
             let mut seen = std::collections::HashSet::new();
             let mut url = None;
             let mut from = None;
+            let mut branch = None;
+            let mut revision = None;
             let mut products = None;
             while !self.consume(TokenKind::RightBrace) {
                 let field = self
@@ -486,14 +500,28 @@ impl Parser {
                 match field.as_str() {
                     "url" => url = Some(self.parse_string_field("url")?),
                     "from" => from = Some(self.parse_string_field("from")?),
+                    "branch" => branch = Some(self.parse_string_field("branch")?),
+                    "revision" => revision = Some(self.parse_string_field("revision")?),
                     "products" => products = Some(self.parse_string_array_field("products")?),
                     name => return self.error(format!("unknown Swift package field `{name}`")),
                 }
                 self.consume(TokenKind::Comma);
             }
+            let declared = [from.is_some(), branch.is_some(), revision.is_some()];
+            if declared.iter().filter(|present| **present).count() != 1 {
+                return Err(self.error_value(
+                    "Swift package requires exactly one of `from`, `branch`, or `revision`",
+                ));
+            }
+            let requirement = match (from, branch, revision) {
+                (Some(from), None, None) => SwiftPackageRequirement::From(from),
+                (None, Some(branch), None) => SwiftPackageRequirement::Branch(branch),
+                (None, None, Some(revision)) => SwiftPackageRequirement::Revision(revision),
+                _ => unreachable!("exactly one requirement is checked above"),
+            };
             let package = SwiftPackage {
                 url: url.ok_or_else(|| self.error_value("Swift package requires `url`"))?,
-                from: from.ok_or_else(|| self.error_value("Swift package requires `from`"))?,
+                requirement,
                 products: products
                     .ok_or_else(|| self.error_value("Swift package requires `products`"))?,
             };
@@ -797,7 +825,23 @@ fn validate_swift_package(package: &SwiftPackage) -> Result<(), String> {
             package.url
         ));
     }
-    validate_numeric_version(&package.from, "Swift package `from`", 3, 3)?;
+    match &package.requirement {
+        SwiftPackageRequirement::From(from) => {
+            validate_numeric_version(from, "Swift package `from`", 3, 3)?
+        }
+        SwiftPackageRequirement::Branch(branch) => validate_requirement_name(
+            branch,
+            "Swift package `branch`",
+        )?,
+        SwiftPackageRequirement::Revision(revision) => {
+            if revision.len() != 40 || !revision.chars().all(|character| character.is_ascii_hexdigit())
+            {
+                return Err(
+                    "Swift package `revision` must be a full 40-character commit hash".to_owned(),
+                );
+            }
+        }
+    }
     if package.products.is_empty() {
         return Err(format!(
             "Swift package `{}` must declare at least one product",
@@ -950,8 +994,22 @@ fn validate_numeric_version(
     Ok(())
 }
 
-fn validate_relative_path(path: &str) -> Result<(), String> {
-    let path = Path::new(path);
+/// A branch name is a git ref: no whitespace, no control characters, and no
+/// traversal, so a plugin cannot smuggle a path into the project file.
+fn validate_requirement_name(value: &str, field: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value.starts_with('-')
+        || value.contains("..")
+        || value
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err(format!("{field} must be a single git ref name"));
+    }
+    Ok(())
+}
+
+fn validate_relative_path(path: &str) -> Result<(), String> {    let path = Path::new(path);
     if path.is_absolute()
         || path
             .components()
@@ -1149,7 +1207,10 @@ mod tests {
         );
         assert_eq!(manifest.ios.resources, vec!["ios/Resources/model.dat"]);
         assert_eq!(manifest.ios.swift_packages.len(), 1);
-        assert_eq!(manifest.ios.swift_packages[0].from, "2.1.0");
+        assert_eq!(
+            manifest.ios.swift_packages[0].requirement,
+            SwiftPackageRequirement::From("2.1.0".to_owned())
+        );
         assert_eq!(manifest.ios.swift_packages[0].products, vec!["VideoSDK"]);
         assert_eq!(
             manifest.android.maven_dependencies,

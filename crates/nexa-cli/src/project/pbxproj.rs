@@ -396,9 +396,24 @@ pub(super) fn native_target_object(
     body
 }
 
-pub(super) fn remote_package_reference_object(url: &str, minimum_version: &str) -> String {
+/// The Xcode spelling of a Swift package requirement. Each kind maps onto one
+/// SwiftPM rule, so a plugin can pin a version, a branch, or an exact commit.
+pub(super) fn remote_package_reference_object(
+    url: &str,
+    requirement: &nexa_plugin_idl::manifest::SwiftPackageRequirement,
+) -> String {
+    use nexa_plugin_idl::manifest::SwiftPackageRequirement;
+    let rule = match requirement {
+        SwiftPackageRequirement::From(version) => {
+            format!("kind = upToNextMajorVersion; minimumVersion = \"{version}\";")
+        }
+        SwiftPackageRequirement::Branch(branch) => format!("kind = branch; branch = \"{branch}\";"),
+        SwiftPackageRequirement::Revision(revision) => {
+            format!("kind = revision; revision = \"{revision}\";")
+        }
+    };
     format!(
-        "isa = XCRemoteSwiftPackageReference; repositoryURL = \"{url}\"; requirement = {{ kind = upToNextMajorVersion; minimumVersion = \"{minimum_version}\"; }};"
+        "isa = XCRemoteSwiftPackageReference; repositoryURL = \"{url}\"; requirement = {{ {rule} }};"
     )
 }
 

@@ -136,6 +136,15 @@ internal fun NexaDevStateStore.mutateCollection(mutation: JSONObject, scope: Str
             setState(name, target, scope)
             moduleRevision++
         }
+        // A collection state keeps its identity: only the contents are
+        // replaced, which is what the generated code does too.
+        "Replace" -> {
+            val replacement = arguments.firstOrNull()
+            if (replacement != null) {
+                setState(name, replacement, scope)
+                moduleRevision++
+            }
+        }
         "MapSet", "MapRemove" -> {
             val target = (state(name, scope) as? Map<*, *>)?.mapKeys { stringify(it.key ?: JSONObject.NULL) }?.toMutableMap() ?: mutableMapOf()
             val key = arguments.firstOrNull()?.let { stringify(it) }

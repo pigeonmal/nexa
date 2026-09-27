@@ -107,6 +107,79 @@ service FastEngine {
 }
 ```
 
+### Generic value methods
+
+A method may declare value type parameters. Every call site binds them, and the
+bound type selects one generated value codec, so a plugin implements the method
+once instead of once per value type:
+
+```nxid
+native class Store {
+    init(instanceID: String)
+
+    // Scalars, strings, and buffers are stored natively, one call each.
+    fn setString(key: String, value: String) -> Bool
+    fn getString(key: String) -> String?
+
+    // Everything else goes through the value codec of the bound type.
+    fn setObject<T>(key: String, value: T) -> Bool
+    fn getObject<T>(key: String) -> T?
+    fn setList<T>(key: String, values: Array<T>) -> Bool
+    fn getList<T>(key: String) -> Array<T>?
+    fn setSet<T>(key: String, values: Set<T>) -> Bool
+    fn getSet<T>(key: String) -> Set<T>?
+    fn setMap<K, V>(key: String, values: Map<K, V>) -> Bool
+    fn getMap<K, V>(key: String) -> Map<K, V>?
+}
+```
+
+The codec is not written by the plugin author. The generated contract takes one
+codec parameter per parameter or return type that mentions a type parameter,
+and the host compiler passes a concrete writer or reader at each call site:
+
+```swift
+func setObject<T>(_ key: String, _ value: T, _ encode: (T, NexaValueWriter) -> Void) -> Bool
+func getObject<T>(_ key: String, _ decode: (NexaValueReader) -> T?) -> T?
+```
+
+```kotlin
+fun <T> setObject(key: String, value: T, encode: (T, NexaValueWriter) -> Unit): Boolean
+fun <T> getObject(key: String, decode: (NexaValueReader) -> T?): T?
+```
+
+So the plugin body is one call into MMKV, a file, or a database:
+
+```swift
+public func setObject<T>(_ key: String, _ value: T, _ encode: (T, NexaValueWriter) -> Void) -> Bool {
+    let writer = NexaValueWriter()
+    encode(value, writer)
+    return setBuffer(key, writer.data)
+}
+```
+
+Rules for the bound type:
+
+- It is a scalar, `Bytes`, an enum, an app-declared struct, or a collection of
+  those. An optional is not a storable value: a missing key already means
+  `null`.
+- A setter binds from the value it is given. A getter binds from the type it has
+  to produce, or from an explicit type argument when there is no other
+  information: `store.getObject<PlayerOptions>("key")`.
+- Every type parameter must be bound. An unbound one is an error that names the
+  binding syntax.
+- The generated layout is fixed: little-endian scalars, a length-prefixed
+  string or buffer, a `UInt32` element count, and struct fields in declaration
+  order. Sets and maps are written in a canonical order, so a value written on
+  one platform reads back on the other. The schema is not versioned, so a struct
+  change means a new key or a version field.
+- The C++ bridge has no spelling for a per-call-site value type, so generics are
+  Swift and Kotlin only. A package that declares a C++ block and uses them is
+  rejected.
+
+On Android the writer and reader live in the generated `dev.nexa.core` package,
+which also holds the application context, because a Kotlin plugin is generated
+into the plugin's own package and has no other way to reach either.
+
 ---
 
 ## 3. High-Performance C++ Implementation
@@ -182,6 +255,11 @@ std::future<std::int64_t> runHeavyJob(int32_t threads, double precision) noexcep
 Import the plugin at the top of your `.nx` file:
 
 Plugin service methods and native class methods use positional arguments in `.nxid` declaration order. Generated Swift bindings also omit external argument labels; `fn add(a: Int32, b: Int32)` becomes `func add(_ a: Int32, _ b: Int32)` in Swift.
+
+A Swift package dependency declares exactly one of `from`, `branch`, or
+`revision`. Use `revision` when the upstream repository has no SwiftPM release
+tags: the fork's tags can predate its `Package.swift`, and a version range then
+resolves to a commit with no manifest.
 
 ```nexa
 plugin "fast-engine" as FastEngine

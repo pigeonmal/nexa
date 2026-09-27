@@ -136,6 +136,11 @@ fn is_pure_expression(expression: &Expr) -> bool {
                 && is_pure_expression(closure)
         }
         Expr::Closure { body, .. } => is_pure_expression(body),
+        // Byte conversions are pure like any other value-producing function;
+        // only the platform I/O and network calls above are impure.
+        Expr::BytesFromText { text } => is_pure_expression(text),
+        Expr::BytesFromArray { values } => is_pure_expression(values),
+        Expr::BytesCount { bytes } => is_pure_expression(bytes),
         Expr::NativeCall { .. }
         | Expr::NetworkFetch(_)
         | Expr::NetworkDownload { .. }
@@ -537,7 +542,9 @@ fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
             collect_type_struct_names(third, used);
         }
         nexa_ir::Type::Void
+        | nexa_ir::Type::TypeParam(_)
         | nexa_ir::Type::String
+        | nexa_ir::Type::Bytes
         | nexa_ir::Type::Bool
         | nexa_ir::Type::Numeric(_)
         | nexa_ir::Type::Enum(_)
@@ -573,7 +580,10 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         | Expr::FileReadText { .. }
         | Expr::FileWriteText { .. }
         | Expr::FileDelete { .. }
-        | Expr::PermissionOp { .. } => {}
+        | Expr::PermissionOp { .. }
+        | Expr::BytesFromText { .. }
+        | Expr::BytesFromArray { .. }
+        | Expr::BytesCount { .. } => {}
         Expr::Index {
             collection_type,
             element_type,

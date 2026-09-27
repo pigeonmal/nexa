@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod dependencies;
 mod plugin;
+mod plugin_cli;
 mod project;
 
 /// The deterministic model behind native project generation, and the writers

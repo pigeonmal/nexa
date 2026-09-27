@@ -142,6 +142,7 @@ internal object NexaDevCollectionMutationKind {
     const val SET_REMOVE = "SetRemove"
     const val MAP_SET = "MapSet"
     const val MAP_REMOVE = "MapRemove"
+    const val REPLACE = "Replace"
 }
 
 internal object NexaDevExprKind {
