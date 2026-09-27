@@ -56,7 +56,7 @@ graph TD
 Clone the repository and build the CLI tool:
 
 ```bash
-git clone https://github.com/nexa-lang/nexa.git
+git clone --recurse-submodules https://github.com/pigeonmal/nexa.git
 cd nexa
 cargo build --release -p nexa-cli
 sudo cp target/release/nexa /usr/local/bin/
@@ -131,6 +131,10 @@ Explore real-world examples in [`examples/`](examples/):
 - [`navigation.nx`](examples/navigation.nx): Multi-screen routing with navigation stacks and route parameters.
 - [`plugins/video-player/`](examples/plugins/video-player/): Native Swift & Kotlin plugin with AVPlayer and ExoPlayer.
 - [`plugins/fast-math/`](examples/plugins/fast-math/): Modern C++ (`c++20`) plugin demonstrating typed native bindings.
+
+Official plugin packages are maintained separately in
+[`pigeonmal/nexa-plugins`](https://github.com/pigeonmal/nexa-plugins), mounted
+here as the `plugins/` submodule (clone with `--recurse-submodules`).
 
 ---
 

@@ -39,6 +39,14 @@ crates/
 can sit at the bottom of the graph and be shared by every other crate's tests
 without inverting any layering. See [§5.1](#51-temporary-directories-in-tests).
 
+`plugins/` is not part of this repository. It is a git submodule pointing at
+[`pigeonmal/nexa-plugins`](https://github.com/pigeonmal/nexa-plugins), which
+holds the official plugin packages, one directory per plugin at its root
+(`plugins/<name>/`). Plugin work happens in that repository, where
+`nexa plugin init`, `check`, and `generate` own the scaffold and validation. Clone
+with `--recurse-submodules`, and never commit into the submodule from this
+working tree. See [`docs/plugins.md`](file:///docs/plugins.md).
+
 ### Dependency Flow:
 ```mermaid
 graph TD

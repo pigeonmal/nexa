@@ -52,6 +52,24 @@ If a local plugin changes, run `nexa check` to update the lock before a locked
 build. Git checkouts are cached under `.nexa/plugins/`; that directory is
 generated and should not be committed.
 
+## Official plugins
+
+Official plugin packages live in their own repository,
+[`pigeonmal/nexa-plugins`](https://github.com/pigeonmal/nexa-plugins), which is
+mounted in this repository as the `plugins/` submodule. One plugin occupies one
+directory at its root, so `package: "mmkv"` selects it inside a pinned
+`nexa-plugins` revision, and the same directory is reachable as
+`plugins/mmkv` for local path dependencies and end-to-end tests.
+
+```bash
+git clone --recurse-submodules https://github.com/pigeonmal/nexa.git
+# existing clone
+git submodule update --init --recursive
+```
+
+Plugin development happens in the plugin repository, where `nexa plugin check`
+and `nexa plugin generate` validate every package in CI.
+
 ## 1. Plugin Architecture Overview
 
 A Nexa plugin consists of three components:
