@@ -223,8 +223,16 @@ impl Parser {
                 return self.error_here(format!("expected `,` or `]` in {context}"));
             }
         }
-        self.expect(Kind::RBracket, "expected `]` after app deepLinks")?;
+        self.expect(Kind::RBracket, &format!("expected `]` after {context}"))?;
         Ok(values)
+    }
+
+    fn config_string_or_array(&mut self, context: &str) -> Result<Vec<String>, CompileError> {
+        if matches!(&self.peek().kind, Kind::LBracket) {
+            self.config_string_array(context)
+        } else {
+            self.config_string(context).map(|value| vec![value])
+        }
     }
 
     fn config_flavors_decl(&mut self) -> Result<Vec<FlavorConfig>, CompileError> {
@@ -286,7 +294,7 @@ impl Parser {
                     config.bundle_identifier = Some(self.config_string("ios bundleIdentifier")?)
                 }
                 "icon" => config.icon = Some(self.config_string("ios icon")?),
-                "arch" => config.arch = Some(self.config_string("ios arch")?),
+                "arch" => config.arch = Some(self.config_string_or_array("ios arch")?),
                 _ => {
                     return Err(CompileError::new(
                         field_span,
@@ -320,7 +328,7 @@ impl Parser {
                     config.application_id = Some(self.config_string("android applicationId")?)
                 }
                 "icon" => config.icon = Some(self.config_string("android icon")?),
-                "arch" => config.arch = Some(self.config_string("android arch")?),
+                "arch" => config.arch = Some(self.config_string_or_array("android arch")?),
                 _ => {
                     return Err(CompileError::new(
                         field_span,

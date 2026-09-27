@@ -34,11 +34,30 @@ fn parses_platform_architecture_options() {
     .expect("valid platform architecture configuration");
     assert_eq!(
         config.ios.expect("iOS config").arch.as_deref(),
-        Some("arm64")
+        Some(["arm64".to_owned()].as_slice())
     );
     assert_eq!(
         config.android.expect("Android config").arch.as_deref(),
-        Some("arm64")
+        Some(["arm64".to_owned()].as_slice())
+    );
+}
+
+#[test]
+fn parses_multiple_platform_architectures() {
+    let config = parse_config(
+        r#"config {
+            ios { arch: ["arm64", "x86_64"] }
+            android { arch: ["arm64", "x86_64"] }
+        }"#,
+    )
+    .expect("valid architecture arrays");
+    assert_eq!(
+        config.ios.expect("iOS config").arch.unwrap(),
+        ["arm64", "x86_64"]
+    );
+    assert_eq!(
+        config.android.expect("Android config").arch.unwrap(),
+        ["arm64", "x86_64"]
     );
 }
 

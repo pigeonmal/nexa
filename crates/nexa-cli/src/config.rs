@@ -37,9 +37,9 @@ pub(super) struct ProjectConfig {
     permissions: Vec<(Permission, String)>,
     plugins: Vec<PluginConfig>,
     pub(super) ios_min_version: String,
-    pub(super) ios_arch: Option<String>,
+    pub(super) ios_arch: Option<Vec<String>>,
     pub(super) android_min_sdk: u32,
-    pub(super) android_arch: Option<String>,
+    pub(super) android_arch: Option<Vec<String>>,
     pub(super) android_target_sdk: u32,
     pub(super) ios_bundle_identifier: String,
     pub(super) android_application_id: String,
@@ -54,11 +54,11 @@ impl ProjectConfig {
     pub(super) fn set_arch_override(&mut self, arch: &str, target: &str) -> Result<(), String> {
         if matches!(target, "ios" | "all") {
             validate_ios_arch(arch)?;
-            self.ios_arch = Some(arch.to_owned());
+            self.ios_arch = Some(vec![arch.to_owned()]);
         }
         if matches!(target, "android" | "all") {
             android_abi_for_arch(arch)?;
-            self.android_arch = Some(arch.to_owned());
+            self.android_arch = Some(vec![arch.to_owned()]);
         }
         Ok(())
     }
@@ -177,7 +177,7 @@ impl ProjectConfig {
         let ios_arch = ios
             .as_ref()
             .and_then(|ios| ios.arch.clone())
-            .filter(|arch| !arch.is_empty());
+            .filter(|architectures| architectures.as_slice() != [""]);
         let android_min_sdk = android
             .as_ref()
             .and_then(|android| android.min_sdk)
@@ -185,7 +185,7 @@ impl ProjectConfig {
         let android_arch = android
             .as_ref()
             .and_then(|android| android.arch.clone())
-            .filter(|arch| !arch.is_empty());
+            .filter(|architectures| architectures.as_slice() != [""]);
         if display_name.trim().is_empty() {
             return Err(format!(
                 "{}: app displayName cannot be empty",
@@ -211,11 +211,13 @@ impl ProjectConfig {
             ));
         }
         validate_ios_deployment_version(path, &ios_min_version)?;
-        if let Some(arch) = &ios_arch {
-            validate_ios_arch(arch).map_err(|error| format!("{}: {error}", path.display()))?;
+        if let Some(architectures) = &ios_arch {
+            validate_ios_arches(architectures)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
         }
-        if let Some(arch) = &android_arch {
-            android_abi_for_arch(arch).map_err(|error| format!("{}: {error}", path.display()))?;
+        if let Some(architectures) = &android_arch {
+            android_abis_for_arches(architectures)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
         }
         if android_min_sdk == 0 || android_min_sdk > android_target_sdk {
             return Err(format!(
@@ -304,12 +306,12 @@ impl ProjectConfig {
         let ios_arch = self
             .ios_arch
             .as_deref()
-            .map(|arch| format!(", arch: {}", nexa_config_string(arch)))
+            .map(|architectures| format!(", arch: {}", render_string_array(architectures)))
             .unwrap_or_default();
         let android_arch = self
             .android_arch
             .as_deref()
-            .map(|arch| format!(", arch: {}", nexa_config_string(arch)))
+            .map(|architectures| format!(", arch: {}", render_string_array(architectures)))
             .unwrap_or_default();
         let mut output = format!(
             "config {{\n    app {{ displayName: {}, version: {}, buildNumber: {}, stagingSuffix: {}, deepLinks: {} }}\n    assets {{ icon: {}, splash: {} }}\n    ios {{ minVersion: {}, bundleIdentifier: {}, icon: {}{ios_arch} }}\n    android {{ minSdk: {}, targetSdk: {}, applicationId: {}, icon: {}{android_arch} }}\n    permissions {{\n",
@@ -427,6 +429,22 @@ pub(super) fn validate_ios_arch(arch: &str) -> Result<(), String> {
     }
 }
 
+pub(super) fn validate_ios_arches(architectures: &[String]) -> Result<(), String> {
+    if architectures.is_empty() {
+        return Err("iOS `arch` must contain at least one architecture".to_owned());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for arch in architectures {
+        validate_ios_arch(arch)?;
+        if !seen.insert(arch) {
+            return Err(format!(
+                "iOS architecture `{arch}` is listed more than once"
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn android_abi_for_arch(arch: &str) -> Result<&'static str, String> {
     match arch {
         "arm64" | "arm64-v8a" => Ok("arm64-v8a"),
@@ -437,6 +455,25 @@ pub(super) fn android_abi_for_arch(arch: &str) -> Result<&'static str, String> {
             "unsupported Android architecture `{arch}`; expected `arm64`, `armv7`, `x86`, or `x86_64`"
         )),
     }
+}
+
+pub(super) fn android_abis_for_arches(
+    architectures: &[String],
+) -> Result<Vec<&'static str>, String> {
+    if architectures.is_empty() {
+        return Err("Android `arch` must contain at least one architecture".to_owned());
+    }
+    let mut abis = Vec::with_capacity(architectures.len());
+    for arch in architectures {
+        let abi = android_abi_for_arch(arch)?;
+        if abis.contains(&abi) {
+            return Err(format!(
+                "Android ABI `{abi}` is listed more than once through `arch`"
+            ));
+        }
+        abis.push(abi);
+    }
+    Ok(abis)
 }
 
 fn render_string_array(values: &[String]) -> String {

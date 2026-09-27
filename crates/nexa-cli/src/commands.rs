@@ -281,9 +281,16 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
             })
             .transpose()?
             .and_then(|config| config.ios.and_then(|ios| ios.arch))
-            .filter(|arch| !arch.is_empty());
-        let requested_arch = arch.as_deref().or(configured_ios_arch.as_deref());
-        if requested_arch.is_some_and(|arch| arch != "arm64") {
+            .filter(|architectures| !(architectures.len() == 1 && architectures[0].is_empty()));
+        let invalid_arch = match arch.as_deref() {
+            Some(architecture) => architecture != "arm64",
+            None => configured_ios_arch.as_ref().is_some_and(|architectures| {
+                architectures
+                    .iter()
+                    .any(|architecture| architecture != "arm64")
+            }),
+        };
+        if invalid_arch {
             return Err("iOS device builds require `arm64`; `x86_64` is supported for `nexa dev` simulator builds".to_owned());
         }
     }

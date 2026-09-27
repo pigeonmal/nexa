@@ -67,7 +67,7 @@ fn android_release_signing_is_configured_at_build_time() {
 #[test]
 fn android_architecture_selects_a_single_ndk_abi() {
     let mut config = ProjectConfig::from_defaults(&[], "demo").unwrap();
-    config.android_arch = Some("arm64".to_owned());
+    config.android_arch = Some(vec!["arm64".to_owned()]);
     let gradle = templates::android_app_gradle_with_dev_runtime(
         "demo",
         nexa_backend_kotlin::KotlinProjectFeatures::default(),
@@ -77,7 +77,23 @@ fn android_architecture_selects_a_single_ndk_abi() {
         false,
     )
     .unwrap();
-    assert!(gradle.contains("ndk { abiFilters.add(\"arm64-v8a\") }"));
+    assert!(gradle.contains("ndk { abiFilters.addAll(listOf(\"arm64-v8a\")) }"));
+}
+
+#[test]
+fn android_architecture_array_selects_multiple_ndk_abis() {
+    let mut config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    config.android_arch = Some(vec!["arm64".to_owned(), "x86_64".to_owned()]);
+    let gradle = templates::android_app_gradle_with_dev_runtime(
+        "demo",
+        nexa_backend_kotlin::KotlinProjectFeatures::default(),
+        &[],
+        &[],
+        &config,
+        false,
+    )
+    .unwrap();
+    assert!(gradle.contains("ndk { abiFilters.addAll(listOf(\"arm64-v8a\", \"x86_64\")) }"));
 }
 
 #[test]
@@ -208,7 +224,7 @@ mod template_generation {
     #[test]
     fn ios_architecture_is_applied_to_debug_and_release() {
         let mut config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
-        config.ios_arch = Some("arm64".to_owned());
+        config.ios_arch = Some(vec!["arm64".to_owned(), "x86_64".to_owned()]);
         let project = ios_project_file_with_config(
             "Demo",
             false,
@@ -221,7 +237,7 @@ mod template_generation {
             &config,
         )
         .unwrap();
-        assert_eq!(project.matches("ARCHS = arm64;").count(), 2);
+        assert_eq!(project.matches("ARCHS = \"arm64 x86_64\";").count(), 2);
     }
 
     fn android_app_gradle(
@@ -340,7 +356,9 @@ mod template_generation {
             .swift_packages
             .push(nexa_plugin_idl::manifest::SwiftPackage {
                 url: "https://example.com/media.git".to_owned(),
-                requirement: nexa_plugin_idl::manifest::SwiftPackageRequirement::From("2.3.0".to_owned()),
+                requirement: nexa_plugin_idl::manifest::SwiftPackageRequirement::From(
+                    "2.3.0".to_owned(),
+                ),
                 products: vec!["MediaKit".to_owned(), "MediaUI".to_owned()],
             });
         let mut maps_plugin = plugin("Maps");
@@ -350,7 +368,9 @@ mod template_generation {
             .swift_packages
             .push(nexa_plugin_idl::manifest::SwiftPackage {
                 url: "https://example.com/maps.git".to_owned(),
-                requirement: nexa_plugin_idl::manifest::SwiftPackageRequirement::From("1.0.0".to_owned()),
+                requirement: nexa_plugin_idl::manifest::SwiftPackageRequirement::From(
+                    "1.0.0".to_owned(),
+                ),
                 products: vec!["MapsKit".to_owned()],
             });
         let plugins = [media_plugin, maps_plugin];
@@ -599,7 +619,9 @@ mod template_generation {
             .swift_packages
             .push(nexa_plugin_idl::manifest::SwiftPackage {
                 url: "https://example.com/media.git".to_owned(),
-                requirement: nexa_plugin_idl::manifest::SwiftPackageRequirement::From("2.3.0".to_owned()),
+                requirement: nexa_plugin_idl::manifest::SwiftPackageRequirement::From(
+                    "2.3.0".to_owned(),
+                ),
                 products: vec!["MediaKit".to_owned()],
             });
         media_plugin
@@ -893,13 +915,22 @@ mod template_generation {
         let path = home.path().join("nexa.config.nx");
         fs::write(
             &path,
-            r#"config { ios { arch: "arm64" } android { arch: "arm64" } }"#,
+            r#"config {
+                ios { arch: ["arm64", "x86_64"] }
+                android { arch: ["arm64", "x86_64"] }
+            }"#,
         )
         .expect("write architecture config");
         let config = ProjectConfig::parse_file(&path, &[], "Architecture")
             .expect("parse architecture settings");
-        assert_eq!(config.ios_arch.as_deref(), Some("arm64"));
-        assert_eq!(config.android_arch.as_deref(), Some("arm64"));
+        assert_eq!(
+            config.ios_arch.as_deref(),
+            Some(["arm64".to_owned(), "x86_64".to_owned()].as_slice())
+        );
+        assert_eq!(
+            config.android_arch.as_deref(),
+            Some(["arm64".to_owned(), "x86_64".to_owned()].as_slice())
+        );
 
         fs::write(&path, r#"config { ios { arch: "x86" } }"#)
             .expect("write invalid architecture config");

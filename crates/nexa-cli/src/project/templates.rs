@@ -566,7 +566,7 @@ pub(super) fn ios_project_file_with_config(
         SettingValue::quoted("iphoneos iphonesimulator"),
     );
     if let Some(arch) = &config.ios_arch {
-        target_release.set("ARCHS", SettingValue::Scalar(arch.clone()));
+        target_release.set("ARCHS", SettingValue::quoted(&arch.join(" ")));
     }
     target_release.set("SWIFT_VERSION", SettingValue::bare("6.0"));
     target_release.set("SWIFT_OPTIMIZATION_LEVEL", SettingValue::quoted("-O"));
@@ -594,7 +594,7 @@ pub(super) fn ios_project_file_with_config(
         SettingValue::quoted("iphoneos iphonesimulator"),
     );
     if let Some(arch) = &config.ios_arch {
-        target_debug.set("ARCHS", SettingValue::Scalar(arch.clone()));
+        target_debug.set("ARCHS", SettingValue::quoted(&arch.join(" ")));
     }
     target_debug.set("SWIFT_VERSION", SettingValue::bare("6.0"));
     target_debug.set("SWIFT_OPTIMIZATION_LEVEL", SettingValue::quoted("-Onone"));
@@ -1188,13 +1188,20 @@ pub(super) fn android_app_gradle_with_dev_runtime(
     for aar in local_aars {
         dependencies.push_str(&format!("    implementation(files(\"libs/{aar}\"))\n"));
     }
-    let abi_filter = config
+    let abi_filters = config
         .android_arch
         .as_deref()
-        .map(crate::config::android_abi_for_arch)
+        .map(crate::config::android_abis_for_arches)
         .transpose()?;
-    let ndk_config = abi_filter
-        .map(|abi| format!("\n        ndk {{ abiFilters.add(\"{abi}\") }}"))
+    let ndk_config = abi_filters
+        .map(|abis| {
+            let abi_literals = abis
+                .iter()
+                .map(|abi| format!("\"{abi}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("\n        ndk {{ abiFilters.addAll(listOf({abi_literals})) }}")
+        })
         .unwrap_or_default();
     Ok(format!(
         "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{}\"; minSdk = {minimum_sdk}; targetSdk = {}; versionCode = {}; versionName = \"{}\"{ndk_config} }}\n    buildFeatures {{ compose = true }}{cpp_native_build}\n    signingConfigs {{\n        create(\"nexaRelease\") {{\n            val keystorePath = System.getenv(\"NEXA_ANDROID_KEYSTORE\")\n            if (!keystorePath.isNullOrBlank()) {{\n                storeFile = file(keystorePath)\n                storePassword = System.getenv(\"NEXA_ANDROID_STORE_PASSWORD\")\n                keyAlias = System.getenv(\"NEXA_ANDROID_KEY_ALIAS\")\n                keyPassword = System.getenv(\"NEXA_ANDROID_KEY_PASSWORD\")\n            }}\n        }}\n    }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            signingConfig = signingConfigs.getByName(\"nexaRelease\")\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencyLocking {{\n    lockAllConfigurations()\n}}\n\ndependencies {{\n{dependencies}}}\n",
