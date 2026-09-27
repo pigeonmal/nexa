@@ -385,6 +385,7 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
                 walk_expression(argument, visit);
             }
         }
+        Expr::LogCall { message, .. } => walk_expression(message, visit),
         Expr::FileWriteText { path, contents } => {
             walk_expression(path, visit);
             walk_expression(contents, visit);
@@ -945,6 +946,7 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
                 visitor.visit_expr(argument);
             }
         }
+        Expr::LogCall { message, .. } => visitor.visit_expr(message),
         Expr::FileWriteText { path, contents } => {
             visitor.visit_expr(path);
             visitor.visit_expr(contents);
@@ -1512,6 +1514,10 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
                 .collect(),
             return_type,
             is_async,
+        },
+        Expr::LogCall { method, message } => Expr::LogCall {
+            method,
+            message: Box::new(folder.fold_expr(*message)),
         },
         Expr::BytesCount { bytes } => Expr::BytesCount {
             bytes: Box::new(folder.fold_expr(*bytes)),

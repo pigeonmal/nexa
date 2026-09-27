@@ -1,7 +1,7 @@
 use nexa_codegen::names::{function_name, state_name};
 use nexa_ir::{
-    BinaryOp, CollectionTransform, Expr, InterpolatedPart, MemberKind, NetworkRequest, NumericType,
-    PermissionOpKind, PluginCodec, TimeMethod, TuplePosition, Type,
+    BinaryOp, CollectionTransform, Expr, InterpolatedPart, LogMethod, MemberKind, NetworkRequest,
+    NumericType, PermissionOpKind, PluginCodec, TimeMethod, TuplePosition, Type,
 };
 
 use super::utils::{swift_string, swift_string_content};
@@ -209,10 +209,16 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             }
         }
         Expr::TimeCall {
-            method,
-            arguments,
-            ..
+            method, arguments, ..
         } => time_call(*method, arguments, locals),
+        Expr::LogCall { method, message } => {
+            let severity = match method {
+                LogMethod::Info => "INFO",
+                LogMethod::Warning => "WARNING",
+                LogMethod::Error => "ERROR",
+            };
+            format!("NSLog(\"[Nexa][{severity}] %@\", {})", render(message))
+        }
         Expr::Closure { parameters, body } => {
             let body = expression_with_locals(body, parameters);
             format!("{{ {} in {} }}", parameters.join(", "), body)
@@ -312,7 +318,13 @@ fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> Strin
         TimeMethod::Now => "Int64((Date().timeIntervalSince1970 * 1000).rounded())".to_owned(),
         // `uptimeNanoseconds` is a `UInt64` that only overflows after ~584
         // years of uptime, so the reinterpretation is the direct spelling.
-        TimeMethod::Monotonic => "Int64(bitPattern: DispatchTime.now().uptimeNanoseconds)".to_owned(),
+        TimeMethod::Monotonic => {
+            "Int64(bitPattern: DispatchTime.now().uptimeNanoseconds)".to_owned()
+        }
+        TimeMethod::Elapsed => format!(
+            "(Int64(bitPattern: DispatchTime.now().uptimeNanoseconds) - {})",
+            rendered.first().cloned().unwrap_or_else(|| "0".to_owned())
+        ),
         // The surrounding `Await` writes `try await`; a sleep is the one method
         // that needs it, because cancelling the task throws out of `Task.sleep`.
         TimeMethod::Sleep => {
@@ -320,10 +332,16 @@ fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> Strin
             format!("Task.sleep(nanoseconds: {milliseconds} &* 1_000_000)")
         }
         TimeMethod::Iso8601 => {
-            format!("nexaIso8601({})", rendered.first().cloned().unwrap_or_default())
+            format!(
+                "nexaIso8601({})",
+                rendered.first().cloned().unwrap_or_default()
+            )
         }
         TimeMethod::Iso8601ToMillis => {
-            format!("nexaIso8601ToMillis({})", rendered.first().cloned().unwrap_or_default())
+            format!(
+                "nexaIso8601ToMillis({})",
+                rendered.first().cloned().unwrap_or_default()
+            )
         }
     }
 }

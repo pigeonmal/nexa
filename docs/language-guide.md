@@ -132,6 +132,7 @@ app ResultExample {
 |---|---|---|
 | `Time.now()` | `Int64` | Milliseconds since the Unix epoch, UTC |
 | `Time.monotonic()` | `Int64` | Nanoseconds from a fixed origin; only differences are meaningful |
+| `Time.elapsed(since: timestamp)` | `Int64` | Nanoseconds since a value returned by `Time.monotonic()` |
 | `Time.sleep(milliseconds: Int64)` | `Void` | Suspends the caller |
 | `Time.iso8601(timestamp: Int64)` | `String` | The instant as `yyyy-MM-ddTHH:mm:ss.SSSZ` in UTC |
 | `Time.iso8601ToMillis(text: String)` | `Int64?` | The inverse, or `null` when the text is not that layout |
@@ -164,9 +165,25 @@ app TimerExample {
 
 `Time.sleep` is the one clock call that can throw, because the surrounding task can be cancelled while it is suspended, so `await Time.sleep(...)` needs a `try { ... } catch { ... }` block or a throwing function, exactly like an awaited `File` or `Network` call. Awaiting a clock *reading* is an error: only `sleep` suspends.
 
-Two readings are two values, not a duration: `+` is the language's only binary operator, so there is no subtraction to combine them with. Store both readings, or take the difference where the numbers are compared - a test, a host harness, or the platform you send them to.
+Use `Time.elapsed(since:)` to measure durations without mixing the monotonic clock with wall-clock timestamps:
+
+```nexa
+let startedAt = Time.monotonic()
+// Run the work being measured.
+let elapsedNanoseconds = Time.elapsed(since: startedAt)
+```
 
 `Time.iso8601` and `Time.iso8601ToMillis` are hand-implemented on both platforms with the same leap-year rules rather than a formatter, so a timestamp written on one target reads on the other. The layout is UTC and locale-independent, and the fractional part is optional when parsing. This is deliberately not a display format: there is no localized or timezone-aware date formatting, because its output would differ between devices and between platforms.
+
+## Logging
+
+`Log` writes messages to the native platform log, visible in Android Logcat and the iOS Console:
+
+```nexa
+Log.info(message: "Loaded $count records")
+Log.warning(message: "Using cached data")
+Log.error(message: "The request failed")
+```
 
 ## Platform-specific UI
 

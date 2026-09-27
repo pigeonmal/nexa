@@ -5,7 +5,7 @@ import UIKit
 /// Reactive state store and expression evaluation engine for the Nexa dev runtime.
 @MainActor
 final class NexaDevStateStore: ObservableObject {
-    @Published private(set) var revision = 0
+    @Published var revision = 0
     @Published private(set) var appLifecycleEpoch = 0
     @Published var navigationPath: [NexaDevRoute] = []
     @Published private(set) var focusedFieldKey: String?
@@ -317,6 +317,12 @@ final class NexaDevStateStore: ObservableObject {
             return data.count
         case "TimeCall":
             return evaluateTimeCall(payload as? [String: Any], locals: locals, scope: scope)
+        case "LogCall":
+            let logCall = payload as? [String: Any] ?? [:]
+            let message = stringify(logCall["message"].map { evaluate($0, locals: locals, scope: scope) } ?? NSNull())
+            let severity = logCall["method"] as? String ?? "Info"
+            NSLog("[Nexa][%@] %@", severity.uppercased(), message)
+            return NSNull()
         case "Coalesce":
             let parts = payload as? [Any] ?? []
             guard parts.count >= 2 else { return NSNull() }
@@ -412,10 +418,13 @@ final class NexaDevStateStore: ObservableObject {
                     .map { evaluate($0, locals: locals, scope: scope) }
                     .first
                     .flatMap { ($0 as? NSNumber)?.int64Value } ?? 0
-                try? await Task.sleep(nanoseconds: milliseconds &* 1_000_000)
+                let nanoseconds = UInt64(max(0, milliseconds)) &* 1_000_000
+                try? await Task.sleep(nanoseconds: nanoseconds)
                 return NSNull()
             }
             return evaluateTimeCall(payload as? [String: Any], locals: locals, scope: scope)
+        case "LogCall":
+            return evaluate(expression, locals: locals, scope: scope)
         case "Call":
             guard let call = payload as? [String: Any] else { return NSNull() }
             return try await invokeFunctionAsync(call, locals: locals, scope: scope)
@@ -643,6 +652,7 @@ final class NexaDevStateStore: ObservableObject {
 /// A core clock call, evaluated the same way the generated code renders it: a
 /// system clock, a monotonic counter, or the ISO 8601 helpers the app target
 /// carries.
+private extension NexaDevStateStore {
 func evaluateTimeCall(_ call: [String: Any]?, locals: [String: Any], scope: String) -> Any {
     guard let call,
         let method = call["method"] as? String
@@ -656,6 +666,9 @@ func evaluateTimeCall(_ call: [String: Any]?, locals: [String: Any], scope: Stri
         return Int64((Date().timeIntervalSince1970 * 1000).rounded())
     case "Monotonic":
         return Int64(bitPattern: DispatchTime.now().uptimeNanoseconds)
+    case "Elapsed":
+        let start = (first as? NSNumber)?.int64Value ?? 0
+        return Int64(bitPattern: DispatchTime.now().uptimeNanoseconds) - start
     case "Sleep":
         // Sleep suspends, and a synchronous evaluator cannot suspend, so a
         // hot reload reports the request and moves on rather than blocking the
@@ -671,6 +684,7 @@ func evaluateTimeCall(_ call: [String: Any]?, locals: [String: Any], scope: Stri
     default:
         return NSNull()
     }
+}
 }
 
 /// The ISO 8601 layout the generated code implements, kept in one place so the

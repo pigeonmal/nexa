@@ -28,7 +28,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     var focusedFieldKey by mutableStateOf<String?>(null)
         private set
     var moduleRevision by mutableStateOf(0)
-        private set
+        internal set
     private var navigationRoot: String? = null
     private var navigationScreensSignature: String? = null
     internal var focusBindings = mutableMapOf<String, Pair<String, String?>>()
@@ -451,6 +451,16 @@ internal class NexaDevStateStore(internal val context: Context) {
                 decoded.size
             }
             "TimeCall" -> evaluateTimeCall(payload as? JSONObject, locals, scope)
+            "LogCall" -> {
+                val logCall = payload as? JSONObject ?: JSONObject()
+                val message = stringify(evaluate(logCall.opt("message"), locals, scope))
+                when (logCall.optString("method")) {
+                    "Info" -> android.util.Log.i("Nexa", message)
+                    "Warning" -> android.util.Log.w("Nexa", message)
+                    "Error" -> android.util.Log.e("Nexa", message)
+                }
+                JSONObject.NULL
+            }
             "Coalesce" -> {
                 val parts = payload as? JSONArray ?: JSONArray()
                 val first = evaluate(parts.opt(0), locals, scope)
@@ -517,6 +527,7 @@ internal class NexaDevStateStore(internal val context: Context) {
                 }
             }
             "Call" -> invokeFunctionAsync(payload as? JSONObject ?: JSONObject(), locals, scope)
+            "LogCall" -> evaluate(expression, locals, scope)
             "NativeCall" -> invokeNativeAsync(payload as? JSONObject ?: JSONObject(), locals, scope)
             "NetworkFetch", "NetworkDownload" -> {
                 val fields = payload as? JSONObject ?: JSONObject()
@@ -734,7 +745,7 @@ internal class NexaDevStateStore(internal val context: Context) {
  * A core clock call, evaluated the same way the generated code renders it: a
  * system clock, a monotonic counter, or the ISO 8601 helpers the app carries.
  */
-private fun evaluateTimeCall(
+private fun NexaDevStateStore.evaluateTimeCall(
     call: JSONObject?,
     locals: Map<String, Any>,
     scope: String,
@@ -745,6 +756,7 @@ private fun evaluateTimeCall(
     return when (method) {
         "Now" -> System.currentTimeMillis()
         "Monotonic" -> System.nanoTime()
+        "Elapsed" -> System.nanoTime() - ((first as? Number)?.toLong() ?: 0L)
         // A synchronous evaluator cannot suspend. The async path handles a real
         // sleep; here the request is reported and evaluation moves on rather than
         // blocking the thread it runs on.

@@ -368,6 +368,11 @@ pub enum Expr {
         return_type: Type,
         is_async: bool,
     },
+    /// A typed write to the platform log.
+    LogCall {
+        method: LogMethod,
+        message: Box<Expr>,
+    },
     /// Validated permission query: `Status` renders `status`, `Request`
     /// renders `request`.
     PermissionOp {
@@ -852,6 +857,8 @@ pub enum TimeMethod {
     /// `Time.monotonic()`: nanoseconds from an arbitrary fixed origin. Only
     /// differences between two readings mean anything.
     Monotonic,
+    /// `Time.elapsed(since:)`: nanoseconds elapsed since a monotonic reading.
+    Elapsed,
     /// `Time.sleep(milliseconds:)`: suspends the caller.
     Sleep,
     /// `Time.iso8601(timestamp:)`: the UTC instant as an ISO 8601 string.
@@ -860,12 +867,21 @@ pub enum TimeMethod {
     Iso8601ToMillis,
 }
 
+/// A core logging operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LogMethod {
+    Info,
+    Warning,
+    Error,
+}
+
 impl TimeMethod {
     /// The IDL-level name of the method, as `.nx` spells it.
     pub fn idl_name(self) -> &'static str {
         match self {
             TimeMethod::Now => "now",
             TimeMethod::Monotonic => "monotonic",
+            TimeMethod::Elapsed => "elapsed",
             TimeMethod::Sleep => "sleep",
             TimeMethod::Iso8601 => "iso8601",
             TimeMethod::Iso8601ToMillis => "iso8601ToMillis",

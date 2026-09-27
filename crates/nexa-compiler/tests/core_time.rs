@@ -84,7 +84,9 @@ fn the_two_clocks_are_separate_readings_of_one_api() {
 
     let calls = clock_calls(&module);
     assert!(
-        calls.iter().any(|(method, _, _)| *method == TimeMethod::Now),
+        calls
+            .iter()
+            .any(|(method, _, _)| *method == TimeMethod::Now),
         "the wall clock should be readable: {calls:?}"
     );
     assert!(
@@ -110,6 +112,72 @@ fn the_two_clocks_are_separate_readings_of_one_api() {
             .map(|(_, ty, _)| ty.clone()),
         Some(Type::String),
         "formatting an instant yields a string"
+    );
+}
+
+#[test]
+fn elapsed_measures_from_a_monotonic_reading() {
+    let module = compile_with(
+        "nexa-core-clock-elapsed",
+        "    state elapsed: Int64 = 0\n",
+        r#"        Column {
+            Button("Measure") {
+                elapsed = Time.elapsed(since: Time.monotonic())
+            }
+        }
+"#,
+    )
+    .expect("elapsed time should compile");
+
+    let calls = clock_calls(&module);
+    assert!(
+        calls
+            .iter()
+            .any(|(method, ty, is_async)| *method == TimeMethod::Elapsed
+                && *ty == Type::Numeric(NumericType::Int64)
+                && !is_async),
+        "elapsed should return an Int64 synchronously: {calls:?}"
+    );
+}
+
+#[test]
+fn log_methods_lower_to_typed_native_calls() {
+    let module = compile_with(
+        "nexa-core-log",
+        "",
+        r#"        Column {
+            Button("Log") {
+                Log.info(message: "ready")
+                Log.warning(message: "slow")
+                Log.error(message: "failed")
+            }
+        }
+"#,
+    )
+    .expect("log methods should compile");
+
+    let mut methods = Vec::new();
+    let mut visit = |expr: &Expr| {
+        if let Expr::LogCall { method, .. } = expr {
+            methods.push(*method);
+        }
+    };
+    for node in &module.body {
+        nexa_ir::walk::walk_ir(std::slice::from_ref(node), &mut |_| {}, &mut visit);
+    }
+    for actions in [&module.on_appear, &module.on_disappear]
+        .into_iter()
+        .flatten()
+    {
+        nexa_ir::walk::walk_actions(actions, &mut visit);
+    }
+    assert_eq!(
+        methods,
+        [
+            nexa_ir::LogMethod::Info,
+            nexa_ir::LogMethod::Warning,
+            nexa_ir::LogMethod::Error,
+        ]
     );
 }
 
@@ -208,8 +276,8 @@ fn clock_diagnostics_name_the_offending_call() {
         ),
     ];
     for (name, states, body, expected) in cases {
-        let error = compile_with(name, states, body)
-            .expect_err(&format!("{name} should be rejected"));
+        let error =
+            compile_with(name, states, body).expect_err(&format!("{name} should be rejected"));
         assert!(
             error.contains(expected),
             "{name} should explain the mistake, got: {error}"

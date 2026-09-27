@@ -466,6 +466,11 @@
         "name": "TimeCall",
         "ios": "covered",
         "android": "covered"
+      },
+      {
+        "name": "LogCall",
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "CollectionTransform": [
@@ -1092,6 +1097,11 @@
         "android": "covered"
       },
       {
+        "name": "Elapsed",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Sleep",
         "ios": "covered",
         "android": "covered"
@@ -1103,6 +1113,23 @@
       },
       {
         "name": "Iso8601ToMillis",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "LogMethod": [
+      {
+        "name": "Info",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Warning",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Error",
         "ios": "covered",
         "android": "covered"
       }

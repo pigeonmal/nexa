@@ -1,7 +1,7 @@
 use nexa_codegen::names::{function_name, state_name};
 use nexa_ir::{
-    BinaryOp, CollectionTransform, Expr, InterpolatedPart, MemberKind, NetworkRequest, NumericType,
-    PermissionOpKind, PluginCodec, TimeMethod, TuplePosition, Type,
+    BinaryOp, CollectionTransform, Expr, InterpolatedPart, LogMethod, MemberKind, NetworkRequest,
+    NumericType, PermissionOpKind, PluginCodec, TimeMethod, TuplePosition, Type,
 };
 
 use super::utils::{kotlin_string, kotlin_string_content};
@@ -178,10 +178,16 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             }
         }
         Expr::TimeCall {
-            method,
-            arguments,
-            ..
+            method, arguments, ..
         } => time_call(*method, arguments, locals),
+        Expr::LogCall { method, message } => {
+            let severity = match method {
+                LogMethod::Info => "i",
+                LogMethod::Warning => "w",
+                LogMethod::Error => "e",
+            };
+            format!("android.util.Log.{severity}(\"Nexa\", {})", render(message))
+        }
         Expr::Closure { parameters, body } => {
             let body = expression_with_locals(body, parameters);
             format!("{{ {} -> {} }}", parameters.join(", "), body)
@@ -269,6 +275,7 @@ fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> Strin
     match method {
         TimeMethod::Now => "System.currentTimeMillis()".to_owned(),
         TimeMethod::Monotonic => "System.nanoTime()".to_owned(),
+        TimeMethod::Elapsed => format!("(System.nanoTime() - {first})"),
         TimeMethod::Sleep => format!("kotlinx.coroutines.delay({first})"),
         TimeMethod::Iso8601 => format!("nexaIso8601({first})"),
         TimeMethod::Iso8601ToMillis => format!("nexaIso8601ToMillis({first})"),

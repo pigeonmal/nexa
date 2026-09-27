@@ -1214,9 +1214,15 @@ pub(super) fn lower_expr(
                 ));
             }
             let call = match value.as_ref() {
-                ast::Expr::Call(name, type_arguments, arguments, call_span) => {
-                    lower_call(name, type_arguments, arguments, *call_span, expected, ctx, true)?
-                }
+                ast::Expr::Call(name, type_arguments, arguments, call_span) => lower_call(
+                    name,
+                    type_arguments,
+                    arguments,
+                    *call_span,
+                    expected,
+                    ctx,
+                    true,
+                )?,
                 ast::Expr::QualifiedCall {
                     namespace,
                     name,
@@ -1703,15 +1709,12 @@ fn lower_native_call(
             true,
             vec![("permission", Type::Enum("Permission".to_owned()), None)],
         ),
-        "Time.now" => (
+        "Time.now" => (Type::Numeric(NumericType::Int64), false, Vec::new()),
+        "Time.monotonic" => (Type::Numeric(NumericType::Int64), false, Vec::new()),
+        "Time.elapsed" => (
             Type::Numeric(NumericType::Int64),
             false,
-            Vec::new(),
-        ),
-        "Time.monotonic" => (
-            Type::Numeric(NumericType::Int64),
-            false,
-            Vec::new(),
+            vec![("since", Type::Numeric(NumericType::Int64), None)],
         ),
         "Time.sleep" => (
             Type::Void,
@@ -1728,6 +1731,9 @@ fn lower_native_call(
             false,
             vec![("text", Type::String, None)],
         ),
+        "Log.info" | "Log.warning" | "Log.error" => {
+            (Type::Void, false, vec![("message", Type::String, None)])
+        }
         _ => {
             return Err(CompileError::new(
                 span,
@@ -1869,6 +1875,12 @@ fn native_plan(
             return_type: Type::Numeric(NumericType::Int64),
             is_async: false,
         }),
+        "Time.elapsed" => Ok(Expr::TimeCall {
+            method: nexa_ir::TimeMethod::Elapsed,
+            arguments: vec![take("since")?],
+            return_type: Type::Numeric(NumericType::Int64),
+            is_async: false,
+        }),
         "Time.sleep" => Ok(Expr::TimeCall {
             method: nexa_ir::TimeMethod::Sleep,
             arguments: vec![take("milliseconds")?],
@@ -1887,6 +1899,14 @@ fn native_plan(
             return_type: Type::Optional(Box::new(Type::Numeric(NumericType::Int64))),
             is_async: false,
         }),
+        "Log.info" | "Log.warning" | "Log.error" => Ok(Expr::LogCall {
+            method: match qualified_name {
+                "Log.info" => nexa_ir::LogMethod::Info,
+                "Log.warning" => nexa_ir::LogMethod::Warning,
+                _ => nexa_ir::LogMethod::Error,
+            },
+            message: Box::new(take("message")?),
+        }),
         _ => Err(CompileError::new(
             span,
             format!("unknown native API `{qualified_name}`"),
@@ -1897,7 +1917,7 @@ fn native_plan(
 fn is_core_native_namespace(namespace: &str) -> bool {
     matches!(
         namespace,
-        "Network" | "Path" | "File" | "Permissions" | "Bytes" | "Time"
+        "Network" | "Path" | "File" | "Permissions" | "Bytes" | "Time" | "Log"
     )
 }
 
@@ -1953,11 +1973,7 @@ fn lower_plugin_call(
         span,
     )?;
     let (parameter_types, return_type, codecs) = match resolved {
-        Some(resolved) => (
-            resolved.parameters,
-            resolved.return_type,
-            resolved.codecs,
-        ),
+        Some(resolved) => (resolved.parameters, resolved.return_type, resolved.codecs),
         None => (
             signature.parameters.clone(),
             signature.return_type.clone(),
@@ -1984,8 +2000,7 @@ fn lower_plugin_call(
         ));
     }
     let mut lowered = Vec::with_capacity(parameter_types.len());
-    for ((argument_name, argument_type), argument) in parameter_types.iter().zip(arguments.iter())
-    {
+    for ((argument_name, argument_type), argument) in parameter_types.iter().zip(arguments.iter()) {
         lowered.push((
             argument_name.clone(),
             lower_expr(argument, Some(argument_type), ctx)?,
@@ -2113,11 +2128,7 @@ fn lower_plugin_method_call(
         span,
     )?;
     let (parameter_types, return_type, codecs) = match resolved {
-        Some(resolved) => (
-            resolved.parameters,
-            resolved.return_type,
-            resolved.codecs,
-        ),
+        Some(resolved) => (resolved.parameters, resolved.return_type, resolved.codecs),
         None => (
             signature.parameters.clone(),
             signature.return_type.clone(),

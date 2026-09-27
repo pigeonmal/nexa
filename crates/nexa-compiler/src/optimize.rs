@@ -195,7 +195,8 @@ fn is_pure_expression(expression: &Expr) -> bool {
         | Expr::IsRegularHeight
         | Expr::IsCompactHeight
         | Expr::TimeCall {
-            method: nexa_ir::TimeMethod::Now
+            method:
+                nexa_ir::TimeMethod::Now
                 | nexa_ir::TimeMethod::Monotonic
                 | nexa_ir::TimeMethod::Iso8601
                 | nexa_ir::TimeMethod::Iso8601ToMillis,
@@ -203,7 +204,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
         } => true,
         // Suspending changes when the rest of the action runs, so it is not
         // folded away.
-        Expr::TimeCall { .. } => false,
+        Expr::TimeCall { .. } | Expr::LogCall { .. } => false,
     }
 }
 
@@ -594,7 +595,8 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         | Expr::PermissionOp { .. }
         | Expr::BytesFromText { .. }
         | Expr::BytesFromArray { .. }
-        | Expr::BytesCount { .. } => {}
+        | Expr::BytesCount { .. }
+        | Expr::LogCall { .. } => {}
         Expr::Index {
             collection_type,
             element_type,
