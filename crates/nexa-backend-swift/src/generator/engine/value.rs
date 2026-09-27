@@ -101,26 +101,29 @@ public final class NexaValueWriter {
 /// Every read either advances past a complete value or reports `nil`, so a
 /// truncated or foreign payload can never read out of bounds.
 public final class NexaValueReader {
-    private let bytes: [UInt8]
+    private let data: Data
     private var offset = 0
 
-    public init?(_ data: Data) {
-        bytes = [UInt8](data)
+    public init(_ data: Data) {
+        self.data = data
     }
 
-    private func take(_ count: Int) -> [UInt8]? {
-        guard count >= 0, offset + count <= bytes.count else { return nil }
-        defer { offset += count }
-        return Array(bytes[offset..<(offset + count)])
-    }
-
+    /// Reads a fixed-width value straight out of the payload. The bytes are
+    /// never copied: a decoded struct costs one allocation for its collections,
+    /// not one per field.
     private func readFixedWidth<T: FixedWidthInteger>() -> T? {
-        guard let raw = take(MemoryLayout<T>.size) else { return nil }
-        var value: T = 0
-        withUnsafeMutableBytes(of: &value) { destination in
-            raw.withUnsafeBytes { destination.copyBytes(from: $0) }
+        let size = MemoryLayout<T>.size
+        guard offset + size <= data.count else { return nil }
+        defer { offset += size }
+        return data.withUnsafeBytes { raw in
+            T(littleEndian: raw.loadUnaligned(fromByteOffset: offset, as: T.self))
         }
-        return T(littleEndian: value)
+    }
+
+    private func readSlice(_ count: Int) -> Data? {
+        guard count >= 0, offset + count <= data.count else { return nil }
+        defer { offset += count }
+        return data.subdata(in: offset..<(offset + count))
     }
 
     public func readCount() -> Int? {
@@ -129,18 +132,18 @@ public final class NexaValueReader {
     }
 
     public func readBool() -> Bool? {
-        guard let raw = take(1)?.first, raw <= 1 else { return nil }
+        guard let raw: UInt8 = readFixedWidth(), raw <= 1 else { return nil }
         return raw == 1
     }
 
     public func readString() -> String? {
-        guard let count = readCount(), let raw = take(count) else { return nil }
+        guard let count = readCount(), let raw = readSlice(count) else { return nil }
         return String(decoding: raw, as: UTF8.self)
     }
 
     public func readBuffer() -> Data? {
-        guard let count = readCount(), let raw = take(count) else { return nil }
-        return Data(raw)
+        guard let count = readCount() else { return nil }
+        return readSlice(count)
     }
 "#,
     );

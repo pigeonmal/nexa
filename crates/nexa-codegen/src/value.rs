@@ -97,20 +97,14 @@ fn lowercased(name: &str) -> String {
 
 /// Every codec function a module needs, children before parents, one entry
 /// per distinct type and direction.
+///
+/// The walk covers every place an expression can live: node bodies, state
+/// initializers, app and screen lifecycle actions, and app function bodies.
+/// A codec is emitted because a call uses it, so a type nothing passes to a
+/// generic plugin method costs nothing.
 pub fn collect(module: &nexa_ir::Module) -> Vec<Codec> {
     let mut collector = CodecCollector::default();
-    let visit_nodes = |nodes: &[nexa_ir::Node], collector: &mut CodecCollector| {
-        let mut noop = |_: &nexa_ir::Node| {};
-        let mut visit = |expr: &nexa_ir::Expr| collector.visit_expr(expr);
-        walk_ir(nodes, &mut noop, &mut visit);
-    };
-    visit_nodes(&module.body, &mut collector);
-    for screen in &module.screens {
-        visit_nodes(&screen.body, &mut collector);
-    }
-    for component in &module.components {
-        visit_nodes(&component.body, &mut collector);
-    }
+    collector.module(module);
     collector.codecs
 }
 
@@ -136,6 +130,56 @@ impl IrVisitor for CodecCollector {
 }
 
 impl CodecCollector {
+    /// Walks every place an expression can live: node bodies, state
+    /// initializers, app and screen lifecycle actions, and app function bodies.
+    fn module(&mut self, module: &nexa_ir::Module) {
+        self.nodes(&module.body);
+        for state in &module.states {
+            self.visit_expr(&state.initial);
+        }
+        for function in &module.functions {
+            for local in &function.locals {
+                self.visit_expr(&local.initial);
+            }
+            self.visit_expr(&function.body);
+        }
+        for actions in [
+            &module.on_appear,
+            &module.on_disappear,
+            &module.on_active,
+            &module.on_inactive,
+            &module.on_background,
+        ] {
+            self.actions(actions);
+        }
+        for screen in &module.screens {
+            self.nodes(&screen.body);
+            for state in &screen.states {
+                self.visit_expr(&state.initial);
+            }
+            self.actions(&screen.on_appear);
+            self.actions(&screen.on_disappear);
+        }
+        for component in &module.components {
+            self.nodes(&component.body);
+            for state in &component.states {
+                self.visit_expr(&state.initial);
+            }
+        }
+    }
+
+    fn actions(&mut self, actions: &Option<Vec<nexa_ir::Action>>) {
+        if let Some(actions) = actions {
+            nexa_ir::walk::walk_actions(actions, &mut |expr| self.visit_expr(expr));
+        }
+    }
+
+    fn nodes(&mut self, nodes: &[nexa_ir::Node]) {
+        let mut noop = |_: &nexa_ir::Node| {};
+        let mut visit = |expr: &nexa_ir::Expr| self.visit_expr(expr);
+        walk_ir(nodes, &mut noop, &mut visit);
+    }
+
 
     /// Records `ty` and every type nested inside it, innermost first, so a
     /// collection's codec is always declared after the codecs it calls.
@@ -309,23 +353,33 @@ public class NexaValueWriter {
     fun toByteArray(): ByteArray = buffer.copyOf(position)
 }
 
-/** Bounds-checked reader over an encoded value. */
+/**
+ * Bounds-checked reader over an encoded value.
+ *
+ * The payload is wrapped once, so a fixed-width read is a bounds check and a
+ * load with no allocation. Only a string or a byte buffer copies, and that copy
+ * is the value being returned.
+ */
 public class NexaValueReader(private val bytes: ByteArray) {
-    private var position = 0
+    private val buffer: java.nio.ByteBuffer =
+        java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+
+    private fun has(count: Int): Boolean =
+        count >= 0 && buffer.remaining() >= count
 
     private fun take(count: Int): ByteArray? {
-        if (count < 0 || position + count > bytes.size) {
+        if (!has(count)) {
             return null
         }
-        val slice = bytes.copyOfRange(position, position + count)
-        position += count
+        val slice = ByteArray(count)
+        buffer.get(slice)
         return slice
     }
 
     fun readCount(): Int? = readInt32()
 
     fun readBool(): Boolean? {
-        val raw = take(1)?.first()?.toInt() ?: return null
+        val raw = readUInt8()?.toInt() ?: return null
         if (raw > 1) {
             return null
         }
@@ -343,28 +397,19 @@ public class NexaValueReader(private val bytes: ByteArray) {
         return take(count)
     }
 
-    fun readInt8(): Byte? = take(1)?.first()
+    fun readInt8(): Byte? = readUInt8()?.toByte()
 
-    fun readInt16(): Short? {
-        val raw = take(2) ?: return null
-        val low = raw[0].toInt() and 0xFF
-        val high = raw[1].toInt() and 0xFF
-        return ((high shl 8) or low).toShort()
-    }
+    fun readInt16(): Short? =
+        if (!has(2)) null else buffer.short
 
-    fun readInt32(): Int? {
-        val low = readInt16() ?: return null
-        val high = readInt16() ?: return null
-        return (high.toInt() shl 16) or (low.toInt() and 0xFFFF)
-    }
+    fun readInt32(): Int? =
+        if (!has(4)) null else buffer.int
 
-    fun readInt64(): Long? {
-        val low = readInt32() ?: return null
-        val high = readInt32() ?: return null
-        return (high.toLong() shl 32) or (low.toLong() and 0xFFFFFFFFL)
-    }
+    fun readInt64(): Long? =
+        if (!has(8)) null else buffer.long
 
-    fun readUInt8(): UByte? = readInt8()?.toUByte()
+    fun readUInt8(): UByte? =
+        if (!has(1)) null else buffer.get().toUByte()
 
     fun readUInt16(): UShort? = readInt16()?.toUShort()
 
@@ -390,3 +435,115 @@ public fun nexaCompareBytes(left: ByteArray, right: ByteArray): Int {
 }
 
 "#;
+
+#[cfg(test)]
+mod tests {
+    use nexa_ir::{Action, Expr, NumericType, PluginCodec, Type};
+
+    use super::{codec_name, collect, Direction};
+
+    /// A module whose only generic call sits in a lifecycle action rather than
+    /// a body, which is where a call to a plugin that restores state belongs.
+    fn module_with_lifecycle_call() -> nexa_ir::Module {
+        nexa_ir::Module {
+            app_name: "Demo".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: Vec::new(),
+            status_bar: None,
+            direction: None,
+            on_appear: Some(vec![Action::Expression(Expr::NativeCall {
+                receiver: None,
+                namespace: "Store".to_owned(),
+                name: "getObject".to_owned(),
+                arguments: Vec::new(),
+                codecs: vec![PluginCodec {
+                    ty: Type::Numeric(NumericType::Float64),
+                    decodes: true,
+                }],
+                return_type: Type::Optional(Box::new(Type::Numeric(NumericType::Float64))),
+                is_async: false,
+                is_throwing: false,
+            })]),
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        }
+    }
+
+    /// A codec is emitted because a call uses it, so a call the walk does not
+    /// reach would leave the generated call site pointing at a function that was
+    /// never written.
+    #[test]
+    fn a_lifecycle_call_collects_its_codec() {
+        let codecs = collect(&module_with_lifecycle_call());
+        assert_eq!(
+            codecs
+                .iter()
+                .map(|codec| codec_name(&codec.ty, codec.direction))
+                .collect::<Vec<_>>(),
+            ["nexaReadfloat64"]
+        );
+    }
+
+    /// Nested types are collected before the type that calls them, so a codec
+    /// is always declared after the codecs it uses.
+    #[test]
+    fn nested_codecs_come_before_the_collection_that_uses_them() {
+        let mut module = module_with_lifecycle_call();
+        let call = match &mut module.on_appear.as_mut().expect("lifecycle actions")[0] {
+            Action::Expression(expression) => expression,
+            _ => unreachable!("the fixture is an expression"),
+        };
+        if let Expr::NativeCall { codecs, .. } = call {
+            codecs.clear();
+            codecs.push(PluginCodec {
+                ty: Type::Map(
+                    Box::new(Type::String),
+                    Box::new(Type::Array(Box::new(Type::Bool))),
+                ),
+                decodes: false,
+            });
+        }
+        let names = collect(&module)
+            .iter()
+            .map(|codec| codec_name(&codec.ty, codec.direction))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            [
+                "nexaWritestring",
+                "nexaWritebool",
+                "nexaWritearray_bool",
+                "nexaWritemap_string_array_bool",
+            ],
+            "a collection's element codecs must be declared before the collection's own"
+        );
+    }
+
+    /// A type no call passes to a generic method costs nothing: only the
+    /// direction a call actually uses is collected.
+    #[test]
+    fn only_the_direction_a_call_uses_is_collected() {
+        let module = module_with_lifecycle_call();
+        let codecs = collect(&module);
+        assert_eq!(codecs.len(), 1);
+        assert_eq!(codecs[0].direction, Direction::Read);
+    }
+
+    /// A module with no generic call emits no codec at all.
+    #[test]
+    fn a_module_without_generic_calls_emits_nothing() {
+        let mut module = module_with_lifecycle_call();
+        module.on_appear = None;
+        assert!(collect(&module).is_empty());
+    }
+}
