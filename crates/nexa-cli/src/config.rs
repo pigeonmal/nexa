@@ -37,7 +37,9 @@ pub(super) struct ProjectConfig {
     permissions: Vec<(Permission, String)>,
     plugins: Vec<PluginConfig>,
     pub(super) ios_min_version: String,
+    pub(super) ios_arch: Option<String>,
     pub(super) android_min_sdk: u32,
+    pub(super) android_arch: Option<String>,
     pub(super) android_target_sdk: u32,
     pub(super) ios_bundle_identifier: String,
     pub(super) android_application_id: String,
@@ -49,6 +51,18 @@ pub(super) struct ProjectConfig {
 }
 
 impl ProjectConfig {
+    pub(super) fn set_arch_override(&mut self, arch: &str, target: &str) -> Result<(), String> {
+        if matches!(target, "ios" | "all") {
+            validate_ios_arch(arch)?;
+            self.ios_arch = Some(arch.to_owned());
+        }
+        if matches!(target, "android" | "all") {
+            android_abi_for_arch(arch)?;
+            self.android_arch = Some(arch.to_owned());
+        }
+        Ok(())
+    }
+
     pub(super) fn with_flavor(&self, name: &str) -> Result<Self, String> {
         let mut config = self.clone();
         let configured = config.flavors.iter().find(|flavor| flavor.name == name);
@@ -160,10 +174,18 @@ impl ProjectConfig {
             .as_ref()
             .and_then(|ios| ios.min_version.clone())
             .unwrap_or_else(|| "16.0".to_owned());
+        let ios_arch = ios
+            .as_ref()
+            .and_then(|ios| ios.arch.clone())
+            .filter(|arch| !arch.is_empty());
         let android_min_sdk = android
             .as_ref()
             .and_then(|android| android.min_sdk)
             .unwrap_or(24);
+        let android_arch = android
+            .as_ref()
+            .and_then(|android| android.arch.clone())
+            .filter(|arch| !arch.is_empty());
         if display_name.trim().is_empty() {
             return Err(format!(
                 "{}: app displayName cannot be empty",
@@ -189,6 +211,12 @@ impl ProjectConfig {
             ));
         }
         validate_ios_deployment_version(path, &ios_min_version)?;
+        if let Some(arch) = &ios_arch {
+            validate_ios_arch(arch).map_err(|error| format!("{}: {error}", path.display()))?;
+        }
+        if let Some(arch) = &android_arch {
+            android_abi_for_arch(arch).map_err(|error| format!("{}: {error}", path.display()))?;
+        }
         if android_min_sdk == 0 || android_min_sdk > android_target_sdk {
             return Err(format!(
                 "{}: Android minSdk must be between 1 and targetSdk ({android_target_sdk}) (found {android_min_sdk})",
@@ -218,7 +246,9 @@ impl ProjectConfig {
             permissions,
             plugins,
             ios_min_version,
+            ios_arch,
             android_min_sdk,
+            android_arch,
             android_target_sdk,
             ios_bundle_identifier,
             android_application_id,
@@ -248,7 +278,9 @@ impl ProjectConfig {
             permissions: Vec::new(),
             plugins,
             ios_min_version: "16.0".to_owned(),
+            ios_arch: None,
             android_min_sdk: 24,
+            android_arch: None,
             android_target_sdk: 36,
             ios_bundle_identifier: format!("com.nexa.{}", fallback_name.to_ascii_lowercase()),
             android_application_id: format!("com.nexa.{}", fallback_name.to_ascii_lowercase()),
@@ -269,8 +301,18 @@ impl ProjectConfig {
     }
 
     pub(super) fn render(&self) -> String {
+        let ios_arch = self
+            .ios_arch
+            .as_deref()
+            .map(|arch| format!(", arch: {}", nexa_config_string(arch)))
+            .unwrap_or_default();
+        let android_arch = self
+            .android_arch
+            .as_deref()
+            .map(|arch| format!(", arch: {}", nexa_config_string(arch)))
+            .unwrap_or_default();
         let mut output = format!(
-            "config {{\n    app {{ displayName: {}, version: {}, buildNumber: {}, stagingSuffix: {}, deepLinks: {} }}\n    assets {{ icon: {}, splash: {} }}\n    ios {{ minVersion: {}, bundleIdentifier: {}, icon: {} }}\n    android {{ minSdk: {}, targetSdk: {}, applicationId: {}, icon: {} }}\n    permissions {{\n",
+            "config {{\n    app {{ displayName: {}, version: {}, buildNumber: {}, stagingSuffix: {}, deepLinks: {} }}\n    assets {{ icon: {}, splash: {} }}\n    ios {{ minVersion: {}, bundleIdentifier: {}, icon: {}{ios_arch} }}\n    android {{ minSdk: {}, targetSdk: {}, applicationId: {}, icon: {}{android_arch} }}\n    permissions {{\n",
             nexa_config_string(&self.display_name),
             nexa_config_string(&self.version),
             self.build_number,
@@ -373,6 +415,27 @@ impl ProjectConfig {
         }
         output.push_str("}\n");
         output
+    }
+}
+
+pub(super) fn validate_ios_arch(arch: &str) -> Result<(), String> {
+    match arch {
+        "arm64" | "x86_64" => Ok(()),
+        _ => Err(format!(
+            "unsupported iOS architecture `{arch}`; expected `arm64` or `x86_64`"
+        )),
+    }
+}
+
+pub(super) fn android_abi_for_arch(arch: &str) -> Result<&'static str, String> {
+    match arch {
+        "arm64" | "arm64-v8a" => Ok("arm64-v8a"),
+        "armv7" | "armeabi-v7a" => Ok("armeabi-v7a"),
+        "x86" => Ok("x86"),
+        "x86_64" => Ok("x86_64"),
+        _ => Err(format!(
+            "unsupported Android architecture `{arch}`; expected `arm64`, `armv7`, `x86`, or `x86_64`"
+        )),
     }
 }
 

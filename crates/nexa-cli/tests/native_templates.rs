@@ -65,6 +65,32 @@ fn android_release_signing_is_configured_at_build_time() {
 }
 
 #[test]
+fn android_architecture_selects_a_single_ndk_abi() {
+    let mut config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    config.android_arch = Some("arm64".to_owned());
+    let gradle = templates::android_app_gradle_with_dev_runtime(
+        "demo",
+        nexa_backend_kotlin::KotlinProjectFeatures::default(),
+        &[],
+        &[],
+        &config,
+        false,
+    )
+    .unwrap();
+    assert!(gradle.contains("ndk { abiFilters.add(\"arm64-v8a\") }"));
+}
+
+#[test]
+fn android_architecture_names_map_to_supported_abis() {
+    assert_eq!(config::android_abi_for_arch("arm64").unwrap(), "arm64-v8a");
+    assert_eq!(
+        config::android_abi_for_arch("armv7").unwrap(),
+        "armeabi-v7a"
+    );
+    assert!(config::android_abi_for_arch("sparc").is_err());
+}
+
+#[test]
 fn android_dev_runtime_preloads_compose_and_platform_dependencies() {
     let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
     let dependencies = templates::android_app_gradle_with_dev_runtime(
@@ -177,6 +203,25 @@ mod template_generation {
             plugins,
             &config,
         )
+    }
+
+    #[test]
+    fn ios_architecture_is_applied_to_debug_and_release() {
+        let mut config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
+        config.ios_arch = Some("arm64".to_owned());
+        let project = ios_project_file_with_config(
+            "Demo",
+            false,
+            false,
+            &["NexaGenerated.swift".to_owned()],
+            &[],
+            &[],
+            &[],
+            &[],
+            &config,
+        )
+        .unwrap();
+        assert_eq!(project.matches("ARCHS = arm64;").count(), 2);
     }
 
     fn android_app_gradle(
@@ -840,6 +885,27 @@ mod template_generation {
             }
         }
         assert!(!plist.contains("NSNotificationsUsageDescription"));
+    }
+
+    #[test]
+    fn project_config_parses_and_validates_architectures() {
+        let home = nexa_testkit::TempDir::new("nexa-project-architecture");
+        let path = home.path().join("nexa.config.nx");
+        fs::write(
+            &path,
+            r#"config { ios { arch: "arm64" } android { arch: "arm64" } }"#,
+        )
+        .expect("write architecture config");
+        let config = ProjectConfig::parse_file(&path, &[], "Architecture")
+            .expect("parse architecture settings");
+        assert_eq!(config.ios_arch.as_deref(), Some("arm64"));
+        assert_eq!(config.android_arch.as_deref(), Some("arm64"));
+
+        fs::write(&path, r#"config { ios { arch: "x86" } }"#)
+            .expect("write invalid architecture config");
+        let error = ProjectConfig::parse_file(&path, &[], "Architecture")
+            .expect_err("unsupported iOS architecture should fail");
+        assert!(error.contains("unsupported iOS architecture"));
     }
 
     #[test]

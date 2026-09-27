@@ -137,6 +137,7 @@ pub struct IosConfig {
     pub min_version: Option<String>,
     pub bundle_identifier: Option<String>,
     pub icon: Option<String>,
+    pub arch: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -145,6 +146,7 @@ pub struct AndroidConfig {
     pub target_sdk: Option<u32>,
     pub application_id: Option<String>,
     pub icon: Option<String>,
+    pub arch: Option<String>,
 }
 
 #[derive(Clone, Debug)]

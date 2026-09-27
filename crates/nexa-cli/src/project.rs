@@ -66,6 +66,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let mut deny_warnings = false;
     let mut locked = false;
     let mut flavor = None;
+    let mut arch = None;
     let mut dev_server_url = None;
     let mut dev_session_token = None;
     let mut cursor = 0;
@@ -95,6 +96,14 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
                 flavor = Some(
                     args.get(cursor)
                         .ok_or("`--flavor` requires a name")?
+                        .clone(),
+                );
+            }
+            "--arch" => {
+                cursor += 1;
+                arch = Some(
+                    args.get(cursor)
+                        .ok_or("`--arch` requires an architecture")?
                         .clone(),
                 );
             }
@@ -176,6 +185,11 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         format!("{project_target}-flavor-{flavor}")
     } else {
         project_target.to_owned()
+    };
+    let project_target = if let Some(arch) = &arch {
+        format!("{project_target}-arch-{arch}")
+    } else {
+        project_target
     };
     let project_target = if dev_session.is_some() {
         format!("{project_target}-dev-runtime")
@@ -296,6 +310,14 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     }
     if let Some(flavor) = &flavor {
         project_config = project_config.with_flavor(flavor)?;
+    }
+    if let Some(arch) = &arch {
+        let target = match target {
+            ProjectTarget::Ios => "ios",
+            ProjectTarget::Android => "android",
+            ProjectTarget::All => "all",
+        };
+        project_config.set_arch_override(arch, target)?;
     }
 
     fs::create_dir_all(&output).map_err(|error| format!("{}: {error}", output.display()))?;

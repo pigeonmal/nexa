@@ -163,6 +163,7 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     let mut output = PathBuf::from("build");
     let mut output_was_set = false;
     let mut flavor: Option<String> = None;
+    let mut arch: Option<String> = None;
     let mut platform_set = false;
     let mut once = false;
     let mut compile_only = false;
@@ -207,6 +208,17 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
                     &mut flavor,
                     args.get(cursor).ok_or("`--flavor` requires a name")?,
                 )?;
+            }
+            "--arch" => {
+                cursor += 1;
+                if arch.is_some() {
+                    return Err("`--arch` may only be specified once".to_owned());
+                }
+                arch = Some(
+                    args.get(cursor)
+                        .ok_or("`--arch` requires an architecture")?
+                        .clone(),
+                );
             }
             "--help" | "-h" => {
                 print_command_help(command);
@@ -254,6 +266,27 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     } else {
         platform.as_str()
     };
+    if matches!(command, "test" | "release") && matches!(platform.as_str(), "ios" | "all") {
+        let configured_ios_arch = root
+            .join("nexa.config.nx")
+            .is_file()
+            .then(|| {
+                fs::read_to_string(root.join("nexa.config.nx"))
+                    .map_err(|error| format!("nexa.config.nx: {error}"))
+            })
+            .transpose()?
+            .map(|source| {
+                nexa_syntax::parse_config(&source)
+                    .map_err(|error| format!("nexa.config.nx: {error}"))
+            })
+            .transpose()?
+            .and_then(|config| config.ios.and_then(|ios| ios.arch))
+            .filter(|arch| !arch.is_empty());
+        let requested_arch = arch.as_deref().or(configured_ios_arch.as_deref());
+        if requested_arch.is_some_and(|arch| arch != "arm64") {
+            return Err("iOS device builds require `arm64`; `x86_64` is supported for `nexa dev` simulator builds".to_owned());
+        }
+    }
     if once && compile_only {
         return Err("choose only one of `--once` and `--compile-only`".to_owned());
     }
@@ -269,6 +302,10 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     if let Some(flavor) = flavor {
         project_args.push("--flavor".to_owned());
         project_args.push(flavor);
+    }
+    if let Some(arch) = arch {
+        project_args.push("--arch".to_owned());
+        project_args.push(arch);
     }
     if locked {
         project_args.push("--locked".to_owned());
@@ -1366,16 +1403,16 @@ fn print_command_help(command: &str) {
         "check" => println!("Usage: nexa check [--ios | --android] [--deny-warnings] [--locked]"),
         "dev" => {
             println!(
-                "Usage: nexa dev [--ios | --android] [--once | --compile-only] [--flavor <name>] [--out <directory>] [--locked]\nWhile running: `r` hot reloads, `Shift+R` hot restarts, `b` rebuilds and relaunches, and `p` toggles the performance overlay."
+                "Usage: nexa dev [--ios | --android] [--arch <architecture>] [--once | --compile-only] [--flavor <name>] [--out <directory>] [--locked]\nWhile running: `r` hot reloads, `Shift+R` hot restarts, `b` rebuilds and relaunches, and `p` toggles the performance overlay."
             )
         }
         "test" => {
             println!(
-                "Usage: nexa test [--ios | --android] [--flavor <name>] [--out <directory>] [--locked]"
+                "Usage: nexa test [--ios | --android] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]"
             )
         }
         "release" => println!(
-            "Usage: nexa release [--ios | --android] [--flavor <name>] [--out <directory>] [--locked]\nBuilds an iOS archive or Android AAB. Configure signing through Xcode or the native Gradle project."
+            "Usage: nexa release [--ios | --android] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]\nBuilds an iOS archive or Android AAB. Configure signing through Xcode or the native Gradle project."
         ),
         "plugin" => println!(
             "Usage:\n  nexa plugin init <plugin.id> --out <directory> [--name <TypeName>] [--kind native|pure]\n  nexa plugin check <package-directory|native.nxid>\n  nexa plugin generate <package-directory|native.nxid> --target <swift|kotlin|cpp> [--package <name>] [--out <directory>]"

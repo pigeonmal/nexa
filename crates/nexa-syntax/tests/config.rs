@@ -24,6 +24,25 @@ fn parses_shared_assets_and_platform_icon_overrides() {
 }
 
 #[test]
+fn parses_platform_architecture_options() {
+    let config = parse_config(
+        r#"config {
+            ios { arch: "arm64" }
+            android { arch: "arm64" }
+        }"#,
+    )
+    .expect("valid platform architecture configuration");
+    assert_eq!(
+        config.ios.expect("iOS config").arch.as_deref(),
+        Some("arm64")
+    );
+    assert_eq!(
+        config.android.expect("Android config").arch.as_deref(),
+        Some("arm64")
+    );
+}
+
+#[test]
 fn requires_git_plugin_dependencies_to_pin_a_revision() {
     let error = parse_config(
         r#"config { dependencies { Math { id: "dev.example.math", git: "https://example.dev/math.git" } } }"#,

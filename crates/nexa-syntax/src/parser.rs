@@ -275,6 +275,7 @@ impl Parser {
             min_version: None,
             bundle_identifier: None,
             icon: None,
+            arch: None,
         };
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             let (field, field_span) = self.ident()?;
@@ -285,6 +286,7 @@ impl Parser {
                     config.bundle_identifier = Some(self.config_string("ios bundleIdentifier")?)
                 }
                 "icon" => config.icon = Some(self.config_string("ios icon")?),
+                "arch" => config.arch = Some(self.config_string("ios arch")?),
                 _ => {
                     return Err(CompileError::new(
                         field_span,
@@ -306,6 +308,7 @@ impl Parser {
             target_sdk: None,
             application_id: None,
             icon: None,
+            arch: None,
         };
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             let (field, field_span) = self.ident()?;
@@ -317,6 +320,7 @@ impl Parser {
                     config.application_id = Some(self.config_string("android applicationId")?)
                 }
                 "icon" => config.icon = Some(self.config_string("android icon")?),
+                "arch" => config.arch = Some(self.config_string("android arch")?),
                 _ => {
                     return Err(CompileError::new(
                         field_span,
