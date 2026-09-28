@@ -14,7 +14,7 @@ use super::bridge_plan::{
 
 pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
     let mut out = String::from(
-        "import Foundation\nimport SwiftUI\n\n@MainActor\ninternal enum NexaDevPluginBridge {\n    static func construct(namespace: String, name: String, arguments: [Any]) -> (Bool, Any) {\n        switch (namespace, name) {\n",
+        "import Foundation\nimport SwiftUI\n\ninternal struct NexaDevPluginFailure: Error, @unchecked Sendable {\n    let namespace: String\n    let errorType: String\n    let variant: String\n    let payload: [String: Any]\n}\n\n@MainActor\ninternal enum NexaDevPluginBridge {\n    static func construct(namespace: String, name: String, arguments: [Any]) -> (Bool, Any) {\n        switch (namespace, name) {\n",
     );
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_swift_contract(contract)?;
@@ -41,7 +41,7 @@ pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
             .filter(|interface| interface.kind == InterfaceKind::Service)
         {
             for method in &interface.methods {
-                if !supported(method) || method.is_async || method.error_type().is_some() {
+                if !supported(method) || method.is_async {
                     continue;
                 }
                 render_swift_method(&mut out, namespace, method, false);
@@ -78,6 +78,7 @@ pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
     render_swift_instance_properties(&mut out, plugins)?;
     render_swift_instance_events(&mut out, plugins)?;
     render_swift_components(&mut out, plugins)?;
+    render_swift_plugin_errors(&mut out, plugins)?;
     out.push_str(
         "    private static func decodeString(_ raw: Any?) -> String? { raw as? String }\n    private static func decodeBool(_ raw: Any?) -> Bool? { (raw as? NSNumber).map { $0.boolValue } }\n    private static func decodeBytes(_ raw: Any?) -> Data? {\n        guard let text = raw as? String else { return nil }\n        return Data(base64Encoded: text)\n    }\n    private static func decodeOptionalString(_ raw: Any?) -> String? { raw is NSNull ? nil : raw as? String }\n    private static func decodeOptionalBool(_ raw: Any?) -> Bool? { raw is NSNull ? nil : (raw as? NSNumber).map { $0.boolValue } }\n    private static func decodeOptionalBytes(_ raw: Any?) -> Data? { raw is NSNull ? nil : decodeBytes(raw) }\n    private static func decodeInt8(_ raw: Any?) -> Int8? { (raw as? NSNumber).map { Int8(truncatingIfNeeded: $0.int64Value) } }\n    private static func decodeInt16(_ raw: Any?) -> Int16? { (raw as? NSNumber).map { Int16(truncatingIfNeeded: $0.int64Value) } }\n    private static func decodeInt32(_ raw: Any?) -> Int32? { (raw as? NSNumber).map { Int32(truncatingIfNeeded: $0.int64Value) } }\n    private static func decodeInt64(_ raw: Any?) -> Int64? { (raw as? NSNumber).map { $0.int64Value } }\n    private static func decodeUInt8(_ raw: Any?) -> UInt8? { (raw as? NSNumber).map { UInt8(truncatingIfNeeded: $0.uint64Value) } }\n    private static func decodeUInt16(_ raw: Any?) -> UInt16? { (raw as? NSNumber).map { UInt16(truncatingIfNeeded: $0.uint64Value) } }\n    private static func decodeUInt32(_ raw: Any?) -> UInt32? { (raw as? NSNumber).map { UInt32(truncatingIfNeeded: $0.uint64Value) } }\n    private static func decodeUInt64(_ raw: Any?) -> UInt64? { (raw as? NSNumber).map { $0.uint64Value } }\n    private static func decodeFloat32(_ raw: Any?) -> Float? { (raw as? NSNumber).map { $0.floatValue } }\n    private static func decodeFloat64(_ raw: Any?) -> Double? { (raw as? NSNumber).map { $0.doubleValue } }\n    private static func decodeOptionalInt8(_ raw: Any?) -> Int8? { raw is NSNull ? nil : decodeInt8(raw) }\n    private static func decodeOptionalInt16(_ raw: Any?) -> Int16? { raw is NSNull ? nil : decodeInt16(raw) }\n    private static func decodeOptionalInt32(_ raw: Any?) -> Int32? { raw is NSNull ? nil : decodeInt32(raw) }\n    private static func decodeOptionalInt64(_ raw: Any?) -> Int64? { raw is NSNull ? nil : decodeInt64(raw) }\n    private static func decodeOptionalUInt8(_ raw: Any?) -> UInt8? { raw is NSNull ? nil : decodeUInt8(raw) }\n    private static func decodeOptionalUInt16(_ raw: Any?) -> UInt16? { raw is NSNull ? nil : decodeUInt16(raw) }\n    private static func decodeOptionalUInt32(_ raw: Any?) -> UInt32? { raw is NSNull ? nil : decodeUInt32(raw) }\n    private static func decodeOptionalUInt64(_ raw: Any?) -> UInt64? { raw is NSNull ? nil : decodeUInt64(raw) }\n    private static func decodeOptionalFloat32(_ raw: Any?) -> Float? { raw is NSNull ? nil : decodeFloat32(raw) }\n    private static func decodeOptionalFloat64(_ raw: Any?) -> Double? { raw is NSNull ? nil : decodeFloat64(raw) }\n}\n",
     );
@@ -86,7 +87,7 @@ pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
 
 pub(super) fn kotlin(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
     let mut out = String::from(
-        "import android.util.Base64\nimport org.json.JSONObject\n\ninternal object NexaDevPluginBridge {\n    fun construct(namespace: String, name: String, arguments: List<Any>): Pair<Boolean, Any> =\n        when (\"$namespace.$name\") {\n",
+        "import android.util.Base64\nimport org.json.JSONObject\n\ninternal class NexaDevPluginFailure(\n    val namespace: String,\n    val errorType: String,\n    val variant: String,\n    val payload: Map<String, Any>,\n    cause: Throwable? = null,\n) : Exception(\"$namespace.$errorType.$variant\", cause)\n\ninternal object NexaDevPluginBridge {\n    fun construct(namespace: String, name: String, arguments: List<Any>): Pair<Boolean, Any> =\n        when (\"$namespace.$name\") {\n",
     );
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_kotlin_contract(contract)?;
@@ -113,7 +114,7 @@ pub(super) fn kotlin(plugins: &[(String, PluginIdl)]) -> Result<String, String> 
             .filter(|interface| interface.kind == InterfaceKind::Service)
         {
             for method in &interface.methods {
-                if !supported(method) || method.is_async || method.error_type().is_some() {
+                if !supported(method) || method.is_async {
                     continue;
                 }
                 render_kotlin_method(&mut out, namespace, method, false);
@@ -146,6 +147,7 @@ pub(super) fn kotlin(plugins: &[(String, PluginIdl)]) -> Result<String, String> 
     render_kotlin_instance_properties(&mut out, plugins)?;
     render_kotlin_instance_events(&mut out, plugins)?;
     render_kotlin_components(&mut out, plugins)?;
+    render_kotlin_plugin_errors(&mut out, plugins)?;
     out.push_str("    private fun decodeBytes(raw: Any?): ByteArray? =\n        (raw as? String)?.let { Base64.decode(it, Base64.DEFAULT) }\n    private fun decodeOptionalString(raw: Any?): String? = if (raw == null || raw == JSONObject.NULL) null else raw as? String\n    private fun decodeOptionalBool(raw: Any?): Boolean? = if (raw == null || raw == JSONObject.NULL) null else raw as? Boolean\n    private fun decodeOptionalBytes(raw: Any?): ByteArray? = if (raw == null || raw == JSONObject.NULL) null else decodeBytes(raw)\n    private fun decodeOptionalNumber(raw: Any?, type: String): Any? {\n        if (raw == null || raw == JSONObject.NULL) return null\n        val number = raw as? Number ?: return null\n        return when (type) {\n            \"Int8\" -> number.toByte()\n            \"Int16\" -> number.toShort()\n            \"Int32\" -> number.toInt()\n            \"Int64\" -> number.toLong()\n            \"UInt8\" -> number.toByte().toUByte()\n            \"UInt16\" -> number.toShort().toUShort()\n            \"UInt32\" -> number.toInt().toUInt()\n            \"UInt64\" -> number.toLong().toULong()\n            \"Float32\" -> number.toFloat()\n            else -> number.toDouble()\n        }\n    }\n}\n");
     Ok(out)
 }
@@ -830,6 +832,125 @@ fn render_swift_enum_codecs(out: &mut String, namespace: &str, plan: &BridgePlan
     }
 }
 
+fn dev_error_helper(namespace: &str, error_type: &str) -> String {
+    let suffix = namespace
+        .chars()
+        .chain(error_type.chars())
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect::<String>();
+    format!("nexaDevFailure{suffix}")
+}
+
+fn render_swift_plugin_errors(
+    out: &mut String,
+    plugins: &[(String, PluginIdl)],
+) -> Result<(), String> {
+    for (namespace, contract) in plugins {
+        let plan = BridgePlan::validate_swift_contract(contract)?;
+        for error in &plan.referenced_errors {
+            let helper = dev_error_helper(namespace, &error.name);
+            out.push_str(&format!(
+                "    private static func {helper}(_ error: {}) -> NexaDevPluginFailure {{\n        switch error {{\n",
+                error.name
+            ));
+            for variant in &error.cases {
+                let bindings = variant
+                    .parameters
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| format!("nexaPayload{index}"))
+                    .collect::<Vec<_>>();
+                let pattern = if bindings.is_empty() {
+                    format!("case .{}:", variant.name)
+                } else {
+                    let labeled_bindings = variant
+                        .parameters
+                        .iter()
+                        .zip(&bindings)
+                        .map(|(parameter, binding)| format!("{}: let {}", parameter.name, binding))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("case .{}({}):", variant.name, labeled_bindings)
+                };
+                out.push_str(&format!("        {pattern}\n"));
+                let fields = variant
+                    .parameters
+                    .iter()
+                    .zip(bindings)
+                    .map(|(parameter, binding)| {
+                        format!(
+                            "\"{}\": {} as Any",
+                            swift_escape(&parameter.name),
+                            swift_encode_value(&parameter.ty, &binding, namespace)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let payload = if fields.is_empty() {
+                    "[:]".to_owned()
+                } else {
+                    format!("[{fields}]")
+                };
+                out.push_str(&format!(
+                    "            return NexaDevPluginFailure(namespace: \"{}\", errorType: \"{}\", variant: \"{}\", payload: {})\n",
+                    swift_escape(namespace),
+                    swift_escape(&error.name),
+                    swift_escape(&variant.name),
+                    payload
+                ));
+            }
+            out.push_str("        }\n    }\n\n");
+        }
+    }
+    Ok(())
+}
+
+fn render_kotlin_plugin_errors(
+    out: &mut String,
+    plugins: &[(String, PluginIdl)],
+) -> Result<(), String> {
+    for (namespace, contract) in plugins {
+        let plan = BridgePlan::validate_kotlin_contract(contract)?;
+        for error in &plan.referenced_errors {
+            let helper = dev_error_helper(namespace, &error.name);
+            out.push_str(&format!(
+                "    private fun {helper}(error: {}): NexaDevPluginFailure = when (error) {{\n",
+                error.name
+            ));
+            for variant in &error.cases {
+                let fields = variant
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        format!(
+                            "\"{}\" to {}",
+                            kotlin_escape(&parameter.name),
+                            kotlin_encode_value(
+                                &parameter.ty,
+                                &format!("error.{}", parameter.name)
+                            )
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let pattern = if variant.parameters.is_empty() {
+                    format!("{}.{}", error.name, variant.name)
+                } else {
+                    format!("is {}.{}", error.name, variant.name)
+                };
+                out.push_str(&format!(
+                    "        {pattern} -> NexaDevPluginFailure(\"{}\", \"{}\", \"{}\", mapOf<String, Any>({fields}))\n",
+                    kotlin_escape(namespace),
+                    kotlin_escape(&error.name),
+                    kotlin_escape(&variant.name),
+                ));
+            }
+            out.push_str("    }\n\n");
+        }
+    }
+    Ok(())
+}
+
 fn swift_enum_base(namespace: &str, name: &str) -> String {
     let prefix = namespace
         .chars()
@@ -966,10 +1087,7 @@ fn render_swift_instance_methods(
             .filter(|interface| interface.kind == InterfaceKind::NativeClass)
         {
             for method in &interface.methods {
-                if !supported(method)
-                    || (method.error_type().is_some() && !asynchronous)
-                    || (!asynchronous && method.is_async)
-                {
+                if !supported(method) || (!asynchronous && method.is_async) {
                     continue;
                 }
                 out.push_str(&format!(
@@ -997,19 +1115,42 @@ fn render_swift_instance_methods(
                     (false, true) => "try ",
                     (false, false) => "",
                 };
+                let error_type = method.error_type();
+                if error_type.is_some() {
+                    out.push_str("            do {\n");
+                }
+                let indent = if error_type.is_some() {
+                    "                "
+                } else {
+                    "            "
+                };
                 if method.success_type().is_void() {
                     out.push_str(&format!(
-                        "            {prefix}nexaReceiver.{}({arguments})\n            return (true, NSNull())\n        }}\n",
-                        method.name
+                        "{indent}{prefix}nexaReceiver.{}({arguments})\n{indent}return (true, NSNull())\n",
+                        method.name,
                     ));
                 } else {
                     out.push_str(&format!(
-                        "            let result = {prefix}nexaReceiver.{}({arguments})\n",
-                        method.name
+                        "{indent}let result = {prefix}nexaReceiver.{}({arguments})\n",
+                        method.name,
                     ));
-                    render_swift_result(out, method.success_type(), "            ");
-                    out.push_str("        }\n");
+                    render_swift_result(out, method.success_type(), indent);
                 }
+                if let Some(error_type) = error_type {
+                    let helper = dev_error_helper(namespace, error_type);
+                    out.push_str(&format!(
+                        "            }} catch let error as {error_type} {{\n"
+                    ));
+                    if asynchronous {
+                        out.push_str(&format!("                throw Self.{helper}(error)\n",));
+                    } else {
+                        out.push_str(&format!(
+                            "                return (true, Self.{helper}(error))\n",
+                        ));
+                    }
+                    out.push_str("            }\n");
+                }
+                out.push_str("        }\n");
             }
         }
     }
@@ -1055,19 +1196,33 @@ fn render_kotlin_instance_methods(
                     .map(|index| format!("nexaArg{index}"))
                     .collect::<Vec<_>>()
                     .join(", ");
+                if method.error_type().is_some() {
+                    out.push_str("            try {\n");
+                }
+                let indent = if method.error_type().is_some() {
+                    "                "
+                } else {
+                    "            "
+                };
                 if method.success_type().is_void() {
                     out.push_str(&format!(
-                        "            nexaReceiver.{}({arguments})\n            return true to JSONObject.NULL\n        }}\n",
+                        "{indent}nexaReceiver.{}({arguments})\n{indent}return true to JSONObject.NULL\n",
                         method.name
                     ));
                 } else {
                     out.push_str(&format!(
-                        "            val result = nexaReceiver.{}({arguments})\n",
+                        "{indent}val result = nexaReceiver.{}({arguments})\n",
                         method.name
                     ));
-                    render_kotlin_result(out, method.success_type(), "            ");
-                    out.push_str("        }\n");
+                    render_kotlin_result(out, method.success_type(), indent);
                 }
+                if let Some(error_type) = method.error_type() {
+                    let helper = dev_error_helper(namespace, error_type);
+                    out.push_str(&format!(
+                        "            }} catch (error: {error_type}) {{\n                throw {helper}(error)\n            }}\n",
+                    ));
+                }
+                out.push_str("        }\n");
             }
         }
     }
@@ -1199,7 +1354,7 @@ fn render_swift_method(
     method: &BridgeMethod,
     asynchronous: bool,
 ) {
-    if !asynchronous && (method.is_async || method.error_type().is_some()) {
+    if !asynchronous && method.is_async {
         return;
     }
     out.push_str(&format!(
@@ -1227,13 +1382,36 @@ fn render_swift_method(
         (false, true) => "try ",
         (false, false) => "",
     };
+    let error_type = method.error_type();
+    if error_type.is_some() {
+        out.push_str("            do {\n");
+    }
+    let indent = if error_type.is_some() {
+        "                "
+    } else {
+        "            "
+    };
     if method.success_type().is_void() {
         out.push_str(&format!(
-            "            {prefix}{invoke}\n            return (true, NSNull())\n"
+            "{indent}{prefix}{invoke}\n{indent}return (true, NSNull())\n"
         ));
     } else {
-        out.push_str(&format!("            let result = {prefix}{invoke}\n"));
-        render_swift_result(out, method.success_type(), "            ");
+        out.push_str(&format!("{indent}let result = {prefix}{invoke}\n"));
+        render_swift_result(out, method.success_type(), indent);
+    }
+    if let Some(error_type) = error_type {
+        let helper = dev_error_helper(namespace, error_type);
+        out.push_str(&format!(
+            "            }} catch let error as {error_type} {{\n"
+        ));
+        if asynchronous {
+            out.push_str(&format!("                throw Self.{helper}(error)\n",));
+        } else {
+            out.push_str(&format!(
+                "                return (true, Self.{helper}(error))\n",
+            ));
+        }
+        out.push_str("            }\n");
     }
 }
 
@@ -1243,7 +1421,7 @@ fn render_kotlin_method(
     method: &BridgeMethod,
     asynchronous: bool,
 ) {
-    if !asynchronous && (method.is_async || method.error_type().is_some()) {
+    if !asynchronous && method.is_async {
         return;
     }
     out.push_str(&format!(
@@ -1269,20 +1447,29 @@ fn render_kotlin_method(
         .collect::<Vec<_>>()
         .join(", ");
     let call = format!("{}Plugin.instance.{}({args})", namespace, method.name);
-    let invoke = if method.is_async {
-        format!("val result = {call}")
-    } else if method.success_type().is_void() {
-        call.to_owned()
-    } else {
-        format!("val result = {call}")
-    };
-    out.push_str(&format!("                {invoke}\n"));
-    if method.success_type().is_void() {
-        out.push_str("                true to JSONObject.NULL\n            }\n");
-    } else {
-        render_kotlin_result(out, method.success_type(), "                ");
-        out.push_str("            }\n");
+    if method.error_type().is_some() {
+        out.push_str("                try {\n");
     }
+    let indent = if method.error_type().is_some() {
+        "                    "
+    } else {
+        "                "
+    };
+    if method.success_type().is_void() {
+        out.push_str(&format!(
+            "{indent}{call}\n{indent}true to JSONObject.NULL\n"
+        ));
+    } else {
+        out.push_str(&format!("{indent}val result = {call}\n"));
+        render_kotlin_result(out, method.success_type(), indent);
+    }
+    if let Some(error_type) = method.error_type() {
+        let helper = dev_error_helper(namespace, error_type);
+        out.push_str(&format!(
+            "                }} catch (error: {error_type}) {{\n                    throw {helper}(error)\n                }}\n",
+        ));
+    }
+    out.push_str("            }\n");
 }
 
 fn swift_decoder(ty: &BridgeType) -> &'static str {
@@ -1422,6 +1609,9 @@ mod tests {
         assert!(generated.contains("case (\"VideoPlayer\", \"VideoView\")"));
         assert!(generated.contains("VideoView(player: nexaArg_player, controls: nexaArg_controls"));
         assert!(generated.contains("try await nexaReceiver.prepare(nexaArg0)"));
+        assert!(generated.contains("throw Self.nexaDevFailureVideoPlayerPlayerError(error)"));
+        assert!(generated.contains("case .decodingFailed(message: let nexaPayload0):"));
+        assert!(generated.contains("variant: \"invalidUrl\", payload: [:]"));
     }
 
     #[test]
@@ -1436,5 +1626,7 @@ mod tests {
             generated.contains("VideoView(player = nexaArg_player, controls = nexaArg_controls")
         );
         assert!(generated.contains("nexaReceiver.prepare(nexaArg0)"));
+        assert!(generated.contains("throw nexaDevFailureVideoPlayerPlayerError(error)"));
+        assert!(generated.contains("\"message\" to error.message"));
     }
 }

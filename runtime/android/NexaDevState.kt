@@ -46,6 +46,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     private var navigationScreensSignature: String? = null
     internal var focusBindings = mutableMapOf<String, Pair<String, String?>>()
     internal val nativeEventSubscriptions = mutableListOf<NexaDevNativeEventSubscription>()
+    internal var pendingPluginFailure: NexaDevPluginFailure? = null
     private var hasInstalledModule = false
 
     fun install(next: JSONObject) {
@@ -602,22 +603,39 @@ internal class NexaDevStateStore(internal val context: Context) {
             "Await", "TryAwait" -> evaluateAsync(payload, locals, scope)
             "TimeCall" -> {
                 val call = payload as? JSONObject ?: JSONObject()
-                if (call.optString("method") == "Sleep") {
-                    // A real suspend: the dev runtime can await, so a
-                    // hot-reloaded app sleeps the way a released one does.
-                    val milliseconds = evaluate(
-                        call.optJSONArray("arguments")?.opt(0),
-                        locals,
-                        scope,
-                    ) as? Number
-                    kotlinx.coroutines.delay(milliseconds?.toLong() ?: 0L)
-                    JSONObject.NULL
-                } else {
-                    evaluateTimeCall(payload as? JSONObject, locals, scope)
+                val method = call.optString("method")
+                val rawArguments = call.optJSONArray("arguments") ?: JSONArray()
+                val arguments = ArrayList<Any>(rawArguments.length())
+                for (index in 0 until rawArguments.length()) {
+                    arguments += evaluateAsync(rawArguments.opt(index), locals, scope)
+                }
+                val first = arguments.firstOrNull()
+                when (method) {
+                    "Now" -> System.currentTimeMillis()
+                    "Monotonic" -> System.nanoTime()
+                    "Elapsed" -> System.nanoTime() - ((first as? Number)?.toLong() ?: 0L)
+                    "Sleep" -> {
+                        kotlinx.coroutines.delay((first as? Number)?.toLong() ?: 0L)
+                        JSONObject.NULL
+                    }
+                    "Iso8601" -> (first as? Number)?.toLong()?.let { nexaDevIso8601(it) } ?: JSONObject.NULL
+                    "Iso8601ToMillis" -> (first as? String)?.let { nexaDevIso8601ToMillis(it) } ?: JSONObject.NULL
+                    else -> JSONObject.NULL
                 }
             }
             "Call" -> invokeFunctionAsync(payload as? JSONObject ?: JSONObject(), locals, scope)
-            "LogCall" -> evaluate(expression, locals, scope)
+            "LogCall" -> {
+                val call = payload as? JSONObject ?: JSONObject()
+                val message = stringify(evaluateAsync(call.opt("message"), locals, scope))
+                val severity = call.optString("method", "Info")
+                when (severity) {
+                    "Debug" -> android.util.Log.d("Nexa", message)
+                    "Warning" -> android.util.Log.w("Nexa", message)
+                    "Error" -> android.util.Log.e("Nexa", message)
+                    else -> android.util.Log.i("Nexa", message)
+                }
+                JSONObject.NULL
+            }
             "NativeCall" -> invokeNativeAsync(payload as? JSONObject ?: JSONObject(), locals, scope)
             "NetworkFetch", "NetworkDownload" -> {
                 val fields = payload as? JSONObject ?: JSONObject()
@@ -693,6 +711,15 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val list = (0 until array.length()).map { evaluateAsync(array.opt(it), locals, scope) }
                 if (kind == "Set") list.map { stringify(it) }.toSet() else list
             }
+            "Pair", "Triple" -> {
+                val array = payload as? JSONArray ?: JSONArray()
+                val required = if (kind == "Pair") 2 else 3
+                val values = ArrayList<Any>(required)
+                for (index in 0 until required) {
+                    values += if (index < array.length()) evaluateAsync(array.opt(index), locals, scope) else JSONObject.NULL
+                }
+                values
+            }
             "Map" -> {
                 val array = payload as? JSONArray ?: JSONArray()
                 val result = mutableMapOf<String, Any>()
@@ -716,8 +743,8 @@ internal class NexaDevStateStore(internal val context: Context) {
             }
             "Concat" -> {
                 val parts = payload as? JSONArray ?: JSONArray()
-                stringify(evaluate(parts.opt(0), locals, scope)) +
-                    stringify(evaluate(parts.opt(1), locals, scope))
+                stringify(evaluateAsync(parts.opt(0), locals, scope)) +
+                    stringify(evaluateAsync(parts.opt(1), locals, scope))
             }
             "Arithmetic" -> {
                 val fields = payload as? JSONObject ?: JSONObject()
@@ -738,9 +765,138 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val binary = payload as? JSONObject ?: JSONObject()
                 val op = binary.optString("op")
                 val left = evaluateAsync(binary.opt("left"), locals, scope)
+                if (op == "And" && !truthy(left)) return false
+                if (op == "Or" && truthy(left)) return true
                 val right = evaluateAsync(binary.opt("right"), locals, scope)
                 compare(op, left, right)
             }
+            "Interpolation" -> {
+                val parts = payload as? JSONArray ?: JSONArray()
+                buildString {
+                    for (index in 0 until parts.length()) {
+                        val part = parts.optJSONObject(index) ?: continue
+                        when {
+                            part.has("Literal") -> append(part.optString("Literal"))
+                            part.has("Value") -> append(stringify(evaluateAsync(part.opt("Value"), locals, scope)))
+                        }
+                    }
+                }
+            }
+            "Index" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val collection = evaluateAsync(fields.opt("collection"), locals, scope)
+                val indexValue = evaluateAsync(fields.opt("index"), locals, scope)
+                when (collection) {
+                    is List<*> -> collection.getOrNull((indexValue as? Number)?.toInt() ?: -1) ?: JSONObject.NULL
+                    is Map<*, *> -> collection[stringify(indexValue)] ?: JSONObject.NULL
+                    else -> JSONObject.NULL
+                }
+            }
+            "Range" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val start = number(evaluateAsync(fields.opt("start"), locals, scope)).toInt()
+                val end = number(evaluateAsync(fields.opt("end"), locals, scope)).toInt()
+                val stepValue = fields.opt("step")?.let { number(evaluateAsync(it, locals, scope)).toInt() } ?: 1
+                val step = maxOf(1, kotlin.math.abs(stepValue))
+                if (kotlin.math.abs(end.toLong() - start.toLong()) >= 100_000L) return emptyList<Int>()
+                val inclusive = fields.optBoolean("inclusive")
+                val result = ArrayList<Int>()
+                var current = start
+                val ascending = start <= end
+                while (if (ascending) current < end || (inclusive && current == end) else current > end) {
+                    result += current
+                    current = if (ascending) current + step else current - step
+                    if (result.size >= 100_000) break
+                }
+                result
+            }
+            "Contains" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val value = evaluateAsync(fields.opt("value"), locals, scope)
+                val collection = evaluateAsync(fields.opt("collection"), locals, scope)
+                contains(value, collection)
+            }
+            "CollectionTransform" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val rawCollection = evaluateAsync(fields.opt("collection"), locals, scope)
+                val items = when (rawCollection) {
+                    is List<*> -> rawCollection
+                    is Set<*> -> rawCollection.toList()
+                    else -> emptyList<Any?>()
+                }
+                val closure = fields.optJSONObject("closure")?.optJSONObject("Closure") ?: JSONObject()
+                val parameters = closure.optJSONArray("parameters") ?: JSONArray()
+                val body = closure.opt("body")
+                suspend fun apply(item: Any?, accumulator: Any? = null): Any {
+                    val closureLocals = locals.toMutableMap()
+                    if (parameters.length() > 1 && accumulator != null) {
+                        closureLocals[parameters.optString(0)] = accumulator
+                        closureLocals[parameters.optString(1)] = item ?: JSONObject.NULL
+                    } else if (parameters.length() > 0) {
+                        closureLocals[parameters.optString(0)] = item ?: JSONObject.NULL
+                    }
+                    return evaluateAsync(body, closureLocals, scope)
+                }
+                when (fields.optString("operation")) {
+                    "Map" -> items.map { apply(it) }
+                    "Filter" -> {
+                        val filtered = ArrayList<Any?>()
+                        for (item in items) if (truthy(apply(item))) filtered += item
+                        filtered
+                    }
+                    "Reduce" -> {
+                        var accumulator = evaluateAsync(fields.opt("initial"), locals, scope)
+                        for (item in items) accumulator = apply(item, accumulator)
+                        accumulator
+                    }
+                    else -> items
+                }
+            }
+            "CollectionUtility" -> {
+                val utility = payload as? JSONObject ?: JSONObject()
+                val values = evaluateAsync(utility.opt("collection"), locals, scope) as? List<*> ?: return emptyList<Any>()
+                when (utility.optString("operation")) {
+                    "Random" -> values.randomOrNull() ?: JSONObject.NULL
+                    "Shuffled" -> values.shuffled()
+                    "Reverse" -> values.reversed()
+                    "Slice" -> {
+                        val start = number(evaluateAsync(utility.opt("start"), locals, scope)).toInt().coerceIn(0, values.size)
+                        val end = number(evaluateAsync(utility.opt("end"), locals, scope)).toInt()
+                        val stop = (end + if (utility.optBoolean("inclusive")) 1 else 0).coerceIn(start, values.size)
+                        values.subList(start, stop)
+                    }
+                    else -> emptyList<Any>()
+                }
+            }
+            "BytesFromText" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                (evaluateAsync(fields.opt("text"), locals, scope) as? String ?: "").toByteArray().toBase64()
+            }
+            "BytesFromArray" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val values = evaluateAsync(fields.opt("values"), locals, scope) as? List<*> ?: emptyList<Any>()
+                values.map { stringify(it ?: JSONObject.NULL).toIntOrNull()?.toByte() ?: 0 }.toByteArray().toBase64()
+            }
+            "BytesCount" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val rawBytes = evaluateAsync(fields.opt("bytes"), locals, scope) as? String
+                rawBytes?.let { android.util.Base64.decode(it, android.util.Base64.DEFAULT).size } ?: 0
+            }
+            "Coalesce" -> {
+                val parts = payload as? JSONArray ?: JSONArray()
+                val value = evaluateAsync(parts.opt(0), locals, scope)
+                if (value == JSONObject.NULL) evaluateAsync(parts.opt(1), locals, scope) else value
+            }
+            "ResultOk", "ResultErr" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val key = if (kind == "ResultOk") "value" else "error"
+                mapOf((if (kind == "ResultOk") "Ok" else "Err") to evaluateAsync(fields.opt(key), locals, scope))
+            }
+            "Try" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                (evaluateAsync(fields.opt("expr"), locals, scope) as? Map<*, *>)?.get("Ok") ?: JSONObject.NULL
+            }
+            "IsRegularWidth", "IsCompactWidth", "IsRegularHeight", "IsCompactHeight" -> evaluate(raw, locals, scope)
             "Conditional" -> {
                 val fields = payload as? JSONObject ?: JSONObject()
                 val condition = evaluateAsync(fields.opt("condition"), locals, scope)

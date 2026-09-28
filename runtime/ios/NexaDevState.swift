@@ -27,6 +27,7 @@ final class NexaDevStateStore: ObservableObject {
     var activeFunctions = Set<String>()
     var focusBindings: [String: (scope: String, state: String?)] = [:]
     var nativeEventSubscriptions: [NexaDevNativeEventSubscription] = []
+    var pendingPluginFailure: NexaDevPluginFailure?
     var hasInstalledModule = false
 
     func install(module: [String: Any]) {
@@ -510,20 +511,44 @@ final class NexaDevStateStore: ObservableObject {
         case "Await", "TryAwait":
             return try await evaluateAsync(payload, locals: locals, scope: scope)
         case "TimeCall":
-            if let call = payload as? [String: Any], call["method"] as? String == "Sleep" {
-                // A real suspend: the dev runtime can await, so a hot-reloaded
-                // app sleeps the way a released one does.
-                let milliseconds = (call["arguments"] as? [Any] ?? [])
-                    .map { evaluate($0, locals: locals, scope: scope) }
-                    .first
-                    .flatMap { ($0 as? NSNumber)?.int64Value } ?? 0
-                let nanoseconds = UInt64(max(0, milliseconds)) &* 1_000_000
-                try? await Task.sleep(nanoseconds: nanoseconds)
-                return NSNull()
+            let call = payload as? [String: Any] ?? [:]
+            let method = call["method"] as? String ?? ""
+            var arguments: [Any] = []
+            for argument in call["arguments"] as? [Any] ?? [] {
+                arguments.append(try await evaluateAsync(argument, locals: locals, scope: scope))
             }
-            return evaluateTimeCall(payload as? [String: Any], locals: locals, scope: scope)
+            let first = arguments.first
+            switch method {
+            case "Now": return Int64((Date().timeIntervalSince1970 * 1000).rounded())
+            case "Monotonic": return Int64(bitPattern: DispatchTime.now().uptimeNanoseconds)
+            case "Elapsed":
+                let start = (first as? NSNumber)?.int64Value ?? 0
+                return Int64(bitPattern: DispatchTime.now().uptimeNanoseconds) - start
+            case "Sleep":
+                let milliseconds = (first as? NSNumber)?.int64Value ?? 0
+                let nanoseconds = UInt64(max(0, milliseconds)) &* 1_000_000
+                try await Task.sleep(nanoseconds: nanoseconds)
+                return NSNull()
+            case "Iso8601":
+                guard let timestamp = (first as? NSNumber)?.int64Value else { return NSNull() }
+                return NexaDevTime.iso8601(timestamp)
+            case "Iso8601ToMillis":
+                guard let text = first as? String else { return NSNull() }
+                if let timestamp = NexaDevTime.iso8601ToMillis(text) { return timestamp }
+                return NSNull()
+            default: return NSNull()
+            }
         case "LogCall":
-            return evaluate(expression, locals: locals, scope: scope)
+            let call = payload as? [String: Any] ?? [:]
+            let message: String
+            if let expression = call["message"] {
+                message = stringify(try await evaluateAsync(expression, locals: locals, scope: scope))
+            } else {
+                message = "null"
+            }
+            let severity = (call["method"] as? String ?? "Info").uppercased()
+            NSLog("[Nexa][%@] %@", severity, message)
+            return NSNull()
         case "Call":
             guard let call = payload as? [String: Any] else { return NSNull() }
             return try await invokeFunctionAsync(call, locals: locals, scope: scope)
@@ -635,6 +660,15 @@ final class NexaDevStateStore: ObservableObject {
             }
             if kind == "Set" { return Set(values.compactMap { $0 as? String }) }
             return values
+        case "Pair", "Triple":
+            let entries = payload as? [Any] ?? []
+            var values: [Any] = []
+            for entry in entries {
+                values.append(try await evaluateAsync(entry, locals: locals, scope: scope))
+            }
+            let required = kind == "Pair" ? 2 : 3
+            guard values.count >= required else { return Array(repeating: NSNull(), count: required) }
+            return Array(values.prefix(required))
         case "Map":
             let entries = payload as? [[Any]] ?? []
             var values: [String: Any] = [:]
@@ -655,8 +689,8 @@ final class NexaDevStateStore: ObservableObject {
         case "Concat":
             let parts = payload as? [Any] ?? []
             guard parts.count >= 2 else { return "" }
-            return stringify(evaluate(parts[0], locals: locals, scope: scope))
-                + stringify(evaluate(parts[1], locals: locals, scope: scope))
+            return stringify(try await evaluateAsync(parts[0], locals: locals, scope: scope))
+                + stringify(try await evaluateAsync(parts[1], locals: locals, scope: scope))
         case "Arithmetic":
             guard let fields = payload as? [String: Any],
                   let leftExpression = fields["left"], let rightExpression = fields["right"]
@@ -687,8 +721,145 @@ final class NexaDevStateStore: ObservableObject {
                   let rightExpression = binary["right"]
             else { return false }
             let left = try await evaluateAsync(leftExpression, locals: locals, scope: scope)
+            if op == "And", !truthy(left) { return false }
+            if op == "Or", truthy(left) { return true }
             let right = try await evaluateAsync(rightExpression, locals: locals, scope: scope)
             return compare(op, left, right)
+        case "Interpolation":
+            var result = ""
+            for rawPart in payload as? [Any] ?? [] {
+                guard let part = rawPart as? [String: Any], let (partKind, partValue) = part.first else { continue }
+                if partKind == "Literal" {
+                    result += partValue as? String ?? ""
+                } else if partKind == "Value" {
+                    result += stringify(try await evaluateAsync(partValue, locals: locals, scope: scope))
+                }
+            }
+            return result
+        case "Index":
+            guard let fields = payload as? [String: Any],
+                  let collectionExpression = fields["collection"],
+                  let indexExpression = fields["index"]
+            else { return NSNull() }
+            let collection = try await evaluateAsync(collectionExpression, locals: locals, scope: scope)
+            let indexValue = try await evaluateAsync(indexExpression, locals: locals, scope: scope)
+            let index = (indexValue as? NSNumber)?.intValue ?? -1
+            if let values = collection as? [Any], values.indices.contains(index) { return values[index] }
+            if let values = collection as? [String: Any] { return values[stringify(indexValue)] ?? NSNull() }
+            return NSNull()
+        case "Range":
+            guard let fields = payload as? [String: Any],
+                  let startExpression = fields["start"],
+                  let endExpression = fields["end"]
+            else { return [Int]() }
+            let start = number(try await evaluateAsync(startExpression, locals: locals, scope: scope))
+            let end = number(try await evaluateAsync(endExpression, locals: locals, scope: scope))
+            var step = 1.0
+            if let stepExpression = fields["step"] {
+                step = number(try await evaluateAsync(stepExpression, locals: locals, scope: scope))
+            }
+            guard start.isFinite, end.isFinite, step.isFinite, abs(end - start) < 100_000 else { return [Int]() }
+            let strideValue = max(1, abs(Int(step)))
+            let inclusive = fields["inclusive"] as? Bool ?? false
+            let startValue = Int(start)
+            let endValue = Int(end)
+            let boundary = endValue + ((inclusive && endValue >= startValue) ? 1 : 0)
+            guard startValue != boundary else { return [Int]() }
+            return Array(stride(from: startValue, to: boundary, by: startValue <= endValue ? strideValue : -strideValue))
+        case "Contains":
+            guard let fields = payload as? [String: Any],
+                  let valueExpression = fields["value"],
+                  let collectionExpression = fields["collection"]
+            else { return false }
+            let value = try await evaluateAsync(valueExpression, locals: locals, scope: scope)
+            let collection = try await evaluateAsync(collectionExpression, locals: locals, scope: scope)
+            return contains(value, in: collection)
+        case "CollectionTransform":
+            guard let fields = payload as? [String: Any],
+                  let collectionExpression = fields["collection"]
+            else { return [Any]() }
+            let collectionValue = try await evaluateAsync(collectionExpression, locals: locals, scope: scope)
+            let items = collectionValue as? [Any] ?? (collectionValue as? Set<String>)?.sorted() ?? []
+            let closureObject = (fields["closure"] as? [String: Any])?["Closure"] as? [String: Any] ?? [:]
+            let parameters = closureObject["parameters"] as? [String] ?? []
+            let body = closureObject["body"] ?? NSNull()
+            func apply(_ item: Any, accumulator: Any? = nil) async throws -> Any {
+                var closureLocals = locals
+                if parameters.count > 1, let accumulator {
+                    closureLocals[parameters[0]] = accumulator
+                    closureLocals[parameters[1]] = item
+                } else if let parameter = parameters.first {
+                    closureLocals[parameter] = item
+                }
+                return try await evaluateAsync(body, locals: closureLocals, scope: scope)
+            }
+            switch fields["operation"] as? String {
+            case "Map":
+                var mapped: [Any] = []
+                for item in items { mapped.append(try await apply(item)) }
+                return mapped
+            case "Filter":
+                var filtered: [Any] = []
+                for item in items {
+                    if truthy(try await apply(item)) { filtered.append(item) }
+                }
+                return filtered
+            case "Reduce":
+                var accumulator: Any = 0
+                if let initial = fields["initial"] {
+                    accumulator = try await evaluateAsync(initial, locals: locals, scope: scope)
+                }
+                for item in items { accumulator = try await apply(item, accumulator: accumulator) }
+                return accumulator
+            default: return items
+            }
+        case "CollectionUtility":
+            guard let fields = payload as? [String: Any],
+                  let collectionExpression = fields["collection"],
+                  let values = try await evaluateAsync(collectionExpression, locals: locals, scope: scope) as? [Any]
+            else { return [Any]() }
+            switch fields["operation"] as? String {
+            case "Random": return values.randomElement() ?? NSNull()
+            case "Shuffled": return values.shuffled()
+            case "Reverse": return Array(values.reversed())
+            case "Slice":
+                guard let startExpression = fields["start"], let endExpression = fields["end"] else { return [Any]() }
+                let start = Int(number(try await evaluateAsync(startExpression, locals: locals, scope: scope)))
+                let end = Int(number(try await evaluateAsync(endExpression, locals: locals, scope: scope)))
+                let lower = min(max(start, 0), values.count)
+                let stop = end + ((fields["inclusive"] as? Bool == true) ? 1 : 0)
+                let upper = min(max(stop, lower), values.count)
+                return Array(values[lower..<upper])
+            default: return [Any]()
+            }
+        case "BytesFromText":
+            let text = try await evaluateAsync((payload as? [String: Any])?["text"] ?? NSNull(), locals: locals, scope: scope)
+            return Data((text as? String ?? "").utf8).base64EncodedString()
+        case "BytesFromArray":
+            let values = try await evaluateAsync((payload as? [String: Any])?["values"] ?? NSNull(), locals: locals, scope: scope)
+            let bytes = (values as? [Any] ?? []).map { UInt8(truncatingIfNeeded: Int64(stringify($0)) ?? 0) }
+            return Data(bytes).base64EncodedString()
+        case "BytesCount":
+            let bytes = try await evaluateAsync((payload as? [String: Any])?["bytes"] ?? NSNull(), locals: locals, scope: scope)
+            guard let text = bytes as? String, let data = Data(base64Encoded: text) else { return 0 }
+            return data.count
+        case "Coalesce":
+            let parts = payload as? [Any] ?? []
+            guard parts.count >= 2 else { return NSNull() }
+            let value = try await evaluateAsync(parts[0], locals: locals, scope: scope)
+            if value is NSNull { return try await evaluateAsync(parts[1], locals: locals, scope: scope) }
+            return value
+        case "ResultOk", "ResultErr":
+            let key = kind == "ResultOk" ? "value" : "error"
+            let fields = payload as? [String: Any] ?? [:]
+            let value = try await evaluateAsync(fields[key] ?? NSNull(), locals: locals, scope: scope)
+            return [kind == "ResultOk" ? "Ok" : "Err": value]
+        case "Try":
+            let fields = payload as? [String: Any] ?? [:]
+            let value = try await evaluateAsync(fields["expr"] ?? NSNull(), locals: locals, scope: scope)
+            return (value as? [String: Any])?["Ok"] ?? NSNull()
+        case "IsRegularWidth", "IsCompactWidth", "IsRegularHeight", "IsCompactHeight":
+            return evaluate(expression, locals: locals, scope: scope)
         case "Conditional":
             guard let fields = payload as? [String: Any],
                   let conditionExpression = fields["condition"]

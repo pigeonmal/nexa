@@ -16,6 +16,7 @@ internal fun NexaDevStateStore.perform(actions: JSONArray, scope: String, locals
 
 internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String, locals: Map<String, Any>): NexaDevActionFlow {
     for (index in 0 until actions.length()) {
+        if (pendingPluginFailure != null) return NexaDevActionFlow.Normal
         val raw = actions.opt(index)
         if (raw is String) {
             if (raw == "Break") return NexaDevActionFlow.Break
@@ -127,8 +128,30 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
         }
         val tryCatch = action.optJSONObject("TryCatch")
         if (tryCatch != null) {
+            pendingPluginFailure = null
             val flow = performActions(tryCatch.optJSONArray("body") ?: JSONArray(), scope, locals)
             if (flow != NexaDevActionFlow.Normal) return flow
+            val failure = pendingPluginFailure
+            pendingPluginFailure = null
+            if (failure != null) {
+                val caught = performPluginFailureCatch(
+                    failure,
+                    tryCatch.optJSONArray("error_catches") ?: JSONArray(),
+                    scope,
+                    locals,
+                )
+                if (caught != null) {
+                    if (caught != NexaDevActionFlow.Normal) return caught
+                } else {
+                    val catchBody = tryCatch.optJSONArray("catch_body")
+                    if (catchBody != null) {
+                        val catchFlow = performActions(catchBody, scope, locals)
+                        if (catchFlow != NexaDevActionFlow.Normal) return catchFlow
+                    } else {
+                        pendingPluginFailure = failure
+                    }
+                }
+            }
             continue
         }
         if (action.has("Break")) return NexaDevActionFlow.Break
@@ -330,6 +353,25 @@ internal suspend fun NexaDevStateStore.performAsync(
                 if (flow != NexaDevActionFlow.Normal) return flow
             } catch (cancellation: CancellationException) {
                 throw cancellation
+            } catch (failure: NexaDevPluginFailure) {
+                val caught = performPluginFailureCatchAsync(
+                    failure,
+                    tryCatch.optJSONArray("error_catches") ?: JSONArray(),
+                    scope,
+                    locals,
+                )
+                if (caught != null) {
+                    if (caught != NexaDevActionFlow.Normal) return caught
+                } else {
+                    val catchBody = tryCatch.optJSONArray("catch_body")
+                    if (catchBody != null) {
+                        val flow = performAsync(catchBody, scope, locals)
+                        if (flow != NexaDevActionFlow.Normal) return flow
+                    } else {
+                        android.util.Log.e("NexaDevRuntime", "Async dev action failed", failure)
+                        throw failure
+                    }
+                }
             } catch (error: Throwable) {
                 android.util.Log.e("NexaDevRuntime", "Async dev action failed", error)
                 val catchBody = tryCatch.optJSONArray("catch_body")
@@ -458,4 +500,56 @@ internal suspend fun NexaDevStateStore.performAsync(
         if (action.has("Continue")) return NexaDevActionFlow.Continue
     }
     return NexaDevActionFlow.Normal
+}
+
+internal fun NexaDevStateStore.performPluginFailureCatch(
+    failure: NexaDevPluginFailure,
+    arms: JSONArray,
+    scope: String,
+    locals: Map<String, Any>,
+): NexaDevActionFlow? {
+    for (index in 0 until arms.length()) {
+        val arm = arms.optJSONObject(index) ?: continue
+        if (arm.optString("namespace") != failure.namespace ||
+            arm.optString("error_type") != failure.errorType ||
+            arm.optString("variant") != failure.variant
+        ) continue
+        val catchLocals = locals.toMutableMap()
+        val parameters = arm.optJSONArray("parameters") ?: JSONArray()
+        for (parameterIndex in 0 until parameters.length()) {
+            val tuple = parameters.optJSONArray(parameterIndex) ?: continue
+            if (tuple.length() < 2) continue
+            val binding = tuple.optString(0)
+            val property = tuple.optString(1)
+            catchLocals[binding] = failure.payload[property] ?: JSONObject.NULL
+        }
+        return performActions(arm.optJSONArray("body") ?: JSONArray(), scope, catchLocals)
+    }
+    return null
+}
+
+internal suspend fun NexaDevStateStore.performPluginFailureCatchAsync(
+    failure: NexaDevPluginFailure,
+    arms: JSONArray,
+    scope: String,
+    locals: Map<String, Any>,
+): NexaDevActionFlow? {
+    for (index in 0 until arms.length()) {
+        val arm = arms.optJSONObject(index) ?: continue
+        if (arm.optString("namespace") != failure.namespace ||
+            arm.optString("error_type") != failure.errorType ||
+            arm.optString("variant") != failure.variant
+        ) continue
+        val catchLocals = locals.toMutableMap()
+        val parameters = arm.optJSONArray("parameters") ?: JSONArray()
+        for (parameterIndex in 0 until parameters.length()) {
+            val tuple = parameters.optJSONArray(parameterIndex) ?: continue
+            if (tuple.length() < 2) continue
+            val binding = tuple.optString(0)
+            val property = tuple.optString(1)
+            catchLocals[binding] = failure.payload[property] ?: JSONObject.NULL
+        }
+        return performAsync(arm.optJSONArray("body") ?: JSONArray(), scope, catchLocals)
+    }
+    return null
 }

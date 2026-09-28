@@ -16,6 +16,7 @@ extension NexaDevStateStore {
     @discardableResult
     func performActions(_ actions: [Any], scope: String, locals: [String: Any]) -> NexaDevActionFlow {
         for action in actions {
+            if pendingPluginFailure != nil { return .normal }
             if let unitVariant = action as? String {
                 if unitVariant == "Break" { return .break }
                 if unitVariant == "Continue" { return .continue }
@@ -102,8 +103,25 @@ extension NexaDevStateStore {
                       let name = mutation["name"] as? String {
                 performCollectionMutation(mutation, name: name, scope: scope, locals: locals)
             } else if let tryCatch = tagged["TryCatch"] as? [String: Any] {
+                pendingPluginFailure = nil
                 let flow = performActions(tryCatch["body"] as? [Any] ?? [], scope: scope, locals: locals)
                 if flow != .normal { return flow }
+                if let failure = pendingPluginFailure {
+                    pendingPluginFailure = nil
+                    if let caught = performPluginFailureCatch(
+                        failure,
+                        arms: tryCatch["error_catches"] as? [Any] ?? [],
+                        scope: scope,
+                        locals: locals
+                    ) {
+                        if caught != .normal { return caught }
+                    } else if let catchBody = tryCatch["catch_body"] as? [Any] {
+                        let catchFlow = performActions(catchBody, scope: scope, locals: locals)
+                        if catchFlow != .normal { return catchFlow }
+                    } else {
+                        pendingPluginFailure = failure
+                    }
+                }
             } else if tagged["Break"] != nil {
                 return .break
             } else if tagged["Continue"] != nil {
@@ -311,11 +329,19 @@ extension NexaDevStateStore {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
-                    NSLog("NexaDevRuntime async dev action failed: %@", String(describing: error))
-                    if let catchBody = tryCatch["catch_body"] as? [Any] {
+                    if let failure = error as? NexaDevPluginFailure,
+                       let flow = try await performPluginFailureCatchAsync(
+                           failure,
+                           arms: tryCatch["error_catches"] as? [Any] ?? [],
+                           scope: scope,
+                           locals: locals
+                       ) {
+                        if flow != .normal { return flow }
+                    } else if let catchBody = tryCatch["catch_body"] as? [Any] {
                         let flow = try await performAsync(catchBody, scope: scope, locals: locals)
                         if flow != .normal { return flow }
                     } else {
+                        NSLog("NexaDevRuntime async dev action failed: %@", String(describing: error))
                         throw error
                     }
                 }
@@ -426,5 +452,53 @@ extension NexaDevStateStore {
             }
         }
         return .normal
+    }
+
+    private func performPluginFailureCatch(
+        _ failure: NexaDevPluginFailure,
+        arms: [Any],
+        scope: String,
+        locals: [String: Any]
+    ) -> NexaDevActionFlow? {
+        for rawArm in arms {
+            guard let arm = rawArm as? [String: Any],
+                  arm["namespace"] as? String == failure.namespace,
+                  arm["error_type"] as? String == failure.errorType,
+                  arm["variant"] as? String == failure.variant
+            else { continue }
+            var catchLocals = locals
+            for tuple in arm["parameters"] as? [[Any]] ?? [] where tuple.count >= 2 {
+                guard let binding = tuple[0] as? String,
+                      let property = tuple[1] as? String
+                else { continue }
+                catchLocals[binding] = failure.payload[property] ?? NSNull()
+            }
+            return performActions(arm["body"] as? [Any] ?? [], scope: scope, locals: catchLocals)
+        }
+        return nil
+    }
+
+    private func performPluginFailureCatchAsync(
+        _ failure: NexaDevPluginFailure,
+        arms: [Any],
+        scope: String,
+        locals: [String: Any]
+    ) async throws -> NexaDevActionFlow? {
+        for rawArm in arms {
+            guard let arm = rawArm as? [String: Any],
+                  arm["namespace"] as? String == failure.namespace,
+                  arm["error_type"] as? String == failure.errorType,
+                  arm["variant"] as? String == failure.variant
+            else { continue }
+            var catchLocals = locals
+            for tuple in arm["parameters"] as? [[Any]] ?? [] where tuple.count >= 2 {
+                guard let binding = tuple[0] as? String,
+                      let property = tuple[1] as? String
+                else { continue }
+                catchLocals[binding] = failure.payload[property] ?? NSNull()
+            }
+            return try await performAsync(arm["body"] as? [Any] ?? [], scope: scope, locals: catchLocals)
+        }
+        return nil
     }
 }

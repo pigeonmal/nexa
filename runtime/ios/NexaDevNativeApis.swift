@@ -22,14 +22,24 @@ extension NexaDevStateStore {
                 name: name,
                 options: options
             )
-            if pluginResult.0 { return pluginResult.1 }
+            if pluginResult.0 {
+                if let failure = pluginResult.1 as? NexaDevPluginFailure {
+                    throw failure
+                }
+                return pluginResult.1
+            }
         } else {
             let pluginResult = try await NexaDevPluginBridge.invokeAsync(
                 namespace: namespace,
                 name: name,
                 options: options
             )
-            if pluginResult.0 { return pluginResult.1 }
+            if pluginResult.0 {
+                if let failure = pluginResult.1 as? NexaDevPluginFailure {
+                    throw failure
+                }
+                return pluginResult.1
+            }
         }
         func stringOption(_ key: String, _ fallback: String = "") -> String {
             options[key] as? String ?? fallback
@@ -171,14 +181,26 @@ extension NexaDevStateStore {
                 name: name,
                 options: options
             )
-            if pluginResult.0 { return pluginResult.1 }
+            if pluginResult.0 {
+                if let failure = pluginResult.1 as? NexaDevPluginFailure {
+                    pendingPluginFailure = failure
+                    return NSNull()
+                }
+                return pluginResult.1
+            }
         } else {
             let pluginResult = NexaDevPluginBridge.invokeSync(
                 namespace: namespace,
                 name: name,
                 options: options
             )
-            if pluginResult.0 { return pluginResult.1 }
+            if pluginResult.0 {
+                if let failure = pluginResult.1 as? NexaDevPluginFailure {
+                    pendingPluginFailure = failure
+                    return NSNull()
+                }
+                return pluginResult.1
+            }
         }
         func stringOption(_ key: String) -> String { options[key] as? String ?? "" }
         switch namespace {
