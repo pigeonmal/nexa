@@ -18,9 +18,9 @@
 //! so plugin files in the same module can use them.
 
 use nexa_codegen::{
-    names::{enum_name, struct_field_name, struct_name},
-    value::{codec_name, numeric_mangled, Codec, Direction},
     SourceWriter,
+    names::{enum_name, struct_field_name, struct_name},
+    value::{Codec, Direction, codec_name, numeric_mangled},
 };
 use nexa_ir::{NumericType, Type};
 
@@ -71,8 +71,6 @@ fn read_method(numeric: NumericType) -> String {
     format!("read{}", pascal(numeric_mangled(numeric)))
 }
 
-
-
 fn write_function(ty: &Type, out: &mut SourceWriter) {
     let name = codec_name(ty, Direction::Write);
     out.push_str(&format!(
@@ -108,10 +106,9 @@ fn write_statements(ty: &Type, expression: &str, writer: &str) -> Vec<String> {
         Type::Bool => vec![format!("{writer}.writeBool({expression})")],
         Type::String => vec![format!("{writer}.writeString({expression})")],
         Type::Bytes => vec![format!("{writer}.writeBuffer({expression})")],
-        Type::Numeric(numeric) => vec![format!(
-            "{writer}.{}({expression})",
-            write_method(*numeric)
-        )],
+        Type::Numeric(numeric) => {
+            vec![format!("{writer}.{}({expression})", write_method(*numeric))]
+        }
         Type::Enum(_) => vec![format!("{writer}.writeInt32({expression}.ordinal)")],
         Type::Struct { fields, .. } => {
             let mut lines = Vec::new();
@@ -172,6 +169,30 @@ fn write_statements(ty: &Type, expression: &str, writer: &str) -> Vec<String> {
                 ),
             ]
         }
+        Type::Pair(first, second) => vec![
+            format!(
+                "{}({expression}.first, writer)",
+                codec_name(first, Direction::Write)
+            ),
+            format!(
+                "{}({expression}.second, writer)",
+                codec_name(second, Direction::Write)
+            ),
+        ],
+        Type::Triple(first, second, third) => vec![
+            format!(
+                "{}({expression}.first, writer)",
+                codec_name(first, Direction::Write)
+            ),
+            format!(
+                "{}({expression}.second, writer)",
+                codec_name(second, Direction::Write)
+            ),
+            format!(
+                "{}({expression}.third, writer)",
+                codec_name(third, Direction::Write)
+            ),
+        ],
         other => vec![format!("// unsupported codec type {other:?}")],
     }
 }
@@ -199,10 +220,9 @@ fn field_read_statements(ty: &Type, index: usize, reader: &str) -> Vec<String> {
 
 fn read_statements(ty: &Type, reader: &str) -> Vec<String> {
     match ty {
-        Type::Bool | Type::Numeric(_) => vec![format!(
-            "return {reader}.{}()",
-            scalar_read_method(ty)
-        )],
+        Type::Bool | Type::Numeric(_) => {
+            vec![format!("return {reader}.{}()", scalar_read_method(ty))]
+        }
         Type::String => vec![format!("return {reader}.readString()")],
         Type::Bytes => vec![format!("return {reader}.readBuffer()")],
         Type::Enum(name) => vec![format!(
@@ -248,7 +268,11 @@ fn read_statements(ty: &Type, reader: &str) -> Vec<String> {
                 "if (count < 0) {".to_owned(),
                 "    return null".to_owned(),
                 "}".to_owned(),
-                format!("val values = LinkedHashMap<{}, {}>(count)", kotlin_type(key), kotlin_type(value_type)),
+                format!(
+                    "val values = LinkedHashMap<{}, {}>(count)",
+                    kotlin_type(key),
+                    kotlin_type(value_type)
+                ),
                 "repeat(count) {".to_owned(),
                 format!("    val entryKey = {key_codec}({reader}) ?: return null"),
                 format!("    val entryValue = {value_codec}({reader}) ?: return null"),
@@ -257,6 +281,32 @@ fn read_statements(ty: &Type, reader: &str) -> Vec<String> {
                 "return values".to_owned(),
             ]
         }
+        Type::Pair(first, second) => vec![
+            format!(
+                "val field0 = {}({reader}) ?: return null",
+                codec_name(first, Direction::Read)
+            ),
+            format!(
+                "val field1 = {}({reader}) ?: return null",
+                codec_name(second, Direction::Read)
+            ),
+            "return Pair(field0, field1)".to_owned(),
+        ],
+        Type::Triple(first, second, third) => vec![
+            format!(
+                "val field0 = {}({reader}) ?: return null",
+                codec_name(first, Direction::Read)
+            ),
+            format!(
+                "val field1 = {}({reader}) ?: return null",
+                codec_name(second, Direction::Read)
+            ),
+            format!(
+                "val field2 = {}({reader}) ?: return null",
+                codec_name(third, Direction::Read)
+            ),
+            "return Triple(field0, field1, field2)".to_owned(),
+        ],
         other => vec![format!("// unsupported codec type {other:?}")],
     }
 }
@@ -273,11 +323,41 @@ fn scalar_read_method(ty: &Type) -> String {
 
 fn read_expression(ty: &Type, reader: &str) -> String {
     match ty {
-        Type::Bool
-        | Type::Numeric(_)
-        | Type::String
-        | Type::Bytes
-        | Type::Enum(_) => format!("{reader}.{}()", scalar_read_method(ty)),
+        Type::Bool | Type::Numeric(_) | Type::String | Type::Bytes | Type::Enum(_) => {
+            format!("{reader}.{}()", scalar_read_method(ty))
+        }
         other => format!("{}({reader})", codec_name(other, Direction::Read)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_ir::{NumericType, Type};
+
+    use super::{read_statements, write_statements};
+
+    #[test]
+    fn pair_and_triple_codecs_write_and_read_members_in_order() {
+        let pair = Type::Pair(
+            Box::new(Type::String),
+            Box::new(Type::Numeric(NumericType::Int32)),
+        );
+        let pair_write = write_statements(&pair, "value", "writer").join("\n");
+        let pair_read = read_statements(&pair, "reader").join("\n");
+        assert!(pair_write.contains("nexaWritestring(value.first, writer)"));
+        assert!(pair_write.contains("nexaWriteint32(value.second, writer)"));
+        assert!(pair_read.contains("return Pair(field0, field1)"));
+
+        let triple = Type::Triple(
+            Box::new(Type::String),
+            Box::new(Type::Numeric(NumericType::Int32)),
+            Box::new(Type::Bool),
+        );
+        let triple_write = write_statements(&triple, "value", "writer").join("\n");
+        let triple_read = read_statements(&triple, "reader").join("\n");
+        assert!(triple_write.contains("nexaWritestring(value.first, writer)"));
+        assert!(triple_write.contains("nexaWriteint32(value.second, writer)"));
+        assert!(triple_write.contains("nexaWritebool(value.third, writer)"));
+        assert!(triple_read.contains("return Triple(field0, field1, field2)"));
     }
 }

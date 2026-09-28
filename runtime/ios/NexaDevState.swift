@@ -680,7 +680,27 @@ final class NexaDevStateStore: ObservableObject {
                 let result = NexaDevPluginBridge.readInstanceProperty(receiver: value, property: property)
                 if result.0 { return result.1 }
             }
-            return (value as? [String: Any])?[name] ?? NSNull()
+            if name == "count" {
+                if let values = value as? [Any] { return Int32(values.count) }
+                if let values = value as? [String: Any] { return Int32(values.count) }
+                if let values = value as? Set<NexaDevHashableValue> { return Int32(values.count) }
+            }
+            if name == "isEmpty" {
+                if let values = value as? [Any] { return values.isEmpty }
+                if let values = value as? [String: Any] { return values.isEmpty }
+                if let values = value as? Set<NexaDevHashableValue> { return values.isEmpty }
+            }
+            if let object = value as? [String: Any] { return object[name] ?? NSNull() }
+            if let tuple = value as? [Any] {
+                let position = switch name {
+                case "first": 0
+                case "second": 1
+                case "third": 2
+                default: Int(name) ?? -1
+                }
+                if tuple.indices.contains(position) { return tuple[position] }
+            }
+            return NSNull()
         case "Array", "Set":
             let entries = payload as? [Any] ?? []
             var values: [Any] = []

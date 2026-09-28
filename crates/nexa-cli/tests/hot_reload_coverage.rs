@@ -39,8 +39,9 @@ fn public_enums(source: &str) -> BTreeSet<String> {
 fn dev_boundary(enum_name: &str, variant_name: &str) -> Option<&'static str> {
     match (enum_name, variant_name) {
         // Plugin calls use generated direct adapters for scalar values,
-        // generic codecs, and non-generic arrays/structs. Some compound IDL
-        // types still require AOT, so the complete IR case remains partial.
+        // generic codecs, and recursively composed values. Unsupported IDL
+        // shapes such as Result-as-value still require a narrower contract,
+        // so the complete IR case remains partial.
         ("Type", "Plugin") => Some("partial"),
         // Plugin property, event, and visual-component adapters share the
         // supported value subset above; this inventory records that boundary
@@ -192,6 +193,62 @@ fn hot_reload_interpreter_variants_have_both_native_dispatches() {
     for variant in ["NativePropertyAssign", "NativeEventSubscribe"] {
         assert_runtime_dispatch(&swift, "Action", variant, "iOS");
         assert_runtime_dispatch(&kotlin, "Action", variant, "Android");
+    }
+}
+
+#[test]
+fn async_member_access_handles_tuple_positions_and_collection_size() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS state evaluator");
+    let swift_async = swift
+        .split_once("func evaluateAsync(")
+        .expect("iOS async evaluator")
+        .1;
+    let swift_member = swift_async
+        .split_once("case \"Member\":")
+        .expect("iOS async Member evaluator")
+        .1
+        .split_once("case \"Array\", \"Set\":")
+        .expect("iOS async Array evaluator")
+        .0;
+    for marker in [
+        "case \"first\": 0",
+        "case \"second\": 1",
+        "case \"third\": 2",
+        "name == \"count\"",
+        "name == \"isEmpty\"",
+    ] {
+        assert!(
+            swift_member.contains(marker),
+            "iOS async Member evaluator is missing {marker}"
+        );
+    }
+
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android state evaluator");
+    let kotlin_async = kotlin
+        .split_once("suspend fun evaluateAsync(")
+        .expect("Android async evaluator")
+        .1;
+    let kotlin_member = kotlin_async
+        .split_once("\"Member\" -> {")
+        .expect("Android async Member evaluator")
+        .1
+        .split_once("\"Array\", \"Set\" -> {")
+        .expect("Android async Array evaluator")
+        .0;
+    for marker in [
+        "\"first\" -> base.getOrNull(0)",
+        "\"second\" -> base.getOrNull(1)",
+        "\"third\" -> base.getOrNull(2)",
+        "\"count\" ->",
+        "\"isEmpty\" ->",
+    ] {
+        assert!(
+            kotlin_member.contains(marker),
+            "Android async Member evaluator is missing {marker}"
+        );
     }
 }
 

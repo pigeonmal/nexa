@@ -64,6 +64,47 @@ enum NexaDevValueCodec {
         return decoded
     }
 
+    static func transformPair<First, Second>(
+        _ raw: Any?,
+        decodeFirst: (Any) -> First?,
+        decodeSecond: (Any) -> Second?
+    ) -> (First, Second)? {
+        if let values = raw as? [Any], values.count == 2 {
+            guard let first = decodeFirst(values[0]), let second = decodeSecond(values[1]) else {
+                return nil
+            }
+            return (first, second)
+        }
+        if let pair = raw as? (Any, Any),
+           let first = decodeFirst(pair.0),
+           let second = decodeSecond(pair.1) {
+            return (first, second)
+        }
+        return nil
+    }
+
+    static func transformTriple<First, Second, Third>(
+        _ raw: Any?,
+        decodeFirst: (Any) -> First?,
+        decodeSecond: (Any) -> Second?,
+        decodeThird: (Any) -> Third?
+    ) -> (First, Second, Third)? {
+        if let values = raw as? [Any], values.count == 3 {
+            guard let first = decodeFirst(values[0]),
+                  let second = decodeSecond(values[1]),
+                  let third = decodeThird(values[2])
+            else { return nil }
+            return (first, second, third)
+        }
+        if let triple = raw as? (Any, Any, Any),
+           let first = decodeFirst(triple.0),
+           let second = decodeSecond(triple.1),
+           let third = decodeThird(triple.2) {
+            return (first, second, third)
+        }
+        return nil
+    }
+
     static func transformSet<Element: Hashable>(
         _ raw: Any?,
         decode: (Any) -> Element?
@@ -198,6 +239,26 @@ enum NexaDevValueCodec {
                 writer.writeRaw(entry.0)
                 writer.writeRaw(entry.1)
             }
+        case "Pair":
+            guard let types = payload as? [Any], types.count == 2 else { return false }
+            if let pair = value as? (Any, Any) {
+                return write(pair.0, type: types[0], into: writer, enumCases: enumCases)
+                    && write(pair.1, type: types[1], into: writer, enumCases: enumCases)
+            }
+            guard let values = value as? [Any], values.count == 2 else { return false }
+            return write(values[0], type: types[0], into: writer, enumCases: enumCases)
+                && write(values[1], type: types[1], into: writer, enumCases: enumCases)
+        case "Triple":
+            guard let types = payload as? [Any], types.count == 3 else { return false }
+            if let triple = value as? (Any, Any, Any) {
+                return write(triple.0, type: types[0], into: writer, enumCases: enumCases)
+                    && write(triple.1, type: types[1], into: writer, enumCases: enumCases)
+                    && write(triple.2, type: types[2], into: writer, enumCases: enumCases)
+            }
+            guard let values = value as? [Any], values.count == 3 else { return false }
+            return write(values[0], type: types[0], into: writer, enumCases: enumCases)
+                && write(values[1], type: types[1], into: writer, enumCases: enumCases)
+                && write(values[2], type: types[2], into: writer, enumCases: enumCases)
         default:
             return false
         }
@@ -269,6 +330,19 @@ enum NexaDevValueCodec {
                 values[hashableKey] = value
             }
             return values
+        case "Pair":
+            guard let types = payload as? [Any], types.count == 2,
+                  let first = read(type: types[0], from: reader, enumCases: enumCases),
+                  let second = read(type: types[1], from: reader, enumCases: enumCases)
+            else { return nil }
+            return (first, second)
+        case "Triple":
+            guard let types = payload as? [Any], types.count == 3,
+                  let first = read(type: types[0], from: reader, enumCases: enumCases),
+                  let second = read(type: types[1], from: reader, enumCases: enumCases),
+                  let third = read(type: types[2], from: reader, enumCases: enumCases)
+            else { return nil }
+            return (first, second, third)
         default:
             return nil
         }

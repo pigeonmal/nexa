@@ -5,6 +5,8 @@ previous compiler output.
 
 ## Cache schema
 
+- `build-v103`: returns success after rendering a matched Android DevRuntime plugin visual component, so the renderer no longer reports a rendered component as unsupported.
+- `build-v102`: adds `Pair` and `Triple` support to generated plugin value codecs and the DevRuntime plugin bridge, and fixes tuple member access in async DevRuntime evaluation.
 - `build-v101`: moves source accessibility annotations to optional named arguments on rendered built-ins, custom components, and native plugin components; updates typed lowering while retaining the existing accessibility IR node and Dev IR format.
 - `build-v100`: adds static visual effects to typed layout and text styles, both native backends, and both Dev renderers; advances the Dev IR format version.
 - `build-v99`: adds a native menu-style Picker and Dev IR/runtime rendering on both platforms; advances the development protocol and format versions.

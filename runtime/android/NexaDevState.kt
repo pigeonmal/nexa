@@ -716,10 +716,30 @@ internal class NexaDevStateStore(internal val context: Context) {
                     val result = NexaDevPluginBridge.readInstanceProperty(base, property)
                     if (result.first) return result.second
                 }
-                when (base) {
-                    is Map<*, *> -> base[memberName] ?: JSONObject.NULL
-                    is JSONObject -> base.opt(memberName) ?: JSONObject.NULL
-                    else -> JSONObject.NULL
+                when (memberName) {
+                    "count" -> when (base) {
+                        is Collection<*> -> base.size
+                        is Map<*, *> -> base.size
+                        is JSONObject -> base.length()
+                        else -> JSONObject.NULL
+                    }
+                    "isEmpty" -> when (base) {
+                        is Collection<*> -> base.isEmpty()
+                        is Map<*, *> -> base.isEmpty()
+                        is JSONObject -> base.length() == 0
+                        else -> JSONObject.NULL
+                    }
+                    else -> when (base) {
+                        is Map<*, *> -> base[memberName] ?: JSONObject.NULL
+                        is JSONObject -> base.opt(memberName) ?: JSONObject.NULL
+                        is List<*> -> when (memberName) {
+                            "first" -> base.getOrNull(0) ?: JSONObject.NULL
+                            "second" -> base.getOrNull(1) ?: JSONObject.NULL
+                            "third" -> base.getOrNull(2) ?: JSONObject.NULL
+                            else -> base.getOrNull(memberName.toIntOrNull() ?: -1) ?: JSONObject.NULL
+                        }
+                        else -> JSONObject.NULL
+                    }
                 }
             }
             "Array", "Set" -> {

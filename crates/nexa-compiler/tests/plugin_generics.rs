@@ -14,11 +14,7 @@ use nexa_compiler::{Target, compile_file_with_warnings_for_target};
 
 /// Writes a plugin with `contract` plus an app with `body` and compiles it for
 /// every target.
-fn compile_with_plugin(
-    name: &str,
-    contract: &str,
-    body: &str,
-) -> Result<nexa_ir::Module, String> {
+fn compile_with_plugin(name: &str, contract: &str, body: &str) -> Result<nexa_ir::Module, String> {
     let project = TestProject::new(name);
     let plugin = project.join("store");
     fs::create_dir_all(&plugin).expect("plugin directory should be created");
@@ -45,7 +41,7 @@ fn storage_contract() -> String {
        fn getMap<K, V>(key: String) -> Map<K, V>?\n\
        fn dispose()\n\
      }\n"
-        .to_owned()
+    .to_owned()
 }
 
 /// Every `NativeCall` in the module, so a test can assert on the codec each
@@ -185,6 +181,35 @@ fn a_map_binds_both_of_its_type_parameters() {
 }
 
 #[test]
+fn pair_and_triple_values_bind_generic_plugin_methods() {
+    let module = compile_with_plugin(
+        "nexa-generic-tuples",
+        &storage_contract(),
+        "plugin \"store\" as Store\n\
+         app Demo {\n    let store = Store.Store(\"id\")\n\
+             state pair: Pair<String, Int32> = Pair(\"key\", 7)\n\
+             state triple: Triple<String, Int32, Bool> = Triple(\"key\", 7, true)\n\
+             body { Button(\"Save\") { store.setObject(\"pair\", pair)\n store.setObject(\"triple\", triple) } }\n}\n",
+    )
+    .expect("pair and triple values should have generic plugin codecs");
+
+    let codecs = native_calls(&module)
+        .into_iter()
+        .filter(|(name, _)| name == "setObject")
+        .flat_map(|(_, codecs)| codecs.into_iter())
+        .map(|codec| codec.ty)
+        .collect::<Vec<_>>();
+    assert!(
+        codecs.iter().any(|ty| matches!(ty, Type::Pair(_, _))),
+        "the generic pair call should carry a Pair codec: {codecs:?}"
+    );
+    assert!(
+        codecs.iter().any(|ty| matches!(ty, Type::Triple(_, _, _))),
+        "the generic triple call should carry a Triple codec: {codecs:?}"
+    );
+}
+
+#[test]
 fn an_unbound_value_type_is_reported_with_its_binding_syntax() {
     let error = compile_with_plugin(
         "nexa-generic-unbound",
@@ -234,18 +259,14 @@ fn an_unknown_value_type_is_reported() {
 }
 
 #[test]
-fn a_non_value_type_parameter_is_reported() {
+fn a_result_value_type_is_reported() {
     let error = compile_with_plugin(
         "nexa-generic-non-value",
-        "native class Store {\n\
-           init(id: String)\n\
-           fn getPair<T>(key: String) -> Pair<T, T>?\n\
-           fn dispose()\n\
-         }\n",
+        &storage_contract(),
         "plugin \"store\" as Store\n\
-         app Demo {\n    let store = Store.Store(\"id\")\n    body { Button(\"Read\") { store.getPair<Float64>(\"k\") } }\n}\n",
+         app Demo {\n    let store = Store.Store(\"id\")\n    body { Button(\"Read\") { store.getObject<Result<Float64, String>>(\"k\") } }\n}\n",
     )
-    .expect_err("a tuple is not a storable value type");
+    .expect_err("a Result is not a storable plugin value type");
     assert!(
         error.contains("must be a scalar, `Bytes`, an enum, a struct"),
         "unexpected diagnostic: {error}"

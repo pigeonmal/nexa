@@ -7,7 +7,7 @@
 //! functions are collected in one pass so a type's own codec is always
 //! emitted before a codec that calls it.
 
-use nexa_ir::walk::{walk_ir, IrVisitor};
+use nexa_ir::walk::{IrVisitor, walk_ir};
 use nexa_ir::{NumericType, Type};
 
 /// Which half of a codec a function implements.
@@ -82,9 +82,23 @@ fn mangled(ty: &Type, parent: Option<&str>) -> String {
             let prefix = mangled(key, Some(&prefix));
             mangled(value, Some(&prefix))
         }
+        Type::Pair(first, second) => {
+            let prefix = own("pair");
+            let prefix = mangled(first, Some(&prefix));
+            mangled(second, Some(&prefix))
+        }
+        Type::Triple(first, second, third) => {
+            let prefix = own("triple");
+            let prefix = mangled(first, Some(&prefix));
+            let prefix = mangled(second, Some(&prefix));
+            mangled(third, Some(&prefix))
+        }
         // Unreachable for a bound plugin value type: the compiler rejects
         // every other shape before code generation.
-        other => own(&format!("unsupported_{}", lowercased(&format!("{other:?}")))),
+        other => own(&format!(
+            "unsupported_{}",
+            lowercased(&format!("{other:?}"))
+        )),
     }
 }
 
@@ -180,7 +194,6 @@ impl CodecCollector {
         walk_ir(nodes, &mut noop, &mut visit);
     }
 
-
     /// Records `ty` and every type nested inside it, innermost first, so a
     /// collection's codec is always declared after the codecs it calls.
     fn add(&mut self, ty: &Type, direction: Direction) {
@@ -189,6 +202,15 @@ impl CodecCollector {
             Type::Map(key, value) => {
                 self.add(key, direction);
                 self.add(value, direction);
+            }
+            Type::Pair(first, second) => {
+                self.add(first, direction);
+                self.add(second, direction);
+            }
+            Type::Triple(first, second, third) => {
+                self.add(first, direction);
+                self.add(second, direction);
+                self.add(third, direction);
             }
             Type::Struct { fields, .. } => {
                 for (_, field) in fields {
@@ -440,7 +462,7 @@ public fun nexaCompareBytes(left: ByteArray, right: ByteArray): Int {
 mod tests {
     use nexa_ir::{Action, Expr, NumericType, PluginCodec, Type};
 
-    use super::{codec_name, collect, Direction};
+    use super::{Direction, codec_name, collect};
 
     /// A module whose only generic call sits in a lifecycle action rather than
     /// a body, which is where a call to a plugin that restores state belongs.

@@ -359,6 +359,30 @@ fn write_statements(ty: &Type, expression: &str, writer: &str) -> Vec<String> {
                 ),
             ]
         }
+        Type::Pair(first, second) => vec![
+            format!(
+                "{}({expression}.0, into: {writer})",
+                codec_name(first, Direction::Write)
+            ),
+            format!(
+                "{}({expression}.1, into: {writer})",
+                codec_name(second, Direction::Write)
+            ),
+        ],
+        Type::Triple(first, second, third) => vec![
+            format!(
+                "{}({expression}.0, into: {writer})",
+                codec_name(first, Direction::Write)
+            ),
+            format!(
+                "{}({expression}.1, into: {writer})",
+                codec_name(second, Direction::Write)
+            ),
+            format!(
+                "{}({expression}.2, into: {writer})",
+                codec_name(third, Direction::Write)
+            ),
+        ],
         other => vec![format!("// unsupported codec type {other:?}")],
     }
 }
@@ -468,6 +492,32 @@ fn read_statements(ty: &Type, reader: &str) -> Vec<String> {
                 "return values".to_owned(),
             ]
         }
+        Type::Pair(first, second) => vec![
+            format!(
+                "guard let field0 = {}({reader}) else {{ return nil }}",
+                codec_name(first, Direction::Read)
+            ),
+            format!(
+                "guard let field1 = {}({reader}) else {{ return nil }}",
+                codec_name(second, Direction::Read)
+            ),
+            "return (field0, field1)".to_owned(),
+        ],
+        Type::Triple(first, second, third) => vec![
+            format!(
+                "guard let field0 = {}({reader}) else {{ return nil }}",
+                codec_name(first, Direction::Read)
+            ),
+            format!(
+                "guard let field1 = {}({reader}) else {{ return nil }}",
+                codec_name(second, Direction::Read)
+            ),
+            format!(
+                "guard let field2 = {}({reader}) else {{ return nil }}",
+                codec_name(third, Direction::Read)
+            ),
+            "return (field0, field1, field2)".to_owned(),
+        ],
         other => vec![format!("// unsupported codec type {other:?}")],
     }
 }
@@ -497,5 +547,37 @@ fn read_expression(ty: &Type, reader: &str) -> String {
             format!("{reader}.{}()", scalar_read_method(ty))
         }
         other => format!("{}({reader})", codec_name(other, Direction::Read)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_ir::{NumericType, Type};
+
+    use super::{read_statements, write_statements};
+
+    #[test]
+    fn pair_and_triple_codecs_write_and_read_members_in_order() {
+        let pair = Type::Pair(
+            Box::new(Type::String),
+            Box::new(Type::Numeric(NumericType::Int32)),
+        );
+        let pair_write = write_statements(&pair, "value", "writer").join("\n");
+        let pair_read = read_statements(&pair, "reader").join("\n");
+        assert!(pair_write.contains("nexaWritestring(value.0, into: writer)"));
+        assert!(pair_write.contains("nexaWriteint32(value.1, into: writer)"));
+        assert!(pair_read.contains("return (field0, field1)"));
+
+        let triple = Type::Triple(
+            Box::new(Type::String),
+            Box::new(Type::Numeric(NumericType::Int32)),
+            Box::new(Type::Bool),
+        );
+        let triple_write = write_statements(&triple, "value", "writer").join("\n");
+        let triple_read = read_statements(&triple, "reader").join("\n");
+        assert!(triple_write.contains("nexaWritestring(value.0, into: writer)"));
+        assert!(triple_write.contains("nexaWriteint32(value.1, into: writer)"));
+        assert!(triple_write.contains("nexaWritebool(value.2, into: writer)"));
+        assert!(triple_read.contains("return (field0, field1, field2)"));
     }
 }

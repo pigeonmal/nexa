@@ -184,6 +184,14 @@ fn supported_dynamic_shape(ty: &BridgeType) -> bool {
         BridgeType::Map(key, value) => {
             supported_dynamic_shape(key) && supported_dynamic_shape(value)
         }
+        BridgeType::Pair(first, second) => {
+            supported_dynamic_shape(first) && supported_dynamic_shape(second)
+        }
+        BridgeType::Triple(first, second, third) => {
+            supported_dynamic_shape(first)
+                && supported_dynamic_shape(second)
+                && supported_dynamic_shape(third)
+        }
         // Optional type parameters are not storable by the plugin codec. A
         // method that mixes an ordinary optional scalar with a generic value
         // is handled by the non-generic scalar path above, but Optional<T>
@@ -194,10 +202,7 @@ fn supported_dynamic_shape(ty: &BridgeType) -> bool {
             kind: BridgeNamedKind::Enum | BridgeNamedKind::Struct,
             ..
         } => true,
-        BridgeType::Named { .. }
-        | BridgeType::Pair(..)
-        | BridgeType::Triple(..)
-        | BridgeType::Result { .. } => false,
+        BridgeType::Named { .. } | BridgeType::Result { .. } => false,
     }
 }
 
@@ -240,11 +245,19 @@ fn kotlin_dynamic_type(ty: &BridgeType) -> Option<String> {
             kotlin_dynamic_type(key)?,
             kotlin_dynamic_type(value)?
         ),
+        BridgeType::Pair(first, second) => format!(
+            "Pair<{}, {}>",
+            kotlin_dynamic_type(first)?,
+            kotlin_dynamic_type(second)?
+        ),
+        BridgeType::Triple(first, second, third) => format!(
+            "Triple<{}, {}, {}>",
+            kotlin_dynamic_type(first)?,
+            kotlin_dynamic_type(second)?,
+            kotlin_dynamic_type(third)?
+        ),
         BridgeType::Optional(inner) => format!("{}?", kotlin_dynamic_type(inner)?),
-        BridgeType::Named { .. }
-        | BridgeType::Pair(..)
-        | BridgeType::Triple(..)
-        | BridgeType::Result { .. } => return None,
+        BridgeType::Named { .. } | BridgeType::Result { .. } => return None,
     })
 }
 
@@ -746,7 +759,7 @@ fn render_kotlin_components(
                 args.push("content = content".to_owned());
             }
             out.push_str(&format!(
-                "                {}({})\n                true\n            }}\n",
+                "                {}({})\n                return true\n            }}\n",
                 interface.name,
                 args.join(", ")
             ));
@@ -776,6 +789,15 @@ fn supported_runtime_value_type(plan: &BridgePlan, ty: &BridgeType) -> bool {
         BridgeType::Map(key, value) => {
             supported_map_key(key) && supported_static_collection_element(plan, value, 0)
         }
+        BridgeType::Pair(first, second) => {
+            supported_static_collection_element(plan, first, 0)
+                && supported_static_collection_element(plan, second, 0)
+        }
+        BridgeType::Triple(first, second, third) => {
+            supported_static_collection_element(plan, first, 0)
+                && supported_static_collection_element(plan, second, 0)
+                && supported_static_collection_element(plan, third, 0)
+        }
         _ => false,
     }
 }
@@ -798,6 +820,15 @@ fn supported_static_collection_element(plan: &BridgePlan, ty: &BridgeType, depth
         BridgeType::Set(inner) => supported_hashable_collection_element(plan, inner),
         BridgeType::Map(key, value) => {
             supported_map_key(key) && supported_static_collection_element(plan, value, depth + 1)
+        }
+        BridgeType::Pair(first, second) => {
+            supported_static_collection_element(plan, first, depth + 1)
+                && supported_static_collection_element(plan, second, depth + 1)
+        }
+        BridgeType::Triple(first, second, third) => {
+            supported_static_collection_element(plan, first, depth + 1)
+                && supported_static_collection_element(plan, second, depth + 1)
+                && supported_static_collection_element(plan, third, depth + 1)
         }
         _ => false,
     }
@@ -1028,6 +1059,26 @@ fn swift_decode_value(ty: &BridgeType, raw: &str, namespace: &str, depth: usize)
                 "NexaDevValueCodec.transformMap({raw}, decodeKey: {{ {raw_key} in {decoded_key} }}, decodeValue: {{ {raw_value} in {decoded_value} }})"
             )
         }
+        BridgeType::Pair(first, second) => {
+            let raw_first = format!("nexaDevPairFirst{depth}");
+            let raw_second = format!("nexaDevPairSecond{depth}");
+            let decoded_first = swift_decode_value(first, &raw_first, namespace, depth + 1)?;
+            let decoded_second = swift_decode_value(second, &raw_second, namespace, depth + 1)?;
+            format!(
+                "NexaDevValueCodec.transformPair({raw}, decodeFirst: {{ {raw_first} in {decoded_first} }}, decodeSecond: {{ {raw_second} in {decoded_second} }})"
+            )
+        }
+        BridgeType::Triple(first, second, third) => {
+            let raw_first = format!("nexaDevTripleFirst{depth}");
+            let raw_second = format!("nexaDevTripleSecond{depth}");
+            let raw_third = format!("nexaDevTripleThird{depth}");
+            let decoded_first = swift_decode_value(first, &raw_first, namespace, depth + 1)?;
+            let decoded_second = swift_decode_value(second, &raw_second, namespace, depth + 1)?;
+            let decoded_third = swift_decode_value(third, &raw_third, namespace, depth + 1)?;
+            format!(
+                "NexaDevValueCodec.transformTriple({raw}, decodeFirst: {{ {raw_first} in {decoded_first} }}, decodeSecond: {{ {raw_second} in {decoded_second} }}, decodeThird: {{ {raw_third} in {decoded_third} }})"
+            )
+        }
         _ => return None,
     })
 }
@@ -1077,6 +1128,31 @@ fn swift_dynamic_decode_value(
                 swift_dynamic_decode_value(value, &raw_value, namespace, depth + 1)?;
             format!(
                 "NexaDevValueCodec.transformMap({raw}, decodeKey: {{ {raw_key} in {decoded_key} }}, decodeValue: {{ {raw_value} in {decoded_value} }})"
+            )
+        }
+        BridgeType::Pair(first, second) => {
+            let raw_first = format!("nexaDevDynamicPairFirst{depth}");
+            let raw_second = format!("nexaDevDynamicPairSecond{depth}");
+            let decoded_first =
+                swift_dynamic_decode_value(first, &raw_first, namespace, depth + 1)?;
+            let decoded_second =
+                swift_dynamic_decode_value(second, &raw_second, namespace, depth + 1)?;
+            format!(
+                "NexaDevValueCodec.transformPair({raw}, decodeFirst: {{ {raw_first} in {decoded_first} }}, decodeSecond: {{ {raw_second} in {decoded_second} }})"
+            )
+        }
+        BridgeType::Triple(first, second, third) => {
+            let raw_first = format!("nexaDevDynamicTripleFirst{depth}");
+            let raw_second = format!("nexaDevDynamicTripleSecond{depth}");
+            let raw_third = format!("nexaDevDynamicTripleThird{depth}");
+            let decoded_first =
+                swift_dynamic_decode_value(first, &raw_first, namespace, depth + 1)?;
+            let decoded_second =
+                swift_dynamic_decode_value(second, &raw_second, namespace, depth + 1)?;
+            let decoded_third =
+                swift_dynamic_decode_value(third, &raw_third, namespace, depth + 1)?;
+            format!(
+                "NexaDevValueCodec.transformTriple({raw}, decodeFirst: {{ {raw_first} in {decoded_first} }}, decodeSecond: {{ {raw_second} in {decoded_second} }}, decodeThird: {{ {raw_third} in {decoded_third} }})"
             )
         }
         other => swift_decode_value(other, raw, namespace, depth)?,
@@ -1136,7 +1212,82 @@ fn kotlin_decode_value(
                 "NexaDevValueCodec.transformMap({raw}, decodeKey = {{ {raw_key} -> {decoded_key} }}, decodeValue = {{ {raw_value} -> {decoded_value} }})"
             )
         }
+        BridgeType::Pair(first, second) => {
+            let raw_first = format!("nexaDevPairFirst{depth}");
+            let raw_second = format!("nexaDevPairSecond{depth}");
+            let decoded_first = kotlin_decode_value(first, &raw_first, namespace, depth + 1)?;
+            let decoded_second = kotlin_decode_value(second, &raw_second, namespace, depth + 1)?;
+            format!(
+                "NexaDevValueCodec.transformPair({raw}, decodeFirst = {{ {raw_first} -> {decoded_first} }}, decodeSecond = {{ {raw_second} -> {decoded_second} }})"
+            )
+        }
+        BridgeType::Triple(first, second, third) => {
+            let raw_first = format!("nexaDevTripleFirst{depth}");
+            let raw_second = format!("nexaDevTripleSecond{depth}");
+            let raw_third = format!("nexaDevTripleThird{depth}");
+            let decoded_first = kotlin_decode_value(first, &raw_first, namespace, depth + 1)?;
+            let decoded_second = kotlin_decode_value(second, &raw_second, namespace, depth + 1)?;
+            let decoded_third = kotlin_decode_value(third, &raw_third, namespace, depth + 1)?;
+            format!(
+                "NexaDevValueCodec.transformTriple({raw}, decodeFirst = {{ {raw_first} -> {decoded_first} }}, decodeSecond = {{ {raw_second} -> {decoded_second} }}, decodeThird = {{ {raw_third} -> {decoded_third} }})"
+            )
+        }
         _ => return None,
+    })
+}
+
+fn kotlin_dynamic_decode_value(
+    ty: &BridgeType,
+    raw: &str,
+    namespace: &str,
+    depth: usize,
+) -> Option<String> {
+    Some(match ty {
+        BridgeType::TypeParameter(_) => raw.to_owned(),
+        BridgeType::Array(inner) => {
+            let item = format!("nexaDevDynamicItem{depth}");
+            let decoded = kotlin_dynamic_decode_value(inner, &item, namespace, depth + 1)?;
+            format!("NexaDevValueCodec.transformArray({raw}) {{ {item} -> {decoded} }}")
+        }
+        BridgeType::Set(inner) if super::bridge_plan::contains_type_parameter(inner) => {
+            format!("NexaDevValueCodec.asSet({raw})")
+        }
+        BridgeType::Map(key, value) => {
+            let raw_key = format!("nexaDevDynamicKey{depth}");
+            let raw_value = format!("nexaDevDynamicValue{depth}");
+            let decoded_key = kotlin_dynamic_decode_value(key, &raw_key, namespace, depth + 1)?;
+            let decoded_value =
+                kotlin_dynamic_decode_value(value, &raw_value, namespace, depth + 1)?;
+            format!(
+                "NexaDevValueCodec.transformMap({raw}, decodeKey = {{ {raw_key} -> {decoded_key} }}, decodeValue = {{ {raw_value} -> {decoded_value} }})"
+            )
+        }
+        BridgeType::Pair(first, second) => {
+            let raw_first = format!("nexaDevDynamicPairFirst{depth}");
+            let raw_second = format!("nexaDevDynamicPairSecond{depth}");
+            let decoded_first =
+                kotlin_dynamic_decode_value(first, &raw_first, namespace, depth + 1)?;
+            let decoded_second =
+                kotlin_dynamic_decode_value(second, &raw_second, namespace, depth + 1)?;
+            format!(
+                "NexaDevValueCodec.transformPair({raw}, decodeFirst = {{ {raw_first} -> {decoded_first} }}, decodeSecond = {{ {raw_second} -> {decoded_second} }})"
+            )
+        }
+        BridgeType::Triple(first, second, third) => {
+            let raw_first = format!("nexaDevDynamicTripleFirst{depth}");
+            let raw_second = format!("nexaDevDynamicTripleSecond{depth}");
+            let raw_third = format!("nexaDevDynamicTripleThird{depth}");
+            let decoded_first =
+                kotlin_dynamic_decode_value(first, &raw_first, namespace, depth + 1)?;
+            let decoded_second =
+                kotlin_dynamic_decode_value(second, &raw_second, namespace, depth + 1)?;
+            let decoded_third =
+                kotlin_dynamic_decode_value(third, &raw_third, namespace, depth + 1)?;
+            format!(
+                "NexaDevValueCodec.transformTriple({raw}, decodeFirst = {{ {raw_first} -> {decoded_first} }}, decodeSecond = {{ {raw_second} -> {decoded_second} }}, decodeThird = {{ {raw_third} -> {decoded_third} }})"
+            )
+        }
+        other => kotlin_decode_value(other, raw, namespace, depth)?,
     })
 }
 
@@ -1280,6 +1431,17 @@ fn swift_encode_dev_value(
                 "Dictionary(uniqueKeysWithValues: {value}.map {{ {entry} in (String(describing: {key}), {encoded} as Any) }})"
             )
         }
+        BridgeType::Pair(first, second) => format!(
+            "[{} as Any, {} as Any]",
+            swift_encode_dev_value(plan, first, &format!("{value}.0"), namespace, depth + 1)?,
+            swift_encode_dev_value(plan, second, &format!("{value}.1"), namespace, depth + 1)?
+        ),
+        BridgeType::Triple(first, second, third) => format!(
+            "[{} as Any, {} as Any, {} as Any]",
+            swift_encode_dev_value(plan, first, &format!("{value}.0"), namespace, depth + 1)?,
+            swift_encode_dev_value(plan, second, &format!("{value}.1"), namespace, depth + 1)?,
+            swift_encode_dev_value(plan, third, &format!("{value}.2"), namespace, depth + 1)?
+        ),
         _ => return None,
     })
 }
@@ -1359,6 +1521,17 @@ fn kotlin_encode_dev_value(
                 "{value}.entries.associate {{ {entry} -> {entry}.key.toString() to ({encoded} as Any) }}"
             )
         }
+        BridgeType::Pair(first, second) => format!(
+            "listOf<Any>({} as Any, {} as Any)",
+            kotlin_encode_dev_value(plan, first, &format!("{value}.first"), depth + 1)?,
+            kotlin_encode_dev_value(plan, second, &format!("{value}.second"), depth + 1)?
+        ),
+        BridgeType::Triple(first, second, third) => format!(
+            "listOf<Any>({} as Any, {} as Any, {} as Any)",
+            kotlin_encode_dev_value(plan, first, &format!("{value}.first"), depth + 1)?,
+            kotlin_encode_dev_value(plan, second, &format!("{value}.second"), depth + 1)?,
+            kotlin_encode_dev_value(plan, third, &format!("{value}.third"), depth + 1)?
+        ),
         _ => return None,
     })
 }
@@ -1832,6 +2005,15 @@ fn supported_value_type(plan: &BridgePlan, ty: &BridgeType) -> bool {
         BridgeType::Set(inner) => supported_hashable_collection_element(plan, inner),
         BridgeType::Map(key, value) => {
             supported_map_key(key) && supported_static_collection_element(plan, value, 0)
+        }
+        BridgeType::Pair(first, second) => {
+            supported_static_collection_element(plan, first, 1)
+                && supported_static_collection_element(plan, second, 1)
+        }
+        BridgeType::Triple(first, second, third) => {
+            supported_static_collection_element(plan, first, 1)
+                && supported_static_collection_element(plan, second, 1)
+                && supported_static_collection_element(plan, third, 1)
         }
         BridgeType::Named {
             kind: BridgeNamedKind::Enum | BridgeNamedKind::NativeClass,
@@ -2318,6 +2500,14 @@ fn render_kotlin_dynamic_argument(
                 kotlin_escape(error)
             ));
         }
+        BridgeType::Pair(..) | BridgeType::Triple(..) => {
+            let decoded = kotlin_dynamic_decode_value(ty, &format!("nexaRaw{index}"), "", 0)
+                .unwrap_or_else(|| format!("nexaRaw{index} as? {shape}"));
+            out.push_str(&format!(
+                "{indent}val nexaArg{index}: {shape} = {decoded} ?: error(\"{}\")\n",
+                kotlin_escape(error)
+            ));
+        }
         BridgeType::Set(_) => out.push_str(&format!(
             "{indent}val nexaArg{index} = NexaDevValueCodec.asSet(nexaRaw{index}) ?: error(\"{}\")\n",
             kotlin_escape(error)
@@ -2639,6 +2829,9 @@ mod tests {
                     fn getSet<T>(key: String) -> Set<T>?
                     fn setMap<K, V>(key: String, values: Map<K, V>) -> Bool
                     fn getMap<K, V>(key: String) -> Map<K, V>?
+                    fn setPair<K, V>(value: Pair<K, V>) -> Bool
+                    fn getPair<K, V>() -> Pair<K, V>?
+                    fn setTriple<A, B, C>(value: Triple<A, B, C>) -> Bool
                 }
                 "#,
             )
@@ -2688,6 +2881,8 @@ mod tests {
                     fn update(stats: StoreStats) -> Bool
                     fn merge(stats: Array<StoreStats>) -> Bool
                     fn statsHistory(limit: Int32) -> Array<StoreStats>
+                    fn tupleSnapshot() -> Pair<String, Int32>
+                    fn tripleSnapshot() -> Triple<String, Int32, Bool>
                     event updated(stats: StoreStats, keys: Array<String>)
                 }
                 native component StatsBadge {
@@ -2803,6 +2998,9 @@ mod tests {
         assert!(kotlin.contains("as? Map<Any, Any>"));
         assert!(kotlin.contains(".map { nexaEncodeSet1 -> nexaEncodeSet1 }.toSet()"));
         assert!(kotlin.contains("nexaEncodeMapEntry1.key.toString()"));
+        assert!(swift.contains("NexaDevValueCodec.transformPair(nexaRaw0"));
+        assert!(kotlin.contains("NexaDevValueCodec.transformPair(nexaRaw0"));
+        assert!(kotlin.contains("NexaDevValueCodec.transformTriple(nexaRaw0"));
     }
 
     #[test]
@@ -2847,6 +3045,8 @@ mod tests {
         assert!(swift.contains("case (\"Storage\", \"StatsBadge\")"));
         assert!(swift.contains("StatsBadge(stats: nexaArg_stats"));
         assert!(swift.contains("onSelected: events[\"onSelected\"].map { handler in"));
+        assert!(swift.contains("[result.0 as Any, result.1 as Any]"));
+        assert!(swift.contains("[result.0 as Any, result.1 as Any, result.2 as Any]"));
 
         let kotlin = kotlin(&contracts).expect("render Kotlin Dev bridge");
         assert!(kotlin.contains("nexaReceiver.getAllKeys()"));
@@ -2863,6 +3063,10 @@ mod tests {
         assert!(kotlin.contains("handler(listOf(mapOf<String, Any>(\"count\" to nexaEvent0.count"));
         assert!(kotlin.contains("\"Storage.StatsBadge\" -> {"));
         assert!(kotlin.contains("StatsBadge(stats = nexaArg_stats"));
+        assert!(kotlin.contains("listOf<Any>(result.first as Any, result.second as Any)"));
+        assert!(kotlin.contains(
+            "listOf<Any>(result.first as Any, result.second as Any, result.third as Any)"
+        ));
     }
 
     #[test]
@@ -2919,6 +3123,7 @@ mod tests {
         assert!(
             generated.contains("VideoView(player = nexaArg_player, controls = nexaArg_controls")
         );
+        assert!(generated.contains("VideoView(player = nexaArg_player, controls = nexaArg_controls, onTapped = { events[\"onTapped\"]?.invoke(emptyList()) }, content = content)\n                return true"));
         assert!(generated.contains("nexaReceiver.prepare(nexaArg0)"));
         assert!(generated.contains("throw nexaDevFailureVideoPlayerPlayerError(error)"));
         assert!(generated.contains("\"message\" to error.message"));

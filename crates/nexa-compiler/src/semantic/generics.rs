@@ -14,7 +14,7 @@ use nexa_ir::{PluginCodec, Type};
 use super::{
     context::TypeRegistries,
     expressions::{
-        parse_type, require_hashable_key, resolve_struct_type, type_name, FunctionSignature,
+        FunctionSignature, parse_type, require_hashable_key, resolve_struct_type, type_name,
     },
 };
 
@@ -75,9 +75,8 @@ pub(super) fn resolve(
         }
     }
     if let Some(expected) = expected {
-        unify(&signature.return_type, expected, &mut bindings).map_err(|message| {
-            CompileError::new(span, format!("`{qualified_name}`: {message}"))
-        })?;
+        unify(&signature.return_type, expected, &mut bindings)
+            .map_err(|message| CompileError::new(span, format!("`{qualified_name}`: {message}")))?;
     }
     for parameter in &signature.type_parameters {
         if !bindings.iter().any(|(name, _)| name == parameter) {
@@ -168,9 +167,7 @@ fn unify(declared: &Type, actual: &Type, bindings: &mut Vec<(String, Type)>) -> 
     }
     match (declared, actual) {
         (Type::TypeParam(parameter), actual) => {
-            if let Some((_, bound)) = bindings
-                .iter()
-                .find(|(name, _)| name == parameter)
+            if let Some((_, bound)) = bindings.iter().find(|(name, _)| name == parameter)
                 && bound != actual
             {
                 return Err(format!(
@@ -186,12 +183,22 @@ fn unify(declared: &Type, actual: &Type, bindings: &mut Vec<(String, Type)>) -> 
         }
         (Type::Optional(declared), Type::Optional(actual))
         | (Type::Array(declared), Type::Array(actual))
-        | (Type::Set(declared), Type::Set(actual)) => {
-            unify(declared, actual, bindings)
-        }
+        | (Type::Set(declared), Type::Set(actual)) => unify(declared, actual, bindings),
         (Type::Map(declared_key, declared_value), Type::Map(actual_key, actual_value)) => {
             unify(declared_key, actual_key, bindings)?;
             unify(declared_value, actual_value, bindings)
+        }
+        (Type::Pair(declared_first, declared_second), Type::Pair(actual_first, actual_second)) => {
+            unify(declared_first, actual_first, bindings)?;
+            unify(declared_second, actual_second, bindings)
+        }
+        (
+            Type::Triple(declared_first, declared_second, declared_third),
+            Type::Triple(actual_first, actual_second, actual_third),
+        ) => {
+            unify(declared_first, actual_first, bindings)?;
+            unify(declared_second, actual_second, bindings)?;
+            unify(declared_third, actual_third, bindings)
         }
         _ => Ok(()),
     }
@@ -276,6 +283,15 @@ fn require_storable(
             require_hashable_key(key, span, "Map keys")?;
             require_storable(value, context, registries, span)
         }
+        Type::Pair(first, second) => {
+            require_storable(first, context, registries, span)?;
+            require_storable(second, context, registries, span)
+        }
+        Type::Triple(first, second, third) => {
+            require_storable(first, context, registries, span)?;
+            require_storable(second, context, registries, span)?;
+            require_storable(third, context, registries, span)
+        }
         Type::Optional(_) => Err(CompileError::new(
             span,
             format!(
@@ -284,14 +300,12 @@ fn require_storable(
         )),
         Type::Void
         | Type::TypeParam(_)
-        | Type::Pair(..)
-        | Type::Triple(..)
         | Type::Result(..)
         | Type::Plugin { .. }
         | Type::NetworkResponse => Err(CompileError::new(
             span,
             format!(
-                "plugin value type for {context} must be a scalar, `Bytes`, an enum, a struct, or a collection of those; found {}",
+                "plugin value type for {context} must be a scalar, `Bytes`, an enum, a struct, a pair, a triple, or a collection of those; found {}",
                 type_name(ty)
             ),
         )),

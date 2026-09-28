@@ -33,6 +33,50 @@ internal object NexaDevValueCodec {
         return decoded
     }
 
+    fun <Element> transformArray(raw: Any?, decode: (Any) -> Element?): List<Element>? {
+        val values = raw as? List<*> ?: return null
+        val decoded = ArrayList<Element>(values.size)
+        for (value in values) decoded += decode(value ?: return null) ?: return null
+        return decoded
+    }
+
+    fun <First, Second> transformPair(
+        raw: Any?,
+        decodeFirst: (Any) -> First?,
+        decodeSecond: (Any) -> Second?,
+    ): Pair<First, Second>? {
+        if (raw is Pair<*, *>) {
+            val first = decodeFirst(raw.first ?: return null) ?: return null
+            val second = decodeSecond(raw.second ?: return null) ?: return null
+            return Pair(first, second)
+        }
+        val elements = raw as? List<*> ?: return null
+        if (elements.size != 2) return null
+        val first = decodeFirst(elements[0] ?: return null) ?: return null
+        val second = decodeSecond(elements[1] ?: return null) ?: return null
+        return Pair(first, second)
+    }
+
+    fun <First, Second, Third> transformTriple(
+        raw: Any?,
+        decodeFirst: (Any) -> First?,
+        decodeSecond: (Any) -> Second?,
+        decodeThird: (Any) -> Third?,
+    ): Triple<First, Second, Third>? {
+        if (raw is Triple<*, *, *>) {
+            val first = decodeFirst(raw.first ?: return null) ?: return null
+            val second = decodeSecond(raw.second ?: return null) ?: return null
+            val third = decodeThird(raw.third ?: return null) ?: return null
+            return Triple(first, second, third)
+        }
+        val elements = raw as? List<*> ?: return null
+        if (elements.size != 3) return null
+        val first = decodeFirst(elements[0] ?: return null) ?: return null
+        val second = decodeSecond(elements[1] ?: return null) ?: return null
+        val third = decodeThird(elements[2] ?: return null) ?: return null
+        return Triple(first, second, third)
+    }
+
     fun <Key : Any, Value> transformMap(
         raw: Any?,
         decodeKey: (Any) -> Key?,
@@ -134,6 +178,38 @@ internal object NexaDevValueCodec {
                     writer.writeRaw(entry.second)
                 }
             }
+            "Pair" -> {
+                val types = payload as? JSONArray ?: return false
+                if (types.length() != 2) return false
+                if (value is Pair<*, *>) {
+                    if (!write(value.first, types.opt(0), writer, enumCases) ||
+                        !write(value.second, types.opt(1), writer, enumCases)
+                    ) return false
+                } else {
+                    val elements = value as? List<*> ?: return false
+                    if (elements.size != 2) return false
+                    if (!write(elements[0], types.opt(0), writer, enumCases) ||
+                        !write(elements[1], types.opt(1), writer, enumCases)
+                    ) return false
+                }
+            }
+            "Triple" -> {
+                val types = payload as? JSONArray ?: return false
+                if (types.length() != 3) return false
+                if (value is Triple<*, *, *>) {
+                    if (!write(value.first, types.opt(0), writer, enumCases) ||
+                        !write(value.second, types.opt(1), writer, enumCases) ||
+                        !write(value.third, types.opt(2), writer, enumCases)
+                    ) return false
+                } else {
+                    val elements = value as? List<*> ?: return false
+                    if (elements.size != 3) return false
+                    if (!write(elements[0], types.opt(0), writer, enumCases) ||
+                        !write(elements[1], types.opt(1), writer, enumCases) ||
+                        !write(elements[2], types.opt(2), writer, enumCases)
+                    ) return false
+                }
+            }
             else -> return false
         }
         return true
@@ -195,6 +271,21 @@ internal object NexaDevValueCodec {
                     values[key] = value
                 }
                 values
+            }
+            "Pair" -> {
+                val types = payload as? JSONArray ?: return null
+                if (types.length() != 2) return null
+                val first = read(types.opt(0), reader, enumCases) ?: return null
+                val second = read(types.opt(1), reader, enumCases) ?: return null
+                Pair(first, second)
+            }
+            "Triple" -> {
+                val types = payload as? JSONArray ?: return null
+                if (types.length() != 3) return null
+                val first = read(types.opt(0), reader, enumCases) ?: return null
+                val second = read(types.opt(1), reader, enumCases) ?: return null
+                val third = read(types.opt(2), reader, enumCases) ?: return null
+                Triple(first, second, third)
             }
             else -> null
         }
