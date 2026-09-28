@@ -44,6 +44,7 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -273,9 +274,11 @@ internal fun NexaDevNode(
                 val fontSize = if (style.has("font_size") && !style.isNull("font_size")) style.getDouble("font_size").sp else androidx.compose.ui.unit.TextUnit.Unspecified
                 val maxLines = if (style.has("line_limit") && !style.isNull("line_limit")) style.getInt("line_limit") else Int.MAX_VALUE
                 val letterSpacing = if (style.has("letter_spacing") && !style.isNull("letter_spacing")) style.getDouble("letter_spacing").sp else androidx.compose.ui.unit.TextUnit.Unspecified
+                val modifier = if (style.has("padding") && !style.isNull("padding")) Modifier.padding(style.getDouble("padding").dp) else Modifier
                 if (style.has("line_height") && !style.isNull("line_height")) {
                     Text(
                         text = text,
+                        modifier = modifier,
                         color = color ?: Color.Unspecified,
                         fontSize = fontSize,
                         fontWeight = weight,
@@ -286,6 +289,7 @@ internal fun NexaDevNode(
                 } else {
                     Text(
                         text = text,
+                        modifier = modifier,
                         color = color ?: Color.Unspecified,
                         fontSize = fontSize,
                         fontWeight = weight,
@@ -296,6 +300,11 @@ internal fun NexaDevNode(
             }
             if (style.optBoolean("selectable")) SelectionContainer { content() } else content()
         }
+        "Spacer" -> Spacer(modifier = Modifier.weight(1f))
+        "Divider" -> HorizontalDivider(
+            color = nexaDevColor(fields.optJSONObject("color"), isSystemInDarkTheme()) ?: Color.Gray,
+            thickness = (fields.optDouble("thickness", 1.0)).dp,
+        )
         "Button" -> Button(onClick = { store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals) }) {
             Text(store.stringify(store.evaluate(fields.opt("label"), locals, scope)))
         }

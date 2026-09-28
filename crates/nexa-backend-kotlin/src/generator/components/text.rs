@@ -32,6 +32,9 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
     if let Some(color) = style.color {
         out.push_str(&format!(", color = {}", colors::expression(color)));
     }
+    if let Some(padding) = style.padding {
+        out.push_str(&format!(", modifier = Modifier.padding({}.dp)", number(padding)));
+    }
     if let Some(font_size) = style.font_size {
         out.push_str(&format!(", fontSize = {}.sp", number(font_size)));
     }

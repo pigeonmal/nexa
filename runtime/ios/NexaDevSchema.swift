@@ -4,10 +4,10 @@ import Foundation
 /// shared between Nexa development servers and native dev runtimes.
 public enum NexaDevSchema {
     /// Dev protocol version exchanged during WebSocket handshake.
-    public static let protocolVersion: Int = 3
+    public static let protocolVersion: Int = 4
 
     /// Format version of the Dev IR payload.
-    public static let devIRFormatVersion: Int = 1
+    public static let devIRFormatVersion: Int = 2
 
     /// Platform identifier for iOS dev runtimes.
     public static let targetPlatform = "ios"
@@ -102,6 +102,8 @@ public enum NexaDevNodeKind {
     public static let row = "Row"
     public static let stack = "Stack"
     public static let text = "Text"
+    public static let spacer = "Spacer"
+    public static let divider = "Divider"
     public static let button = "Button"
     public static let pressable = "Pressable"
     public static let textInput = "TextInput"
@@ -163,10 +165,15 @@ public enum NexaDevExprKind {
     public static let state = "State"
     public static let interpolation = "Interpolation"
     public static let add = "Add"
+    public static let concat = "Concat"
+    public static let arithmetic = "Arithmetic"
+    public static let negate = "Negate"
     public static let not = "Not"
     public static let binary = "Binary"
     public static let contains = "Contains"
     public static let collectionTransform = "CollectionTransform"
+    public static let collectionUtility = "CollectionUtility"
+    public static let conditional = "Conditional"
     public static let closure = "Closure"
     public static let index = "Index"
     public static let member = "Member"

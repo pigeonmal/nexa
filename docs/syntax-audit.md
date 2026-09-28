@@ -56,6 +56,20 @@ Modifiers: none
 
 Reference: components.md#direction
 
+### `Divider`
+
+Separates content with a native divider
+
+Signature: `Divider(color, thickness)`
+
+Required options: `color`, `thickness`
+
+Children: none
+
+Modifiers: none
+
+Reference: components.md#divider
+
 ### `KeyboardAware`
 
 Adjusts layout for the software keyboard
@@ -84,6 +98,18 @@ Modifiers: none
 
 Reference: components.md#row
 
+### `Spacer`
+
+Expands along the parent layout axis
+
+Signature: `Spacer()`
+
+Children: none
+
+Modifiers: none
+
+Reference: components.md#spacer
+
 ### `Stack`
 
 Overlapping layout container
@@ -104,9 +130,9 @@ Reference: components.md#stack
 
 Displays formatted text
 
-Signature: `Text(value, color:, fontSize:, fontWeight:, lineLimit:, lineHeight:, letterSpacing:, selectable:)`
+Signature: `Text(value, color:, fontSize:, fontWeight:, padding:, lineLimit:, lineHeight:, letterSpacing:, selectable:)`
 
-Optional options: `color`, `fontSize`, `fontWeight`, `lineLimit`, `lineHeight`, `letterSpacing`, `selectable`
+Optional options: `color`, `fontSize`, `fontWeight`, `padding`, `lineLimit`, `lineHeight`, `letterSpacing`, `selectable`
 
 Children: none
 

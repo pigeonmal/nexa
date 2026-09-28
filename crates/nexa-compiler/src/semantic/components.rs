@@ -367,6 +367,7 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
             let color = args.remove("color");
             let font_size = args.remove("fontSize");
             let font_weight = args.remove("fontWeight");
+            let padding = args.remove("padding");
             let line_limit = args.remove("lineLimit");
             let line_height = args.remove("lineHeight");
             let letter_spacing = args.remove("letterSpacing");
@@ -380,6 +381,12 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                 themes,
             )?;
             let font_weight = lower_font_weight(font_weight)?;
+            let padding = optional_dimension(
+                padding,
+                "padding",
+                Some(ast::ThemeTokenKind::Spacing),
+                themes,
+            )?;
             let line_limit = lower_line_limit(line_limit)?;
             let line_height = optional_dimension(line_height, "lineHeight", None, themes)?;
             let letter_spacing = optional_dimension(letter_spacing, "letterSpacing", None, themes)?;
@@ -390,12 +397,28 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                     color,
                     font_size,
                     font_weight,
+                    padding,
                     line_limit,
                     line_height,
                     letter_spacing,
                     selectable,
                 },
             })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "Spacer" => Ok(Node::Spacer),
+        ast::Node::ComponentInvocation(inv) if inv.name == "Divider" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let color = optional_color(args.remove("color"), "divider color", themes)?
+                .ok_or_else(|| CompileError::new(span, "Divider requires a `color` value"))?;
+            let thickness = optional_dimension(
+                args.remove("thickness"),
+                "divider thickness",
+                Some(ast::ThemeTokenKind::Spacing),
+                themes,
+            )?
+            .ok_or_else(|| CompileError::new(span, "Divider requires a `thickness` value"))?;
+            Ok(Node::Divider { color, thickness })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Button" => {
             let span = inv.span;
@@ -425,18 +448,17 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
             let disabled = disabled
                 .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
                 .transpose()?;
-            let lowered =
-                lower_actions_with_aliases(
-                    actions,
-                    symbols,
-                    functions,
-                    false,
-                    native_aliases,
-                    TypeRegistries {
-                        structs: cx.structs,
-                        enums: cx.enums,
-                    },
-                )?;
+            let lowered = lower_actions_with_aliases(
+                actions,
+                symbols,
+                functions,
+                false,
+                native_aliases,
+                TypeRegistries {
+                    structs: cx.structs,
+                    enums: cx.enums,
+                },
+            )?;
             Ok(Node::Button {
                 label,
                 icon,
@@ -672,18 +694,17 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                 .unwrap_or(Expr::Bool(false));
             let haptic = lower_haptic(haptic)?;
             let lowered_children = lower_nodes(children, &child_cx)?;
-            let actions =
-                lower_actions_with_aliases(
-                    actions,
-                    symbols,
-                    functions,
-                    false,
-                    native_aliases,
-                    TypeRegistries {
-                        structs: cx.structs,
-                        enums: cx.enums,
-                    },
-                )?;
+            let actions = lower_actions_with_aliases(
+                actions,
+                symbols,
+                functions,
+                false,
+                native_aliases,
+                TypeRegistries {
+                    structs: cx.structs,
+                    enums: cx.enums,
+                },
+            )?;
             let long_press_actions = lower_actions_with_aliases(
                 long_press_actions,
                 symbols,
@@ -691,9 +712,9 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                 false,
                 native_aliases,
                 TypeRegistries {
-                        structs: cx.structs,
-                        enums: cx.enums,
-                    },
+                    structs: cx.structs,
+                    enums: cx.enums,
+                },
             )?;
             Ok(Node::Pressable {
                 disabled,
@@ -721,9 +742,9 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                 symbols,
                 functions,
                 TypeRegistries {
-                        structs: cx.structs,
-                        enums: cx.enums,
-                    },
+                    structs: cx.structs,
+                    enums: cx.enums,
+                },
                 "NavigationStack root",
             )?;
             Ok(Node::NavigationStack {
@@ -937,18 +958,17 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                 "RefreshControl",
             )?;
             let mut lowered_children = lower_nodes(children, &child_cx)?;
-            let actions =
-                lower_actions_with_aliases(
-                    actions,
-                    symbols,
-                    functions,
-                    false,
-                    native_aliases,
-                    TypeRegistries {
-                        structs: cx.structs,
-                        enums: cx.enums,
-                    },
-                )?;
+            let actions = lower_actions_with_aliases(
+                actions,
+                symbols,
+                functions,
+                false,
+                native_aliases,
+                TypeRegistries {
+                    structs: cx.structs,
+                    enums: cx.enums,
+                },
+            )?;
             if lowered_children.len() == 1 {
                 let mut child = lowered_children.pop().expect("one lowered refresh child");
                 if let Node::FastList { plan } = &mut child {
@@ -1342,31 +1362,31 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
             let on_end_reached = on_end_reached
                 .map(|actions| {
                     lower_actions_with_aliases(
-                    actions,
-                    symbols,
-                    functions,
-                    false,
-                    native_aliases,
-                    TypeRegistries {
-                        structs: cx.structs,
-                        enums: cx.enums,
-                    },
-                )
+                        actions,
+                        symbols,
+                        functions,
+                        false,
+                        native_aliases,
+                        TypeRegistries {
+                            structs: cx.structs,
+                            enums: cx.enums,
+                        },
+                    )
                 })
                 .transpose()?;
             let on_scroll = on_scroll
                 .map(|actions| {
                     lower_actions_with_aliases(
-                    actions,
-                    symbols,
-                    functions,
-                    false,
-                    native_aliases,
-                    TypeRegistries {
-                        structs: cx.structs,
-                        enums: cx.enums,
-                    },
-                )
+                        actions,
+                        symbols,
+                        functions,
+                        false,
+                        native_aliases,
+                        TypeRegistries {
+                            structs: cx.structs,
+                            enums: cx.enums,
+                        },
+                    )
                 })
                 .transpose()?;
             let sticky_header = sticky_header
@@ -1725,18 +1745,17 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                     }
                     event_symbols.insert(parameter_name.clone(), (ty.clone(), false));
                 }
-                let actions =
-                    lower_actions_with_depth(
-                        handler.actions,
-                        &event_symbols,
-                        functions,
-                        false,
-                        0,
-                        TypeRegistries {
-                            structs: cx.structs,
-                            enums: cx.enums,
-                        },
-                    )?;
+                let actions = lower_actions_with_depth(
+                    handler.actions,
+                    &event_symbols,
+                    functions,
+                    false,
+                    0,
+                    TypeRegistries {
+                        structs: cx.structs,
+                        enums: cx.enums,
+                    },
+                )?;
                 lowered_events.push(NativeComponentEventHandler {
                     property: handler.property,
                     parameters: handler.parameters,
@@ -2009,7 +2028,13 @@ fn lower_screen_target(
             lower_expr(
                 argument,
                 Some(&parameter.ty),
-                &ExprContext::with_types(symbols, functions, false, registries.structs, registries.enums),
+                &ExprContext::with_types(
+                    symbols,
+                    functions,
+                    false,
+                    registries.structs,
+                    registries.enums,
+                ),
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -2094,7 +2119,13 @@ fn lower_actions_with_disposal_state(
                 let expression = lower_expr(
                     &expression,
                     None,
-                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                    &ExprContext::with_types(
+                        symbols,
+                        functions,
+                        allow_await,
+                        registries.structs,
+                        registries.enums,
+                    ),
                 )?;
                 validate_and_record_native_disposal(
                     &expression,
@@ -2124,7 +2155,13 @@ fn lower_actions_with_disposal_state(
                 let value = lower_expr(
                     &value,
                     Some(ty),
-                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                    &ExprContext::with_types(
+                        symbols,
+                        functions,
+                        allow_await,
+                        registries.structs,
+                        registries.enums,
+                    ),
                 )?;
                 validate_and_record_native_disposal(
                     &value,
@@ -2220,7 +2257,13 @@ fn lower_actions_with_disposal_state(
                 let receiver = lower_expr(
                     &receiver,
                     Some(&receiver_type),
-                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                    &ExprContext::with_types(
+                        symbols,
+                        functions,
+                        allow_await,
+                        registries.structs,
+                        registries.enums,
+                    ),
                 )?;
                 validate_and_record_native_disposal(
                     &receiver,
@@ -2232,7 +2275,13 @@ fn lower_actions_with_disposal_state(
                 let value = lower_expr(
                     &value,
                     Some(&signature.return_type),
-                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                    &ExprContext::with_types(
+                        symbols,
+                        functions,
+                        allow_await,
+                        registries.structs,
+                        registries.enums,
+                    ),
                 )?;
                 validate_and_record_native_disposal(
                     &value,
@@ -2311,7 +2360,13 @@ fn lower_actions_with_disposal_state(
                 let receiver = lower_expr(
                     &receiver,
                     Some(&receiver_type),
-                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                    &ExprContext::with_types(
+                        symbols,
+                        functions,
+                        allow_await,
+                        registries.structs,
+                        registries.enums,
+                    ),
                 )?;
                 validate_and_record_native_disposal(
                     &receiver,
@@ -2359,7 +2414,13 @@ fn lower_actions_with_disposal_state(
                     let expression = lower_expr(
                         &expression,
                         None,
-                        &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                        &ExprContext::with_types(
+                            symbols,
+                            functions,
+                            allow_await,
+                            registries.structs,
+                            registries.enums,
+                        ),
                     )?;
                     validate_and_record_native_disposal(
                         &expression,
@@ -2450,7 +2511,13 @@ fn lower_actions_with_disposal_state(
                         lower_expr(
                             argument,
                             Some(expected),
-                            &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                            &ExprContext::with_types(
+                                symbols,
+                                functions,
+                                allow_await,
+                                registries.structs,
+                                registries.enums,
+                            ),
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -2478,7 +2545,13 @@ fn lower_actions_with_disposal_state(
                 let condition = lower_expr(
                     &condition,
                     Some(&Type::Bool),
-                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                    &ExprContext::with_types(
+                        symbols,
+                        functions,
+                        allow_await,
+                        registries.structs,
+                        registries.enums,
+                    ),
                 )?;
                 validate_and_record_native_disposal(
                     &condition,
@@ -2545,16 +2618,30 @@ fn lower_actions_with_disposal_state(
                     let start = lower_expr(
                         start,
                         Some(&int32),
-                        &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                        &ExprContext::with_types(
+                            symbols,
+                            functions,
+                            allow_await,
+                            registries.structs,
+                            registries.enums,
+                        ),
                     )?;
                     let end = lower_expr(
                         end,
                         Some(&int32),
-                        &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                        &ExprContext::with_types(
+                            symbols,
+                            functions,
+                            allow_await,
+                            registries.structs,
+                            registries.enums,
+                        ),
                     )?;
                     let step = step
                         .as_deref()
-                        .map(|step| lower_range_step(step, symbols, functions, allow_await, registries))
+                        .map(|step| {
+                            lower_range_step(step, symbols, functions, allow_await, registries)
+                        })
                         .transpose()?
                         .map(Box::new);
                     (
@@ -2585,7 +2672,13 @@ fn lower_actions_with_disposal_state(
                     let iterable = lower_expr(
                         &iterable,
                         Some(&iterable_type),
-                        &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                        &ExprContext::with_types(
+                            symbols,
+                            functions,
+                            allow_await,
+                            registries.structs,
+                            registries.enums,
+                        ),
                     )?;
                     (iterable, element_type)
                 };
@@ -2647,7 +2740,13 @@ fn lower_actions_with_disposal_state(
                 let iterable = lower_expr(
                     &iterable,
                     Some(&iterable_type),
-                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                    &ExprContext::with_types(
+                        symbols,
+                        functions,
+                        allow_await,
+                        registries.structs,
+                        registries.enums,
+                    ),
                 )?;
                 validate_and_record_native_disposal(
                     &iterable,
@@ -2686,7 +2785,13 @@ fn lower_actions_with_disposal_state(
                 let condition = lower_expr(
                     &condition,
                     Some(&Type::Bool),
-                    &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+                    &ExprContext::with_types(
+                        symbols,
+                        functions,
+                        allow_await,
+                        registries.structs,
+                        registries.enums,
+                    ),
                 )?;
                 validate_and_record_native_disposal(
                     &condition,
@@ -3120,7 +3225,13 @@ fn lower_range_step(
     lower_expr(
         step,
         Some(&Type::Numeric(NumericType::Int32)),
-        &ExprContext::with_types(symbols, functions, allow_await, registries.structs, registries.enums),
+        &ExprContext::with_types(
+            symbols,
+            functions,
+            allow_await,
+            registries.structs,
+            registries.enums,
+        ),
     )
 }
 

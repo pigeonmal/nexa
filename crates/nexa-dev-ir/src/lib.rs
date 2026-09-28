@@ -8,7 +8,7 @@
 use nexa_ir::{Module, Node};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 1;
+pub const DEV_IR_FORMAT_VERSION: u16 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DevModule {
@@ -270,6 +270,8 @@ fn node_kind(node: &Node) -> &'static str {
         Node::If { .. } => "If",
         Node::When { .. } => "When",
         Node::Content => "Content",
+        Node::Spacer => "Spacer",
+        Node::Divider { .. } => "Divider",
         Node::ComponentCall { .. } => "ComponentCall",
         Node::NativeComponentCall { .. } => "NativeComponentCall",
     }

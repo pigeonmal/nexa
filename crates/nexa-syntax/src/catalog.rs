@@ -16,8 +16,8 @@
 //!
 //! Unsupported names must never be added here: `VStack`, `HStack`, `ZStack`
 //! (SwiftUI aliases, not `.nx` components), `TextField` (the component is
-//! `TextInput`), `FastSectionedList` (sectioned `FastList` uses the
-//! `sections:` source), `Spacer`, and `Divider` have no parser production.
+//! `TextInput`), and `FastSectionedList` (sectioned `FastList` uses the
+//! `sections:` source) have no parser production.
 
 /// A UI component accepted by the parser's node dispatch.
 pub struct ComponentEntry {
@@ -53,7 +53,7 @@ pub struct TypeEntry {
     pub summary: &'static str,
 }
 
-/// A trailing dot-modifier accepted after a component block.
+/// A dot modifier accepted after a component use.
 pub struct DotModifierEntry {
     pub name: &'static str,
     pub summary: &'static str,
@@ -78,6 +78,18 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         summary: "Overlapping layout container",
         snippet: "Stack {\n    $0\n}",
         probe: "app P { body { Stack { Text(\"a\") } } }",
+    },
+    ComponentEntry {
+        name: "Spacer",
+        summary: "Expands along the parent layout axis",
+        snippet: "Spacer()",
+        probe: "app P { body { Column { Text(\"a\") Spacer() Text(\"b\") } } }",
+    },
+    ComponentEntry {
+        name: "Divider",
+        summary: "Separates content with a native divider",
+        snippet: "Divider(color: \"#808080\", thickness: 1)",
+        probe: "app P { body { Column { Text(\"a\") Divider(color: \"#808080\", thickness: 1) Text(\"b\") } } }",
     },
     ComponentEntry {
         name: "Text",
@@ -511,6 +523,21 @@ app T {
 
 pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
     DotModifierEntry {
+        name: "fontSize",
+        summary: "Set the text size",
+        snippet: "fontSize(${1:18})",
+    },
+    DotModifierEntry {
+        name: "bold",
+        summary: "Use bold text",
+        snippet: "bold()",
+    },
+    DotModifierEntry {
+        name: "padding",
+        summary: "Add space around a view",
+        snippet: "padding(${1:12})",
+    },
+    DotModifierEntry {
         name: "onPress",
         summary: "Pressable tap action (required)",
         snippet: "onPress {\n    $0\n}",
@@ -814,6 +841,34 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         trailing_message: None,
     },
     ComponentSchema {
+        name: "Spacer",
+        aliases: &[],
+        doc: "components.md#spacer",
+        features: &[FeatureTag::Layout],
+        parens: ParensModel::Empty,
+        positional: PositionalModel::None,
+        arguments: &[],
+        exclusive: &[],
+        children: ChildModel::None,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
+        name: "Divider",
+        aliases: &[],
+        doc: "components.md#divider",
+        features: &[FeatureTag::Layout],
+        parens: ParensModel::Required,
+        positional: PositionalModel::None,
+        arguments: &[req("color"), req("thickness")],
+        exclusive: &[],
+        children: ChildModel::None,
+        modifiers: &[],
+        flags: &[],
+        trailing_message: None,
+    },
+    ComponentSchema {
         name: "Text",
         aliases: &[],
         doc: "components.md#text",
@@ -824,6 +879,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("color"),
             opt("fontSize"),
             opt("fontWeight"),
+            opt("padding"),
             opt("lineLimit"),
             opt("lineHeight"),
             opt("letterSpacing"),
@@ -1236,6 +1292,16 @@ pub fn component_schema(name: &str) -> Option<&'static ComponentSchema> {
     COMPONENT_SCHEMAS
         .iter()
         .find(|schema| schema.name == name || schema.aliases.contains(&name))
+}
+
+/// The typed component option represented by a chained style modifier.
+pub fn chained_style_argument(component: &str, modifier: &str) -> Option<&'static str> {
+    match (component, modifier) {
+        ("Text", "fontSize") => Some("fontSize"),
+        ("Text", "bold") => Some("fontWeight"),
+        ("Text" | "Column" | "Row" | "Stack", "padding") => Some("padding"),
+        _ => None,
+    }
 }
 
 /// Whether `name` is a built-in component spelling (primary name or alias).

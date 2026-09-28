@@ -8,8 +8,8 @@ use super::{
     FunctionSignatures, SemanticContext, lower_actions_with_aliases, lower_actions_with_depth,
     lower_node,
 };
-use crate::semantic::context::TypeRegistries;
 use crate::Target;
+use crate::semantic::context::TypeRegistries;
 use crate::semantic::custom_components::{
     ComponentEventSignature, ComponentSignature, ComponentSignatures,
 };
@@ -289,7 +289,7 @@ fn lowers_mutable_native_property_assignment() {
         0,
         registries,
     )
-        .expect("mutable plugin property should be assignable");
+    .expect("mutable plugin property should be assignable");
 
     assert!(matches!(
         &actions[0],
@@ -313,7 +313,7 @@ fn rejects_assignment_to_readonly_native_property() {
         0,
         registries,
     )
-        .expect_err("readonly plugin property must not be assignable");
+    .expect_err("readonly plugin property must not be assignable");
     assert!(error.to_string().contains("read-only"));
 }
 
@@ -322,8 +322,9 @@ fn rejects_native_property_assignment_with_the_wrong_type() {
     let registries = TypeRegistries::default();
     let (symbols, functions) = fixture(true);
     let statement = assignment_with_value(ast::Expr::Bool(true, Span::default()));
-    let error = lower_actions_with_depth(vec![statement], &symbols, &functions, false, 0, registries)
-        .expect_err("a Bool must not be assigned to a Float64 property");
+    let error =
+        lower_actions_with_depth(vec![statement], &symbols, &functions, false, 0, registries)
+            .expect_err("a Bool must not be assigned to a Float64 property");
     assert!(error.to_string().contains("Bool"));
     assert!(error.to_string().contains("Float64"));
 }

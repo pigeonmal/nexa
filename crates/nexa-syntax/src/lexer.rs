@@ -20,6 +20,11 @@ pub enum Kind {
     Semicolon,
     Comma,
     Equal,
+    PlusEqual,
+    MinusEqual,
+    StarEqual,
+    SlashEqual,
+    PercentEqual,
     EqualEqual,
     Bang,
     BangEqual,
@@ -31,6 +36,9 @@ pub enum Kind {
     QuestionQuestion,
     Plus,
     Minus,
+    Star,
+    Slash,
+    Percent,
     Eof,
 }
 
@@ -184,11 +192,48 @@ impl Lexer<'_> {
                 }
                 '+' => {
                     self.bump();
-                    Kind::Plus
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        Kind::PlusEqual
+                    } else {
+                        Kind::Plus
+                    }
                 }
                 '-' => {
                     self.bump();
-                    Kind::Minus
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        Kind::MinusEqual
+                    } else {
+                        Kind::Minus
+                    }
+                }
+                '*' => {
+                    self.bump();
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        Kind::StarEqual
+                    } else {
+                        Kind::Star
+                    }
+                }
+                '/' => {
+                    self.bump();
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        Kind::SlashEqual
+                    } else {
+                        Kind::Slash
+                    }
+                }
+                '%' => {
+                    self.bump();
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        Kind::PercentEqual
+                    } else {
+                        Kind::Percent
+                    }
                 }
                 '"' => Kind::String(self.string(start)?),
                 c if c.is_ascii_digit() => Kind::Number(self.number()),

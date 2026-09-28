@@ -1,4 +1,4 @@
-use nexa_syntax::ast::{ChildBody, Expr, Node, Stmt};
+use nexa_syntax::ast::{ArithmeticOp, BinaryOp, ChildBody, Expr, Node, Stmt};
 
 #[test]
 fn parses_plugin_import_alias_before_app_declaration() {
@@ -289,5 +289,212 @@ fn parses_postfix_try_propagation_operator() {
             initial: Expr::Try { .. },
             ..
         }
+    ));
+}
+
+#[test]
+fn parses_arithmetic_precedence_unary_negation_and_compound_assignment() {
+    let app = nexa_syntax::parse(
+        r#"app Demo {
+            state value: Int32 = 0
+            body {
+                Button("Arithmetic") {
+                    value += 2 + 3 * 4 - 5 / 1 % 2
+                    value -= 1
+                    value *= 2
+                    value /= 3
+                    value %= 4
+                    value = -value
+                }
+            }
+        }"#,
+    )
+    .expect("arithmetic expressions and compound assignments should parse");
+
+    let Node::ComponentInvocation(button) = &app.body[0] else {
+        panic!("expected a button node");
+    };
+    let ChildBody::Actions(actions) = &button.children else {
+        panic!("expected button actions");
+    };
+    assert_eq!(actions.len(), 6);
+    let Stmt::Assign {
+        value: Expr::Add(left, right, _),
+        ..
+    } = &actions[0]
+    else {
+        panic!("expected `+=` to lower to an addition assignment");
+    };
+    assert!(matches!(left.as_ref(), Expr::Name(name, _) if name == "value"));
+    assert!(matches!(
+        right.as_ref(),
+        Expr::Arithmetic(
+            add,
+            ArithmeticOp::Subtract,
+            modulo,
+            _
+        ) if matches!(add.as_ref(), Expr::Add(_, product, _) if matches!(product.as_ref(), Expr::Arithmetic(_, ArithmeticOp::Multiply, _, _)))
+            && matches!(modulo.as_ref(), Expr::Arithmetic(divide, ArithmeticOp::Remainder, _, _) if matches!(divide.as_ref(), Expr::Arithmetic(_, ArithmeticOp::Divide, _, _)))
+    ));
+    assert!(matches!(
+        &actions[1],
+        Stmt::Assign {
+            value: Expr::Arithmetic(_, ArithmeticOp::Subtract, _, _),
+            ..
+        }
+    ));
+    assert!(matches!(
+        &actions[2],
+        Stmt::Assign {
+            value: Expr::Arithmetic(_, ArithmeticOp::Multiply, _, _),
+            ..
+        }
+    ));
+    assert!(matches!(
+        &actions[3],
+        Stmt::Assign {
+            value: Expr::Arithmetic(_, ArithmeticOp::Divide, _, _),
+            ..
+        }
+    ));
+    assert!(matches!(
+        &actions[4],
+        Stmt::Assign {
+            value: Expr::Arithmetic(_, ArithmeticOp::Remainder, _, _),
+            ..
+        }
+    ));
+    assert!(matches!(
+        &actions[5],
+        Stmt::Assign { value: Expr::Negate(value, _), .. }
+            if matches!(value.as_ref(), Expr::Name(name, _) if name == "value")
+    ));
+}
+
+#[test]
+fn parses_ranges_as_collection_method_arguments() {
+    let app = nexa_syntax::parse(
+        r#"app Demo {
+            state values: Array<Int32> = [1, 2, 3]
+            body {
+                Text(values.slice(1..3))
+            }
+        }"#,
+    )
+    .expect("slice range arguments should parse");
+
+    let Node::ComponentInvocation(text) = &app.body[0] else {
+        panic!("expected a text node");
+    };
+    let [Expr::MethodCall { arguments, .. }] = text.positional.as_slice() else {
+        panic!("expected a collection method call");
+    };
+    assert!(matches!(
+        arguments.as_slice(),
+        [Expr::Range {
+            start,
+            end,
+            inclusive: true,
+            step: None,
+            ..
+        }] if matches!(start.as_ref(), Expr::Number(value, _) if value == "1")
+            && matches!(end.as_ref(), Expr::Number(value, _) if value == "3")
+    ));
+}
+
+#[test]
+fn parses_if_expressions_as_typed_value_branches() {
+    let app = nexa_syntax::parse(
+        r#"app Demo {
+            body {
+                Text(if true { "enabled" } else { "disabled" })
+            }
+        }"#,
+    )
+    .expect("value-producing if expressions should parse");
+
+    let Node::ComponentInvocation(text) = &app.body[0] else {
+        panic!("expected a text component");
+    };
+    assert!(matches!(
+        text.positional.as_slice(),
+        [Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            ..
+        }] if matches!(condition.as_ref(), Expr::Bool(true, _))
+            && matches!(then_value.as_ref(), Expr::String(value, _) if value == "enabled")
+            && matches!(else_value.as_ref(), Expr::String(value, _) if value == "disabled")
+    ));
+}
+
+#[test]
+fn parses_ternary_expressions_with_comparison_precedence() {
+    let app = nexa_syntax::parse(
+        r#"app Demo {
+            state count: Int32 = 1
+            state enabled: Bool? = null
+            body {
+                Text(count > 0 ? "positive" : "zero")
+                Text(enabled ?? false ? "enabled" : "disabled")
+            }
+        }"#,
+    )
+    .expect("ternary value expressions should parse");
+
+    let Node::ComponentInvocation(text) = &app.body[0] else {
+        panic!("expected a text component");
+    };
+    assert!(matches!(
+        text.positional.as_slice(),
+        [Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            ..
+        }] if matches!(condition.as_ref(), Expr::Binary(_, BinaryOp::Greater, _, _))
+            && matches!(then_value.as_ref(), Expr::String(value, _) if value == "positive")
+            && matches!(else_value.as_ref(), Expr::String(value, _) if value == "zero")
+    ));
+
+    let Node::ComponentInvocation(text) = &app.body[1] else {
+        panic!("expected a second text component");
+    };
+    assert!(matches!(
+        text.positional.as_slice(),
+        [Expr::Conditional {
+            condition,
+            ..
+        }] if matches!(condition.as_ref(), Expr::Coalesce(_, _, _))
+    ));
+}
+
+#[test]
+fn parses_component_style_chains_into_typed_options() {
+    let app = nexa_syntax::parse(
+        r#"app Demo {
+            body {
+                Text("Hi").fontSize(18).bold().padding(12)
+            }
+        }"#,
+    )
+    .expect("component style chains should parse");
+
+    let Node::ComponentInvocation(text) = &app.body[0] else {
+        panic!("expected a text component");
+    };
+    assert_eq!(text.arguments.len(), 3);
+    assert!(matches!(
+        text.arguments.get("fontSize"),
+        Some(Expr::Number(value, _)) if value == "18"
+    ));
+    assert!(matches!(
+        text.arguments.get("fontWeight"),
+        Some(Expr::Name(value, _)) if value == "Bold"
+    ));
+    assert!(matches!(
+        text.arguments.get("padding"),
+        Some(Expr::Number(value, _)) if value == "12"
     ));
 }

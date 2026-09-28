@@ -1,7 +1,8 @@
 use nexa_codegen::names::{function_name, state_name};
 use nexa_ir::{
-    BinaryOp, CollectionTransform, Expr, InterpolatedPart, LogMethod, MemberKind, NetworkRequest,
-    NumericType, PermissionOpKind, PluginCodec, TimeMethod, TuplePosition, Type,
+    ArithmeticOp, BinaryOp, CollectionTransform, CollectionUtilityKind, Expr, InterpolatedPart,
+    LogMethod, MemberKind, NetworkRequest, NumericType, PermissionOpKind, PluginCodec, TimeMethod,
+    TuplePosition, Type,
 };
 
 use super::utils::{kotlin_string, kotlin_string_content};
@@ -107,6 +108,8 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 MemberKind::NetworkStatusCode => "statusCode".to_owned(),
                 MemberKind::NetworkHeaders => "headers".to_owned(),
                 MemberKind::NetworkBody => "text".to_owned(),
+                MemberKind::CollectionCount => "size".to_owned(),
+                MemberKind::CollectionIsEmpty => "isEmpty()".to_owned(),
             };
             format!(
                 "{}{}{}",
@@ -177,6 +180,44 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 ),
             }
         }
+        Expr::CollectionUtility {
+            operation,
+            collection,
+            start,
+            end,
+            inclusive,
+            ..
+        } => {
+            let collection = render(collection);
+            match operation {
+                CollectionUtilityKind::Random => format!("{collection}.randomOrNull()"),
+                CollectionUtilityKind::Shuffled => format!("{collection}.shuffled()"),
+                CollectionUtilityKind::Reverse => format!("{collection}.reversed()"),
+                CollectionUtilityKind::Slice => {
+                    let start = start
+                        .as_deref()
+                        .map(render)
+                        .unwrap_or_else(|| "0".to_owned());
+                    let end = end.as_deref().map(render).unwrap_or_else(|| "0".to_owned());
+                    format!(
+                        "{collection}.slice({start}{}{})",
+                        if *inclusive { ".." } else { " until " },
+                        end
+                    )
+                }
+            }
+        }
+        Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            ..
+        } => format!(
+            "(if ({}) {} else {})",
+            render(condition),
+            render(then_value),
+            render(else_value)
+        ),
         Expr::TimeCall {
             method, arguments, ..
         } => time_call(*method, arguments, locals),
@@ -249,6 +290,40 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 _ => sum,
             }
         }
+        Expr::Concat(left, right) => {
+            format!("({} + {})", render(left), render(right))
+        }
+        Expr::Arithmetic {
+            op,
+            left,
+            right,
+            ty,
+        } => {
+            let operator = match op {
+                ArithmeticOp::Subtract => "-",
+                ArithmeticOp::Multiply => "*",
+                ArithmeticOp::Divide => "/",
+                ArithmeticOp::Remainder => "%",
+            };
+            let result = format!("({} {operator} {})", render(left), render(right));
+            match ty {
+                NumericType::Int8 => format!("{result}.toByte()"),
+                NumericType::Int16 => format!("{result}.toShort()"),
+                NumericType::UInt8 => format!("{result}.toUByte()"),
+                NumericType::UInt16 => format!("{result}.toUShort()"),
+                _ => result,
+            }
+        }
+        Expr::Negate { value, ty } => match ty {
+            NumericType::Float32 | NumericType::Float64 => format!("(-{})", render(value)),
+            NumericType::UInt8 => format!("(0u.toUByte() - {}).toUByte()", render(value)),
+            NumericType::UInt16 => format!("(0u.toUShort() - {}).toUShort()", render(value)),
+            NumericType::UInt32 => format!("(0u - {})", render(value)),
+            NumericType::UInt64 => format!("(0uL - {})", render(value)),
+            NumericType::Int8 => format!("(0 - {}).toByte()", render(value)),
+            NumericType::Int16 => format!("(0 - {}).toShort()", render(value)),
+            NumericType::Int32 | NumericType::Int64 => format!("(-{})", render(value)),
+        },
         Expr::Binary { op, left, right } => format!(
             "({} {} {})",
             render(left),
@@ -453,7 +528,103 @@ pub(crate) fn text_expression(expr: &Expr) -> String {
 #[cfg(test)]
 mod tests {
     use super::expression;
-    use nexa_ir::{Expr, NumericType, TimeMethod, Type};
+    use nexa_ir::{
+        ArithmeticOp, CollectionUtilityKind, Expr, NumericType, TimeMethod, Type,
+    };
+
+    #[test]
+    fn conditional_expressions_use_a_native_if_expression() {
+        let conditional = Expr::Conditional {
+            condition: Box::new(Expr::Bool(true)),
+            then_value: Box::new(Expr::String("ready".to_owned())),
+            else_value: Box::new(Expr::String("waiting".to_owned())),
+            value_type: Type::String,
+        };
+
+        assert_eq!(expression(&conditional), "(if (true) \"ready\" else \"waiting\")");
+    }
+
+    #[test]
+    fn array_utilities_use_direct_kotlin_collection_operations() {
+        let int = |raw: &str| Expr::Number {
+            raw: raw.to_owned(),
+            ty: NumericType::Int32,
+        };
+        let collection = || Expr::Array(vec![int("1"), int("2")]);
+        let utility = |operation: CollectionUtilityKind,
+                       start: Option<&str>,
+                       end: Option<&str>,
+                       inclusive: bool| Expr::CollectionUtility {
+            operation,
+            collection: Box::new(collection()),
+            start: start.map(|value| Box::new(int(value))),
+            end: end.map(|value| Box::new(int(value))),
+            inclusive,
+            element_type: Type::Numeric(NumericType::Int32),
+        };
+
+        assert_eq!(
+            expression(&utility(CollectionUtilityKind::Random, None, None, false)),
+            "listOf(1, 2).randomOrNull()"
+        );
+        assert_eq!(
+            expression(&utility(CollectionUtilityKind::Shuffled, None, None, false)),
+            "listOf(1, 2).shuffled()"
+        );
+        assert_eq!(
+            expression(&utility(CollectionUtilityKind::Reverse, None, None, false)),
+            "listOf(1, 2).reversed()"
+        );
+        assert_eq!(
+            expression(&utility(
+                CollectionUtilityKind::Slice,
+                Some("0"),
+                Some("1"),
+                false
+            )),
+            "listOf(1, 2).slice(0 until 1)"
+        );
+        assert_eq!(
+            expression(&utility(
+                CollectionUtilityKind::Slice,
+                Some("0"),
+                Some("1"),
+                true
+            )),
+            "listOf(1, 2).slice(0..1)"
+        );
+    }
+
+    #[test]
+    fn arithmetic_and_negation_render_for_kotlin_numeric_types() {
+        let int = |raw: &str| Expr::Number {
+            raw: raw.to_owned(),
+            ty: NumericType::Int32,
+        };
+        let subtract = Expr::Arithmetic {
+            op: ArithmeticOp::Subtract,
+            left: Box::new(int("8")),
+            right: Box::new(int("3")),
+            ty: NumericType::Int32,
+        };
+        let negate = Expr::Negate {
+            value: Box::new(int("8")),
+            ty: NumericType::Int32,
+        };
+
+        assert_eq!(expression(&subtract), "(8 - 3)");
+        assert_eq!(expression(&negate), "(-8)");
+    }
+
+    #[test]
+    fn string_concatenation_uses_the_native_operator() {
+        let concat = Expr::Concat(
+            Box::new(Expr::String("Nexa".to_owned())),
+            Box::new(Expr::String(" 1.0".to_owned())),
+        );
+
+        assert_eq!(expression(&concat), "(\"Nexa\" + \" 1.0\")");
+    }
 
     #[test]
     fn file_calls_use_the_generated_native_helper_names_and_argument_order() {

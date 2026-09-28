@@ -5,8 +5,8 @@ package __NEXA_PACKAGE__
  * shared between Nexa development servers and Android dev runtimes.
  */
 internal object NexaDevSchema {
-    const val PROTOCOL_VERSION: Int = 3
-    const val DEV_IR_FORMAT_VERSION: Int = 1
+    const val PROTOCOL_VERSION: Int = 4
+    const val DEV_IR_FORMAT_VERSION: Int = 2
     const val TARGET_PLATFORM: String = "android"
 }
 
@@ -100,6 +100,8 @@ internal object NexaDevNodeKind {
     const val ROW = "Row"
     const val STACK = "Stack"
     const val TEXT = "Text"
+    const val SPACER = "Spacer"
+    const val DIVIDER = "Divider"
     const val BUTTON = "Button"
     const val PRESSABLE = "Pressable"
     const val TEXT_INPUT = "TextInput"
@@ -158,10 +160,15 @@ internal object NexaDevExprKind {
     const val STATE = "State"
     const val INTERPOLATION = "Interpolation"
     const val ADD = "Add"
+    const val CONCAT = "Concat"
+    const val ARITHMETIC = "Arithmetic"
+    const val NEGATE = "Negate"
     const val NOT = "Not"
     const val BINARY = "Binary"
     const val CONTAINS = "Contains"
     const val COLLECTION_TRANSFORM = "CollectionTransform"
+    const val COLLECTION_UTILITY = "CollectionUtility"
+    const val CONDITIONAL = "Conditional"
     const val CLOSURE = "Closure"
     const val INDEX = "Index"
     const val MEMBER = "Member"

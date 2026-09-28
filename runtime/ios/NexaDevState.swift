@@ -196,8 +196,21 @@ final class NexaDevStateStore: ObservableObject {
             guard parts.count >= 3 else { return [NSNull(), NSNull(), NSNull()] }
             return [evaluate(parts[0], locals: locals, scope: scope), evaluate(parts[1], locals: locals, scope: scope), evaluate(parts[2], locals: locals, scope: scope)]
         case "Number":
-            let number = (payload as? [String: Any])?["raw"] as? String ?? "0"
-            return number.contains(".") ? (Double(number) ?? 0) as Any : (Int64(number) ?? 0) as Any
+            let fields = payload as? [String: Any] ?? [:]
+            let raw = fields["raw"] as? String ?? "0"
+            switch fields["ty"] as? String {
+            case "Int8": return Int8(raw) ?? 0
+            case "Int16": return Int16(raw) ?? 0
+            case "Int32": return Int32(raw) ?? 0
+            case "Int64": return Int64(raw) ?? 0
+            case "UInt8": return UInt8(raw) ?? 0
+            case "UInt16": return UInt16(raw) ?? 0
+            case "UInt32": return UInt32(raw) ?? 0
+            case "UInt64": return UInt64(raw) ?? 0
+            case "Float32": return Float(raw) ?? 0
+            case "Float64": return Double(raw) ?? 0
+            default: return raw.contains(".") ? (Double(raw) ?? 0) as Any : (Int64(raw) ?? 0) as Any
+            }
         case "EnumValue": return (payload as? [String: Any])?["case_name"] as? String ?? ""
         case "State":
             let parts = payload as? [Any] ?? []
@@ -220,6 +233,25 @@ final class NexaDevStateStore: ObservableObject {
             }
             let sum = number(left) + number(right)
             return sum.rounded() == sum ? Int64(sum) as Any : sum as Any
+        case "Concat":
+            let parts = payload as? [Any] ?? []
+            guard parts.count >= 2 else { return "" }
+            return stringify(evaluate(parts[0], locals: locals, scope: scope))
+                + stringify(evaluate(parts[1], locals: locals, scope: scope))
+        case "Arithmetic":
+            let fields = payload as? [String: Any] ?? [:]
+            guard let left = fields["left"], let right = fields["right"] else { return NSNull() }
+            return arithmetic(
+                fields["op"] as? String ?? "",
+                evaluate(left, locals: locals, scope: scope),
+                evaluate(right, locals: locals, scope: scope),
+                type: fields["ty"] as? String ?? "Int32"
+            )
+        case "Negate":
+            let fields = payload as? [String: Any] ?? [:]
+            guard let value = fields["value"] else { return NSNull() }
+            let type = fields["ty"] as? String ?? "Int32"
+            return arithmetic("Subtract", numericZero(type: type), evaluate(value, locals: locals, scope: scope), type: type)
         case "Not": return !truthy(evaluate(payload, locals: locals, scope: scope))
         case "Binary":
             guard let binary = payload as? [String: Any],
@@ -231,6 +263,13 @@ final class NexaDevStateStore: ObservableObject {
                 evaluate(leftExpr, locals: locals, scope: scope),
                 evaluate(rightExpr, locals: locals, scope: scope)
             )
+        case "Conditional":
+            let fields = payload as? [String: Any] ?? [:]
+            guard let condition = fields["condition"] else { return NSNull() }
+            let branch = truthy(evaluate(condition, locals: locals, scope: scope))
+                ? fields["then_value"]
+                : fields["else_value"]
+            return branch.map { evaluate($0, locals: locals, scope: scope) } ?? NSNull()
         case "Contains":
             let fields = payload as? [String: Any] ?? [:]
             guard let value = fields["value"], let collection = fields["collection"] else { return false }
@@ -263,6 +302,23 @@ final class NexaDevStateStore: ObservableObject {
                 return accumulator
             default: return []
             }
+        case "CollectionUtility":
+            let fields = payload as? [String: Any] ?? [:]
+            guard let collectionExpression = fields["collection"],
+                  let values = evaluate(collectionExpression, locals: locals, scope: scope) as? [Any]
+            else { return [] }
+            switch fields["operation"] as? String {
+            case "Random": return values.randomElement().map { $0 as Any } ?? NSNull()
+            case "Shuffled": return values.shuffled()
+            case "Reverse": return Array(values.reversed())
+            case "Slice":
+                guard let startExpression = fields["start"], let endExpression = fields["end"] else { return [] }
+                let start = Int(number(evaluate(startExpression, locals: locals, scope: scope)))
+                let end = Int(number(evaluate(endExpression, locals: locals, scope: scope)))
+                let stop = end + ((fields["inclusive"] as? Bool == true) ? 1 : 0)
+                return Array(values[start..<stop])
+            default: return []
+            }
         case "Closure": return ["Closure": payload]
         case "Index":
             let fields = payload as? [String: Any] ?? [:]
@@ -278,6 +334,14 @@ final class NexaDevStateStore: ObservableObject {
             let fields = payload as? [String: Any] ?? [:]
             guard let base = fields["base"], let name = fields["name"] as? String else { return NSNull() }
             let value = evaluate(base, locals: locals, scope: scope)
+            if name == "count" {
+                if let values = value as? [Any] { return Int32(values.count) }
+                if let values = value as? [String: Any] { return Int32(values.count) }
+            }
+            if name == "isEmpty" {
+                if let values = value as? [Any] { return values.isEmpty }
+                if let values = value as? [String: Any] { return values.isEmpty }
+            }
             if let object = value as? [String: Any] { return object[name] ?? NSNull() }
             if let pair = value as? [Any] {
                 let position = switch name {
@@ -548,6 +612,32 @@ final class NexaDevStateStore: ObservableObject {
             if let left = left as? String, let right = right as? String { return left + right }
             let sum = number(left) + number(right)
             return sum.rounded() == sum ? Int64(sum) as Any : sum as Any
+        case "Concat":
+            let parts = payload as? [Any] ?? []
+            guard parts.count >= 2 else { return "" }
+            return stringify(evaluate(parts[0], locals: locals, scope: scope))
+                + stringify(evaluate(parts[1], locals: locals, scope: scope))
+        case "Arithmetic":
+            guard let fields = payload as? [String: Any],
+                  let leftExpression = fields["left"], let rightExpression = fields["right"]
+            else { return NSNull() }
+            return arithmetic(
+                fields["op"] as? String ?? "",
+                try await evaluateAsync(leftExpression, locals: locals, scope: scope),
+                try await evaluateAsync(rightExpression, locals: locals, scope: scope),
+                type: fields["ty"] as? String ?? "Int32"
+            )
+        case "Negate":
+            guard let fields = payload as? [String: Any],
+                  let valueExpression = fields["value"]
+            else { return NSNull() }
+            let type = fields["ty"] as? String ?? "Int32"
+            return arithmetic(
+                "Subtract",
+                numericZero(type: type),
+                try await evaluateAsync(valueExpression, locals: locals, scope: scope),
+                type: type
+            )
         case "Not":
             return !truthy(try await evaluateAsync(payload, locals: locals, scope: scope))
         case "Binary":
@@ -559,6 +649,14 @@ final class NexaDevStateStore: ObservableObject {
             let left = try await evaluateAsync(leftExpression, locals: locals, scope: scope)
             let right = try await evaluateAsync(rightExpression, locals: locals, scope: scope)
             return compare(op, left, right)
+        case "Conditional":
+            guard let fields = payload as? [String: Any],
+                  let conditionExpression = fields["condition"]
+            else { return NSNull() }
+            let condition = try await evaluateAsync(conditionExpression, locals: locals, scope: scope)
+            let branch = truthy(condition) ? fields["then_value"] : fields["else_value"]
+            guard let branch else { return NSNull() }
+            return try await evaluateAsync(branch, locals: locals, scope: scope)
         default:
             return evaluate(expression, locals: locals, scope: scope)
         }
@@ -618,6 +716,88 @@ final class NexaDevStateStore: ObservableObject {
     func number(_ value: Any) -> Double {
         if let number = value as? NSNumber { return number.doubleValue }
         if let text = value as? String { return Double(text) ?? 0 }
+        return 0
+    }
+
+    private func numericZero(type: String) -> Any {
+        if type == "Float32" { return Float(0) }
+        if type == "Float64" { return Double(0) }
+        if type.hasPrefix("UInt") { return UInt64(0) }
+        return Int64(0)
+    }
+
+    private func arithmetic(_ op: String, _ lhs: Any, _ rhs: Any, type: String) -> Any {
+        if type == "Float32" {
+            let left = Float(number(lhs))
+            let right = Float(number(rhs))
+            switch op {
+            case "Subtract": return left - right
+            case "Multiply": return left * right
+            case "Divide": return left / right
+            case "Remainder": return left.truncatingRemainder(dividingBy: right)
+            default: return Float(0)
+            }
+        }
+        if type == "Float64" {
+            let left = number(lhs)
+            let right = number(rhs)
+            switch op {
+            case "Subtract": return left - right
+            case "Multiply": return left * right
+            case "Divide": return left / right
+            case "Remainder": return left.truncatingRemainder(dividingBy: right)
+            default: return 0.0
+            }
+        }
+        if type.hasPrefix("UInt") {
+            let left = unsignedInteger(lhs)
+            let right = unsignedInteger(rhs)
+            let result: UInt64
+            switch op {
+            case "Subtract": result = left &- right
+            case "Multiply": result = left &* right
+            case "Divide": result = right == 0 ? 0 : left / right
+            case "Remainder": result = right == 0 ? 0 : left % right
+            default: return UInt64(0)
+            }
+            switch type {
+            case "UInt8": return UInt8(truncatingIfNeeded: result)
+            case "UInt16": return UInt16(truncatingIfNeeded: result)
+            case "UInt32": return UInt32(truncatingIfNeeded: result)
+            default: return result
+            }
+        }
+        let left = signedInteger(lhs)
+        let right = signedInteger(rhs)
+        let result: Int64
+        switch op {
+        case "Subtract": result = left &- right
+        case "Multiply": result = left &* right
+        case "Divide":
+            if right == 0 { return Int64(0) }
+            if left == Int64.min && right == -1 { result = Int64.min } else { result = left / right }
+        case "Remainder":
+            if right == 0 { return Int64(0) }
+            result = left == Int64.min && right == -1 ? 0 : left % right
+        default: return Int64(0)
+        }
+        switch type {
+        case "Int8": return Int8(truncatingIfNeeded: result)
+        case "Int16": return Int16(truncatingIfNeeded: result)
+        case "Int32": return Int32(truncatingIfNeeded: result)
+        default: return result
+        }
+    }
+
+    private func signedInteger(_ value: Any) -> Int64 {
+        if let number = value as? NSNumber { return number.int64Value }
+        if let text = value as? String { return Int64(text) ?? 0 }
+        return 0
+    }
+
+    private func unsignedInteger(_ value: Any) -> UInt64 {
+        if let number = value as? NSNumber { return number.uint64Value }
+        if let text = value as? String { return UInt64(text) ?? 0 }
         return 0
     }
 

@@ -1,7 +1,8 @@
 use nexa_codegen::names::{function_name, state_name};
 use nexa_ir::{
-    BinaryOp, CollectionTransform, Expr, InterpolatedPart, LogMethod, MemberKind, NetworkRequest,
-    NumericType, PermissionOpKind, PluginCodec, TimeMethod, TuplePosition, Type,
+    ArithmeticOp, BinaryOp, CollectionTransform, CollectionUtilityKind, Expr, InterpolatedPart,
+    LogMethod, MemberKind, NetworkRequest, NumericType, PermissionOpKind, PluginCodec, TimeMethod,
+    TuplePosition, Type,
 };
 
 use super::utils::{swift_string, swift_string_content};
@@ -119,6 +120,8 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 MemberKind::NetworkStatusCode => (".statusCode".to_owned(), true),
                 MemberKind::NetworkHeaders => (".headers".to_owned(), false),
                 MemberKind::NetworkBody => (".text".to_owned(), false),
+                MemberKind::CollectionCount => (".count".to_owned(), false),
+                MemberKind::CollectionIsEmpty => (".isEmpty".to_owned(), false),
             };
             let access = format!(
                 "{}{}{}",
@@ -126,7 +129,13 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 if *optional { "?" } else { "" },
                 field
             );
-            if wrap_status_code {
+            if matches!(kind, MemberKind::CollectionCount) {
+                if *optional {
+                    format!("{}.map {{ Int32($0.count) }}", render(base))
+                } else {
+                    format!("Int32({access})")
+                }
+            } else if wrap_status_code {
                 format!("Int32({access})")
             } else {
                 access
@@ -208,6 +217,45 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 ),
             }
         }
+        Expr::CollectionUtility {
+            operation,
+            collection,
+            start,
+            end,
+            inclusive,
+            ..
+        } => {
+            let collection = render(collection);
+            match operation {
+                CollectionUtilityKind::Random => format!("{collection}.randomElement()"),
+                CollectionUtilityKind::Shuffled => format!("{collection}.shuffled()"),
+                CollectionUtilityKind::Reverse => format!("Array({collection}.reversed())"),
+                CollectionUtilityKind::Slice => {
+                    let start = start
+                        .as_deref()
+                        .map(render)
+                        .unwrap_or_else(|| "0".to_owned());
+                    let end = end.as_deref().map(render).unwrap_or_else(|| "0".to_owned());
+                    let range = if *inclusive {
+                        format!("Int({start})...Int({end})")
+                    } else {
+                        format!("Int({start})..<Int({end})")
+                    };
+                    format!("Array({collection}[{range}])")
+                }
+            }
+        }
+        Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            ..
+        } => format!(
+            "({} ? {} : {})",
+            render(condition),
+            render(then_value),
+            render(else_value)
+        ),
         Expr::TimeCall {
             method, arguments, ..
         } => time_call(*method, arguments, locals),
@@ -281,6 +329,38 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
                 "&+"
             };
             format!("({} {operator} {})", render(left), render(right))
+        }
+        Expr::Concat(left, right) => {
+            format!("({} + {})", render(left), render(right))
+        }
+        Expr::Arithmetic {
+            op,
+            left,
+            right,
+            ty,
+        } => {
+            let floating = matches!(ty, NumericType::Float32 | NumericType::Float64);
+            let operator = match op {
+                ArithmeticOp::Subtract if !floating => "&-",
+                ArithmeticOp::Subtract => "-",
+                ArithmeticOp::Multiply if !floating => "&*",
+                ArithmeticOp::Multiply => "*",
+                ArithmeticOp::Divide => "/",
+                ArithmeticOp::Remainder => "%",
+            };
+            format!("({} {operator} {})", render(left), render(right))
+        }
+        Expr::Negate { value, ty } => {
+            let operator = if matches!(ty, NumericType::Float32 | NumericType::Float64) {
+                "-"
+            } else {
+                "0 &- "
+            };
+            if operator == "-" {
+                format!("(-{})", render(value))
+            } else {
+                format!("({operator}{})", render(value))
+            }
         }
         Expr::Binary { op, left, right } => format!(
             "({} {} {})",
@@ -487,7 +567,103 @@ pub(crate) fn text_expression(expr: &Expr) -> String {
 #[cfg(test)]
 mod tests {
     use super::expression;
-    use nexa_ir::{Expr, NumericType, TimeMethod, Type};
+    use nexa_ir::{
+        ArithmeticOp, CollectionUtilityKind, Expr, NumericType, TimeMethod, Type,
+    };
+
+    #[test]
+    fn conditional_expressions_use_the_native_ternary_operator() {
+        let conditional = Expr::Conditional {
+            condition: Box::new(Expr::Bool(true)),
+            then_value: Box::new(Expr::String("ready".to_owned())),
+            else_value: Box::new(Expr::String("waiting".to_owned())),
+            value_type: Type::String,
+        };
+
+        assert_eq!(expression(&conditional), "(true ? \"ready\" : \"waiting\")");
+    }
+
+    #[test]
+    fn array_utilities_use_direct_swift_collection_operations() {
+        let int = |raw: &str| Expr::Number {
+            raw: raw.to_owned(),
+            ty: NumericType::Int32,
+        };
+        let collection = || Expr::Array(vec![int("1"), int("2")]);
+        let utility = |operation: CollectionUtilityKind,
+                       start: Option<&str>,
+                       end: Option<&str>,
+                       inclusive: bool| Expr::CollectionUtility {
+            operation,
+            collection: Box::new(collection()),
+            start: start.map(|value| Box::new(int(value))),
+            end: end.map(|value| Box::new(int(value))),
+            inclusive,
+            element_type: Type::Numeric(NumericType::Int32),
+        };
+
+        assert_eq!(
+            expression(&utility(CollectionUtilityKind::Random, None, None, false)),
+            "[1, 2].randomElement()"
+        );
+        assert_eq!(
+            expression(&utility(CollectionUtilityKind::Shuffled, None, None, false)),
+            "[1, 2].shuffled()"
+        );
+        assert_eq!(
+            expression(&utility(CollectionUtilityKind::Reverse, None, None, false)),
+            "Array([1, 2].reversed())"
+        );
+        assert_eq!(
+            expression(&utility(
+                CollectionUtilityKind::Slice,
+                Some("0"),
+                Some("1"),
+                false
+            )),
+            "Array([1, 2][Int(0)..<Int(1)])"
+        );
+        assert_eq!(
+            expression(&utility(
+                CollectionUtilityKind::Slice,
+                Some("0"),
+                Some("1"),
+                true
+            )),
+            "Array([1, 2][Int(0)...Int(1)])"
+        );
+    }
+
+    #[test]
+    fn arithmetic_and_negation_use_wrapping_integer_operators() {
+        let int = |raw: &str| Expr::Number {
+            raw: raw.to_owned(),
+            ty: NumericType::Int32,
+        };
+        let subtract = Expr::Arithmetic {
+            op: ArithmeticOp::Subtract,
+            left: Box::new(int("8")),
+            right: Box::new(int("3")),
+            ty: NumericType::Int32,
+        };
+        let negate = Expr::Negate {
+            value: Box::new(int("8")),
+            ty: NumericType::Int32,
+        };
+
+        assert_eq!(expression(&subtract), "(8 &- 3)");
+        assert_eq!(expression(&negate), "(0 &- 8)");
+    }
+
+    #[test]
+    fn string_concatenation_uses_the_native_operator() {
+        let concat = Expr::Concat(
+            Box::new(Expr::String("Nexa".to_owned())),
+            Box::new(Expr::String(" 1.0".to_owned())),
+        );
+
+        assert_eq!(expression(&concat), "(\"Nexa\" + \" 1.0\")");
+    }
 
     #[test]
     fn throwing_native_calls_preserve_errors_for_explicit_recovery() {

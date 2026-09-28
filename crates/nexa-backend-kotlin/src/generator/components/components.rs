@@ -32,6 +32,18 @@ pub(crate) fn render_node(
             *kind, *spacing, style, children, module, features, depth, out,
         ),
         Node::Text { value, style } => text::render(value, style, depth, out),
+        Node::Spacer => out.line_at(
+            depth,
+            format_args!("Spacer(modifier = Modifier.weight(1f))"),
+        ),
+        Node::Divider { color, thickness } => out.line_at(
+            depth,
+            format_args!(
+                "HorizontalDivider(color = {}, thickness = {}.dp)",
+                crate::generator::colors::expression(*color),
+                super::super::engine::utils::number(*thickness)
+            ),
+        ),
         Node::Button {
             label,
             icon,

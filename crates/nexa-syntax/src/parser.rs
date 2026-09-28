@@ -1382,10 +1382,21 @@ impl Parser {
         while self.take(&Kind::Dot) {
             let (modifier, modifier_span) = self.ident()?;
             let Some(spec) = schema.modifiers.iter().find(|spec| spec.name == modifier) else {
-                return Err(CompileError::new(
-                    modifier_span,
-                    catalog::unknown_modifier_message(schema, &modifier),
-                ));
+                let Some((argument, value)) =
+                    self.chained_style_modifier(schema.name, &modifier, modifier_span)?
+                else {
+                    return Err(CompileError::new(
+                        modifier_span,
+                        catalog::unknown_modifier_message(schema, &modifier),
+                    ));
+                };
+                if arguments.insert(argument.clone(), value).is_some() {
+                    return Err(CompileError::new(
+                        modifier_span,
+                        format!("component option `{argument}` is declared more than once"),
+                    ));
+                }
+                continue;
             };
             if modifiers
                 .iter()
@@ -1430,6 +1441,34 @@ impl Parser {
             children,
             modifiers,
         }))
+    }
+
+    fn chained_style_modifier(
+        &mut self,
+        component: &str,
+        modifier: &str,
+        span: Span,
+    ) -> Result<Option<(String, Expr)>, CompileError> {
+        let Some(argument) = catalog::chained_style_argument(component, modifier) else {
+            return Ok(None);
+        };
+
+        self.expect(
+            Kind::LParen,
+            &format!("expected `(` after chained modifier `.{modifier}`"),
+        )?;
+        let value = if modifier == "bold" {
+            self.expect(Kind::RParen, "`.bold()` does not accept arguments")?;
+            Expr::Name("Bold".to_owned(), span)
+        } else {
+            let value = self.expr()?;
+            self.expect(
+                Kind::RParen,
+                &format!("expected `)` after chained modifier `.{modifier}`"),
+            )?;
+            value
+        };
+        Ok(Some((argument.to_owned(), value)))
     }
 
     fn list_source_and_args(
@@ -1803,8 +1842,58 @@ impl Parser {
                 continue;
             }
             let (name, span) = self.ident()?;
-            if self.take(&Kind::Equal) {
+            let assignment_operator = if self.take(&Kind::Equal) {
+                Some(None)
+            } else if self.take(&Kind::PlusEqual) {
+                Some(Some(Kind::Plus))
+            } else if self.take(&Kind::MinusEqual) {
+                Some(Some(Kind::Minus))
+            } else if self.take(&Kind::StarEqual) {
+                Some(Some(Kind::Star))
+            } else if self.take(&Kind::SlashEqual) {
+                Some(Some(Kind::Slash))
+            } else if self.take(&Kind::PercentEqual) {
+                Some(Some(Kind::Percent))
+            } else {
+                None
+            };
+            if let Some(operator) = assignment_operator {
                 let value = self.expr()?;
+                let value = match operator {
+                    None => value,
+                    Some(Kind::Plus) => Expr::Add(
+                        Box::new(Expr::Name(name.clone(), span)),
+                        Box::new(value),
+                        span,
+                    ),
+                    Some(Kind::Minus) => Expr::Arithmetic(
+                        Box::new(Expr::Name(name.clone(), span)),
+                        ArithmeticOp::Subtract,
+                        Box::new(value),
+                        span,
+                    ),
+                    Some(Kind::Star) => Expr::Arithmetic(
+                        Box::new(Expr::Name(name.clone(), span)),
+                        ArithmeticOp::Multiply,
+                        Box::new(value),
+                        span,
+                    ),
+                    Some(Kind::Slash) => Expr::Arithmetic(
+                        Box::new(Expr::Name(name.clone(), span)),
+                        ArithmeticOp::Divide,
+                        Box::new(value),
+                        span,
+                    ),
+                    Some(Kind::Percent) => Expr::Arithmetic(
+                        Box::new(Expr::Name(name.clone(), span)),
+                        ArithmeticOp::Remainder,
+                        Box::new(value),
+                        span,
+                    ),
+                    _ => {
+                        return Err(CompileError::new(span, "unsupported compound assignment"));
+                    }
+                };
                 stmts.push(Stmt::Assign { name, value, span });
             } else if name.chars().next().is_some_and(char::is_uppercase)
                 && self.check(&Kind::Dot)
@@ -1939,6 +2028,31 @@ impl Parser {
     }
 
     fn expr(&mut self) -> Result<Expr, CompileError> {
+        let mut left = self.coalescing()?;
+        if self.check(&Kind::Question) && self.ternary_colon_ahead() {
+            self.advance();
+            let then_value = self.expr()?;
+            self.expect(
+                Kind::Colon,
+                "expected `:` between conditional expression branches",
+            )?;
+            let else_value = self.expr()?;
+            let span = Span {
+                start: left.span().start,
+                end: else_value.span().end,
+                ..left.span()
+            };
+            left = Expr::Conditional {
+                condition: Box::new(left),
+                then_value: Box::new(then_value),
+                else_value: Box::new(else_value),
+                span,
+            };
+        }
+        Ok(left)
+    }
+
+    fn coalescing(&mut self) -> Result<Expr, CompileError> {
         let mut left = self.logical_or()?;
         while self.take(&Kind::QuestionQuestion) {
             let span = left.span();
@@ -1946,6 +2060,41 @@ impl Parser {
             left = Expr::Coalesce(Box::new(left), Box::new(right), span);
         }
         Ok(left)
+    }
+
+    fn ternary_colon_ahead(&self) -> bool {
+        if matches!(
+            self.tokens.get(self.cursor + 1).map(|token| &token.kind),
+            Some(Kind::Dot | Kind::LBracket)
+        ) {
+            return false;
+        }
+        let mut parentheses = 0usize;
+        let mut brackets = 0usize;
+        let mut braces = 0usize;
+        for token in &self.tokens[self.cursor + 1..] {
+            match &token.kind {
+                Kind::LParen => parentheses += 1,
+                Kind::RParen if parentheses > 0 => parentheses -= 1,
+                Kind::LBracket => brackets += 1,
+                Kind::RBracket if brackets > 0 => brackets -= 1,
+                Kind::LBrace => braces += 1,
+                Kind::RBrace if braces > 0 => braces -= 1,
+                Kind::Colon if parentheses == 0 && brackets == 0 && braces == 0 => return true,
+                Kind::Comma | Kind::Semicolon | Kind::Eof
+                    if parentheses == 0 && brackets == 0 && braces == 0 =>
+                {
+                    return false;
+                }
+                Kind::RParen | Kind::RBracket | Kind::RBrace
+                    if parentheses == 0 && brackets == 0 && braces == 0 =>
+                {
+                    return false;
+                }
+                _ => {}
+            }
+        }
+        false
     }
 
     fn logical_or(&mut self) -> Result<Expr, CompileError> {
@@ -2016,16 +2165,65 @@ impl Parser {
     }
 
     fn addition(&mut self) -> Result<Expr, CompileError> {
+        let mut left = self.multiplication()?;
+        loop {
+            if self.take(&Kind::Plus) {
+                let span = left.span();
+                let right = self.multiplication()?;
+                left = Expr::Add(Box::new(left), Box::new(right), span);
+            } else if self.take(&Kind::Minus) {
+                let span = left.span();
+                let right = self.multiplication()?;
+                left = Expr::Arithmetic(
+                    Box::new(left),
+                    ArithmeticOp::Subtract,
+                    Box::new(right),
+                    span,
+                );
+            } else {
+                break;
+            }
+        }
+        Ok(left)
+    }
+
+    fn multiplication(&mut self) -> Result<Expr, CompileError> {
         let mut left = self.unary()?;
-        while self.take(&Kind::Plus) {
+        loop {
+            let operator = if self.take(&Kind::Star) {
+                Some(ArithmeticOp::Multiply)
+            } else if self.take(&Kind::Slash) {
+                Some(ArithmeticOp::Divide)
+            } else if self.take(&Kind::Percent) {
+                Some(ArithmeticOp::Remainder)
+            } else {
+                None
+            };
+            let Some(operator) = operator else {
+                break;
+            };
             let span = left.span();
             let right = self.unary()?;
-            left = Expr::Add(Box::new(left), Box::new(right), span);
+            left = Expr::Arithmetic(Box::new(left), operator, Box::new(right), span);
         }
         Ok(left)
     }
 
     fn unary(&mut self) -> Result<Expr, CompileError> {
+        if self.take(&Kind::Minus) {
+            let span = self.tokens[self.cursor - 1].span;
+            if let Kind::Number(raw) = self.peek().kind.clone() {
+                let token = self.advance().clone();
+                return Ok(Expr::Number(
+                    format!("-{raw}"),
+                    Span {
+                        end: token.span.end,
+                        ..span
+                    },
+                ));
+            }
+            return Ok(Expr::Negate(Box::new(self.unary()?), span));
+        }
         if self.take(&Kind::Bang) {
             let span = self.tokens[self.cursor - 1].span;
             let expression = self.unary()?;
@@ -2087,7 +2285,8 @@ impl Parser {
                         span,
                     };
                 }
-            } else if self.take(&Kind::Question) {
+            } else if self.check(&Kind::Question) && !self.ternary_colon_ahead() {
+                self.advance();
                 let question_span = self.previous_span();
                 if self.take(&Kind::LBracket) {
                     let span = expression.span();
@@ -2132,21 +2331,8 @@ impl Parser {
     }
 
     fn primary_atom(&mut self) -> Result<Expr, CompileError> {
-        if self.check(&Kind::Minus) {
-            let minus_span = self.advance().span;
-            let token = self.advance().clone();
-            if let Kind::Number(raw) = token.kind {
-                let value = format!("-{raw}");
-                let span = Span {
-                    end: token.span.end,
-                    ..minus_span
-                };
-                return Ok(Expr::Number(value, span));
-            }
-            return Err(CompileError::new(
-                token.span,
-                "unary `-` requires a numeric literal",
-            ));
+        if self.word_is("if") {
+            return self.conditional_expression();
         }
         if self.take(&Kind::LBracket) {
             let span = self.tokens[self.cursor - 1].span;
@@ -2263,6 +2449,34 @@ impl Parser {
                 "expected a string, number, boolean, or state name",
             )),
         }
+    }
+
+    fn conditional_expression(&mut self) -> Result<Expr, CompileError> {
+        let span = self.peek().span;
+        self.expect_word("if")?;
+        let condition = self.expr()?;
+        self.expect(
+            Kind::LBrace,
+            "expected `{` before the `if` expression value",
+        )?;
+        let then_value = self.expr()?;
+        self.expect(Kind::RBrace, "expected `}` after the `if` expression value")?;
+        self.expect_word("else")?;
+        self.expect(
+            Kind::LBrace,
+            "expected `{` before the `else` expression value",
+        )?;
+        let else_value = self.expr()?;
+        self.expect(
+            Kind::RBrace,
+            "expected `}` after the `else` expression value",
+        )?;
+        Ok(Expr::Conditional {
+            condition: Box::new(condition),
+            then_value: Box::new(then_value),
+            else_value: Box::new(else_value),
+            span,
+        })
     }
 
     fn string_expression(&self, value: String, span: Span) -> Result<Expr, CompileError> {
@@ -2471,13 +2685,47 @@ impl Parser {
     fn call_arguments_after_open(&mut self) -> Result<Vec<Expr>, CompileError> {
         let mut arguments = Vec::new();
         while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
-            arguments.push(self.expr()?);
+            arguments.push(self.call_argument_expression()?);
             if !self.take(&Kind::Comma) {
                 break;
             }
         }
         self.expect(Kind::RParen, "expected `)` after function arguments")?;
         Ok(arguments)
+    }
+
+    fn call_argument_expression(&mut self) -> Result<Expr, CompileError> {
+        let start = self.expr()?;
+        let inclusive = if self.take(&Kind::DotDot) {
+            Some(true)
+        } else if self.take(&Kind::DotDotLess) {
+            Some(false)
+        } else {
+            None
+        };
+        let Some(inclusive) = inclusive else {
+            return Ok(start);
+        };
+        let end = self.expr()?;
+        let step = if self.word_is("step") {
+            self.advance();
+            Some(Box::new(self.expr()?))
+        } else {
+            None
+        };
+        let span = Span {
+            end: step
+                .as_deref()
+                .map_or_else(|| end.span().end, |step| step.span().end),
+            ..start.span()
+        };
+        Ok(Expr::Range {
+            start: Box::new(start),
+            end: Box::new(end),
+            inclusive,
+            step,
+            span,
+        })
     }
 
     fn call_arguments_after_open_with_names(

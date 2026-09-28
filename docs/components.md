@@ -90,10 +90,40 @@ Renders formatted text with typography, color, and wrapping controls.
 app TextExample {
     body {
         Text("Hello Nexa", color: "#333333", fontSize: 18, fontWeight: Bold, lineLimit: 2, selectable: true)
+            .fontSize(18).bold().padding(12)
     }
 }
 ```
-- **Properties**: `value` (positional), `color`, `fontSize`, `fontWeight`, `lineLimit`, `lineHeight`, `letterSpacing`, `selectable`.
+- **Properties**: `value` (positional), `color`, `fontSize`, `fontWeight`, `padding`, `lineLimit`, `lineHeight`, `letterSpacing`, `selectable`.
+- **Chained styles**: `.fontSize(value)`, `.bold()`, and `.padding(value)`. These set the corresponding text options.
+
+---
+
+### `Spacer`
+Expands to consume remaining space along its parent `Row` or `Column` axis.
+
+```nexa
+Row {
+    Text("Leading")
+    Spacer()
+    Text("Trailing")
+}
+```
+
+---
+
+### `Divider`
+Draws a horizontal divider using the requested color and thickness.
+
+```nexa
+Column {
+    Text("First")
+    Divider(color: "#808080", thickness: 1)
+    Text("Second")
+}
+```
+
+- **Properties**: required `color` and `thickness`.
 
 ---
 

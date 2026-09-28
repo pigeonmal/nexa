@@ -1,12 +1,325 @@
 use std::{fs, path::Path};
 
 use nexa_ir::{
-    Expr, Node, Type,
+    Action, ArithmeticOp, Expr, MemberKind, Node, NumericType, Type,
     walk::{walk_actions, walk_ir},
 };
 
 use nexa_compiler::{Target, compile, compile_file_with_warnings_for_target};
 use nexa_testkit::TestProject;
+
+#[test]
+fn arithmetic_lowers_with_numeric_types_and_folds_constants() {
+    let module = compile(
+        r#"
+        app Arithmetic {
+            state result: Int32 = 0
+
+            fn computed() -> Int32 {
+                return 2 + 3 * 4 - 10 / 2 % 3
+            }
+
+            body {
+                Button("Calculate") {
+                    result = -((result + 1) * 2 - 3) / 2 % 2
+                    result *= computed()
+                }
+            }
+        }
+        "#,
+    )
+    .expect("typed arithmetic should compile");
+
+    let [function] = module.functions.as_slice() else {
+        panic!("the called helper should remain reachable");
+    };
+    assert!(matches!(
+        &function.body,
+        Expr::Number { raw, ty: NumericType::Int32 } if raw == "12"
+    ));
+
+    let Node::Button { actions, .. } = &module.body[0] else {
+        panic!("expected the arithmetic button");
+    };
+    let [
+        Action::Assign {
+            value:
+                Expr::Arithmetic {
+                    op: ArithmeticOp::Remainder,
+                    ty: NumericType::Int32,
+                    left,
+                    ..
+                },
+            ..
+        },
+        Action::Assign {
+            value:
+                Expr::Arithmetic {
+                    op: ArithmeticOp::Multiply,
+                    ty: NumericType::Int32,
+                    left: compound_left,
+                    right: call,
+                },
+            ..
+        },
+    ] = actions.as_slice()
+    else {
+        panic!("arithmetic and compound assignment should lower to typed IR");
+    };
+    assert!(matches!(
+        left.as_ref(),
+        Expr::Arithmetic {
+            op: ArithmeticOp::Divide,
+            ty: NumericType::Int32,
+            left,
+            ..
+        } if matches!(left.as_ref(), Expr::Negate { ty: NumericType::Int32, .. })
+    ));
+    assert!(matches!(
+        compound_left.as_ref(),
+        Expr::State(name, Type::Numeric(NumericType::Int32)) if name == "result"
+    ));
+    assert!(matches!(call.as_ref(), Expr::Call { name, .. } if name == "computed"));
+}
+
+#[test]
+fn string_add_concatenates_and_folds_literals() {
+    let module = compile(
+        r#"
+        app Greeting {
+            state title: String = "Nexa" + " " + "1.0"
+            state greeting: String = "Nexa"
+            state entries: Array<Int32> = [1, 2]
+
+            body {
+                Text(title)
+                Text(entries.count)
+                Text(entries.isEmpty)
+                Button("Append") {
+                    greeting += " 1.0"
+                }
+            }
+        }
+        "#,
+    )
+    .expect("string addition should compile as concatenation");
+
+    let title = module
+        .states
+        .iter()
+        .find(|state| state.name == "title")
+        .expect("the title state should be present");
+    assert!(matches!(&title.initial, Expr::String(value) if value == "Nexa 1.0"));
+    assert!(module.body.iter().any(|node| matches!(
+        node,
+        Node::Text {
+            value: Expr::Member {
+                kind: MemberKind::CollectionCount,
+                field_type: Type::Numeric(NumericType::Int32),
+                ..
+            },
+            ..
+        }
+    )));
+    assert!(module.body.iter().any(|node| matches!(
+        node,
+        Node::Text {
+            value: Expr::Member {
+                kind: MemberKind::CollectionIsEmpty,
+                field_type: Type::Bool,
+                ..
+            },
+            ..
+        }
+    )));
+
+    let Some(Node::Button { actions, .. }) = module
+        .body
+        .iter()
+        .find(|node| matches!(node, Node::Button { .. }))
+    else {
+        panic!("expected the append button");
+    };
+    assert!(matches!(
+        actions.first(),
+        Some(Action::Assign {
+            value: Expr::Concat(left, right),
+            ..
+        }) if matches!(left.as_ref(), Expr::State(name, Type::String) if name == "greeting")
+            && matches!(right.as_ref(), Expr::String(value) if value == " 1.0")
+    ));
+}
+
+#[test]
+fn array_utilities_lower_to_typed_collection_ir() {
+    let module = compile(
+        r#"
+        app ArrayUtilities {
+            state values: Array<Int32> = [10, 20, 30, 40]
+
+            body {
+                Text(values.random() ?? 0)
+                Text(values.shuffled().count)
+                Text(values.reverse().count)
+                Text(values.slice(1..<3).count)
+            }
+        }
+        "#,
+    )
+    .expect("array utilities should compile for typed arrays");
+
+    fn find_utility(expression: &Expr) -> Option<&Expr> {
+        match expression {
+            Expr::CollectionUtility { .. } => Some(expression),
+            Expr::Coalesce(left, right) => find_utility(left).or_else(|| find_utility(right)),
+            Expr::Member { base, .. } => find_utility(base),
+            _ => None,
+        }
+    }
+    let utilities = module
+        .body
+        .iter()
+        .filter_map(|node| match node {
+            Node::Text { value, .. } => find_utility(value),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(utilities.len(), 4);
+    assert!(matches!(
+        utilities[0],
+        Expr::CollectionUtility {
+            operation: nexa_ir::CollectionUtilityKind::Random,
+            element_type: Type::Numeric(NumericType::Int32),
+            ..
+        }
+    ));
+    assert!(matches!(
+        utilities[1],
+        Expr::CollectionUtility {
+            operation: nexa_ir::CollectionUtilityKind::Shuffled,
+            ..
+        }
+    ));
+    assert!(matches!(
+        utilities[2],
+        Expr::CollectionUtility {
+            operation: nexa_ir::CollectionUtilityKind::Reverse,
+            ..
+        }
+    ));
+    assert!(matches!(
+        utilities[3],
+        Expr::CollectionUtility {
+            operation: nexa_ir::CollectionUtilityKind::Slice,
+            start: Some(start),
+            end: Some(end),
+            inclusive: false,
+            ..
+        } if matches!(start.as_ref(), Expr::Number { raw, ty: NumericType::Int32 } if raw == "1")
+            && matches!(end.as_ref(), Expr::Number { raw, ty: NumericType::Int32 } if raw == "3")
+    ));
+}
+
+#[test]
+fn conditional_expressions_infer_shared_and_optional_branch_types() {
+    let module = compile(
+        r#"
+        app ConditionalValues {
+            state enabled: Bool = true
+
+            fn selected(enabled: Bool) -> String? {
+                return if enabled { "ready" } else { null }
+            }
+
+            body {
+                Text(if enabled { "ready" } else { "waiting" })
+                Text(enabled ? "on" : "off")
+                Text(selected(enabled) ?? "unavailable")
+            }
+        }
+        "#,
+    )
+    .expect("value-producing if expressions should infer branch types");
+
+    let function = module
+        .functions
+        .iter()
+        .find(|function| function.name == "selected")
+        .expect("the selected helper should be present");
+    assert!(matches!(
+        &function.body,
+        Expr::Conditional {
+            value_type: Type::Optional(inner),
+            else_value,
+            ..
+        } if matches!(inner.as_ref(), Type::String)
+            && matches!(else_value.as_ref(), Expr::Null(Type::Optional(_)))
+    ));
+
+    assert!(matches!(
+        &module.body[0],
+        Node::Text {
+            value: Expr::Conditional {
+                value_type: Type::String,
+                ..
+            },
+            ..
+        }
+    ));
+    assert!(matches!(
+        &module.body[1],
+        Node::Text {
+            value: Expr::Conditional {
+                value_type: Type::String,
+                ..
+            },
+            ..
+        }
+    ));
+}
+
+#[test]
+fn constant_conditional_expressions_fold_to_the_selected_branch() {
+    let module = compile(
+        r#"
+        app FoldConditional {
+            state label: String = if true { "ready" } else { "unreachable" }
+            body { Text(label) }
+        }
+        "#,
+    )
+    .expect("constant conditional branches should compile");
+
+    let label = module
+        .states
+        .iter()
+        .find(|state| state.name == "label")
+        .expect("the label state should be present");
+    assert!(matches!(&label.initial, Expr::String(value) if value == "ready"));
+}
+
+#[test]
+fn chained_text_styles_lower_to_native_text_style_fields() {
+    let module = compile(
+        r#"
+        app ChainedTextStyles {
+            body {
+                Text("Hi").fontSize(18).bold().padding(12)
+            }
+        }
+        "#,
+    )
+    .expect("text style chains should lower to native style fields");
+
+    assert!(matches!(
+        &module.body[0],
+        Node::Text { value: Expr::String(value), style }
+            if value == "Hi"
+                && style.font_size == Some(18.0)
+                && style.font_weight == Some(nexa_ir::FontWeight::Bold)
+                && style.padding == Some(12.0)
+    ));
+}
 
 #[test]
 fn unused_native_plugins_are_pruned_from_both_target_modules() {

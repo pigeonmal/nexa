@@ -283,10 +283,21 @@ internal class NexaDevStateStore(internal val context: Context) {
             "String" -> payload as? String ?: ""
             "Bool" -> payload as? Boolean ?: false
             "Number" -> {
-                val rawValue = (payload as? JSONObject)?.optString("raw")
-                    ?: payload?.toString()
-                    ?: "0"
-                if (rawValue.contains('.')) rawValue.toDoubleOrNull() ?: 0.0 else rawValue.toLongOrNull() ?: 0L
+                val fields = payload as? JSONObject ?: JSONObject()
+                val rawValue = fields.optString("raw", payload?.toString() ?: "0")
+                when (fields.optString("ty")) {
+                    "Int8" -> rawValue.toByteOrNull() ?: 0
+                    "Int16" -> rawValue.toShortOrNull() ?: 0
+                    "Int32" -> rawValue.toIntOrNull() ?: 0
+                    "Int64" -> rawValue.toLongOrNull() ?: 0L
+                    "UInt8" -> rawValue.toUByteOrNull() ?: 0u.toUByte()
+                    "UInt16" -> rawValue.toUShortOrNull() ?: 0u.toUShort()
+                    "UInt32" -> rawValue.toUIntOrNull() ?: 0u
+                    "UInt64" -> rawValue.toULongOrNull() ?: 0uL
+                    "Float32" -> rawValue.toFloatOrNull() ?: 0f
+                    "Float64" -> rawValue.toDoubleOrNull() ?: 0.0
+                    else -> if (rawValue.contains('.')) rawValue.toDoubleOrNull() ?: 0.0 else rawValue.toLongOrNull() ?: 0L
+                }
             }
             "EnumValue" -> (payload as? JSONObject)?.optString("case_name") ?: ""
             "Array" -> {
@@ -346,6 +357,25 @@ internal class NexaDevStateStore(internal val context: Context) {
                     if (sum == sum.toLong().toDouble()) sum.toLong() else sum
                 }
             }
+            "Concat" -> {
+                val parts = payload as? JSONArray ?: JSONArray()
+                stringify(evaluate(parts.opt(0), locals, scope)) +
+                    stringify(evaluate(parts.opt(1), locals, scope))
+            }
+            "Arithmetic" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                arithmetic(
+                    fields.optString("op"),
+                    evaluate(fields.opt("left"), locals, scope),
+                    evaluate(fields.opt("right"), locals, scope),
+                    fields.optString("ty", "Int32"),
+                )
+            }
+            "Negate" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val type = fields.optString("ty", "Int32")
+                arithmetic("Subtract", numericZero(type), evaluate(fields.opt("value"), locals, scope), type)
+            }
             "Not" -> !truthy(evaluate(payload, locals, scope))
             "Binary" -> {
                 val binary = payload as? JSONObject ?: JSONObject()
@@ -353,6 +383,12 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val left = evaluate(binary.opt("left"), locals, scope)
                 val right = evaluate(binary.opt("right"), locals, scope)
                 compare(op, left, right)
+            }
+            "Conditional" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val condition = evaluate(fields.opt("condition"), locals, scope)
+                val branch = if (truthy(condition)) fields.opt("then_value") else fields.opt("else_value")
+                evaluate(branch, locals, scope)
             }
             "Contains" -> {
                 val fields = payload as? JSONObject ?: JSONObject()
@@ -392,6 +428,23 @@ internal class NexaDevStateStore(internal val context: Context) {
                     else -> items
                 }
             }
+            "CollectionUtility" -> {
+                val utility = payload as? JSONObject ?: JSONObject()
+                val collection = evaluate(utility.opt("collection"), locals, scope)
+                val items = collection as? List<*> ?: emptyList<Any?>()
+                when (utility.optString("operation")) {
+                    "Random" -> items.randomOrNull() ?: JSONObject.NULL
+                    "Shuffled" -> items.shuffled()
+                    "Reverse" -> items.reversed()
+                    "Slice" -> {
+                        val start = number(evaluate(utility.opt("start"), locals, scope)).toInt()
+                        val end = number(evaluate(utility.opt("end"), locals, scope)).toInt()
+                        val stop = end + if (utility.optBoolean("inclusive")) 1 else 0
+                        items.slice(start until stop)
+                    }
+                    else -> emptyList<Any?>()
+                }
+            }
             "Closure" -> payload ?: JSONObject.NULL
             "Index" -> {
                 val fields = payload as? JSONObject ?: JSONObject()
@@ -410,16 +463,30 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val fields = payload as? JSONObject ?: JSONObject()
                 val base = evaluate(fields.opt("base"), locals, scope)
                 val name = fields.optString("name")
-                when (base) {
-                    is Map<*, *> -> base[name] ?: JSONObject.NULL
-                    is JSONObject -> base.opt(name) ?: JSONObject.NULL
-                    is List<*> -> when (name) {
-                        "first" -> base.getOrNull(0) ?: JSONObject.NULL
-                        "second" -> base.getOrNull(1) ?: JSONObject.NULL
-                        "third" -> base.getOrNull(2) ?: JSONObject.NULL
-                        else -> base.getOrNull(name.toIntOrNull() ?: -1) ?: JSONObject.NULL
+                when (name) {
+                    "count" -> when (base) {
+                        is Collection<*> -> base.size
+                        is Map<*, *> -> base.size
+                        is JSONObject -> base.length()
+                        else -> JSONObject.NULL
                     }
-                    else -> JSONObject.NULL
+                    "isEmpty" -> when (base) {
+                        is Collection<*> -> base.isEmpty()
+                        is Map<*, *> -> base.isEmpty()
+                        is JSONObject -> base.length() == 0
+                        else -> JSONObject.NULL
+                    }
+                    else -> when (base) {
+                        is Map<*, *> -> base[name] ?: JSONObject.NULL
+                        is JSONObject -> base.opt(name) ?: JSONObject.NULL
+                        is List<*> -> when (name) {
+                            "first" -> base.getOrNull(0) ?: JSONObject.NULL
+                            "second" -> base.getOrNull(1) ?: JSONObject.NULL
+                            "third" -> base.getOrNull(2) ?: JSONObject.NULL
+                            else -> base.getOrNull(name.toIntOrNull() ?: -1) ?: JSONObject.NULL
+                        }
+                        else -> JSONObject.NULL
+                    }
                 }
             }
             "Range" -> {
@@ -619,6 +686,25 @@ internal class NexaDevStateStore(internal val context: Context) {
                     if (sum == sum.toLong().toDouble()) sum.toLong() else sum
                 }
             }
+            "Concat" -> {
+                val parts = payload as? JSONArray ?: JSONArray()
+                stringify(evaluate(parts.opt(0), locals, scope)) +
+                    stringify(evaluate(parts.opt(1), locals, scope))
+            }
+            "Arithmetic" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                arithmetic(
+                    fields.optString("op"),
+                    evaluateAsync(fields.opt("left"), locals, scope),
+                    evaluateAsync(fields.opt("right"), locals, scope),
+                    fields.optString("ty", "Int32"),
+                )
+            }
+            "Negate" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val type = fields.optString("ty", "Int32")
+                arithmetic("Subtract", numericZero(type), evaluateAsync(fields.opt("value"), locals, scope), type)
+            }
             "Not" -> !truthy(evaluateAsync(payload, locals, scope))
             "Binary" -> {
                 val binary = payload as? JSONObject ?: JSONObject()
@@ -626,6 +712,12 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val left = evaluateAsync(binary.opt("left"), locals, scope)
                 val right = evaluateAsync(binary.opt("right"), locals, scope)
                 compare(op, left, right)
+            }
+            "Conditional" -> {
+                val fields = payload as? JSONObject ?: JSONObject()
+                val condition = evaluateAsync(fields.opt("condition"), locals, scope)
+                val branch = if (truthy(condition)) fields.opt("then_value") else fields.opt("else_value")
+                evaluateAsync(branch, locals, scope)
             }
             else -> evaluate(raw, locals, scope)
         }
@@ -738,6 +830,95 @@ internal class NexaDevStateStore(internal val context: Context) {
         is Number -> value.toDouble()
         is String -> value.toDoubleOrNull() ?: 0.0
         else -> 0.0
+    }
+
+    private fun numericZero(type: String): Any = when {
+        type == "Float32" -> 0f
+        type == "Float64" -> 0.0
+        type.startsWith("UInt") && type != "UInt64" -> 0u
+        type == "UInt64" -> 0uL
+        else -> 0L
+    }
+
+    private fun arithmetic(op: String, left: Any?, right: Any?, type: String): Any {
+        if (type == "Float32") {
+            val lhs = number(left ?: 0).toFloat()
+            val rhs = number(right ?: 0).toFloat()
+            return when (op) {
+                "Subtract" -> lhs - rhs
+                "Multiply" -> lhs * rhs
+                "Divide" -> lhs / rhs
+                "Remainder" -> lhs % rhs
+                else -> 0f
+            }
+        }
+        if (type == "Float64") {
+            val lhs = number(left ?: 0)
+            val rhs = number(right ?: 0)
+            return when (op) {
+                "Subtract" -> lhs - rhs
+                "Multiply" -> lhs * rhs
+                "Divide" -> lhs / rhs
+                "Remainder" -> lhs % rhs
+                else -> 0.0
+            }
+        }
+        if (type.startsWith("UInt")) {
+            val lhs = unsignedInteger(left ?: 0)
+            val rhs = unsignedInteger(right ?: 0)
+            val result = when (op) {
+                "Subtract" -> lhs - rhs
+                "Multiply" -> lhs * rhs
+                "Divide" -> if (rhs == 0uL) 0uL else lhs / rhs
+                "Remainder" -> if (rhs == 0uL) 0uL else lhs % rhs
+                else -> 0uL
+            }
+            return when (type) {
+                "UInt8" -> result.toUByte()
+                "UInt16" -> result.toUShort()
+                "UInt32" -> result.toUInt()
+                else -> result
+            }
+        }
+        val lhs = signedInteger(left ?: 0)
+        val rhs = signedInteger(right ?: 0)
+        val result = when (op) {
+            "Subtract" -> lhs - rhs
+            "Multiply" -> lhs * rhs
+            "Divide" -> if (rhs == 0L) 0L else lhs / rhs
+            "Remainder" -> if (rhs == 0L) 0L else lhs % rhs
+            else -> 0L
+        }
+        return when (type) {
+            "Int8" -> result.toByte()
+            "Int16" -> result.toShort()
+            "Int32" -> result.toInt()
+            else -> result
+        }
+    }
+
+    private fun signedInteger(value: Any): Long = when (value) {
+        is Byte -> value.toLong()
+        is Short -> value.toLong()
+        is Int -> value.toLong()
+        is Long -> value
+        is Number -> value.toLong()
+        is String -> value.toLongOrNull() ?: 0L
+        else -> 0L
+    }
+
+    private fun unsignedInteger(value: Any): ULong = when (value) {
+        is UByte -> value.toULong()
+        is UShort -> value.toULong()
+        is UInt -> value.toULong()
+        is ULong -> value
+        is Byte -> value.toULong()
+        is Short -> value.toULong()
+        is Int -> value.toULong()
+        is Long -> value.toULong()
+        is Number -> value.toLong().toULong()
+        is String -> value.toULongOrNull() ?: 0uL
+        else -> 0uL
     }
 }
 

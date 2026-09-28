@@ -883,11 +883,13 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
     match expression {
         ast::Expr::Name(candidate, _) => candidate == name,
         ast::Expr::Add(left, right, _)
+        | ast::Expr::Arithmetic(left, _, right, _)
         | ast::Expr::Binary(left, _, right, _)
         | ast::Expr::Pair(left, right, _) => {
             expression_references_name(left, name) || expression_references_name(right, name)
         }
         ast::Expr::Not(value, _)
+        | ast::Expr::Negate(value, _)
         | ast::Expr::Await(value, _)
         | ast::Expr::Try { expr: value, .. } => expression_references_name(value, name),
         ast::Expr::Array(values, _) => values
@@ -949,6 +951,16 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
         ast::Expr::Coalesce(left, right, _) => {
             expression_references_name(left, name) || expression_references_name(right, name)
         }
+        ast::Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            ..
+        } => {
+            expression_references_name(condition, name)
+                || expression_references_name(then_value, name)
+                || expression_references_name(else_value, name)
+        }
         ast::Expr::Interpolation(parts, _) => parts.iter().any(|part| match part {
             ast::StringPart::Name(candidate) => candidate == name,
             ast::StringPart::Expression(expression) => expression_references_name(expression, name),
@@ -990,12 +1002,15 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
             }
         }
         ast::Expr::Add(left, right, _)
+        | ast::Expr::Arithmetic(left, _, right, _)
         | ast::Expr::Binary(left, _, right, _)
         | ast::Expr::Pair(left, right, _) => {
             walk_expression(left, names, used);
             walk_expression(right, names, used);
         }
-        ast::Expr::Not(value, _) => walk_expression(value, names, used),
+        ast::Expr::Not(value, _) | ast::Expr::Negate(value, _) => {
+            walk_expression(value, names, used)
+        }
         ast::Expr::Array(values, _) => {
             for value in values {
                 walk_expression(value, names, used);
@@ -1066,6 +1081,16 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
         ast::Expr::Coalesce(left, right, _) => {
             walk_expression(left, names, used);
             walk_expression(right, names, used);
+        }
+        ast::Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            ..
+        } => {
+            walk_expression(condition, names, used);
+            walk_expression(then_value, names, used);
+            walk_expression(else_value, names, used);
         }
         ast::Expr::Await(value, _) | ast::Expr::Try { expr: value, .. } => {
             walk_expression(value, names, used);

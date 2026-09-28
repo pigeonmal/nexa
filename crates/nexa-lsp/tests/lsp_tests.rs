@@ -154,8 +154,6 @@ fn lsp_rejects_unsupported_component_names() {
     for name in [
         "TextField",
         "FastSectionedList",
-        "Spacer",
-        "Divider",
         "VStack",
         "HStack",
         "ZStack",
@@ -164,11 +162,23 @@ fn lsp_rejects_unsupported_component_names() {
         let diagnostics = nexa_lsp::check_source(&source);
         assert!(!diagnostics.is_empty(), "{name} should not compile cleanly");
     }
-    // The supported spelling compiles cleanly.
-    let diagnostics = nexa_lsp::check_source(
-        "app P {\n    state name: String = \"\"\n    body {\n        TextInput(value: name, placeholder: \"Name\")\n    }\n}\n",
-    );
-    assert!(diagnostics.is_empty());
+    for component in [
+        "Spacer()",
+        "Divider(color: \"#808080\", thickness: 1)",
+        "TextInput(value: name, placeholder: \"Name\")",
+    ] {
+        let state = if component.contains("value: name") {
+            "    state name: String = \"\"\n"
+        } else {
+            ""
+        };
+        let source = format!("app P {{\n{state}    body {{\n        {component}\n    }}\n}}\n");
+        let diagnostics = nexa_lsp::check_source(&source);
+        assert!(
+            diagnostics.is_empty(),
+            "{component} should compile cleanly: {diagnostics:?}"
+        );
+    }
 }
 
 #[test]
@@ -199,7 +209,14 @@ fn lsp_completion_response_matches_the_catalog() {
         .filter_map(|c| c.get("label").and_then(|l| l.as_str()))
         .collect();
 
-    for supported in ["Column", "TextInput", "FastList", "Pressable"] {
+    for supported in [
+        "Column",
+        "TextInput",
+        "FastList",
+        "Pressable",
+        "Spacer",
+        "Divider",
+    ] {
         assert!(labels.contains(&supported), "{supported} should be offered");
     }
     assert!(
@@ -209,8 +226,6 @@ fn lsp_completion_response_matches_the_catalog() {
     for rejected in [
         "TextField",
         "FastSectionedList",
-        "Spacer",
-        "Divider",
         "VStack",
         "HStack",
         "ZStack",

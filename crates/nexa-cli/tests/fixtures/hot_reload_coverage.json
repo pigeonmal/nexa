@@ -44,6 +44,28 @@
         "android": "covered"
       }
     ],
+    "ArithmeticOp": [
+      {
+        "name": "Subtract",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Multiply",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Divide",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Remainder",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "NumericType": [
       {
         "name": "Int8",
@@ -278,6 +300,26 @@
         "android": "covered"
       },
       {
+        "name": "Concat",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Conditional",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Arithmetic",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Negate",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Not",
         "ios": "covered",
         "android": "covered"
@@ -324,6 +366,11 @@
       },
       {
         "name": "CollectionTransform",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "CollectionUtility",
         "ios": "covered",
         "android": "covered"
       },
@@ -490,6 +537,28 @@
         "android": "covered"
       }
     ],
+    "CollectionUtilityKind": [
+      {
+        "name": "Random",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Shuffled",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Reverse",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Slice",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "InterpolatedPart": [
       {
         "name": "Literal",
@@ -592,6 +661,16 @@
       },
       {
         "name": "Text",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Spacer",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Divider",
         "ios": "covered",
         "android": "covered"
       },
@@ -1052,6 +1131,16 @@
       },
       {
         "name": "NetworkBody",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "CollectionCount",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "CollectionIsEmpty",
         "ios": "covered",
         "android": "covered"
       }

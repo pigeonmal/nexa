@@ -1,7 +1,10 @@
 use std::collections::HashSet;
 
 use nexa_ir::walk::{IrFolder, IrVisitor, fold_expr_children, fold_node_children};
-use nexa_ir::{Action, BinaryOp, Expr, LayoutKind, Module, Node, NumericType, ViewStyle};
+use nexa_ir::{
+    Action, ArithmeticOp, BinaryOp, CollectionUtilityKind, Expr, LayoutKind, Module, Node,
+    NumericType, ViewStyle,
+};
 
 /// Applies small, semantics-preserving optimizations to the typed IR before
 /// either native backend sees it. The pass deliberately stays conservative:
@@ -135,6 +138,30 @@ fn is_pure_expression(expression: &Expr) -> bool {
                 && initial.as_deref().is_none_or(is_pure_expression)
                 && is_pure_expression(closure)
         }
+        Expr::CollectionUtility {
+            operation,
+            collection,
+            start,
+            end,
+            ..
+        } => {
+            !matches!(
+                operation,
+                CollectionUtilityKind::Random | CollectionUtilityKind::Shuffled
+            ) && is_pure_expression(collection)
+                && start.as_deref().is_none_or(is_pure_expression)
+                && end.as_deref().is_none_or(is_pure_expression)
+        }
+        Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            ..
+        } => {
+            is_pure_expression(condition)
+                && is_pure_expression(then_value)
+                && is_pure_expression(else_value)
+        }
         Expr::Closure { body, .. } => is_pure_expression(body),
         // Byte conversions are pure like any other value-producing function;
         // only the platform I/O and network calls above are impure.
@@ -151,13 +178,14 @@ fn is_pure_expression(expression: &Expr) -> bool {
         | Expr::FileDelete { .. }
         | Expr::PermissionOp { .. } => false,
         Expr::Await(_) | Expr::TryAwait(_) | Expr::Try { .. } => false,
-        Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
-            is_pure_expression(left) && is_pure_expression(right)
-        }
+        Expr::Add(left, right, _)
+        | Expr::Concat(left, right)
+        | Expr::Arithmetic { left, right, .. }
+        | Expr::Binary { left, right, .. } => is_pure_expression(left) && is_pure_expression(right),
         Expr::Contains {
             value, collection, ..
         } => is_pure_expression(value) && is_pure_expression(collection),
-        Expr::Not(value) => is_pure_expression(value),
+        Expr::Not(value) | Expr::Negate { value, .. } => is_pure_expression(value),
         Expr::ResultOk { value, .. } => is_pure_expression(value),
         Expr::ResultErr { error, .. } => is_pure_expression(error),
         Expr::Index {
@@ -585,6 +613,7 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         Expr::Call { return_type, .. } => collect_type_struct_names(return_type, used),
         Expr::NativeCall { return_type, .. } => collect_type_struct_names(return_type, used),
         Expr::TimeCall { return_type, .. } => collect_type_struct_names(return_type, used),
+        Expr::Conditional { value_type, .. } => collect_type_struct_names(value_type, used),
         Expr::NetworkFetch(_)
         | Expr::NetworkDownload { .. }
         | Expr::PathJoin { .. }
@@ -616,6 +645,9 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         Expr::Contains {
             collection_type, ..
         } => collect_type_struct_names(collection_type, used),
+        Expr::CollectionUtility { element_type, .. } => {
+            collect_type_struct_names(element_type, used)
+        }
         Expr::CollectionTransform { .. } | Expr::Closure { .. } => {}
         Expr::String(_)
         | Expr::Interpolation(_)
@@ -623,6 +655,9 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         | Expr::Number { .. }
         | Expr::EnumValue { .. }
         | Expr::Add(_, _, _)
+        | Expr::Concat(_, _)
+        | Expr::Arithmetic { .. }
+        | Expr::Negate { .. }
         | Expr::Not(_)
         | Expr::Binary { .. }
         | Expr::Array(_)
@@ -1034,6 +1069,24 @@ fn fold_expression_rules(expression: Expr) -> Expr {
         Expr::Add(left, right, ty) => {
             fold_numeric_add(&left, &right, ty).unwrap_or(Expr::Add(left, right, ty))
         }
+        Expr::Concat(left, right) => match (&*left, &*right) {
+            (Expr::String(left), Expr::String(right)) => Expr::String(format!("{left}{right}")),
+            _ => Expr::Concat(left, right),
+        },
+        Expr::Arithmetic {
+            op,
+            left,
+            right,
+            ty,
+        } => fold_numeric_arithmetic(&left, &right, op, ty).unwrap_or(Expr::Arithmetic {
+            op,
+            left,
+            right,
+            ty,
+        }),
+        Expr::Negate { value, ty } => {
+            fold_numeric_negate(&value, ty).unwrap_or(Expr::Negate { value, ty })
+        }
         Expr::Coalesce(left, right) => {
             if matches!(*left, Expr::Null(_)) {
                 *right
@@ -1041,7 +1094,145 @@ fn fold_expression_rules(expression: Expr) -> Expr {
                 Expr::Coalesce(left, right)
             }
         }
+        Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            value_type,
+        } => match *condition {
+            Expr::Bool(true) => *then_value,
+            Expr::Bool(false) => *else_value,
+            condition => Expr::Conditional {
+                condition: Box::new(condition),
+                then_value,
+                else_value,
+                value_type,
+            },
+        },
         expression => expression,
+    }
+}
+
+fn fold_numeric_arithmetic(
+    left: &Expr,
+    right: &Expr,
+    op: ArithmeticOp,
+    ty: NumericType,
+) -> Option<Expr> {
+    let (left_raw, left_ty) = numeric_constant(left)?;
+    let (right_raw, right_ty) = numeric_constant(right)?;
+    if left_ty != ty || right_ty != ty {
+        return None;
+    }
+    let raw = match ty {
+        NumericType::Int8 | NumericType::Int16 | NumericType::Int32 | NumericType::Int64 => {
+            let left = left_raw.parse::<i128>().ok()?;
+            let right = right_raw.parse::<i128>().ok()?;
+            let value = match op {
+                ArithmeticOp::Subtract => left - right,
+                ArithmeticOp::Multiply => left * right,
+                ArithmeticOp::Divide if right != 0 => left / right,
+                ArithmeticOp::Remainder if right != 0 => left % right,
+                ArithmeticOp::Divide | ArithmeticOp::Remainder => return None,
+            };
+            wrap_signed(value, numeric_bit_width(ty)?).to_string()
+        }
+        NumericType::UInt8 | NumericType::UInt16 | NumericType::UInt32 | NumericType::UInt64 => {
+            let left = left_raw.parse::<u128>().ok()?;
+            let right = right_raw.parse::<u128>().ok()?;
+            let value = match op {
+                ArithmeticOp::Subtract => left.wrapping_sub(right),
+                ArithmeticOp::Multiply => left.wrapping_mul(right),
+                ArithmeticOp::Divide if right != 0 => left / right,
+                ArithmeticOp::Remainder if right != 0 => left % right,
+                ArithmeticOp::Divide | ArithmeticOp::Remainder => return None,
+            };
+            wrap_unsigned(value, numeric_bit_width(ty)?).to_string()
+        }
+        NumericType::Float32 => {
+            let left = left_raw.parse::<f32>().ok()?;
+            let right = right_raw.parse::<f32>().ok()?;
+            let value = match op {
+                ArithmeticOp::Subtract => left - right,
+                ArithmeticOp::Multiply => left * right,
+                ArithmeticOp::Divide => left / right,
+                ArithmeticOp::Remainder => left % right,
+            };
+            if !value.is_finite() {
+                return None;
+            }
+            value.to_string()
+        }
+        NumericType::Float64 => {
+            let left = left_raw.parse::<f64>().ok()?;
+            let right = right_raw.parse::<f64>().ok()?;
+            let value = match op {
+                ArithmeticOp::Subtract => left - right,
+                ArithmeticOp::Multiply => left * right,
+                ArithmeticOp::Divide => left / right,
+                ArithmeticOp::Remainder => left % right,
+            };
+            if !value.is_finite() {
+                return None;
+            }
+            value.to_string()
+        }
+    };
+    if raw.contains('e') || raw.contains('E') {
+        return None;
+    }
+    Some(Expr::Number { raw, ty })
+}
+
+fn fold_numeric_negate(value: &Expr, ty: NumericType) -> Option<Expr> {
+    let (raw, value_ty) = numeric_constant(value)?;
+    if value_ty != ty {
+        return None;
+    }
+    let raw = match ty {
+        NumericType::Int8 | NumericType::Int16 | NumericType::Int32 | NumericType::Int64 => {
+            let value = raw.parse::<i128>().ok()?.wrapping_neg();
+            wrap_signed(value, numeric_bit_width(ty)?).to_string()
+        }
+        NumericType::UInt8 | NumericType::UInt16 | NumericType::UInt32 | NumericType::UInt64 => {
+            let value = raw.parse::<u128>().ok()?.wrapping_neg();
+            wrap_unsigned(value, numeric_bit_width(ty)?).to_string()
+        }
+        NumericType::Float32 => {
+            let value = -raw.parse::<f32>().ok()?;
+            if !value.is_finite() {
+                return None;
+            }
+            value.to_string()
+        }
+        NumericType::Float64 => {
+            let value = -raw.parse::<f64>().ok()?;
+            if !value.is_finite() {
+                return None;
+            }
+            value.to_string()
+        }
+    };
+    if raw.contains('e') || raw.contains('E') {
+        return None;
+    }
+    Some(Expr::Number { raw, ty })
+}
+
+fn numeric_constant(expression: &Expr) -> Option<(&str, NumericType)> {
+    match expression {
+        Expr::Number { raw, ty } => Some((raw, *ty)),
+        _ => None,
+    }
+}
+
+fn numeric_bit_width(ty: NumericType) -> Option<u32> {
+    match ty {
+        NumericType::Int8 | NumericType::UInt8 => Some(8),
+        NumericType::Int16 | NumericType::UInt16 => Some(16),
+        NumericType::Int32 | NumericType::UInt32 => Some(32),
+        NumericType::Int64 | NumericType::UInt64 => Some(64),
+        NumericType::Float32 | NumericType::Float64 => None,
     }
 }
 

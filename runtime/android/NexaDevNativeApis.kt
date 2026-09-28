@@ -65,7 +65,7 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
             else -> error("Unsupported permission $permissionName")
         }
         return when (name) {
-            "request" -> NexaPermissions.request(permission).name
+            "request" -> NexaPermissions.request(context, permission).name
             "status" -> NexaPermissions.status(context, permission).name
             else -> error("Unsupported permission call $name")
         }
@@ -86,12 +86,13 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
     val maxResponseBytes = numberOption("maxResponseBytes", 67_108_864.0).toLong()
     if (name == "download") {
         return NexaNetwork.download(
+            context = context,
             url = url,
             destinationPath = stringOption("destinationPath"),
             method = method,
             body = body,
             headers = headers,
-            timeout = timeout,
+            timeoutMillis = (timeout * 1000.0).toLong(),
             useCache = useCache,
             followRedirects = followRedirects,
             maxResponseBytes = maxResponseBytes,
@@ -99,11 +100,12 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
         )
     }
     val response = NexaNetwork.fetch(
+        context = context,
         url = url,
         method = method,
         body = body,
         headers = headers,
-        timeout = timeout,
+        timeoutMillis = (timeout * 1000.0).toLong(),
         useCache = useCache,
         followRedirects = followRedirects,
         maxResponseBytes = maxResponseBytes,

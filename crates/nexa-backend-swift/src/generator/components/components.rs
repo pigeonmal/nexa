@@ -81,6 +81,24 @@ pub(crate) fn render_node(
                     "    ".repeat(depth + 1)
                 ));
             }
+            if let Some(padding) = style.padding {
+                out.push_str(&format!(
+                    "\n{}.padding({})",
+                    "    ".repeat(depth + 1),
+                    number(padding)
+                ));
+            }
+        }
+        Node::Spacer => out.line_at(depth, format_args!("Spacer()")),
+        Node::Divider { color, thickness } => {
+            out.line_at(depth, format_args!("Divider()"));
+            out.push_str(&format!(
+                "\n{}.overlay({})\n{}.frame(height: {})",
+                "    ".repeat(depth + 1),
+                colors::expression(*color),
+                "    ".repeat(depth + 1),
+                number(*thickness)
+            ));
         }
         Node::Button {
             label,

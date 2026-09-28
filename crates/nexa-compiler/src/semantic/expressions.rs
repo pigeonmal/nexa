@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
-    BinaryOp, CollectionTransform, Expr, InterpolatedPart, MemberKind, NumericType, TuplePosition,
-    Type,
+    ArithmeticOp as IrArithmeticOp, BinaryOp, CollectionTransform, CollectionUtilityKind, Expr,
+    InterpolatedPart, MemberKind, NumericType, TuplePosition, Type,
 };
 use nexa_plugin_idl::TypeRef;
 use nexa_syntax::ast;
@@ -581,10 +581,10 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
     match expr {
         ast::Expr::Name(_, _) => true,
         ast::Expr::EnumCase { .. } => false,
-        ast::Expr::Add(left, right, _) | ast::Expr::Binary(left, _, right, _) => {
-            references_state(left) || references_state(right)
-        }
-        ast::Expr::Not(value, _) => references_state(value),
+        ast::Expr::Add(left, right, _)
+        | ast::Expr::Arithmetic(left, _, right, _)
+        | ast::Expr::Binary(left, _, right, _) => references_state(left) || references_state(right),
+        ast::Expr::Negate(value, _) | ast::Expr::Not(value, _) => references_state(value),
         ast::Expr::Array(items, _) => items.iter().any(references_state),
         ast::Expr::Map(entries, _) => entries
             .iter()
@@ -629,6 +629,16 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
                 || step.as_deref().is_some_and(references_state)
         }
         ast::Expr::Coalesce(left, right, _) => references_state(left) || references_state(right),
+        ast::Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            ..
+        } => {
+            references_state(condition)
+                || references_state(then_value)
+                || references_state(else_value)
+        }
         ast::Expr::Await(value, _) | ast::Expr::Try { expr: value, .. } => references_state(value),
         ast::Expr::Interpolation(parts, _) => parts.iter().any(|part| match part {
             ast::StringPart::Name(_) => true,
@@ -677,6 +687,7 @@ pub(super) fn lower_expr(
     let expected = match expected {
         Some(Type::Optional(inner))
             if !matches!(expr, ast::Expr::Null(_))
+                && !matches!(expr, ast::Expr::Conditional { .. })
                 && !matches!(
                     infer_expr_type(expr, ctx.symbols, ctx.functions),
                     Some(Type::Optional(_))
@@ -715,6 +726,39 @@ pub(super) fn lower_expr(
         ast::Expr::Bool(value, _) => {
             require_expected(expected, &Type::Bool, expr.span())?;
             Ok(Expr::Bool(*value))
+        }
+        ast::Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            span,
+        } => {
+            let value_type = expected
+                .cloned()
+                .or_else(|| {
+                    conditional_value_type(
+                        then_value,
+                        else_value,
+                        ctx.symbols,
+                        ctx.functions,
+                    )
+                })
+                .ok_or_else(|| {
+                    CompileError::new(
+                        *span,
+                        "cannot infer the `if` expression value type; add an explicit type context",
+                    )
+                })?;
+            let condition = lower_expr(condition, Some(&Type::Bool), ctx)?;
+            let then_value = lower_expr(then_value, Some(&value_type), ctx)?;
+            let else_value = lower_expr(else_value, Some(&value_type), ctx)?;
+            require_expected(expected, &value_type, *span)?;
+            Ok(Expr::Conditional {
+                condition: Box::new(condition),
+                then_value: Box::new(then_value),
+                else_value: Box::new(else_value),
+                value_type,
+            })
         }
         ast::Expr::Null(span) => {
             let Some(Type::Optional(inner)) = expected else {
@@ -894,6 +938,20 @@ pub(super) fn lower_expr(
             format!("`Theme.{name}` can only be used in supported style options"),
         )),
         ast::Expr::Add(left, right, span) => {
+            if expected == Some(&Type::String)
+                || matches!(
+                    infer_expr_type(left, ctx.symbols, ctx.functions),
+                    Some(Type::String)
+                )
+                || matches!(
+                    infer_expr_type(right, ctx.symbols, ctx.functions),
+                    Some(Type::String)
+                )
+            {
+                let left = lower_expr(left, Some(&Type::String), ctx)?;
+                let right = lower_expr(right, Some(&Type::String), ctx)?;
+                return Ok(Expr::Concat(Box::new(left), Box::new(right)));
+            }
             let ty = expected
                 .and_then(as_numeric_type)
                 .or_else(|| {
@@ -926,6 +984,81 @@ pub(super) fn lower_expr(
                 ));
             }
             Ok(Expr::Add(Box::new(left), Box::new(right), ty))
+        }
+        ast::Expr::Arithmetic(left, operator, right, span) => {
+            let ty = expected
+                .and_then(as_numeric_type)
+                .or_else(|| {
+                    infer_expr_type(left, ctx.symbols, ctx.functions)
+                        .and_then(|ty| as_numeric_type(&ty))
+                })
+                .or_else(|| {
+                    infer_expr_type(right, ctx.symbols, ctx.functions)
+                        .and_then(|ty| as_numeric_type(&ty))
+                })
+                .ok_or_else(|| {
+                    CompileError::new(*span, "arithmetic operators require numeric values")
+                })?;
+            let numeric = Type::Numeric(ty);
+            if expected.is_some_and(|expected| expected != &numeric) {
+                return Err(CompileError::new(
+                    *span,
+                    format!(
+                        "arithmetic produces {}, which does not match the expected type",
+                        type_name(&numeric)
+                    ),
+                ));
+            }
+            let left = lower_expr(left, Some(&numeric), ctx)?;
+            let right = lower_expr(right, Some(&numeric), ctx)?;
+            if expr_numeric_type(&left) != Some(ty) || expr_numeric_type(&right) != Some(ty) {
+                return Err(CompileError::new(
+                    *span,
+                    "both arithmetic operands must have the same numeric type",
+                ));
+            }
+            let op = match operator {
+                ast::ArithmeticOp::Subtract => IrArithmeticOp::Subtract,
+                ast::ArithmeticOp::Multiply => IrArithmeticOp::Multiply,
+                ast::ArithmeticOp::Divide => IrArithmeticOp::Divide,
+                ast::ArithmeticOp::Remainder => IrArithmeticOp::Remainder,
+            };
+            Ok(Expr::Arithmetic {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+                ty,
+            })
+        }
+        ast::Expr::Negate(value, span) => {
+            let ty = expected
+                .and_then(as_numeric_type)
+                .or_else(|| {
+                    infer_expr_type(value, ctx.symbols, ctx.functions)
+                        .and_then(|ty| as_numeric_type(&ty))
+                })
+                .ok_or_else(|| CompileError::new(*span, "unary `-` requires a numeric value"))?;
+            let numeric = Type::Numeric(ty);
+            if expected.is_some_and(|expected| expected != &numeric) {
+                return Err(CompileError::new(
+                    *span,
+                    format!(
+                        "unary `-` produces {}, which does not match the expected type",
+                        type_name(&numeric)
+                    ),
+                ));
+            }
+            let value = lower_expr(value, Some(&numeric), ctx)?;
+            if expr_numeric_type(&value) != Some(ty) {
+                return Err(CompileError::new(
+                    *span,
+                    "unary `-` requires a numeric value",
+                ));
+            }
+            Ok(Expr::Negate {
+                value: Box::new(value),
+                ty,
+            })
         }
         ast::Expr::Not(value, _span) => {
             let value = lower_expr(value, Some(&Type::Bool), ctx)?;
@@ -973,7 +1106,11 @@ pub(super) fn lower_expr(
                         "named arguments are not supported for this method call",
                     ));
                 }
-                lower_collection_transform(base, name, arguments, *span, expected, ctx)
+                if is_collection_utility(name) {
+                    lower_collection_utility(base, name, arguments, *span, expected, ctx)
+                } else {
+                    lower_collection_transform(base, name, arguments, *span, expected, ctx)
+                }
             }
         }
         ast::Expr::Closure { span, .. } => Err(CompileError::new(
@@ -1112,7 +1249,7 @@ pub(super) fn lower_expr(
                 let Type::Optional(inner) = &base_type else {
                     return Err(CompileError::new(
                         *span,
-                        "`?.` requires an optional Pair, Triple, or struct value",
+                        "`?.` requires an optional Pair, Triple, struct, or collection value",
                     ));
                 };
                 let Some(field_type) = member_field_type_with_plugins(inner, name, ctx.functions)
@@ -1162,6 +1299,12 @@ pub(super) fn lower_expr(
                 (Type::NetworkResponse, "statusCode") => MemberKind::NetworkStatusCode,
                 (Type::NetworkResponse, "headers") => MemberKind::NetworkHeaders,
                 (Type::NetworkResponse, "body") => MemberKind::NetworkBody,
+                (Type::Array(_) | Type::Set(_) | Type::Map(_, _), "count") => {
+                    MemberKind::CollectionCount
+                }
+                (Type::Array(_) | Type::Set(_) | Type::Map(_, _), "isEmpty") => {
+                    MemberKind::CollectionIsEmpty
+                }
                 _ => {
                     return Err(CompileError::new(
                         *span,
@@ -1461,6 +1604,135 @@ fn lower_collection_transform(
             body: Box::new(lowered_body),
         }),
     })
+}
+
+fn is_collection_utility(name: &str) -> bool {
+    matches!(name, "random" | "shuffled" | "reverse" | "slice")
+}
+
+fn lower_collection_utility(
+    base: &ast::Expr,
+    name: &str,
+    arguments: &[ast::Expr],
+    span: Span,
+    expected: Option<&Type>,
+    ctx: &ExprContext<'_>,
+) -> Result<Expr, CompileError> {
+    let operation = match name {
+        "random" => CollectionUtilityKind::Random,
+        "shuffled" => CollectionUtilityKind::Shuffled,
+        "reverse" => CollectionUtilityKind::Reverse,
+        "slice" => CollectionUtilityKind::Slice,
+        _ => {
+            return Err(CompileError::new(
+                span,
+                format!("unknown collection method `{name}`"),
+            ));
+        }
+    };
+    let Some(Type::Array(element_type)) = infer_expr_type(base, ctx.symbols, ctx.functions) else {
+        return Err(CompileError::new(
+            span,
+            format!("`{name}` requires an Array<T> receiver"),
+        ));
+    };
+
+    let (start, end, inclusive) = match operation {
+        CollectionUtilityKind::Random
+        | CollectionUtilityKind::Shuffled
+        | CollectionUtilityKind::Reverse => {
+            if !arguments.is_empty() {
+                return Err(CompileError::new(
+                    span,
+                    format!("`{name}` does not accept arguments"),
+                ));
+            }
+            (None, None, false)
+        }
+        CollectionUtilityKind::Slice => {
+            let [
+                ast::Expr::Range {
+                    start,
+                    end,
+                    inclusive,
+                    step,
+                    span: range_span,
+                },
+            ] = arguments
+            else {
+                return Err(CompileError::new(
+                    span,
+                    "`slice` expects one range argument, such as `slice(0..3)`",
+                ));
+            };
+            if step.is_some() {
+                return Err(CompileError::new(
+                    *range_span,
+                    "`slice` does not support a stepped range",
+                ));
+            }
+            let int32 = Type::Numeric(NumericType::Int32);
+            (
+                Some(Box::new(lower_expr(start, Some(&int32), ctx)?)),
+                Some(Box::new(lower_expr(end, Some(&int32), ctx)?)),
+                *inclusive,
+            )
+        }
+    };
+
+    let result_type = collection_utility_result_type(operation, &element_type);
+    require_expected(expected, &result_type, span)?;
+    let collection = lower_expr(base, Some(&Type::Array(element_type.clone())), ctx)?;
+    Ok(Expr::CollectionUtility {
+        operation,
+        collection: Box::new(collection),
+        start,
+        end,
+        inclusive,
+        element_type: *element_type,
+    })
+}
+
+fn infer_collection_utility_type(
+    base: &ast::Expr,
+    name: &str,
+    arguments: &[ast::Expr],
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+) -> Option<Type> {
+    let operation = match name {
+        "random" => CollectionUtilityKind::Random,
+        "shuffled" => CollectionUtilityKind::Shuffled,
+        "reverse" => CollectionUtilityKind::Reverse,
+        "slice" => CollectionUtilityKind::Slice,
+        _ => return None,
+    };
+    let Type::Array(element_type) = infer_expr_type(base, symbols, functions)? else {
+        return None;
+    };
+    match operation {
+        CollectionUtilityKind::Random if arguments.is_empty() => Some(Type::Optional(element_type)),
+        CollectionUtilityKind::Shuffled | CollectionUtilityKind::Reverse
+            if arguments.is_empty() =>
+        {
+            Some(Type::Array(element_type))
+        }
+        CollectionUtilityKind::Slice
+            if matches!(arguments, [ast::Expr::Range { step: None, .. }]) =>
+        {
+            Some(Type::Array(element_type))
+        }
+        _ => None,
+    }
+}
+
+fn collection_utility_result_type(operation: CollectionUtilityKind, element_type: &Type) -> Type {
+    match operation {
+        CollectionUtilityKind::Random => Type::Optional(Box::new(element_type.clone())),
+        CollectionUtilityKind::Shuffled
+        | CollectionUtilityKind::Reverse
+        | CollectionUtilityKind::Slice => Type::Array(Box::new(element_type.clone())),
+    }
 }
 
 fn infer_collection_transform_type(
@@ -2578,7 +2850,9 @@ pub(super) fn infer_expr_type(
                     .filter(|signature| signature.receiver.is_some())
                     .map(|signature| signature.return_type.clone())
             } else {
-                infer_collection_transform_type(base, name, arguments, symbols, functions)
+                infer_collection_utility_type(base, name, arguments, symbols, functions).or_else(
+                    || infer_collection_transform_type(base, name, arguments, symbols, functions),
+                )
             }
         }
         ast::Expr::Range { .. } => None,
@@ -2594,6 +2868,11 @@ pub(super) fn infer_expr_type(
                 None
             }
         }
+        ast::Expr::Conditional {
+            then_value,
+            else_value,
+            ..
+        } => conditional_value_type(then_value, else_value, symbols, functions),
         ast::Expr::Await(value, _) => infer_expr_type(value, symbols, functions),
         ast::Expr::Try { expr, .. } => match infer_expr_type(expr, symbols, functions)? {
             Type::Result(value_type, _) => Some(*value_type),
@@ -2602,6 +2881,30 @@ pub(super) fn infer_expr_type(
         ast::Expr::ThemeToken(_, _) => None,
         ast::Expr::Closure { .. } => None,
         ast::Expr::Add(left_expr, right_expr, _) => {
+            let left_type = infer_expr_type(left_expr, symbols, functions);
+            let right_type = infer_expr_type(right_expr, symbols, functions);
+            match (left_type, right_type) {
+                (Some(Type::String), Some(Type::String)) => Some(Type::String),
+                (Some(Type::Numeric(left)), Some(Type::Numeric(right))) if left == right => {
+                    Some(Type::Numeric(left))
+                }
+                (Some(Type::Numeric(left)), Some(Type::Numeric(_)))
+                    if matches!(right_expr.as_ref(), ast::Expr::Number(_, _)) =>
+                {
+                    Some(Type::Numeric(left))
+                }
+                (Some(Type::Numeric(_)), Some(Type::Numeric(right)))
+                    if matches!(left_expr.as_ref(), ast::Expr::Number(_, _)) =>
+                {
+                    Some(Type::Numeric(right))
+                }
+                (Some(ty @ Type::Numeric(_)), None) | (None, Some(ty @ Type::Numeric(_))) => {
+                    Some(ty)
+                }
+                _ => None,
+            }
+        }
+        ast::Expr::Arithmetic(left_expr, _, right_expr, _) => {
             let left_type = infer_expr_type(left_expr, symbols, functions);
             let right_type = infer_expr_type(right_expr, symbols, functions);
             match (left_type, right_type) {
@@ -2624,6 +2927,7 @@ pub(super) fn infer_expr_type(
                 _ => None,
             }
         }
+        ast::Expr::Negate(value, _) => infer_expr_type(value, symbols, functions),
         ast::Expr::Array(items, _) => items
             .first()
             .and_then(|item| infer_expr_type(item, symbols, functions))
@@ -2644,6 +2948,40 @@ pub(super) fn infer_expr_type(
             Box::new(infer_expr_type(second, symbols, functions)?),
             Box::new(infer_expr_type(third, symbols, functions)?),
         )),
+    }
+}
+
+fn conditional_value_type(
+    then_value: &ast::Expr,
+    else_value: &ast::Expr,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+) -> Option<Type> {
+    let then_type = infer_expr_type(then_value, symbols, functions);
+    let else_type = infer_expr_type(else_value, symbols, functions);
+    match (then_type, else_type) {
+        (Some(then_type), Some(else_type)) if then_type == else_type => Some(then_type),
+        (Some(Type::Optional(inner)), Some(else_type)) if *inner == else_type => {
+            Some(Type::Optional(inner))
+        }
+        (Some(then_type), Some(Type::Optional(inner))) if then_type == *inner => {
+            Some(Type::Optional(inner))
+        }
+        (None, Some(else_type)) if matches!(then_value, ast::Expr::Null(_)) => {
+            Some(optional_type(else_type))
+        }
+        (Some(then_type), None) if matches!(else_value, ast::Expr::Null(_)) => {
+            Some(optional_type(then_type))
+        }
+        _ => None,
+    }
+}
+
+fn optional_type(ty: Type) -> Type {
+    if matches!(ty, Type::Optional(_)) {
+        ty
+    } else {
+        Type::Optional(Box::new(ty))
     }
 }
 
@@ -2671,6 +3009,10 @@ fn member_field_type(base_type: &Type, name: &str) -> Option<Type> {
             Box::new(Type::Array(Box::new(Type::String))),
         )),
         (Type::NetworkResponse, "body") => Some(Type::String),
+        (Type::Array(_) | Type::Set(_) | Type::Map(_, _), "count") => {
+            Some(Type::Numeric(NumericType::Int32))
+        }
+        (Type::Array(_) | Type::Set(_) | Type::Map(_, _), "isEmpty") => Some(Type::Bool),
         _ => None,
     }
 }
@@ -2970,9 +3312,12 @@ fn integer_fits(raw: &str, min: i128, max: i128) -> bool {
 }
 fn expr_numeric_type(expr: &Expr) -> Option<NumericType> {
     match expr {
-        Expr::Number { ty, .. } | Expr::Add(_, _, ty) => Some(*ty),
+        Expr::Number { ty, .. }
+        | Expr::Add(_, _, ty)
+        | Expr::Arithmetic { ty, .. }
+        | Expr::Negate { ty, .. } => Some(*ty),
         Expr::State(_, Type::Numeric(ty)) => Some(*ty),
-        _ => None,
+        _ => lowered_type(expr).as_ref().and_then(as_numeric_type),
     }
 }
 fn require_expected(
@@ -3002,13 +3347,20 @@ fn require_expected(
 /// expression sees the concrete value type.
 pub(super) fn lowered_type(expr: &Expr) -> Option<Type> {
     match expr {
-        Expr::Call { return_type, .. } | Expr::NativeCall { return_type, .. } => {
-            Some(return_type.clone())
-        }
+        Expr::Call { return_type, .. }
+        | Expr::NativeCall { return_type, .. }
+        | Expr::TimeCall { return_type, .. } => Some(return_type.clone()),
         Expr::State(_, ty) => Some(ty.clone()),
         Expr::Null(ty) => Some(ty.clone()),
         Expr::Member { field_type, .. } => Some(field_type.clone()),
         Expr::Index { element_type, .. } => Some(element_type.clone()),
+        Expr::Concat(_, _) => Some(Type::String),
+        Expr::CollectionUtility {
+            operation,
+            element_type,
+            ..
+        } => Some(collection_utility_result_type(*operation, element_type)),
+        Expr::Conditional { value_type, .. } => Some(value_type.clone()),
         _ => None,
     }
 }

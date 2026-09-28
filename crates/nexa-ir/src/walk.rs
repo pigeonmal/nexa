@@ -159,6 +159,8 @@ pub fn walk_ir(
             }
             Node::TextInput { actions, .. } => walk_actions(actions, visit_expression),
             Node::Content
+            | Node::Spacer
+            | Node::Divider { .. }
             | Node::Switch { .. }
             | Node::StatusBar { .. }
             | Node::Direction { .. } => {}
@@ -301,7 +303,10 @@ fn walk_nested_callback_actions(actions: &[Action], visit: &mut impl FnMut(&[Act
 pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
     visit(expression);
     match expression {
-        Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
+        Expr::Add(left, right, _)
+        | Expr::Concat(left, right)
+        | Expr::Arithmetic { left, right, .. }
+        | Expr::Binary { left, right, .. } => {
             walk_expression(left, visit);
             walk_expression(right, visit);
         }
@@ -311,7 +316,7 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
             walk_expression(value, visit);
             walk_expression(collection, visit);
         }
-        Expr::Not(value) => walk_expression(value, visit),
+        Expr::Not(value) | Expr::Negate { value, .. } => walk_expression(value, visit),
         Expr::Array(items) | Expr::Set(items) => {
             for item in items {
                 walk_expression(item, visit);
@@ -348,6 +353,30 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
                 walk_expression(initial, visit);
             }
             walk_expression(closure, visit);
+        }
+        Expr::CollectionUtility {
+            collection,
+            start,
+            end,
+            ..
+        } => {
+            walk_expression(collection, visit);
+            if let Some(start) = start {
+                walk_expression(start, visit);
+            }
+            if let Some(end) = end {
+                walk_expression(end, visit);
+            }
+        }
+        Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            ..
+        } => {
+            walk_expression(condition, visit);
+            walk_expression(then_value, visit);
+            walk_expression(else_value, visit);
         }
         Expr::Closure { body, .. } => walk_expression(body, visit),
         Expr::NativeCall {
@@ -476,6 +505,8 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::ComponentCall { .. }
         | Node::NativeComponentCall { .. }
         | Node::Content
+        | Node::Spacer
+        | Node::Divider { .. }
         | Node::OnAppear { .. }
         | Node::OnDisappear { .. }
         | Node::OnActive { .. }
@@ -843,7 +874,12 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             }
         }
         Node::TextInput { actions, .. } => visitor.visit_actions(actions),
-        Node::Content | Node::Switch { .. } | Node::StatusBar { .. } | Node::Direction { .. } => {}
+        Node::Content
+        | Node::Spacer
+        | Node::Divider { .. }
+        | Node::Switch { .. }
+        | Node::StatusBar { .. }
+        | Node::Direction { .. } => {}
         Node::NavigationStack { arguments, .. } => {
             for argument in arguments {
                 visitor.visit_expr(argument);
@@ -860,7 +896,10 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
 
 pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
     match expr {
-        Expr::Add(left, right, _) | Expr::Binary { left, right, .. } => {
+        Expr::Add(left, right, _)
+        | Expr::Concat(left, right)
+        | Expr::Arithmetic { left, right, .. }
+        | Expr::Binary { left, right, .. } => {
             visitor.visit_expr(left);
             visitor.visit_expr(right);
         }
@@ -870,7 +909,7 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
             visitor.visit_expr(value);
             visitor.visit_expr(collection);
         }
-        Expr::Not(value) => visitor.visit_expr(value),
+        Expr::Not(value) | Expr::Negate { value, .. } => visitor.visit_expr(value),
         Expr::Array(items) | Expr::Set(items) => {
             for item in items {
                 visitor.visit_expr(item);
@@ -907,6 +946,30 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
                 visitor.visit_expr(initial);
             }
             visitor.visit_expr(closure);
+        }
+        Expr::CollectionUtility {
+            collection,
+            start,
+            end,
+            ..
+        } => {
+            visitor.visit_expr(collection);
+            if let Some(start) = start {
+                visitor.visit_expr(start);
+            }
+            if let Some(end) = end {
+                visitor.visit_expr(end);
+            }
+        }
+        Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            ..
+        } => {
+            visitor.visit_expr(condition);
+            visitor.visit_expr(then_value);
+            visitor.visit_expr(else_value);
         }
         Expr::Closure { body, .. } => visitor.visit_expr(body),
         Expr::NativeCall {
@@ -1296,9 +1359,12 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             scale,
             placeholder,
         }),
-        Node::Content | Node::Switch { .. } | Node::StatusBar { .. } | Node::Direction { .. } => {
-            Some(node)
-        }
+        Node::Content
+        | Node::Spacer
+        | Node::Divider { .. }
+        | Node::Switch { .. }
+        | Node::StatusBar { .. }
+        | Node::Direction { .. } => Some(node),
     }
 }
 
@@ -1373,6 +1439,25 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
             Box::new(folder.fold_expr(*right)),
             ty,
         ),
+        Expr::Concat(left, right) => Expr::Concat(
+            Box::new(folder.fold_expr(*left)),
+            Box::new(folder.fold_expr(*right)),
+        ),
+        Expr::Arithmetic {
+            op,
+            left,
+            right,
+            ty,
+        } => Expr::Arithmetic {
+            op,
+            left: Box::new(folder.fold_expr(*left)),
+            right: Box::new(folder.fold_expr(*right)),
+            ty,
+        },
+        Expr::Negate { value, ty } => Expr::Negate {
+            value: Box::new(folder.fold_expr(*value)),
+            ty,
+        },
         Expr::Binary { op, left, right } => Expr::Binary {
             op,
             left: Box::new(folder.fold_expr(*left)),
@@ -1441,6 +1526,32 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
             collection: Box::new(folder.fold_expr(*collection)),
             initial: initial.map(|init| Box::new(folder.fold_expr(*init))),
             closure: Box::new(folder.fold_expr(*closure)),
+        },
+        Expr::CollectionUtility {
+            operation,
+            collection,
+            start,
+            end,
+            inclusive,
+            element_type,
+        } => Expr::CollectionUtility {
+            operation,
+            collection: Box::new(folder.fold_expr(*collection)),
+            start: start.map(|start| Box::new(folder.fold_expr(*start))),
+            end: end.map(|end| Box::new(folder.fold_expr(*end))),
+            inclusive,
+            element_type,
+        },
+        Expr::Conditional {
+            condition,
+            then_value,
+            else_value,
+            value_type,
+        } => Expr::Conditional {
+            condition: Box::new(folder.fold_expr(*condition)),
+            then_value: Box::new(folder.fold_expr(*then_value)),
+            else_value: Box::new(folder.fold_expr(*else_value)),
+            value_type,
         },
         Expr::Closure { parameters, body } => Expr::Closure {
             parameters,

@@ -308,7 +308,16 @@ struct NexaDevNodeList: View {
             if let lineHeight = style["line_height"] as? Double { styled = AnyView(styled.lineSpacing(max(0, lineHeight - (style["font_size"] as? Double ?? lineHeight)))) }
             if let letterSpacing = style["letter_spacing"] as? Double { styled = AnyView(styled.tracking(letterSpacing)) }
             if style["selectable"] as? Bool == true { styled = AnyView(styled.textSelection(.enabled)) }
+            if let padding = style["padding"] as? Double { styled = AnyView(styled.padding(padding)) }
             return styled
+        case "Spacer":
+            return AnyView(Spacer())
+        case "Divider":
+            let color = devColor(fields["color"], isDark: colorScheme == .dark)
+            let thickness = fields["thickness"] as? Double ?? 1
+            var divider = AnyView(Divider())
+            if let color { divider = AnyView(divider.overlay(color)) }
+            return AnyView(divider.frame(height: thickness))
         case "Content":
             guard let contentSlot else { return AnyView(EmptyView()) }
             return AnyView(NexaDevNodeList(

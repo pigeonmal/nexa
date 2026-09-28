@@ -499,7 +499,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
                 }
             }
         }
-        Node::Content => {}
+        Node::Content | Node::Spacer | Node::Divider { .. } => {}
         Node::Layout { children, .. }
         | Node::Pressable { children, .. }
         | Node::NavigationLink { children, .. }

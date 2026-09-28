@@ -218,6 +218,7 @@ pub struct TextFacts {
     pub sp: bool,
     pub selectable: bool,
     pub color: bool,
+    pub padding: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -251,6 +252,8 @@ pub struct LayoutFacts {
     /// Stack (overlay) layouts.
     pub box_: bool,
     pub spacing: bool,
+    pub spacer: bool,
+    pub divider: bool,
     /// A node with more than one child (implies a column container).
     pub multi_child: bool,
 }
@@ -616,10 +619,13 @@ fn observe_node(
                 || style.letter_spacing.is_some();
             ui.text.selectable |= style.selectable;
             ui.text.color |= style.color.is_some();
+            ui.text.padding |= style.padding.is_some();
             scope_of(ui, scope).adaptive_text |= style
                 .color
                 .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
         }
+        Node::Spacer => ui.layout.spacer = true,
+        Node::Divider { .. } => ui.layout.divider = true,
         Node::Button { icon, loading, .. } => {
             ui.button.present = true;
             ui.button.icon |= icon.is_some();

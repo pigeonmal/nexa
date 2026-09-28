@@ -492,6 +492,8 @@ pub enum Expr {
     IsRegularHeight(Span),
     IsCompactHeight(Span),
     Add(Box<Expr>, Box<Expr>, Span),
+    Arithmetic(Box<Expr>, ArithmeticOp, Box<Expr>, Span),
+    Negate(Box<Expr>, Span),
     Not(Box<Expr>, Span),
     Binary(Box<Expr>, BinaryOp, Box<Expr>, Span),
     Array(Vec<Expr>, Span),
@@ -543,6 +545,12 @@ pub enum Expr {
         step: Option<Box<Expr>>,
         span: Span,
     },
+    Conditional {
+        condition: Box<Expr>,
+        then_value: Box<Expr>,
+        else_value: Box<Expr>,
+        span: Span,
+    },
     Null(Span),
     Coalesce(Box<Expr>, Box<Expr>, Span),
     Await(Box<Expr>, Span),
@@ -572,6 +580,14 @@ pub enum BinaryOp {
     GreaterEqual,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArithmeticOp {
+    Subtract,
+    Multiply,
+    Divide,
+    Remainder,
+}
+
 impl Expr {
     pub fn span(&self) -> Span {
         match self {
@@ -587,6 +603,8 @@ impl Expr {
             | Self::IsRegularHeight(s)
             | Self::IsCompactHeight(s)
             | Self::Add(_, _, s)
+            | Self::Arithmetic(_, _, _, s)
+            | Self::Negate(_, s)
             | Self::Not(_, s)
             | Self::Binary(_, _, _, s)
             | Self::Array(_, s)
@@ -600,6 +618,7 @@ impl Expr {
             | Self::Index { span: s, .. }
             | Self::Member { span: s, .. }
             | Self::Range { span: s, .. }
+            | Self::Conditional { span: s, .. }
             | Self::Null(s)
             | Self::Coalesce(_, _, s)
             | Self::Await(_, s)

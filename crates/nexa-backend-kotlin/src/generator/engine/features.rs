@@ -60,6 +60,8 @@ pub(crate) struct Features {
     pub(crate) uses_button_icon: bool,
     pub(crate) uses_button_loading: bool,
     pub(crate) uses_text_node: bool,
+    pub(crate) uses_spacer: bool,
+    pub(crate) uses_divider: bool,
     pub(crate) uses_text_input: bool,
     pub(crate) uses_text_input_submit: bool,
     pub(crate) uses_focus: bool,
@@ -195,6 +197,9 @@ impl Features {
         self.uses_font_weight = text.font_weight;
         self.uses_text_sp = text.sp;
         self.uses_selectable_text = text.selectable;
+        self.uses_padding |= text.padding;
+        self.uses_modifier |= text.padding;
+        self.uses_dp |= text.padding;
 
         let button = &ui.button;
         self.uses_button = button.present;
@@ -256,6 +261,11 @@ impl Features {
         self.uses_row = layout.row;
         self.uses_box |= layout.box_;
         self.uses_column |= layout.multi_child;
+        self.uses_spacer = layout.spacer;
+        self.uses_divider = layout.divider;
+        self.uses_modifier |= layout.spacer;
+        self.uses_color |= layout.divider;
+        self.uses_dp |= layout.divider;
         if layout.spacing {
             self.uses_dp = true;
             self.uses_arrangement = true;

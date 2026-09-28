@@ -61,6 +61,88 @@ app Counter {
 
 Swift output stores this with SwiftUI state. Kotlin output uses Compose state, selecting primitive state holders such as `mutableIntStateOf` for `Int32`. `let` declares an immutable binding; `state` declares a mutable binding. A binding can omit its type when its initializer determines one unambiguous type.
 
+## Arithmetic
+
+Numeric expressions support `+`, `-`, `*`, `/`, and `%`, plus unary negation. Multiplication, division, and remainder bind more tightly than addition and subtraction; parentheses can make grouping explicit. Integer division truncates toward zero. Fixed-width integer addition, subtraction, multiplication, and negation wrap on overflow.
+
+The `+` operator also concatenates two `String` values. It emits the native Swift or Kotlin string operator. The unary `!` operator negates a `Bool`.
+
+Arrays, sets, and maps expose `count` as `Int32` and `isEmpty` as `Bool`:
+
+```nexa
+app CollectionExample {
+    state names: Array<String> = ["Nexa"]
+
+    body {
+        Column {
+            Text(names.count)
+            Text(names.isEmpty)
+        }
+    }
+}
+```
+
+Arrays also support `random()`, `shuffled()`, `reverse()`, and `slice(range)`:
+
+```nexa
+app ArrayUtilities {
+    state values: Array<Int32> = [10, 20, 30, 40]
+    state selected: Int32? = values.random()
+    state randomized: Array<Int32> = values.shuffled()
+    state reversed: Array<Int32> = values.reverse()
+    state middle: Array<Int32> = values.slice(1..<3)
+
+    body {
+        Text(selected ?? 0)
+        Text(randomized.count)
+        Text(reversed.count)
+        Text(middle.count)
+    }
+}
+```
+
+`random()` returns an optional element because an empty array has no value to choose. `shuffled()` and `reverse()` return a new array. `slice` takes one unstepped range; `..` includes its upper index and `..<` excludes it. Indices must be valid for the source array.
+
+Text styles can be chained after a component call. For example, `Text("Hi").fontSize(18).bold().padding(12)` is equivalent to setting `fontSize: 18`, `fontWeight: Bold`, and `padding: 12` in the `Text` arguments.
+
+`Spacer()` consumes remaining space on a `Row` or `Column` axis. `Divider(color: "#808080", thickness: 1)` inserts a horizontal separator.
+
+## Value-producing conditionals
+
+An `if` expression returns the value of the branch that runs. You can also write the same conditional as `condition ? value : fallback`. Both branches must have the same type, except that a value and `null` produce an optional value:
+
+```nexa
+app ConditionalExample {
+    state enabled: Bool = true
+    state title: String = if enabled { "Ready" } else { "Waiting" }
+    state selected: String? = if enabled { "Ready" } else { null }
+
+    body {
+        Text(title)
+        Text(enabled ? "Ready" : "Waiting")
+        Text(selected ?? "Unavailable")
+    }
+}
+```
+
+The condition must be a `Bool`. The compiler removes an unreachable branch when the condition is a constant.
+
+Inside an action, mutable state supports compound assignments: `+=`, `-=`, `*=`, `/=`, and `%=`. Each is equivalent to assigning the current value combined with the right-hand value by the matching binary operator:
+
+```nexa
+app Counter {
+    state count: Int32 = 0
+
+    body {
+        Button("Update") {
+            count += 2 * 3
+            count -= 1
+            count *= 2
+        }
+    }
+}
+```
+
 ## Structs, enums, and functions
 
 Value structs are declared at the top level. Closed enums and functions are declared inside an app; functions have explicit parameter and return types:

@@ -179,6 +179,14 @@ pub enum NumericType {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ArithmeticOp {
+    Subtract,
+    Multiply,
+    Divide,
+    Remainder,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatusBarConfig {
     pub style: StatusBarStyle,
     pub hidden: bool,
@@ -268,6 +276,17 @@ pub enum Expr {
         case_name: String,
     },
     Add(Box<Expr>, Box<Expr>, NumericType),
+    Concat(Box<Expr>, Box<Expr>),
+    Arithmetic {
+        op: ArithmeticOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+        ty: NumericType,
+    },
+    Negate {
+        value: Box<Expr>,
+        ty: NumericType,
+    },
     Not(Box<Expr>),
     Binary {
         op: BinaryOp,
@@ -296,6 +315,20 @@ pub enum Expr {
         collection: Box<Expr>,
         initial: Option<Box<Expr>>,
         closure: Box<Expr>,
+    },
+    CollectionUtility {
+        operation: CollectionUtilityKind,
+        collection: Box<Expr>,
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+        inclusive: bool,
+        element_type: Type,
+    },
+    Conditional {
+        condition: Box<Expr>,
+        then_value: Box<Expr>,
+        else_value: Box<Expr>,
+        value_type: Type,
     },
     Closure {
         parameters: Vec<String>,
@@ -433,6 +466,14 @@ pub enum CollectionTransform {
     Reduce,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CollectionUtilityKind {
+    Random,
+    Shuffled,
+    Reverse,
+    Slice,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum InterpolatedPart {
     Literal(String),
@@ -485,6 +526,11 @@ pub enum Node {
     Text {
         value: Expr,
         style: TextStyle,
+    },
+    Spacer,
+    Divider {
+        color: ColorValue,
+        thickness: f32,
     },
     Button {
         label: Expr,
@@ -815,6 +861,10 @@ pub enum MemberKind {
     NetworkHeaders,
     /// `NetworkResponse.body`.
     NetworkBody,
+    /// `Array<T>`, `Set<T>`, or `Map<K, V>.count`.
+    CollectionCount,
+    /// `Array<T>`, `Set<T>`, or `Map<K, V>.isEmpty`.
+    CollectionIsEmpty,
 }
 
 /// Validated `Network.fetch` / `Network.download` arguments. Every field is
@@ -1012,6 +1062,7 @@ pub struct TextStyle {
     pub color: Option<ColorValue>,
     pub font_size: Option<f32>,
     pub font_weight: Option<FontWeight>,
+    pub padding: Option<f32>,
     pub line_limit: Option<i32>,
     pub line_height: Option<f32>,
     pub letter_spacing: Option<f32>,

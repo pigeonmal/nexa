@@ -109,6 +109,8 @@ mod tests {
         assert!(labels.contains(&"Column".to_string()));
         assert!(labels.contains(&"TextInput".to_string()));
         assert!(labels.contains(&"FastList".to_string()));
+        assert!(labels.contains(&"Spacer".to_string()));
+        assert!(labels.contains(&"Divider".to_string()));
         assert!(labels.contains(&"state".to_string()));
         assert!(labels.contains(&"Result".to_string()));
     }
@@ -119,8 +121,6 @@ mod tests {
         for rejected in [
             "TextField",
             "FastSectionedList",
-            "Spacer",
-            "Divider",
             "VStack",
             "HStack",
             "ZStack",

@@ -59,6 +59,14 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.layout.Arrangement",
     );
     imports.add(
+        features.uses_spacer,
+        "androidx.compose.foundation.layout.Spacer",
+    );
+    imports.add(
+        features.uses_divider,
+        "androidx.compose.material3.HorizontalDivider",
+    );
+    imports.add(
         features.uses_padding,
         "androidx.compose.foundation.layout.padding",
     );

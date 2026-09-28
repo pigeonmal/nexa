@@ -53,8 +53,6 @@ fn catalog_advertises_no_unsupported_parser_names() {
     for rejected in [
         "TextField",
         "FastSectionedList",
-        "Spacer",
-        "Divider",
         "VStack",
         "HStack",
         "ZStack",
@@ -65,6 +63,8 @@ fn catalog_advertises_no_unsupported_parser_names() {
         );
     }
     assert!(catalog::component("TextInput").is_some());
+    assert!(catalog::component("Spacer").is_some());
+    assert!(catalog::component("Divider").is_some());
 }
 
 #[test]
@@ -95,8 +95,8 @@ fn type_probe_covers_every_catalog_type() {
 
 #[test]
 fn dot_modifiers_match_parser_accepted_names() {
-    // The parser only accepts these trailing modifiers (Pressable,
-    // RefreshControl, FastList); the catalog must not offer others.
+    // Chained style modifiers and callback modifiers share the completion
+    // vocabulary, and every listed entry is accepted in a component scope.
     let mut names: Vec<&str> = catalog::DOT_MODIFIERS
         .iter()
         .map(|entry| entry.name)
@@ -105,11 +105,14 @@ fn dot_modifiers_match_parser_accepted_names() {
     assert_eq!(
         names,
         [
+            "bold",
+            "fontSize",
             "onEndReached",
             "onLongPress",
             "onPress",
             "onRefresh",
             "onScroll",
+            "padding",
             "sectionHeader",
             "stickyHeader"
         ]
@@ -183,7 +186,12 @@ fn component_schemas_cover_every_vocabulary_entry() {
             catalog::COMPONENT_SCHEMAS.iter().any(|schema| schema
                 .modifiers
                 .iter()
-                .any(|modifier| modifier.name == entry.name)),
+                .any(|modifier| modifier.name == entry.name))
+                || catalog::COMPONENT_SCHEMAS
+                    .iter()
+                    .any(
+                        |schema| catalog::chained_style_argument(schema.name, entry.name).is_some()
+                    ),
             "dot-modifier `{}` is accepted by no component schema",
             entry.name
         );
