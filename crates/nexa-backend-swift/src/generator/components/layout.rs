@@ -129,11 +129,13 @@ fn append_style(out: &mut SourceWriter, depth: usize, style: &ViewStyle) {
     append_visual_effects(out, depth, style.opacity, &style.effects);
     if let Some(animation) = style.animation {
         let value = match animation {
-            AnimationSpec::Spring => ".spring()",
-            AnimationSpec::EaseIn => ".easeIn",
-            AnimationSpec::EaseOut => ".easeOut",
-            AnimationSpec::EaseInOut => ".easeInOut",
-            AnimationSpec::Linear => ".linear",
+            AnimationSpec::Spring { response, damping } => {
+                format!(".spring(response: {response}, dampingFraction: {damping})")
+            }
+            AnimationSpec::EaseIn => ".easeIn".to_owned(),
+            AnimationSpec::EaseOut => ".easeOut".to_owned(),
+            AnimationSpec::EaseInOut => ".easeInOut".to_owned(),
+            AnimationSpec::Linear => ".linear".to_owned(),
         };
         append_modifier(out, depth, &format!("animation({value})"));
     }

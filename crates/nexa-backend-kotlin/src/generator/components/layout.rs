@@ -308,11 +308,14 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
     }
     if let Some(animation) = style.animation {
         let spec = match animation {
-            AnimationSpec::Spring => "spring()",
-            AnimationSpec::EaseIn => "tween(easing = FastOutLinearInEasing)",
-            AnimationSpec::EaseOut => "tween(easing = LinearOutSlowInEasing)",
-            AnimationSpec::EaseInOut => "tween(easing = FastOutSlowInEasing)",
-            AnimationSpec::Linear => "tween(easing = LinearEasing)",
+            AnimationSpec::Spring { response, damping } => {
+                let stiffness = (100.0 / f64::from(response).powi(2)) as f32;
+                format!("spring(dampingRatio = {damping}f, stiffness = {stiffness}f)")
+            }
+            AnimationSpec::EaseIn => "tween(easing = FastOutLinearInEasing)".to_owned(),
+            AnimationSpec::EaseOut => "tween(easing = LinearOutSlowInEasing)".to_owned(),
+            AnimationSpec::EaseInOut => "tween(easing = FastOutSlowInEasing)".to_owned(),
+            AnimationSpec::Linear => "tween(easing = LinearEasing)".to_owned(),
         };
         out.push_str(&format!(
             "\n{}.animateContentSize(animationSpec = {spec})",

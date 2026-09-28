@@ -294,10 +294,14 @@ struct NexaDevNodeList: View {
                 styled = AnyView(styled.clipShape(RoundedRectangle(cornerRadius: radius)))
             }
             if let zIndex = effects["z_index"] as? Int { styled = AnyView(styled.zIndex(Double(zIndex))) }
-            if let animation = style["animation"] as? String {
+            if let spring = (style["animation"] as? [String: Any])?["Spring"] as? [String: Any],
+               let response = spring["response"] as? Double,
+               let damping = spring["damping"] as? Double {
+                let value = Animation.spring(response: response, dampingFraction: damping)
+                styled = AnyView(styled.animation(value, value: store.revision))
+            } else if let animation = style["animation"] as? String {
                 let value: Animation
                 switch animation {
-                case "Spring": value = .spring()
                 case "EaseIn": value = .easeIn
                 case "EaseOut": value = .easeOut
                 case "EaseInOut": value = .easeInOut

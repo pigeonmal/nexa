@@ -5,8 +5,8 @@ package __NEXA_PACKAGE__
  * shared between Nexa development servers and Android dev runtimes.
  */
 internal object NexaDevSchema {
-    const val PROTOCOL_VERSION: Int = 8
-    const val DEV_IR_FORMAT_VERSION: Int = 8
+    const val PROTOCOL_VERSION: Int = 9
+    const val DEV_IR_FORMAT_VERSION: Int = 9
     const val TARGET_PLATFORM: String = "android"
 }
 

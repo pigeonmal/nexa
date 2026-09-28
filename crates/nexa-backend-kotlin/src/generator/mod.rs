@@ -418,9 +418,50 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
 mod tests {
     use super::generate;
     use nexa_ir::{
-        Action, Component, Expr, Function, Module, Node, NumericType, Screen, ScreenId, State,
-        TextStyle, Type,
+        Action, AnimationSpec, Component, Expr, Function, LayoutKind, Module, Node, NumericType,
+        Screen, ScreenId, State, TextStyle, Type, ViewStyle,
     };
+
+    #[test]
+    fn configured_spring_maps_response_and_damping_to_compose_physics() {
+        let module = Module {
+            app_name: "SpringAnimation".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Layout {
+                kind: LayoutKind::Column,
+                spacing: 0.0,
+                style: ViewStyle {
+                    animation: Some(AnimationSpec::Spring {
+                        response: 0.35,
+                        damping: 0.8,
+                    }),
+                    ..ViewStyle::default()
+                },
+                children: vec![Node::Text {
+                    value: Expr::String("Animated".to_owned()),
+                    style: TextStyle::default(),
+                }],
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        assert!(kotlin.contains("spring(dampingRatio = 0.8f, stiffness = 816.32654f)"));
+    }
 
     #[test]
     fn double_tap_pressable_emits_handler_and_compose_opt_in() {

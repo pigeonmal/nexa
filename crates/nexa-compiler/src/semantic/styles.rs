@@ -254,21 +254,53 @@ fn validate_bounds(
 }
 
 fn parse_animation(expr: ast::Expr) -> Result<AnimationSpec, CompileError> {
-    let ast::Expr::Name(name, span) = expr else {
-        return Err(CompileError::new(
-            expr.span(),
-            "animation must be `Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`",
-        ));
-    };
-    match name.as_str() {
-        "Spring" => Ok(AnimationSpec::Spring),
-        "EaseIn" => Ok(AnimationSpec::EaseIn),
-        "EaseOut" => Ok(AnimationSpec::EaseOut),
-        "EaseInOut" => Ok(AnimationSpec::EaseInOut),
-        "Linear" => Ok(AnimationSpec::Linear),
-        _ => Err(CompileError::new(
-            span,
-            "animation must be `Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`",
+    match expr {
+        ast::Expr::Name(name, span) => match name.as_str() {
+            "Spring" => Ok(AnimationSpec::Spring {
+                response: 0.5,
+                damping: 0.825,
+            }),
+            "EaseIn" => Ok(AnimationSpec::EaseIn),
+            "EaseOut" => Ok(AnimationSpec::EaseOut),
+            "EaseInOut" => Ok(AnimationSpec::EaseInOut),
+            "Linear" => Ok(AnimationSpec::Linear),
+            _ => Err(CompileError::new(
+                span,
+                "animation must be `Spring`, `Spring(response: ..., damping: ...)`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`",
+            )),
+        },
+        ast::Expr::Call(name, type_arguments, arguments, _span)
+            if name == "Spring" && type_arguments.is_empty() && arguments.len() == 2 =>
+        {
+            let response = finite_number_value(&arguments[0], "Spring response")?;
+            let damping = finite_number_value(&arguments[1], "Spring damping")?;
+            if response <= 0.0 {
+                return Err(CompileError::new(
+                    arguments[0].span(),
+                    "Spring response must be greater than zero",
+                ));
+            }
+            if damping <= 0.0 {
+                return Err(CompileError::new(
+                    arguments[1].span(),
+                    "Spring damping must be greater than zero",
+                ));
+            }
+            let stiffness = 100.0 / f64::from(response).powi(2);
+            if !stiffness.is_finite()
+                || stiffness < f64::from(f32::MIN_POSITIVE)
+                || stiffness > f64::from(f32::MAX)
+            {
+                return Err(CompileError::new(
+                    arguments[0].span(),
+                    "Spring response is outside the supported native animation range",
+                ));
+            }
+            Ok(AnimationSpec::Spring { response, damping })
+        }
+        other => Err(CompileError::new(
+            other.span(),
+            "animation must be `Spring`, `Spring(response: ..., damping: ...)`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`",
         )),
     }
 }

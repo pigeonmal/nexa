@@ -9,6 +9,7 @@ use nexa_testkit::{TestProject, Toolchain, example_path};
 const EXAMPLES: &[&str] = &[
     "counter",
     "pressable_double_tap",
+    "spring_animation",
     "showcase",
     "todo_app",
     "virtual_list",

@@ -849,7 +849,7 @@ fn observe_style(style: &ViewStyle, facts: &mut StyleFacts) {
     if let Some(animation) = style.animation {
         facts.animation = true;
         match animation {
-            AnimationSpec::Spring => facts.spring = true,
+            AnimationSpec::Spring { .. } => facts.spring = true,
             AnimationSpec::EaseIn => facts.ease_in = true,
             AnimationSpec::EaseOut => facts.ease_out = true,
             AnimationSpec::EaseInOut => facts.ease_in_out = true,

@@ -105,6 +105,8 @@ app ArrayUtilities {
 
 Text styles can be chained after a component call. For example, `Text("Hi").fontSize(18).bold().padding(12)` is equivalent to setting `fontSize: 18`, `fontWeight: Bold`, and `padding: 12` in the `Text` arguments. `Text`, `Column`, `Row`, and `Stack` also accept `.opacity(value)`, `.scale(value)`, `.rotation(degrees)`, `.shadow(radius: 8, x: 0, y: 4, color: "#00000040")`, `.blur(radius)`, `.clip(shape: Rounded(radius))`, and `.zIndex(value)`.
 
+Layout `animation` accepts `Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`. Customize spring response time in seconds and damping ratio with `Spring(response: 0.35, damping: 0.8)`; omitted values use `0.5` seconds and `0.825`. Response and damping must be finite and greater than zero. SwiftUI receives these values directly. Compose uses the damping ratio directly and maps response to a native spring stiffness, so the motion is platform-native and approximate rather than frame-for-frame identical.
+
 `Spacer()` consumes remaining space on a `Row` or `Column` axis. `Divider(color: "#808080", thickness: 1)` inserts a horizontal separator.
 `Slider(value: amount, min: 0.0, max: 1.0, step: 0.01)` binds a stepped native slider to mutable `Float64` state.
 `ProgressBar(progress: amount)` and `ProgressRing(progress: amount)` render normalized linear and circular progress controls.

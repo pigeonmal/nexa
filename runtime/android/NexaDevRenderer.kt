@@ -4,6 +4,12 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -299,7 +305,28 @@ internal fun NexaDevNode(
             }
             if (style.has("opacity")) modifier = modifier.alpha(style.optDouble("opacity").toFloat())
             if (!effects.isNull("z_index")) modifier = modifier.zIndex(effects.optInt("z_index").toFloat())
-            if (style.has("animation")) modifier = modifier.animateContentSize()
+            if (style.has("animation")) {
+                val springConfig = style.optJSONObject("animation")?.optJSONObject("Spring")
+                if (springConfig != null) {
+                    val response = springConfig.optDouble("response", 0.5)
+                    val damping = springConfig.optDouble("damping", 0.825).toFloat()
+                    val stiffness = (100.0 / (response * response)).toFloat()
+                    modifier = modifier.animateContentSize(
+                        animationSpec = spring(
+                            dampingRatio = damping,
+                            stiffness = stiffness,
+                        ),
+                    )
+                } else {
+                    val easing = when (style.optString("animation")) {
+                        "EaseIn" -> FastOutLinearInEasing
+                        "EaseOut" -> LinearOutSlowInEasing
+                        "EaseInOut" -> FastOutSlowInEasing
+                        else -> LinearEasing
+                    }
+                    modifier = modifier.animateContentSize(animationSpec = tween(easing = easing))
+                }
+            }
             when (fields.optString("kind")) {
                 "Row" -> Row(
                     modifier,

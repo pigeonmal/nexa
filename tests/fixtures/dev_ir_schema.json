@@ -2,8 +2,8 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "NexaDevIRSchema",
   "description": "Canonical schema definitions for Nexa dynamic Dev IR protocol, operations, and interpreter keys",
-  "protocol_version": 8,
-  "dev_ir_format_version": 8,
+  "protocol_version": 9,
+  "dev_ir_format_version": 9,
   "platforms": [
     "ios",
     "android"

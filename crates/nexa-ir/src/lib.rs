@@ -1086,9 +1086,9 @@ pub struct ViewShadow {
     pub color: ColorValue,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AnimationSpec {
-    Spring,
+    Spring { response: f32, damping: f32 },
     EaseIn,
     EaseOut,
     EaseInOut,

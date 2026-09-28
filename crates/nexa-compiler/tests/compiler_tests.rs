@@ -376,6 +376,41 @@ fn visual_modifiers_lower_to_validated_static_effects() {
 }
 
 #[test]
+fn spring_animation_lowers_custom_physics_and_rejects_nonpositive_values() {
+    let module = compile(
+        r#"app SpringAnimation {
+            body {
+                Column(animation: Spring(response: 0.35, damping: 0.8)) {
+                    Text("animated")
+                }
+            }
+        }"#,
+    )
+    .expect("valid spring options should compile");
+    let Node::Layout { style, .. } = &module.body[0] else {
+        panic!("expected Column layout");
+    };
+    assert_eq!(
+        style.animation,
+        Some(nexa_ir::AnimationSpec::Spring {
+            response: 0.35,
+            damping: 0.8,
+        })
+    );
+
+    for animation in [
+        "Spring(response: 0, damping: 0.8)",
+        "Spring(response: 0.35, damping: -0.1)",
+    ] {
+        let source = format!(
+            "app InvalidSpring {{ body {{ Column(animation: {animation}) {{ Text(\"x\") }} }} }}"
+        );
+        let error = compile(&source).expect_err("nonpositive spring parameters should fail");
+        assert!(error.to_string().contains("must be greater than zero"));
+    }
+}
+
+#[test]
 fn visual_modifiers_reject_invalid_ranges_and_shapes() {
     for (body, expected) in [
         (

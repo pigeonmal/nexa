@@ -2513,6 +2513,9 @@ impl Parser {
                     return self.tuple_constructor(value, token.span);
                 }
                 if self.check(&Kind::LParen) {
+                    if value == "Spring" {
+                        return self.spring_expression(token.span);
+                    }
                     return self.call_expression(value, token.span);
                 }
                 if (value.chars().next().is_some_and(char::is_uppercase)
@@ -2768,6 +2771,36 @@ impl Parser {
         self.expect(Kind::LParen, "expected `(` after function name")?;
         let arguments = self.call_arguments_after_open()?;
         Ok(Expr::Call(name, type_arguments, arguments, span))
+    }
+
+    fn spring_expression(&mut self, span: Span) -> Result<Expr, CompileError> {
+        self.expect(Kind::LParen, "expected `(` after Spring")?;
+        let mut arguments = if self.next_is_named_argument() {
+            let mut named = self.named_args_contents(&["response", "damping"])?;
+            self.expect(Kind::RParen, "expected `)` after Spring parameters")?;
+            let response = named
+                .remove("response")
+                .unwrap_or_else(|| Expr::Number("0.5".to_owned(), span));
+            let damping = named
+                .remove("damping")
+                .unwrap_or_else(|| Expr::Number("0.825".to_owned(), span));
+            vec![response, damping]
+        } else {
+            self.call_arguments_after_open()?
+        };
+        if arguments.len() > 2 {
+            return Err(CompileError::new(
+                span,
+                "Spring accepts at most `response` and `damping`",
+            ));
+        }
+        if arguments.is_empty() {
+            arguments.push(Expr::Number("0.5".to_owned(), span));
+        }
+        if arguments.len() == 1 {
+            arguments.push(Expr::Number("0.825".to_owned(), span));
+        }
+        Ok(Expr::Call("Spring".to_owned(), Vec::new(), arguments, span))
     }
 
     /// Explicit value type arguments: `getObject<PlayerOptions>("key")`. Only

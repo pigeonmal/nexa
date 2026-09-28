@@ -541,3 +541,25 @@ fn parses_visual_modifier_chains_as_typed_style_arguments() {
         matches!(layout.arguments.get("zIndex"), Some(Expr::Number(value, _)) if value == "-3")
     );
 }
+
+#[test]
+fn parses_named_spring_response_and_damping_options() {
+    let app = nexa_syntax::parse(
+        r#"app Demo {
+            body { Column(animation: Spring(response: 0.35, damping: 0.8)) { Text("animated") } }
+        }"#,
+    )
+    .expect("named spring parameters should parse");
+    let nexa_syntax::ast::Node::ComponentInvocation(column) = &app.body[0] else {
+        panic!("expected Column invocation");
+    };
+    let Some(nexa_syntax::ast::Expr::Call(name, type_arguments, arguments, _)) =
+        column.arguments.get("animation")
+    else {
+        panic!("expected Spring animation expression");
+    };
+    assert_eq!(name, "Spring");
+    assert!(type_arguments.is_empty());
+    assert!(matches!(&arguments[0], nexa_syntax::ast::Expr::Number(raw, _) if raw == "0.35"));
+    assert!(matches!(&arguments[1], nexa_syntax::ast::Expr::Number(raw, _) if raw == "0.8"));
+}

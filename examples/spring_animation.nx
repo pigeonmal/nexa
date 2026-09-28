@@ -1,0 +1,15 @@
+app SpringAnimation {
+    state expanded: Bool = false
+
+    body {
+        Column(spacing: 12, animation: Spring(response: 0.35, damping: 0.8)) {
+            Button("Toggle details") {
+                expanded = !expanded
+            }
+
+            if expanded {
+                Text("The layout expands with a configured spring.")
+            }
+        }
+    }
+}
