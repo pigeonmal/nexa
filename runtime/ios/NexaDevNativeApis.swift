@@ -14,6 +14,23 @@ extension NexaDevStateStore {
             guard let argumentName = argument[0] as? String else { continue }
             options[argumentName] = try await evaluateAsync(argument[1], locals: locals, scope: scope)
         }
+        if let receiverExpression = call["receiver"], !(receiverExpression is NSNull) {
+            let receiver = try await evaluateAsync(receiverExpression, locals: locals, scope: scope)
+            let pluginResult = try await NexaDevPluginBridge.invokeInstanceAsync(
+                receiver: receiver,
+                namespace: namespace,
+                name: name,
+                options: options
+            )
+            if pluginResult.0 { return pluginResult.1 }
+        } else {
+            let pluginResult = try await NexaDevPluginBridge.invokeAsync(
+                namespace: namespace,
+                name: name,
+                options: options
+            )
+            if pluginResult.0 { return pluginResult.1 }
+        }
         func stringOption(_ key: String, _ fallback: String = "") -> String {
             options[key] as? String ?? fallback
         }
@@ -145,6 +162,23 @@ extension NexaDevStateStore {
         for argument in call["arguments"] as? [[Any]] ?? [] where argument.count >= 2 {
             guard let argumentName = argument[0] as? String else { continue }
             options[argumentName] = evaluate(argument[1], locals: locals, scope: scope)
+        }
+        if let receiverExpression = call["receiver"], !(receiverExpression is NSNull) {
+            let receiver = evaluate(receiverExpression, locals: locals, scope: scope)
+            let pluginResult = NexaDevPluginBridge.invokeInstanceSync(
+                receiver: receiver,
+                namespace: namespace,
+                name: name,
+                options: options
+            )
+            if pluginResult.0 { return pluginResult.1 }
+        } else {
+            let pluginResult = NexaDevPluginBridge.invokeSync(
+                namespace: namespace,
+                name: name,
+                options: options
+            )
+            if pluginResult.0 { return pluginResult.1 }
         }
         func stringOption(_ key: String) -> String { options[key] as? String ?? "" }
         switch namespace {

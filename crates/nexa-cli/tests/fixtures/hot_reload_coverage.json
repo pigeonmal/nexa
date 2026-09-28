@@ -239,8 +239,8 @@
       },
       {
         "name": "Plugin",
-        "ios": "native_rebuild",
-        "android": "native_rebuild"
+        "ios": "partial",
+        "android": "partial"
       },
       {
         "name": "NetworkResponse",
@@ -801,8 +801,8 @@
       },
       {
         "name": "NativeComponentCall",
-        "ios": "native_rebuild",
-        "android": "native_rebuild"
+        "ios": "aot_only",
+        "android": "aot_only"
       }
     ],
     "AccessibilityRole": [
@@ -1047,13 +1047,13 @@
       },
       {
         "name": "NativePropertyAssign",
-        "ios": "native_rebuild",
-        "android": "native_rebuild"
+        "ios": "aot_only",
+        "android": "aot_only"
       },
       {
         "name": "NativeEventSubscribe",
-        "ios": "native_rebuild",
-        "android": "native_rebuild"
+        "ios": "aot_only",
+        "android": "aot_only"
       },
       {
         "name": "CollectionMutation",
@@ -1441,6 +1441,10 @@
       "ios": "covered",
       "android": "covered"
     },
+    "async_action_control_flow": {
+      "ios": "covered",
+      "android": "covered"
+    },
     "remote_image_loading": {
       "ios": "covered",
       "android": "covered"
@@ -1448,6 +1452,26 @@
     "async_native_calls": {
       "ios": "covered",
       "android": "covered"
+    },
+    "plugin_service_call_shapes": {
+      "ios": "partial",
+      "android": "partial"
+    },
+    "async_expression_evaluation": {
+      "ios": "partial",
+      "android": "partial"
+    },
+    "typed_plugin_error_catches": {
+      "ios": "partial",
+      "android": "partial"
+    },
+    "plugin_native_class_scalar_constructors_and_methods": {
+      "ios": "partial",
+      "android": "partial"
+    },
+    "native_plugin_properties_events_and_components": {
+      "ios": "aot_only",
+      "android": "aot_only"
     }
   }
 }

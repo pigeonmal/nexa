@@ -725,6 +725,20 @@ internal class NexaDevStateStore(internal val context: Context) {
     }
 
     suspend fun invokeFunctionAsync(call: JSONObject, locals: Map<String, Any>, scope: String): Any {
+        if (call.optBoolean("is_constructor")) {
+            val pluginType = call.optJSONObject("return_type")?.optJSONObject("Plugin")
+            if (pluginType != null) {
+                val namespace = pluginType.optString("namespace")
+                val className = pluginType.optString("name")
+                val rawArguments = call.optJSONArray("arguments") ?: JSONArray()
+                val arguments = ArrayList<Any>(rawArguments.length())
+                for (index in 0 until rawArguments.length()) {
+                    arguments += evaluateAsync(rawArguments.opt(index), locals, scope)
+                }
+                val result = NexaDevPluginBridge.construct(namespace, className, arguments)
+                if (result.first) return result.second
+            }
+        }
         val name = call.optString("name")
         val declaration = functions[name] ?: return JSONObject.NULL
         if (!activeFunctions.add(name)) return JSONObject.NULL
@@ -753,6 +767,17 @@ internal class NexaDevStateStore(internal val context: Context) {
     private fun invokeFunction(call: JSONObject, locals: Map<String, Any>, scope: String): Any {
         val name = call.optString("name")
         if (call.optBoolean("is_constructor")) {
+            val pluginType = call.optJSONObject("return_type")?.optJSONObject("Plugin")
+            if (pluginType != null) {
+                val namespace = pluginType.optString("namespace")
+                val className = pluginType.optString("name")
+                val rawArguments = call.optJSONArray("arguments") ?: JSONArray()
+                val arguments = (0 until rawArguments.length()).map {
+                    evaluate(rawArguments.opt(it), locals, scope)
+                }
+                val result = NexaDevPluginBridge.construct(namespace, className, arguments)
+                if (result.first) return result.second
+            }
             val fields = structs[name] ?: return JSONObject.NULL
             val arguments = call.optJSONArray("arguments") ?: JSONArray()
             val result = mutableMapOf<String, Any>()

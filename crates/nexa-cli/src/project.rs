@@ -863,11 +863,18 @@ fn generate_android(
     let source_dir = root.join("android/app/src/main/java").join(&package_path);
     fs::create_dir_all(&source_dir)
         .map_err(|error| format!("{}: {error}", source_dir.display()))?;
-    let (sources, mut project_features) = if dev_session.is_some() {
+    let (mut sources, mut project_features) = if dev_session.is_some() {
         KotlinBackend.generate_for_dev_units_with_project_features(module)
     } else {
         KotlinBackend.generate_units_with_project_features(module)
     };
+    if dev_session.is_some() {
+        let contracts = dev_plugin_contracts(plugins)?;
+        sources.units.push(nexa_codegen::SourceUnit {
+            name: "NexaDevPluginBridge.kt".to_owned(),
+            contents: nexa_codegen::plugin::render_dev_bridge_kotlin(&contracts)?,
+        });
+    }
     // The debug runtime contains a generic Navigation Compose host even when
     // the app's own tree does not currently declare navigation.
     project_features.uses_navigation |= dev_session.is_some();
@@ -1210,17 +1217,36 @@ fn ios_source_units(
     config: &ProjectConfig,
     dev_runtime: bool,
 ) -> Result<Vec<nexa_codegen::SourceUnit>, String> {
-    let sources = if dev_runtime {
+    let mut sources = if dev_runtime {
         SwiftBackend.generate_for_dev_units(module)
     } else {
         SwiftBackend.generate_units(module)
     };
+    if dev_runtime {
+        let contracts = dev_plugin_contracts(plugins)?;
+        sources.units.push(nexa_codegen::SourceUnit {
+            name: "NexaDevPluginBridge.swift".to_owned(),
+            contents: nexa_codegen::plugin::render_dev_bridge_swift(&contracts)?,
+        });
+    }
     if module.plugins.is_empty() {
         return Ok(sources.into_files(&[], ""));
     }
     let plugin_config = plugins::render_swift_plugin_config(plugins, config);
     // Plugin bindings add an import every generated file must see.
     Ok(sources.into_files(&["import Foundation"], &plugin_config))
+}
+
+fn dev_plugin_contracts(
+    plugins: &[plugin_package::PluginPackage],
+) -> Result<Vec<(String, nexa_plugin_idl::PluginIdl)>, String> {
+    plugins
+        .iter()
+        .map(|plugin| {
+            let contract = nexa_plugin_idl::parse_file(Path::new(&plugin.idl_path))?;
+            Ok((plugin.namespace.clone(), contract))
+        })
+        .collect()
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {

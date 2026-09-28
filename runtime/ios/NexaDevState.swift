@@ -404,6 +404,21 @@ final class NexaDevStateStore: ObservableObject {
         case "Call":
             guard let call = payload as? [String: Any],
                   let name = call["name"] as? String else { return NSNull() }
+            if call["is_constructor"] as? Bool == true,
+               let returnType = call["return_type"] as? [String: Any],
+               let pluginType = returnType["Plugin"] as? [String: Any],
+               let namespace = pluginType["namespace"] as? String,
+               let className = pluginType["name"] as? String {
+                let arguments = (call["arguments"] as? [Any] ?? []).map {
+                    evaluate($0, locals: locals, scope: scope)
+                }
+                let result = NexaDevPluginBridge.construct(
+                    namespace: namespace,
+                    name: className,
+                    arguments: arguments
+                )
+                if result.0 { return result.1 }
+            }
             if call["is_constructor"] as? Bool == true, let fields = structs[name] {
                 let arguments = call["arguments"] as? [Any] ?? []
                 var instance: [String: Any] = [:]
@@ -667,6 +682,22 @@ final class NexaDevStateStore: ObservableObject {
         locals: [String: Any],
         scope: String
     ) async throws -> Any {
+        if call["is_constructor"] as? Bool == true,
+           let returnType = call["return_type"] as? [String: Any],
+           let pluginType = returnType["Plugin"] as? [String: Any],
+           let namespace = pluginType["namespace"] as? String,
+           let className = pluginType["name"] as? String {
+            var arguments: [Any] = []
+            for expression in call["arguments"] as? [Any] ?? [] {
+                arguments.append(try await evaluateAsync(expression, locals: locals, scope: scope))
+            }
+            let result = NexaDevPluginBridge.construct(
+                namespace: namespace,
+                name: className,
+                arguments: arguments
+            )
+            if result.0 { return result.1 }
+        }
         guard let name = call["name"] as? String,
               let function = functions[name],
               activeFunctions.insert(name).inserted

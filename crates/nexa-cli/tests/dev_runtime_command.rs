@@ -191,6 +191,59 @@ fn development_runtime_is_debug_only_and_removed_by_aot_regeneration() {
 }
 
 #[test]
+fn development_runtime_generates_typed_bridges_for_declared_plugin_services() {
+    let project = nexa_testkit::TestProject::new("nexa-dev-plugin-bridge");
+    let plugin = nexa_testkit::example_path("plugins/fast-math");
+    let plugin_path = plugin
+        .display()
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    project.write(
+        "nexa.config.nx",
+        format!(
+            "config {{ dependencies {{ FastMath {{ id: \"dev.nexa.fast-math\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
+        ),
+    );
+    project.write(
+        "App.nx",
+        "plugin \"dev.nexa.fast-math\" as FastMath\napp PluginBridge { state result: Int64 = 0 state sum: Int32 = 0 body { OnAppear async { result = await FastMath.heavyCalculation(7) } Button(\"Compute\") { sum = FastMath.add(10, 20) } } }\n",
+    );
+
+    let entry = project.path().join("App.nx");
+    let output = project.path().join("build");
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "PluginBridge",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Dev hosts with a local service plugin");
+
+    let ios_bridge = fs::read_to_string(output.join("ios/PluginBridge/NexaDevPluginBridge.swift"))
+        .expect("read generated Swift service bridge");
+    let android_bridge = fs::read_to_string(
+        output.join("android/app/src/main/java/com/nexa/pluginbridge/NexaDevPluginBridge.kt"),
+    )
+    .expect("read generated Kotlin service bridge");
+    let ios_native_apis =
+        fs::read_to_string(output.join("ios/PluginBridge/NexaDevNativeApis.swift"))
+            .expect("read iOS native API adapter");
+    let android_native_apis = fs::read_to_string(
+        output.join("android/app/src/main/java/com/nexa/pluginbridge/NexaDevNativeApis.kt"),
+    )
+    .expect("read Android native API adapter");
+    assert!(ios_bridge.contains("FastMathPlugin.shared.add(nexaArg0, nexaArg1)"));
+    assert!(ios_bridge.contains("await FastMathPlugin.shared.heavyCalculation(nexaArg0)"));
+    assert!(android_bridge.contains("FastMathPlugin.instance.add(nexaArg0, nexaArg1)"));
+    assert!(android_bridge.contains("FastMathPlugin.instance.heavyCalculation(nexaArg0)"));
+    assert!(ios_native_apis.contains("NexaDevPluginBridge.invokeSync"));
+    assert!(android_native_apis.contains("NexaDevPluginBridge.invokeSync"));
+}
+
+#[test]
 fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     let root = temporary_project();
     let entry = root.join("App.nx");
@@ -214,6 +267,7 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(kotlin.contains("NexaPath.temporary(context)"));
     assert!(kotlin.contains("invokeNativeSync("));
     assert!(kotlin.contains("NexaPermissions.status(context, permission).name"));
+    assert!(kotlin.contains("NexaRuntime.bind(applicationContext)"));
     assert!(kotlin.contains("NexaRuntime.bindPermissionLauncher(permissionLauncher)"));
 
     let generated_android =

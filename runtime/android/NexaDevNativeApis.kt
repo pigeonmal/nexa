@@ -26,6 +26,14 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
         val argumentName = entry.optString(0)
         options[argumentName] = evaluateAsync(entry.opt(1), locals, scope)
     }
+    if (call.isNull("receiver")) {
+        val pluginResult = NexaDevPluginBridge.invokeAsync(namespace, name, options)
+        if (pluginResult.first) return pluginResult.second
+    } else {
+        val receiver = evaluateAsync(call.opt("receiver"), locals, scope)
+        val pluginResult = NexaDevPluginBridge.invokeInstanceAsync(receiver, namespace, name, options)
+        if (pluginResult.first) return pluginResult.second
+    }
     fun stringOption(key: String, fallback: String = ""): String =
         options[key] as? String ?: (options[key] as? CharSequence)?.toString() ?: fallback
     fun numberOption(key: String, fallback: Double): Double =
@@ -127,6 +135,14 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
         val entry = rawArguments.optJSONArray(index) ?: continue
         val argumentName = entry.optString(0)
         options[argumentName] = evaluate(entry.opt(1), locals, scope)
+    }
+    if (call.isNull("receiver")) {
+        val pluginResult = NexaDevPluginBridge.invokeSync(namespace, name, options)
+        if (pluginResult.first) return pluginResult.second
+    } else {
+        val receiver = evaluate(call.opt("receiver"), locals, scope)
+        val pluginResult = NexaDevPluginBridge.invokeInstanceSync(receiver, namespace, name, options)
+        if (pluginResult.first) return pluginResult.second
     }
     fun stringOption(key: String): String =
         options[key] as? String ?: (options[key] as? CharSequence)?.toString() ?: ""

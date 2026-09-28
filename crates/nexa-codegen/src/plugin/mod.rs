@@ -4,6 +4,7 @@ pub mod bindings;
 pub mod bindings_cpp;
 pub mod bridge_plan;
 pub mod cpp;
+mod dev_bridge;
 pub mod type_visit;
 
 use nexa_plugin_idl::PluginIdl;
@@ -53,4 +54,18 @@ pub fn render_android_adapters(
         package,
         plugin_index,
     )
+}
+
+/// Emits the statically typed service-call bridge used by the debug hot-reload
+/// interpreter. Contracts and native sources are already compiled into the
+/// host; this bridge lets hot-reloaded app code call their declared services
+/// without adding runtime reflection or a dynamic service registry.
+pub fn render_dev_bridge_swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
+    dev_bridge::swift(plugins)
+}
+
+/// Emits the statically typed service-call bridge used by the debug hot-reload
+/// interpreter on Android.
+pub fn render_dev_bridge_kotlin(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
+    dev_bridge::kotlin(plugins)
 }

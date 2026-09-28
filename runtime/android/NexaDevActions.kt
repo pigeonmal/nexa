@@ -113,6 +113,15 @@ internal fun NexaDevStateStore.mutateCollection(mutation: JSONObject, scope: Str
     val name = mutation.optString("name")
     val rawArguments = mutation.optJSONArray("arguments") ?: JSONArray()
     val arguments = (0 until rawArguments.length()).map { evaluate(rawArguments.opt(it), locals, scope) }
+    applyCollectionMutation(mutation, name, scope, arguments)
+}
+
+private fun NexaDevStateStore.applyCollectionMutation(
+    mutation: JSONObject,
+    name: String,
+    scope: String,
+    arguments: List<Any>,
+) {
     when (mutation.optString("operation")) {
         "ArrayAppend" -> {
             val target = (state(name, scope) as? List<*>)?.toMutableList() ?: mutableListOf<Any?>()
@@ -161,20 +170,32 @@ internal fun NexaDevStateStore.mutateCollection(mutation: JSONObject, scope: Str
     }
 }
 
-internal suspend fun NexaDevStateStore.performAsync(actions: JSONArray, scope: String, locals: Map<String, Any>) {
+internal suspend fun NexaDevStateStore.performAsync(
+    actions: JSONArray,
+    scope: String,
+    locals: Map<String, Any>,
+): NexaDevActionFlow {
     for (index in 0 until actions.length()) {
-        val action = actions.optJSONObject(index) ?: continue
+        val raw = actions.opt(index)
+        if (raw is String) {
+            if (raw == "Break") return NexaDevActionFlow.Break
+            if (raw == "Continue") return NexaDevActionFlow.Continue
+            continue
+        }
+        val action = raw as? JSONObject ?: continue
         val tryCatch = action.optJSONObject("TryCatch")
         if (tryCatch != null) {
             try {
-                performAsync(tryCatch.optJSONArray("body") ?: JSONArray(), scope, locals)
+                val flow = performAsync(tryCatch.optJSONArray("body") ?: JSONArray(), scope, locals)
+                if (flow != NexaDevActionFlow.Normal) return flow
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Throwable) {
                 android.util.Log.e("NexaDevRuntime", "Async dev action failed", error)
                 val catchBody = tryCatch.optJSONArray("catch_body")
                 if (catchBody != null) {
-                    performAsync(catchBody, scope, locals)
+                    val flow = performAsync(catchBody, scope, locals)
+                    if (flow != NexaDevActionFlow.Normal) return flow
                 } else {
                     throw error
                 }
@@ -197,12 +218,78 @@ internal suspend fun NexaDevStateStore.performAsync(actions: JSONArray, scope: S
             } else {
                 branch.optJSONArray("else_branch")
             }
-            performAsync(selected ?: JSONArray(), scope, locals)
+            val flow = performAsync(selected ?: JSONArray(), scope, locals)
+            if (flow != NexaDevActionFlow.Normal) return flow
             continue
         }
         val expression = action.opt("Expression")
         if (expression != null) {
             evaluateAsync(expression, locals, scope)
+            continue
         }
+        val loop = action.optJSONObject("For")
+        if (loop != null) {
+            val name = loop.optString("name")
+            val iterable = evaluateAsync(loop.opt("iterable"), locals, scope)
+            val items = when (iterable) {
+                is List<*> -> iterable
+                is Set<*> -> iterable.toList()
+                else -> emptyList<Any?>()
+            }
+            iteration@ for (item in items) {
+                val nextLocals = locals.toMutableMap()
+                nextLocals[name] = item.orNullValue()
+                when (performAsync(loop.optJSONArray("body") ?: JSONArray(), scope, nextLocals)) {
+                    NexaDevActionFlow.Break -> break@iteration
+                    NexaDevActionFlow.Continue, NexaDevActionFlow.Normal -> Unit
+                }
+            }
+            continue
+        }
+        val mapLoop = action.optJSONObject("ForMap")
+        if (mapLoop != null) {
+            val keyName = mapLoop.optString("key_name")
+            val valueName = mapLoop.optString("value_name")
+            val iterable = evaluateAsync(mapLoop.opt("iterable"), locals, scope)
+            val map = iterable as? Map<*, *> ?: emptyMap<Any?, Any?>()
+            iteration@ for ((key, value) in map) {
+                val nextLocals = locals.toMutableMap()
+                nextLocals[keyName] = key.orNullValue()
+                nextLocals[valueName] = value.orNullValue()
+                when (performAsync(mapLoop.optJSONArray("body") ?: JSONArray(), scope, nextLocals)) {
+                    NexaDevActionFlow.Break -> break@iteration
+                    NexaDevActionFlow.Continue, NexaDevActionFlow.Normal -> Unit
+                }
+            }
+            continue
+        }
+        val whileLoop = action.optJSONObject("While")
+        if (whileLoop != null) {
+            var iterations = 0
+            iteration@ while (
+                iterations++ < 10_000 &&
+                    truthy(evaluateAsync(whileLoop.opt("condition"), locals, scope))
+            ) {
+                when (performAsync(whileLoop.optJSONArray("body") ?: JSONArray(), scope, locals)) {
+                    NexaDevActionFlow.Break -> break@iteration
+                    NexaDevActionFlow.Continue, NexaDevActionFlow.Normal -> Unit
+                }
+            }
+            continue
+        }
+        val mutation = action.optJSONObject("CollectionMutation")
+        if (mutation != null) {
+            val name = mutation.optString("name")
+            val rawArguments = mutation.optJSONArray("arguments") ?: JSONArray()
+            val arguments = ArrayList<Any>(rawArguments.length())
+            for (argumentIndex in 0 until rawArguments.length()) {
+                arguments += evaluateAsync(rawArguments.opt(argumentIndex), locals, scope)
+            }
+            applyCollectionMutation(mutation, name, scope, arguments)
+            continue
+        }
+        if (action.has("Break")) return NexaDevActionFlow.Break
+        if (action.has("Continue")) return NexaDevActionFlow.Continue
     }
+    return NexaDevActionFlow.Normal
 }

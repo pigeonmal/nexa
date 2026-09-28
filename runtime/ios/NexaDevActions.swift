@@ -97,6 +97,15 @@ extension NexaDevStateStore {
         locals: [String: Any]
     ) {
         let arguments = (mutation["arguments"] as? [Any] ?? []).map { evaluate($0, locals: locals, scope: scope) }
+        applyCollectionMutation(mutation, name: name, scope: scope, arguments: arguments)
+    }
+
+    private func applyCollectionMutation(
+        _ mutation: [String: Any],
+        name: String,
+        scope: String,
+        arguments: [Any]
+    ) {
         switch mutation["operation"] as? String {
         case "ArrayAppend":
             var array = value(name, scope: scope) as? [Any] ?? []
@@ -127,22 +136,33 @@ extension NexaDevStateStore {
         }
     }
 
-    func performAsync(_ actions: [Any], scope: String, locals: [String: Any]) async throws {
+    func performAsync(
+        _ actions: [Any],
+        scope: String,
+        locals: [String: Any]
+    ) async throws -> NexaDevActionFlow {
         for action in actions {
+            if let flow = action as? String {
+                if flow == "Break" { return .break }
+                if flow == "Continue" { return .continue }
+                continue
+            }
             guard let tagged = action as? [String: Any] else { continue }
             if let tryCatch = tagged["TryCatch"] as? [String: Any] {
                 do {
-                    try await performAsync(
+                    let flow = try await performAsync(
                         tryCatch["body"] as? [Any] ?? [],
                         scope: scope,
                         locals: locals
                     )
+                    if flow != .normal { return flow }
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
                     NSLog("NexaDevRuntime async dev action failed: %@", String(describing: error))
                     if let catchBody = tryCatch["catch_body"] as? [Any] {
-                        try await performAsync(catchBody, scope: scope, locals: locals)
+                        let flow = try await performAsync(catchBody, scope: scope, locals: locals)
+                        if flow != .normal { return flow }
                     } else {
                         throw error
                     }
@@ -159,10 +179,77 @@ extension NexaDevStateStore {
                 let selected = truthy(value)
                     ? branch["then_branch"] as? [Any]
                     : branch["else_branch"] as? [Any]
-                try await performAsync(selected ?? [], scope: scope, locals: locals)
+                let flow = try await performAsync(selected ?? [], scope: scope, locals: locals)
+                if flow != .normal { return flow }
             } else if let expression = tagged["Expression"] {
                 _ = try await evaluateAsync(expression, locals: locals, scope: scope)
+            } else if let loop = tagged["For"] as? [String: Any],
+                      let name = loop["name"] as? String,
+                      let iterableExpression = loop["iterable"] {
+                let evaluated = try await evaluateAsync(iterableExpression, locals: locals, scope: scope)
+                let items: [Any]
+                if let array = evaluated as? [Any] {
+                    items = array
+                } else if let set = evaluated as? Set<String> {
+                    items = set.sorted()
+                } else {
+                    items = []
+                }
+                iterationLoop: for item in items {
+                    var iterationLocals = locals
+                    iterationLocals[name] = item
+                    switch try await performAsync(
+                        loop["body"] as? [Any] ?? [],
+                        scope: scope,
+                        locals: iterationLocals
+                    ) {
+                    case .break: break iterationLoop
+                    case .continue, .normal: continue
+                    }
+                }
+            } else if let loop = tagged["ForMap"] as? [String: Any],
+                      let keyName = loop["key_name"] as? String,
+                      let valueName = loop["value_name"] as? String,
+                      let iterableExpression = loop["iterable"],
+                      let map = try await evaluateAsync(iterableExpression, locals: locals, scope: scope) as? [String: Any] {
+                iterationLoop: for key in map.keys.sorted() {
+                    var iterationLocals = locals
+                    iterationLocals[keyName] = key
+                    iterationLocals[valueName] = map[key] ?? NSNull()
+                    switch try await performAsync(
+                        loop["body"] as? [Any] ?? [],
+                        scope: scope,
+                        locals: iterationLocals
+                    ) {
+                    case .break: break iterationLoop
+                    case .continue, .normal: continue
+                    }
+                }
+            } else if let loop = tagged["While"] as? [String: Any], let condition = loop["condition"] {
+                iterationLoop: for _ in 0..<10_000 {
+                    guard truthy(try await evaluateAsync(condition, locals: locals, scope: scope)) else { break }
+                    switch try await performAsync(
+                        loop["body"] as? [Any] ?? [],
+                        scope: scope,
+                        locals: locals
+                    ) {
+                    case .break: break iterationLoop
+                    case .continue, .normal: continue
+                    }
+                }
+            } else if let mutation = tagged["CollectionMutation"] as? [String: Any],
+                      let name = mutation["name"] as? String {
+                var arguments: [Any] = []
+                for argument in mutation["arguments"] as? [Any] ?? [] {
+                    arguments.append(try await evaluateAsync(argument, locals: locals, scope: scope))
+                }
+                applyCollectionMutation(mutation, name: name, scope: scope, arguments: arguments)
+            } else if tagged["Break"] != nil {
+                return .break
+            } else if tagged["Continue"] != nil {
+                return .continue
             }
         }
+        return .normal
     }
 }
