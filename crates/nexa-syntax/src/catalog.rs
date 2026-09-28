@@ -153,9 +153,9 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "Pressable",
-        summary: "Pressable region with onPress and onLongPress actions",
+        summary: "Pressable region with tap, double-tap, and long-press actions",
         snippet: "Pressable {\n    $0\n}.onPress {\n}",
-        probe: "app P { state n: Int32 = 0\n body { Pressable() { Text(\"x\") }.onPress { n = 1 } } }",
+        probe: "app P { state n: Int32 = 0\n body { Pressable() { Text(\"x\") }.onPress { n = 1 }.onDoubleTap { n = 2 } } }",
     },
     ComponentEntry {
         name: "NavigationStack",
@@ -611,6 +611,11 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         name: "onLongPress",
         summary: "Pressable long-press action",
         snippet: "onLongPress {\n    $0\n}",
+    },
+    DotModifierEntry {
+        name: "onDoubleTap",
+        summary: "Pressable double-tap action",
+        snippet: "onDoubleTap {\n    $0\n}",
     },
     DotModifierEntry {
         name: "onRefresh",
@@ -1143,10 +1148,15 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
                 body: ModifierBody::Actions,
                 required: false,
             },
+            ModifierSchema {
+                name: "onDoubleTap",
+                body: ModifierBody::Actions,
+                required: false,
+            },
         ],
         flags: &[],
         trailing_message: Some(
-            "Pressable actions must use `.onPress { ... }` or `.onLongPress { ... }`",
+            "Pressable actions must use `.onPress { ... }`, `.onLongPress { ... }`, or `.onDoubleTap { ... }`",
         ),
     },
     ComponentSchema {

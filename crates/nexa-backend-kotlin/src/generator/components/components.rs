@@ -112,23 +112,7 @@ pub(crate) fn render_node(
             depth,
             out,
         ),
-        Node::Pressable {
-            disabled,
-            haptic,
-            children,
-            actions,
-            long_press_actions,
-        } => controls::render_pressable(
-            disabled,
-            *haptic,
-            children,
-            actions,
-            long_press_actions,
-            module,
-            features,
-            depth,
-            out,
-        ),
+        Node::Pressable { .. } => controls::render_pressable(node, module, features, depth, out),
         Node::NavigationStack { root, arguments } => {
             navigation::render_navigation_stack(module, *root, arguments, features, depth, out);
         }

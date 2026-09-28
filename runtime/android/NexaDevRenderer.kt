@@ -404,22 +404,27 @@ internal fun NexaDevNode(
         }
         "Pressable" -> {
             val disabled = store.evaluate(fields.opt("disabled"), locals, scope) as? Boolean ?: false
+            val doubleTapActions = fields.optJSONArray("double_tap_actions") ?: JSONArray()
             val hapticStyle = fields.optString("haptic").takeIf(String::isNotEmpty)
             val haptic = LocalHapticFeedback.current
+            val hapticType = when (hapticStyle) {
+                "Light" -> HapticFeedbackType.TextHandleMove
+                "Medium" -> HapticFeedbackType.LongPress
+                "Heavy" -> HapticFeedbackType.ContextClick
+                else -> null
+            }
             Box(Modifier.combinedClickable(
                 enabled = !disabled,
                 onClick = {
-                    val hapticType = when (hapticStyle) {
-                        "Light" -> HapticFeedbackType.TextHandleMove
-                        "Medium" -> HapticFeedbackType.LongPress
-                        "Heavy" -> HapticFeedbackType.ContextClick
-                        else -> null
-                    }
                     if (hapticType != null) haptic.performHapticFeedback(hapticType)
                     store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals)
                 },
                 onLongClick = {
                     store.perform(fields.optJSONArray("long_press_actions") ?: JSONArray(), scope, locals)
+                },
+                onDoubleClick = {
+                    if (hapticType != null) haptic.performHapticFeedback(hapticType)
+                    store.perform(doubleTapActions, scope, locals)
                 },
             )) {
                 RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)

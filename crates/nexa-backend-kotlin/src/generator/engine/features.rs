@@ -79,6 +79,7 @@ pub(crate) struct Features {
     pub(crate) app_uses_haptic: bool,
     pub(crate) uses_clickable: bool,
     pub(crate) uses_long_press: bool,
+    pub(crate) uses_double_tap: bool,
     pub(crate) uses_column: bool,
     pub(crate) uses_row: bool,
     pub(crate) uses_box: bool,
@@ -237,6 +238,7 @@ impl Features {
         self.uses_pressable = pressable.present;
         self.uses_clickable = pressable.clickable;
         self.uses_long_press = pressable.long_press;
+        self.uses_double_tap = pressable.double_tap;
         self.uses_box |= pressable.present;
         self.uses_modifier |= pressable.present;
 

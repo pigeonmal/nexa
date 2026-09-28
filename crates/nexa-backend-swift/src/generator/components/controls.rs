@@ -198,22 +198,90 @@ pub(crate) fn render_picker(
 }
 
 pub(crate) fn render_pressable(
-    disabled: &nexa_ir::Expr,
-    haptic: Option<HapticStyle>,
-    children: &[Node],
-    actions: &[Action],
-    long_press_actions: &[Action],
+    node: &Node,
     module: &Module,
     features: &Features,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let Node::Pressable {
+        disabled,
+        haptic,
+        children,
+        actions,
+        double_tap_actions,
+        long_press_actions,
+    } = node
+    else {
+        return;
+    };
     indent(out, depth);
-    out.push_str("Button(action: {");
+    out.push_str(if double_tap_actions.is_empty() {
+        "Button(action: {"
+    } else {
+        "Button(action: {}) {"
+    });
+    if !double_tap_actions.is_empty() {
+        out.push('\n');
+        render_children(children, module, features, depth + 1, out);
+        out.push('\n');
+        indent(out, depth);
+        out.push('}');
+        out.push_str(".buttonStyle(.plain)");
+        if !matches!(disabled, nexa_ir::Expr::Bool(false)) {
+            out.push_str(".disabled(");
+            out.push_str(&expression(disabled));
+            out.push(')');
+        }
+        out.push_str(".highPriorityGesture(\n");
+        indent(out, depth + 1);
+        out.push_str("TapGesture(count: 2)\n");
+        indent(out, depth + 2);
+        out.push_str(".onEnded {\n");
+        if let Some(haptic) = haptic {
+            render_haptic(*haptic, depth + 3, out);
+        }
+        render_actions(double_tap_actions, depth + 3, out);
+        indent(out, depth + 2);
+        out.push_str("}\n");
+        indent(out, depth + 2);
+        out.push_str(".exclusively(before: TapGesture(count: 1).onEnded {\n");
+        if let Some(haptic) = haptic {
+            render_haptic(*haptic, depth + 3, out);
+        }
+        render_actions(actions, depth + 3, out);
+        indent(out, depth + 2);
+        out.push_str("})\n");
+        indent(out, depth);
+        out.push(')');
+        out.push_str(".accessibilityAction(.default) {");
+        if let Some(haptic) = haptic {
+            out.push('\n');
+            render_haptic(*haptic, depth + 1, out);
+        }
+        if !actions.is_empty() {
+            out.push('\n');
+            render_actions(actions, depth + 1, out);
+            indent(out, depth);
+        }
+        out.push('}');
+        out.push_str(".accessibilityAddTraits(.isButton)");
+        if !matches!(disabled, nexa_ir::Expr::Bool(true)) && !long_press_actions.is_empty() {
+            out.push_str(".onLongPressGesture {");
+            out.push('\n');
+            if let Some(haptic) = haptic {
+                render_haptic(*haptic, depth + 1, out);
+            }
+            render_actions(long_press_actions, depth + 1, out);
+            indent(out, depth);
+            out.push('}');
+        }
+        return;
+    }
     if actions.is_empty() {
         if let Some(haptic) = haptic {
             out.push('\n');
-            render_haptic(haptic, depth + 1, out);
+            render_haptic(*haptic, depth + 1, out);
             indent(out, depth);
             out.push_str("}) {");
         } else {
@@ -222,7 +290,7 @@ pub(crate) fn render_pressable(
     } else {
         out.push('\n');
         if let Some(haptic) = haptic {
-            render_haptic(haptic, depth + 1, out);
+            render_haptic(*haptic, depth + 1, out);
         }
         render_actions(actions, depth + 1, out);
         indent(out, depth);
@@ -243,7 +311,7 @@ pub(crate) fn render_pressable(
         out.push_str(".onLongPressGesture {");
         out.push('\n');
         if let Some(haptic) = haptic {
-            render_haptic(haptic, depth + 1, out);
+            render_haptic(*haptic, depth + 1, out);
         }
         render_actions(long_press_actions, depth + 1, out);
         indent(out, depth);

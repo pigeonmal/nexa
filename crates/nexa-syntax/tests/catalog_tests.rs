@@ -115,6 +115,7 @@ fn dot_modifiers_match_parser_accepted_names() {
             "bold",
             "clip",
             "fontSize",
+            "onDoubleTap",
             "onEndReached",
             "onLongPress",
             "onPress",

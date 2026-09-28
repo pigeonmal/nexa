@@ -276,7 +276,7 @@ Reference: components.md#textinput
 
 ### `Pressable`
 
-Pressable region with onPress and onLongPress actions
+Pressable region with tap, double-tap, and long-press actions
 
 Signature: `Pressable(disabled:, haptic:, accessibilityLabel:, accessibilityHint:, accessibilityRole:) { ... }`
 
@@ -288,6 +288,7 @@ Modifiers:
 
 - `.onPress` (actions, required)
 - `.onLongPress` (actions, optional)
+- `.onDoubleTap` (actions, optional)
 
 Reference: components.md#pressable
 

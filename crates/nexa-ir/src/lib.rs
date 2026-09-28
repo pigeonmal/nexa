@@ -586,6 +586,7 @@ pub enum Node {
         haptic: Option<HapticStyle>,
         children: Vec<Node>,
         actions: Vec<Action>,
+        double_tap_actions: Vec<Action>,
         long_press_actions: Vec<Action>,
     },
     NavigationStack {

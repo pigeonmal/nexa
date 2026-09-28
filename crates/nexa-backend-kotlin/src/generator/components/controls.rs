@@ -18,7 +18,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.clickable",
     );
     imports.add(
-        features.uses_long_press,
+        features.uses_long_press || features.uses_double_tap,
         "androidx.compose.foundation.combinedClickable",
     );
     imports.add(features.uses_button, "androidx.compose.material3.Button");
@@ -262,21 +262,30 @@ pub(crate) fn render_picker_helper(out: &mut SourceWriter) {
 }
 
 pub(crate) fn render_pressable(
-    disabled: &Expr,
-    haptic: Option<HapticStyle>,
-    children: &[Node],
-    actions: &[Action],
-    long_press_actions: &[Action],
+    node: &Node,
     module: &Module,
     features: &Features,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let Node::Pressable {
+        disabled,
+        haptic,
+        children,
+        actions,
+        double_tap_actions,
+        long_press_actions,
+    } = node
+    else {
+        return;
+    };
     indent(out, depth);
-    let modifier = if long_press_actions.is_empty() {
-        "clickable"
-    } else {
+    let has_double_tap = !double_tap_actions.is_empty();
+    let has_combined_clickable = !long_press_actions.is_empty() || has_double_tap;
+    let modifier = if has_combined_clickable {
         "combinedClickable"
+    } else {
+        "clickable"
     };
     let has_long_press = !long_press_actions.is_empty();
     let enabled = format!("!({})", expression(disabled));
@@ -289,25 +298,45 @@ pub(crate) fn render_pressable(
         "    ".repeat(depth)
     ));
     if actions.is_empty() && haptic.is_none() {
-        out.push_str(if has_long_press { " },\n" } else { " }),\n" });
+        out.push_str(if has_combined_clickable {
+            " },\n"
+        } else {
+            " }),\n"
+        });
     } else {
         out.push('\n');
         if let Some(haptic) = haptic {
-            render_haptic(haptic, depth + 3, out);
+            render_haptic(*haptic, depth + 3, out);
         }
         render_actions(actions, depth + 3, out);
         indent(out, depth + 2);
-        out.push_str(if has_long_press { "},\n" } else { "}),\n" });
+        out.push_str(if has_combined_clickable {
+            "},\n"
+        } else {
+            "}),\n"
+        });
     }
     if has_long_press {
         indent(out, depth + 2);
         out.push_str("onLongClick = {\n");
         if let Some(haptic) = haptic {
-            render_haptic(haptic, depth + 3, out);
+            render_haptic(*haptic, depth + 3, out);
         }
         render_actions(long_press_actions, depth + 3, out);
         indent(out, depth + 2);
         out.push_str("},\n");
+    }
+    if has_double_tap {
+        indent(out, depth + 2);
+        out.push_str("onDoubleClick = {\n");
+        if let Some(haptic) = haptic {
+            render_haptic(*haptic, depth + 3, out);
+        }
+        render_actions(double_tap_actions, depth + 3, out);
+        indent(out, depth + 2);
+        out.push_str("},\n");
+    }
+    if has_combined_clickable {
         indent(out, depth + 1);
         out.push_str("),\n");
     }

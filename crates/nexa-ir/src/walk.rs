@@ -29,11 +29,13 @@ pub fn walk_ir(
                 disabled,
                 children,
                 actions,
+                double_tap_actions,
                 long_press_actions,
                 ..
             } => {
                 walk_expression(disabled, visit_expression);
                 walk_actions(actions, visit_expression);
+                walk_actions(double_tap_actions, visit_expression);
                 walk_actions(long_press_actions, visit_expression);
                 walk_ir(children, visit_node, visit_expression);
             }
@@ -229,12 +231,15 @@ pub fn walk_callback_actions(nodes: &[Node], visit: &mut impl FnMut(&[Action])) 
                 | Node::TextInput { actions, .. } => Some(actions.as_slice()),
                 Node::Pressable {
                     actions,
+                    double_tap_actions,
                     long_press_actions,
                     ..
                 } => {
                     visit(actions);
+                    visit(double_tap_actions);
                     visit(long_press_actions);
                     walk_nested_callback_actions(actions, visit);
+                    walk_nested_callback_actions(double_tap_actions, visit);
                     walk_nested_callback_actions(long_press_actions, visit);
                     None
                 }
@@ -758,11 +763,13 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             disabled,
             children,
             actions,
+            double_tap_actions,
             long_press_actions,
             ..
         } => {
             visitor.visit_expr(disabled);
             visitor.visit_actions(actions);
+            visitor.visit_actions(double_tap_actions);
             visitor.visit_actions(long_press_actions);
             visitor.visit_nodes(children);
         }
@@ -1193,12 +1200,14 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             haptic,
             children,
             actions,
+            double_tap_actions,
             long_press_actions,
         } => Some(Node::Pressable {
             disabled: folder.fold_expr(disabled),
             haptic,
             children: folder.fold_nodes(children),
             actions: folder.fold_actions(actions),
+            double_tap_actions: folder.fold_actions(double_tap_actions),
             long_press_actions: folder.fold_actions(long_press_actions),
         }),
         Node::Link { url, children } => Some(Node::Link {

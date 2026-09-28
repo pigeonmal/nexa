@@ -301,6 +301,53 @@ mod tests {
         TextStyle, Type,
     };
 
+    #[test]
+    fn double_tap_pressable_emits_exclusive_double_and_single_tap_gestures() {
+        let module = Module {
+            app_name: "DoubleTapApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Pressable {
+                disabled: Expr::Bool(false),
+                haptic: None,
+                children: vec![Node::Text {
+                    value: Expr::String("Tap twice".to_owned()),
+                    style: TextStyle::default(),
+                }],
+                actions: Vec::new(),
+                double_tap_actions: vec![Action::Assign {
+                    name: "taps".to_owned(),
+                    value: Expr::Number {
+                        raw: "2".to_owned(),
+                        ty: NumericType::Int32,
+                    },
+                }],
+                long_press_actions: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+
+        assert!(swift.contains("TapGesture(count: 2)"));
+        assert!(swift.contains(".exclusively(before: TapGesture(count: 1)"));
+        assert!(swift.contains("nexa_taps = 2"));
+        assert!(!swift.contains("onLongPressGesture"));
+    }
+
     fn native_instance_state(name: &str) -> State {
         let ty = Type::Plugin {
             namespace: "Video".to_owned(),

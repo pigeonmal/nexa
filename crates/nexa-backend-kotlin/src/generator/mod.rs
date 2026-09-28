@@ -254,7 +254,10 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             if features.app_uses_keyboard_interactive {
                 out.push_str("@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)\n");
             }
-            if features.uses_sticky_header {
+            if features.uses_sticky_header
+                || features.uses_long_press
+                || features.uses_double_tap
+            {
                 out.push_str("@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)\n");
             }
             out.push_str(&format!(
@@ -418,6 +421,56 @@ mod tests {
         Action, Component, Expr, Function, Module, Node, NumericType, Screen, ScreenId, State,
         TextStyle, Type,
     };
+
+    #[test]
+    fn double_tap_pressable_emits_handler_and_compose_opt_in() {
+        let module = Module {
+            app_name: "DoubleTapApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Pressable {
+                disabled: Expr::Bool(false),
+                haptic: None,
+                children: vec![Node::Text {
+                    value: Expr::String("Tap twice".to_owned()),
+                    style: TextStyle::default(),
+                }],
+                actions: Vec::new(),
+                double_tap_actions: vec![Action::Assign {
+                    name: "taps".to_owned(),
+                    value: Expr::Number {
+                        raw: "2".to_owned(),
+                        ty: NumericType::Int32,
+                    },
+                }],
+                long_press_actions: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+
+        assert!(kotlin.contains("import androidx.compose.foundation.combinedClickable"));
+        assert!(
+            kotlin.contains("@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)")
+        );
+        assert!(kotlin.contains("combinedClickable("));
+        assert!(kotlin.contains("onDoubleClick = {"));
+        assert!(!kotlin.contains("onLongClick = {"));
+    }
 
     #[test]
     fn screen_native_class_instances_are_remembered_across_recomposition() {

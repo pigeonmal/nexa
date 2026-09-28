@@ -247,6 +247,7 @@ pub struct TextInputFacts {
 pub struct PressableFacts {
     pub present: bool,
     pub long_press: bool,
+    pub double_tap: bool,
     /// A pressable without long-press actions (native clickable path).
     pub clickable: bool,
 }
@@ -700,14 +701,17 @@ fn observe_node(
         Node::Pressable {
             children,
             haptic,
+            double_tap_actions,
             long_press_actions,
             ..
         } => {
             ui.pressable.present = true;
             scope_of(ui, scope).haptic |= haptic.is_some();
             let long_press = !long_press_actions.is_empty();
+            let double_tap = !double_tap_actions.is_empty();
             ui.pressable.long_press |= long_press;
-            ui.pressable.clickable |= !long_press;
+            ui.pressable.double_tap |= double_tap;
+            ui.pressable.clickable |= !long_press && !double_tap;
             record_child_layout(children, ui);
         }
         Node::NavigationLink { children, .. } => {
@@ -1148,6 +1152,7 @@ mod tests {
             haptic: Some(crate::HapticStyle::Heavy),
             children: Vec::new(),
             actions: Vec::new(),
+            double_tap_actions: Vec::new(),
             long_press_actions: Vec::new(),
         }]);
         let facts = ModuleFacts::analyze(&module);

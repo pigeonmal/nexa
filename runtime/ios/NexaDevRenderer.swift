@@ -434,18 +434,50 @@ struct NexaDevNodeList: View {
         case "Pressable":
             let children = fields["children"] as? [Any] ?? []
             let actions = fields["actions"] as? [Any] ?? []
+            let doubleTapActions = fields["double_tap_actions"] as? [Any] ?? []
             let longPressActions = fields["long_press_actions"] as? [Any] ?? []
             let disabled = fields["disabled"].map { store.truthy(store.evaluate($0, locals: locals, scope: scope)) } ?? false
             let haptic = fields["haptic"] as? String
             let content = NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
             let button = Button {
-                playNexaHaptic(haptic)
-                store.perform(actions, scope: scope, locals: locals)
+                if doubleTapActions.isEmpty {
+                    playNexaHaptic(haptic)
+                    store.perform(actions, scope: scope, locals: locals)
+                }
             } label: {
                 content
             }
             .buttonStyle(.plain)
             .disabled(disabled)
+            if !doubleTapActions.isEmpty {
+                let tapped = button
+                    .highPriorityGesture(
+                        TapGesture(count: 2)
+                            .onEnded {
+                                guard !disabled else { return }
+                                playNexaHaptic(haptic)
+                                store.perform(doubleTapActions, scope: scope, locals: locals)
+                            }
+                            .exclusively(before: TapGesture(count: 1).onEnded {
+                                guard !disabled else { return }
+                                playNexaHaptic(haptic)
+                                store.perform(actions, scope: scope, locals: locals)
+                            })
+                    )
+                    .accessibilityAction(.default) {
+                        playNexaHaptic(haptic)
+                        store.perform(actions, scope: scope, locals: locals)
+                    }
+                    .accessibilityAddTraits(.isButton)
+                if longPressActions.isEmpty {
+                    return AnyView(tapped)
+                }
+                return AnyView(tapped.simultaneousGesture(LongPressGesture().onEnded { _ in
+                    guard !disabled else { return }
+                    playNexaHaptic(haptic)
+                    store.perform(longPressActions, scope: scope, locals: locals)
+                }))
+            }
             if longPressActions.isEmpty {
                 return AnyView(button)
             }

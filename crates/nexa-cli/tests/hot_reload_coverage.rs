@@ -253,6 +253,22 @@ fn async_member_access_handles_tuple_positions_and_collection_size() {
 }
 
 #[test]
+fn pressable_double_tap_actions_are_consumed_by_both_dev_renderers() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS renderer");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android renderer");
+
+    assert!(swift.contains("fields[\"double_tap_actions\"]"));
+    assert!(swift.contains("TapGesture(count: 2)"));
+    assert!(swift.contains("store.perform(doubleTapActions"));
+    assert!(kotlin.contains("fields.optJSONArray(\"double_tap_actions\")"));
+    assert!(kotlin.contains("onDoubleClick = {"));
+    assert!(kotlin.contains("store.perform(doubleTapActions"));
+}
+
+#[test]
 /// Scenario labels are maintainer inventory metadata; this test does not run
 /// each listed scenario on a simulator or emulator.
 fn runtime_acceptance_scenarios_have_explicit_dual_platform_status() {

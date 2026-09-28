@@ -730,10 +730,12 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
             }
             Node::Pressable {
                 actions,
+                double_tap_actions,
                 long_press_actions,
                 ..
             } => {
                 collect_action_bindings(actions, &mut bindings);
+                collect_action_bindings(double_tap_actions, &mut bindings);
                 collect_action_bindings(long_press_actions, &mut bindings);
             }
             Node::RefreshControl { state, actions, .. } => {

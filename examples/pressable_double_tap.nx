@@ -1,0 +1,19 @@
+app PressableDoubleTap {
+    state likes: Int32 = 0
+
+    body {
+        Column {
+            Pressable(haptic: Light) {
+                Text("Double tap to like")
+            }.onPress {
+                likes = likes + 1
+            }.onDoubleTap {
+                likes = likes + 2
+            }.onLongPress {
+                likes = 0
+            }
+
+            Text("Likes: \(likes)")
+        }
+    }
+}

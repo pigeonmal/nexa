@@ -270,7 +270,7 @@ app SizePicker {
 ---
 
 ### `Pressable`
-Gesture wrapper detecting tap and long-press interactions with hardware haptics.
+Gesture wrapper detecting tap, double-tap, and long-press interactions with hardware haptics.
 
 ```nexa
 app PressableExample {
@@ -281,6 +281,8 @@ app PressableExample {
             Text("Tap me!")
         }.onPress {
             taps = taps + 1
+        }.onDoubleTap {
+            taps = taps + 2
         }.onLongPress {
             taps = 0
         }
@@ -288,7 +290,7 @@ app PressableExample {
 }
 ```
 - **Properties**: `disabled: Bool`, optional `haptic: Light | Medium | Heavy`.
-- **Modifiers**: `.onPress { ... }`, `.onLongPress { ... }`.
+- **Modifiers**: `.onPress { ... }`, `.onDoubleTap { ... }`, `.onLongPress { ... }`.
 
 ---
 

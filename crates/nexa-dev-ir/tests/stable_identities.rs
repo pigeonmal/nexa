@@ -1,6 +1,6 @@
 use nexa_dev_ir::{IdentityKind, lower};
 use nexa_ir::{
-    Component, ComponentParameter, DirectionConfig, DirectionStyle, Expr, Module, Node,
+    Action, Component, ComponentParameter, DirectionConfig, DirectionStyle, Expr, Module, Node,
     NumericType, State, TextStyle, Type,
 };
 
@@ -42,6 +42,49 @@ fn text(value: &str) -> Node {
         value: nexa_ir::Expr::String(value.to_owned()),
         style: TextStyle::default(),
     }
+}
+
+fn double_tap_pressable(value: &str) -> Node {
+    Node::Pressable {
+        disabled: Expr::Bool(false),
+        haptic: None,
+        children: vec![text("Double tap")],
+        actions: Vec::new(),
+        double_tap_actions: vec![Action::Assign {
+            name: "count".to_owned(),
+            value: Expr::Number {
+                raw: value.to_owned(),
+                ty: NumericType::Int32,
+            },
+        }],
+        long_press_actions: Vec::new(),
+    }
+}
+
+#[test]
+fn double_tap_action_changes_are_carried_by_a_hot_reload_patch() {
+    let original = lower(
+        &module(
+            vec![double_tap_pressable("1")],
+            Type::Numeric(NumericType::Int32),
+        ),
+        "revision-1",
+    );
+    let updated = lower(
+        &module(
+            vec![double_tap_pressable("2")],
+            Type::Numeric(NumericType::Int32),
+        ),
+        "revision-2",
+    );
+
+    let payload = serde_json::to_value(&updated.module).expect("Dev IR serializes");
+    assert!(payload["body"][0]["Pressable"]["double_tap_actions"].is_array());
+
+    let patch = nexa_dev_ir::diff(&original, &updated).expect("changed action is patchable");
+    assert_eq!(patch.operations.len(), 1);
+    assert!(patch.operations[0].path.contains("/double_tap_actions/"));
+    assert_eq!(patch.operations[0].value, Some(serde_json::json!("2")));
 }
 
 fn component_call(name: &str) -> Node {

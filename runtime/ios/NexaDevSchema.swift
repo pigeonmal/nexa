@@ -7,7 +7,7 @@ public enum NexaDevSchema {
     public static let protocolVersion: Int = 8
 
     /// Format version of the Dev IR payload.
-    public static let devIRFormatVersion: Int = 7
+    public static let devIRFormatVersion: Int = 8
 
     /// Platform identifier for iOS dev runtimes.
     public static let targetPlatform = "ios"

@@ -6,7 +6,13 @@ use std::{
 
 use nexa_testkit::{TestProject, Toolchain, example_path};
 
-const EXAMPLES: &[&str] = &["counter", "showcase", "todo_app", "virtual_list"];
+const EXAMPLES: &[&str] = &[
+    "counter",
+    "pressable_double_tap",
+    "showcase",
+    "todo_app",
+    "virtual_list",
+];
 
 fn generate_example(project: &TestProject, example: &str, target: &str) -> PathBuf {
     let entry = example_path(&format!("{example}.nx"));

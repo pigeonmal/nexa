@@ -385,6 +385,9 @@ fn walk_invocation(
             if let Some(actions) = modifier_actions("onLongPress") {
                 walk_actions(actions, names, used, target, file, warnings);
             }
+            if let Some(actions) = modifier_actions("onDoubleTap") {
+                walk_actions(actions, names, used, target, file, warnings);
+            }
         }
         "NavigationStack" => {
             if let Some(root) = inv.arguments.get("root") {

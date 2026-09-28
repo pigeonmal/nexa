@@ -136,6 +136,16 @@ mod tests {
     }
 
     #[test]
+    fn double_tap_imports_combined_clickable_without_long_press() {
+        let mut features = Features::default();
+        features.uses_double_tap = true;
+        let imports = render_features(&features);
+
+        assert!(imports.contains("import androidx.compose.foundation.combinedClickable\n"));
+        assert!(!imports.contains("import androidx.compose.foundation.clickable\n"));
+    }
+
+    #[test]
     fn expression_module_owns_size_class_import() {
         let mut features = Features::default();
         features.uses_size_class = true;

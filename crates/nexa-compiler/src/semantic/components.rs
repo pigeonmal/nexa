@@ -908,6 +908,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 Some(_) => return Err(child_mismatch(span)),
                 None => Vec::new(),
             };
+            let double_tap_actions = match take_modifier(&mut modifiers, "onDoubleTap") {
+                Some(ast::ModifierBody::Actions(actions)) => actions,
+                Some(_) => return Err(child_mismatch(span)),
+                None => Vec::new(),
+            };
             let disabled = disabled
                 .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
                 .transpose()?
@@ -936,11 +941,23 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     enums: cx.enums,
                 },
             )?;
+            let double_tap_actions = lower_actions_with_aliases(
+                double_tap_actions,
+                symbols,
+                functions,
+                false,
+                native_aliases,
+                TypeRegistries {
+                    structs: cx.structs,
+                    enums: cx.enums,
+                },
+            )?;
             Ok(Node::Pressable {
                 disabled,
                 haptic,
                 children: lowered_children,
                 actions,
+                double_tap_actions,
                 long_press_actions,
             })
         }
