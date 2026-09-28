@@ -73,7 +73,10 @@ pub(crate) fn render_enums(module: &Module, out: &mut SourceWriter) {
         // `Int` raw values make a case's ordinal available, which is what a
         // generated value codec stores; the cases themselves keep their
         // source names.
-        out.push_str(&format!("enum {}: Int, Error {{\n", enum_name(&declaration.name)));
+        out.push_str(&format!(
+            "enum {}: Int, Error {{\n",
+            enum_name(&declaration.name)
+        ));
         for (index, case) in declaration.cases.iter().enumerate() {
             out.push_str(&format!("    case {case} = {index}\n"));
         }

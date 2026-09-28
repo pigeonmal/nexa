@@ -20,6 +20,9 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
     val namespace = call.optString("namespace")
     val name = call.optString("name")
     val rawArguments = call.optJSONArray("arguments") ?: JSONArray()
+    val codecs = call.optJSONArray("codecs")?.let { values ->
+        (0 until values.length()).map { values.opt(it) ?: JSONObject.NULL }
+    } ?: emptyList()
     val options = mutableMapOf<String, Any>()
     for (index in 0 until rawArguments.length()) {
         val entry = rawArguments.optJSONArray(index) ?: continue
@@ -27,11 +30,11 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
         options[argumentName] = evaluateAsync(entry.opt(1), locals, scope)
     }
     if (call.isNull("receiver")) {
-        val pluginResult = NexaDevPluginBridge.invokeAsync(namespace, name, options)
+        val pluginResult = NexaDevPluginBridge.invokeAsync(namespace, name, options, codecs, enumCases)
         if (pluginResult.first) return pluginResult.second
     } else {
         val receiver = evaluateAsync(call.opt("receiver"), locals, scope)
-        val pluginResult = NexaDevPluginBridge.invokeInstanceAsync(receiver, namespace, name, options)
+        val pluginResult = NexaDevPluginBridge.invokeInstanceAsync(receiver, namespace, name, options, codecs, enumCases)
         if (pluginResult.first) return pluginResult.second
     }
     fun stringOption(key: String, fallback: String = ""): String =
@@ -130,6 +133,9 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
     val namespace = call.optString("namespace")
     val name = call.optString("name")
     val rawArguments = call.optJSONArray("arguments") ?: JSONArray()
+    val codecs = call.optJSONArray("codecs")?.let { values ->
+        (0 until values.length()).map { values.opt(it) ?: JSONObject.NULL }
+    } ?: emptyList()
     val options = mutableMapOf<String, Any>()
     for (index in 0 until rawArguments.length()) {
         val entry = rawArguments.optJSONArray(index) ?: continue
@@ -138,11 +144,11 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
     }
     try {
         if (call.isNull("receiver")) {
-            val pluginResult = NexaDevPluginBridge.invokeSync(namespace, name, options)
+            val pluginResult = NexaDevPluginBridge.invokeSync(namespace, name, options, codecs, enumCases)
             if (pluginResult.first) return pluginResult.second
         } else {
             val receiver = evaluate(call.opt("receiver"), locals, scope)
-            val pluginResult = NexaDevPluginBridge.invokeInstanceSync(receiver, namespace, name, options)
+            val pluginResult = NexaDevPluginBridge.invokeInstanceSync(receiver, namespace, name, options, codecs, enumCases)
             if (pluginResult.first) return pluginResult.second
         }
     } catch (failure: NexaDevPluginFailure) {

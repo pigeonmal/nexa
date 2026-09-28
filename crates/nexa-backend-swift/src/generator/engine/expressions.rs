@@ -567,9 +567,7 @@ pub(crate) fn text_expression(expr: &Expr) -> String {
 #[cfg(test)]
 mod tests {
     use super::expression;
-    use nexa_ir::{
-        ArithmeticOp, CollectionUtilityKind, Expr, NumericType, TimeMethod, Type,
-    };
+    use nexa_ir::{ArithmeticOp, CollectionUtilityKind, Expr, NumericType, TimeMethod, Type};
 
     #[test]
     fn conditional_expressions_use_the_native_ternary_operator() {

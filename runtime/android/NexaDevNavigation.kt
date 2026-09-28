@@ -127,6 +127,9 @@ internal fun NexaDevScreenLifecycle(
                 Lifecycle.Event.ON_PAUSE -> currentScreen.optJSONArray("on_disappear")
                 else -> null
             }
+            if (event == Lifecycle.Event.ON_RESUME) {
+                store.activeScreenParameters[scope] = latestParameters.value
+            }
             actions?.let {
                 if (event == Lifecycle.Event.ON_RESUME && currentScreen.optBoolean("on_appear_async")) {
                     coroutineScope.launch { store.performAsync(it, scope, latestParameters.value) }

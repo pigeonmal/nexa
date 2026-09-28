@@ -209,7 +209,6 @@ internal fun NexaDevStateStore.subscribeNativeEvent(
 }
 
 internal fun NexaDevStateStore.refreshNativeEventSubscriptions(module: JSONObject) {
-    if (nativeEventSubscriptions.isEmpty()) return
     val previous = nativeEventSubscriptions.toList()
     nativeEventSubscriptions.clear()
     previous.forEach { NexaDevPluginBridge.clearInstanceEvent(it.receiver, it.property) }
@@ -233,9 +232,99 @@ internal fun NexaDevStateStore.refreshNativeEventSubscriptions(module: JSONObjec
             locals = subscription.locals,
         )
     }
+
+    installLifecycleNativeEventSubscriptions(
+        module.optJSONArray("on_appear") ?: JSONArray(),
+        "app",
+        emptyMap(),
+    )
+    val screens = module.optJSONArray("screens") ?: JSONArray()
+    for ((scope, parameters) in activeScreenParameters.toMap()) {
+        val screenName = scope.substringAfterLast('/')
+        val screen = (0 until screens.length())
+            .mapNotNull(screens::optJSONObject)
+            .firstOrNull { it.optString("name") == screenName }
+            ?: continue
+        installLifecycleNativeEventSubscriptions(
+            screen.optJSONArray("on_appear") ?: continue,
+            scope,
+            parameters,
+        )
+    }
+}
+
+private fun NexaDevStateStore.installLifecycleNativeEventSubscriptions(
+    actions: JSONArray,
+    scope: String,
+    locals: Map<String, Any>,
+) {
+    for (index in 0 until actions.length()) {
+        val raw = actions.opt(index) as? JSONObject ?: continue
+        val kind = raw.keys().asSequence().firstOrNull() ?: continue
+        val fields = raw.optJSONObject(kind) ?: continue
+        when (kind) {
+            "NativeEventSubscribe" -> {
+                val receiverExpression = fields.opt("receiver") ?: continue
+                val receiver = stableNativeEventReceiver(receiverExpression, locals, scope) ?: continue
+                val property = fields.optString("property")
+                if (nativeEventSubscriptions.any { it.receiver === receiver && it.property == property }) continue
+                subscribeNativeEvent(
+                    receiver = receiver,
+                    property = property,
+                    actions = fields.optJSONArray("actions") ?: JSONArray(),
+                    parameterNames = fields.optJSONArray("parameters") ?: JSONArray(),
+                    scope = scope,
+                    locals = locals,
+                )
+            }
+            "If" -> {
+                val selected = if (truthy(evaluate(fields.opt("condition"), locals, scope))) {
+                    fields.optJSONArray("then_branch")
+                } else {
+                    fields.optJSONArray("else_branch")
+                }
+                if (selected != null) installLifecycleNativeEventSubscriptions(selected, scope, locals)
+            }
+            "For" -> {
+                val name = fields.optString("name")
+                val items = when (val iterable = evaluate(fields.opt("iterable"), locals, scope)) {
+                    is List<*> -> iterable
+                    is Set<*> -> iterable.toList()
+                    else -> emptyList()
+                }
+                for (item in items) {
+                    val iterationLocals = locals + (name to (item ?: org.json.JSONObject.NULL))
+                    installLifecycleNativeEventSubscriptions(
+                        fields.optJSONArray("body") ?: JSONArray(), scope, iterationLocals,
+                    )
+                }
+            }
+            "ForMap" -> {
+                val values = evaluate(fields.opt("iterable"), locals, scope) as? Map<*, *> ?: emptyMap<Any, Any>()
+                for ((key, value) in values.entries.sortedBy { stringify(it.key ?: org.json.JSONObject.NULL) }) {
+                    val iterationLocals = locals + mapOf(
+                        fields.optString("key_name") to stringify(key ?: org.json.JSONObject.NULL),
+                        fields.optString("value_name") to (value ?: org.json.JSONObject.NULL),
+                    )
+                    installLifecycleNativeEventSubscriptions(
+                        fields.optJSONArray("body") ?: JSONArray(), scope, iterationLocals,
+                    )
+                }
+            }
+            "While" -> {
+                var iterations = 0
+                while (iterations++ < 10_000 && truthy(evaluate(fields.opt("condition"), locals, scope))) {
+                    installLifecycleNativeEventSubscriptions(
+                        fields.optJSONArray("body") ?: JSONArray(), scope, locals,
+                    )
+                }
+            }
+        }
+    }
 }
 
 internal fun NexaDevStateStore.clearNativeEventSubscriptions(scope: String? = null) {
+    if (scope != null) activeScreenParameters.remove(scope)
     val removed = nativeEventSubscriptions.filter { scope == null || it.scope == scope }
     nativeEventSubscriptions.removeAll { scope == null || it.scope == scope }
     removed.forEach { NexaDevPluginBridge.clearInstanceEvent(it.receiver, it.property) }
@@ -300,8 +389,8 @@ private fun NexaDevStateStore.applyCollectionMutation(
             moduleRevision++
         }
         "SetInsert", "SetRemove" -> {
-            val target = (state(name, scope) as? Set<*>)?.map { stringify(it ?: JSONObject.NULL) }?.toMutableSet() ?: mutableSetOf()
-            val item = arguments.firstOrNull()?.let { stringify(it) }
+            val target = (state(name, scope) as? Set<*>)?.filterNotNull()?.toMutableSet() ?: mutableSetOf()
+            val item = arguments.firstOrNull()
             if (item != null) {
                 if (mutation.optString("operation") == "SetInsert") target.add(item) else target.remove(item)
             }

@@ -19,9 +19,9 @@
 //! so plugin files in the same module can use them.
 
 use nexa_codegen::{
-    names::{enum_name, struct_field_name, struct_name},
-    value::{codec_name, numeric_mangled, Codec, Direction},
     SourceWriter,
+    names::{enum_name, struct_field_name, struct_name},
+    value::{Codec, Direction, codec_name, numeric_mangled},
 };
 use nexa_ir::{NumericType, Type};
 
@@ -33,6 +33,24 @@ pub(crate) fn render(codecs: &[Codec], out: &mut SourceWriter) {
         return;
     }
     runtime(out);
+    render_codecs(codecs, out);
+}
+
+/// Emits the debug host's dynamic codec runtime even when the current module
+/// has no generic plugin call. A later hot reload can add one without adding
+/// new native source files or rebuilding the host.
+pub(crate) fn render_for_dev(codecs: &[Codec], out: &mut SourceWriter) {
+    render_with_runtime(codecs, out);
+}
+
+/// Emits the codec runtime for a native plugin contract and any call-site
+/// codecs collected from the app.
+pub(crate) fn render_with_runtime(codecs: &[Codec], out: &mut SourceWriter) {
+    runtime(out);
+    render_codecs(codecs, out);
+}
+
+fn render_codecs(codecs: &[Codec], out: &mut SourceWriter) {
     for codec in codecs {
         match codec.direction {
             Direction::Write => write_function(&codec.ty, out),
@@ -365,7 +383,8 @@ fn field_read_statements(ty: &Type, index: usize, reader: &str) -> Vec<String> {
                     enum_name(name)
                 ),
             ]
-        }        _ => vec![format!(
+        }
+        _ => vec![format!(
             "guard let {binding} = {} else {{ return nil }}",
             read_expression(ty, reader)
         )],

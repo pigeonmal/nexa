@@ -24,14 +24,14 @@ pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
             .filter(|interface| interface.kind == InterfaceKind::NativeClass)
         {
             if let Some(constructor) = interface.constructors.first()
-                && supported_parameters(&constructor.parameters)
+                && supported_parameters(&plan, &constructor.parameters)
             {
-                render_swift_constructor(&mut out, namespace, interface, constructor);
+                render_swift_constructor(&mut out, namespace, &plan, interface, constructor);
             }
         }
     }
     out.push_str(
-        "        default: return (false, NSNull())\n        }\n    }\n\n    static func invokeSync(namespace: String, name: String, options: [String: Any]) -> (Bool, Any) {\n        switch (namespace, name) {\n",
+        "        default: return (false, NSNull())\n        }\n    }\n\n    static func invokeSync(namespace: String, name: String, options: [String: Any], codecs: [Any], enumCases: [String: [String]]) -> (Bool, Any) {\n        switch (namespace, name) {\n",
     );
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_swift_contract(contract)?;
@@ -41,15 +41,15 @@ pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
             .filter(|interface| interface.kind == InterfaceKind::Service)
         {
             for method in &interface.methods {
-                if !supported(method) || method.is_async {
+                if !supported(method, &plan) || method.is_async {
                     continue;
                 }
-                render_swift_method(&mut out, namespace, method, false);
+                render_swift_method(&mut out, namespace, &plan, method, false)?;
             }
         }
     }
     out.push_str(
-        "        default: return (false, NSNull())\n        }\n    }\n\n    static func invokeAsync(namespace: String, name: String, options: [String: Any]) async throws -> (Bool, Any) {\n        switch (namespace, name) {\n",
+        "        default: return (false, NSNull())\n        }\n    }\n\n    static func invokeAsync(namespace: String, name: String, options: [String: Any], codecs: [Any], enumCases: [String: [String]]) async throws -> (Bool, Any) {\n        switch (namespace, name) {\n",
     );
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_swift_contract(contract)?;
@@ -59,19 +59,19 @@ pub(super) fn swift(plugins: &[(String, PluginIdl)]) -> Result<String, String> {
             .filter(|interface| interface.kind == InterfaceKind::Service)
         {
             for method in &interface.methods {
-                if !supported(method) {
+                if !supported(method, &plan) {
                     continue;
                 }
-                render_swift_method(&mut out, namespace, method, true);
+                render_swift_method(&mut out, namespace, &plan, method, true)?;
             }
         }
     }
     out.push_str(
-        "        default: return (false, NSNull())\n        }\n    }\n\n    static func invokeInstanceSync(receiver: Any, namespace: String, name: String, options: [String: Any]) -> (Bool, Any) {\n",
+        "        default: return (false, NSNull())\n        }\n    }\n\n    static func invokeInstanceSync(receiver: Any, namespace: String, name: String, options: [String: Any], codecs: [Any], enumCases: [String: [String]]) -> (Bool, Any) {\n",
     );
     render_swift_instance_methods(&mut out, plugins, false)?;
     out.push_str(
-        "        return (false, NSNull())\n    }\n\n    static func invokeInstanceAsync(receiver: Any, namespace: String, name: String, options: [String: Any]) async throws -> (Bool, Any) {\n",
+        "        return (false, NSNull())\n    }\n\n    static func invokeInstanceAsync(receiver: Any, namespace: String, name: String, options: [String: Any], codecs: [Any], enumCases: [String: [String]]) async throws -> (Bool, Any) {\n",
     );
     render_swift_instance_methods(&mut out, plugins, true)?;
     out.push_str("        return (false, NSNull())\n    }\n\n");
@@ -97,14 +97,14 @@ pub(super) fn kotlin(plugins: &[(String, PluginIdl)]) -> Result<String, String> 
             .filter(|interface| interface.kind == InterfaceKind::NativeClass)
         {
             if let Some(constructor) = interface.constructors.first()
-                && supported_parameters(&constructor.parameters)
+                && supported_parameters(&plan, &constructor.parameters)
             {
-                render_kotlin_constructor(&mut out, namespace, interface, constructor);
+                render_kotlin_constructor(&mut out, namespace, &plan, interface, constructor);
             }
         }
     }
     out.push_str(
-        "            else -> false to JSONObject.NULL\n        }\n\n    fun invokeSync(namespace: String, name: String, options: Map<String, Any>): Pair<Boolean, Any> =\n        when (\"$namespace.$name\") {\n",
+        "            else -> false to JSONObject.NULL\n        }\n\n    fun invokeSync(namespace: String, name: String, options: Map<String, Any>, codecs: List<Any>, enumCases: Map<String, List<String>>): Pair<Boolean, Any> =\n        when (\"$namespace.$name\") {\n",
     );
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_kotlin_contract(contract)?;
@@ -114,15 +114,15 @@ pub(super) fn kotlin(plugins: &[(String, PluginIdl)]) -> Result<String, String> 
             .filter(|interface| interface.kind == InterfaceKind::Service)
         {
             for method in &interface.methods {
-                if !supported(method) || method.is_async {
+                if !supported(method, &plan) || method.is_async {
                     continue;
                 }
-                render_kotlin_method(&mut out, namespace, method, false);
+                render_kotlin_method(&mut out, namespace, &plan, method, false)?;
             }
         }
     }
     out.push_str(
-        "            else -> false to JSONObject.NULL\n        }\n\n    suspend fun invokeAsync(namespace: String, name: String, options: Map<String, Any>): Pair<Boolean, Any> =\n        when (\"$namespace.$name\") {\n",
+        "            else -> false to JSONObject.NULL\n        }\n\n    suspend fun invokeAsync(namespace: String, name: String, options: Map<String, Any>, codecs: List<Any>, enumCases: Map<String, List<String>>): Pair<Boolean, Any> =\n        when (\"$namespace.$name\") {\n",
     );
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_kotlin_contract(contract)?;
@@ -132,16 +132,16 @@ pub(super) fn kotlin(plugins: &[(String, PluginIdl)]) -> Result<String, String> 
             .filter(|interface| interface.kind == InterfaceKind::Service)
         {
             for method in &interface.methods {
-                if !supported(method) {
+                if !supported(method, &plan) {
                     continue;
                 }
-                render_kotlin_method(&mut out, namespace, method, true);
+                render_kotlin_method(&mut out, namespace, &plan, method, true)?;
             }
         }
     }
-    out.push_str("            else -> false to JSONObject.NULL\n        }\n\n    fun invokeInstanceSync(receiver: Any, namespace: String, name: String, options: Map<String, Any>): Pair<Boolean, Any> {\n");
+    out.push_str("            else -> false to JSONObject.NULL\n        }\n\n    fun invokeInstanceSync(receiver: Any, namespace: String, name: String, options: Map<String, Any>, codecs: List<Any>, enumCases: Map<String, List<String>>): Pair<Boolean, Any> {\n");
     render_kotlin_instance_methods(&mut out, plugins, false)?;
-    out.push_str("        return false to JSONObject.NULL\n    }\n\n    suspend fun invokeInstanceAsync(receiver: Any, namespace: String, name: String, options: Map<String, Any>): Pair<Boolean, Any> {\n");
+    out.push_str("        return false to JSONObject.NULL\n    }\n\n    suspend fun invokeInstanceAsync(receiver: Any, namespace: String, name: String, options: Map<String, Any>, codecs: List<Any>, enumCases: Map<String, List<String>>): Pair<Boolean, Any> {\n");
     render_kotlin_instance_methods(&mut out, plugins, true)?;
     out.push_str("        return false to JSONObject.NULL\n    }\n\n");
     render_kotlin_instance_properties(&mut out, plugins)?;
@@ -152,10 +152,100 @@ pub(super) fn kotlin(plugins: &[(String, PluginIdl)]) -> Result<String, String> 
     Ok(out)
 }
 
-fn supported(method: &BridgeMethod) -> bool {
-    method.type_parameters.is_empty()
-        && supported_parameters(&method.parameters)
-        && supported_return(method.success_type())
+fn supported(method: &BridgeMethod, plan: &BridgePlan) -> bool {
+    if method.type_parameters.is_empty() {
+        return supported_parameters(plan, &method.parameters)
+            && supported_return(plan, method.success_type());
+    }
+    method.parameters.iter().all(|parameter| {
+        if super::bridge_plan::contains_type_parameter(&parameter.ty) {
+            supported_dynamic_shape(&parameter.ty)
+        } else {
+            supported_value_type(plan, &parameter.ty)
+        }
+    }) && if super::bridge_plan::contains_type_parameter(method.success_type()) {
+        match method.success_type() {
+            // Optional generic returns still use the contract's value reader
+            // for the wrapped type; a missing value is the native `nil`.
+            // Optional generic arguments have no matching writer shape and
+            // remain unavailable to DevRuntime.
+            BridgeType::Optional(inner) => supported_dynamic_shape(inner),
+            other => supported_dynamic_shape(other),
+        }
+    } else {
+        supported_return(plan, method.success_type())
+    }
+}
+
+fn supported_dynamic_shape(ty: &BridgeType) -> bool {
+    match ty {
+        BridgeType::TypeParameter(_) => true,
+        BridgeType::Array(inner) | BridgeType::Set(inner) => supported_dynamic_shape(inner),
+        BridgeType::Map(key, value) => {
+            supported_dynamic_shape(key) && supported_dynamic_shape(value)
+        }
+        // Optional type parameters are not storable by the plugin codec. A
+        // method that mixes an ordinary optional scalar with a generic value
+        // is handled by the non-generic scalar path above, but Optional<T>
+        // must not be advertised as a DevRuntime shape.
+        BridgeType::Optional(_) => false,
+        BridgeType::Scalar(scalar) => *scalar != BridgeScalar::Void && supported_scalar(*scalar),
+        BridgeType::Named {
+            kind: BridgeNamedKind::Enum | BridgeNamedKind::Struct,
+            ..
+        } => true,
+        BridgeType::Named { .. }
+        | BridgeType::Pair(..)
+        | BridgeType::Triple(..)
+        | BridgeType::Result { .. } => false,
+    }
+}
+
+/// Codec closures follow the plugin contract: one entry for each generic
+/// parameter in declaration order, then one for the generic return value.
+fn method_codec_shapes(method: &BridgeMethod) -> Vec<(&BridgeType, bool)> {
+    let mut codecs = method
+        .parameters
+        .iter()
+        .map(|parameter| &parameter.ty)
+        .filter(|ty| super::bridge_plan::contains_type_parameter(ty))
+        .map(|ty| (ty, false))
+        .collect::<Vec<_>>();
+    let success = method.success_type();
+    if super::bridge_plan::contains_type_parameter(success) {
+        codecs.push((
+            match success {
+                BridgeType::Optional(inner) => inner.as_ref(),
+                other => other,
+            },
+            true,
+        ));
+    }
+    codecs
+}
+
+fn kotlin_dynamic_type(ty: &BridgeType) -> Option<String> {
+    Some(match ty {
+        BridgeType::TypeParameter(_) => "Any".to_owned(),
+        BridgeType::Scalar(BridgeScalar::Void) => return None,
+        BridgeType::Scalar(_) => kotlin_type_for_dev(ty),
+        BridgeType::Named {
+            name,
+            kind: BridgeNamedKind::Enum | BridgeNamedKind::Struct,
+        } => name.clone(),
+        BridgeType::Array(inner) => format!("List<{}>", kotlin_dynamic_type(inner)?),
+        BridgeType::Set(inner) => format!("Set<{}>", kotlin_dynamic_type(inner)?),
+        BridgeType::Map(key, value) => format!(
+            "Map<{}, {}>",
+            kotlin_dynamic_type(key)?,
+            kotlin_dynamic_type(value)?
+        ),
+        BridgeType::Optional(inner) => format!("{}?", kotlin_dynamic_type(inner)?),
+        BridgeType::Named { .. }
+        | BridgeType::Pair(..)
+        | BridgeType::Triple(..)
+        | BridgeType::Result { .. } => return None,
+    })
 }
 
 fn render_swift_instance_properties(
@@ -173,13 +263,18 @@ fn render_swift_instance_properties(
             .filter(|i| i.kind == InterfaceKind::NativeClass)
         {
             for property in &interface.properties {
-                if !supported_runtime_value_type(&property.ty) {
+                if !supported_runtime_value_type(&plan, &property.ty) {
                     continue;
                 }
+                let encoded =
+                    swift_encode_dev_value(&plan, &property.ty, "nexaValue", namespace, 0)
+                        .ok_or_else(|| {
+                            format!("unsupported Dev property type {:?}", property.ty)
+                        })?;
                 out.push_str(&format!(
                     "        if property == \"{}\", let nexaReceiver = receiver as? {} {{\n            let nexaValue = nexaReceiver.{}\n            return (true, {})\n        }}\n",
                     swift_escape(&property.name), interface.name, property.name,
-                    swift_encode_value(&property.ty, "nexaValue", namespace)
+                    encoded
                 ));
             }
         }
@@ -193,7 +288,7 @@ fn render_swift_instance_properties(
             .filter(|i| i.kind == InterfaceKind::NativeClass)
         {
             for property in &interface.properties {
-                if !property.mutable || !supported_runtime_value_type(&property.ty) {
+                if !property.mutable || !supported_runtime_value_type(&plan, &property.ty) {
                     continue;
                 }
                 out.push_str(&format!(
@@ -203,6 +298,7 @@ fn render_swift_instance_properties(
                 ));
                 render_swift_value_binding(
                     out,
+                    &plan,
                     &property.ty,
                     "value",
                     "nexaValue",
@@ -218,6 +314,7 @@ fn render_swift_instance_properties(
     for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_swift_contract(contract)?;
         render_swift_enum_codecs(out, namespace, &plan);
+        render_swift_struct_codecs(out, namespace, &plan)?;
     }
     Ok(())
 }
@@ -238,7 +335,7 @@ fn render_swift_instance_events(
                 if !event
                     .parameters
                     .iter()
-                    .all(|parameter| supported_runtime_value_type(&parameter.ty))
+                    .all(|parameter| supported_runtime_value_type(&plan, &parameter.ty))
                 {
                     continue;
                 }
@@ -257,21 +354,22 @@ fn render_swift_instance_events(
                     out.push_str(" in");
                 }
                 out.push_str("\n                handler([");
-                out.push_str(
-                    &event
-                        .parameters
-                        .iter()
-                        .enumerate()
-                        .map(|(index, parameter)| {
-                            swift_encode_value(
-                                &parameter.ty,
-                                &format!("nexaEvent{index}"),
-                                namespace,
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
+                let encoded = event
+                    .parameters
+                    .iter()
+                    .enumerate()
+                    .map(|(index, parameter)| {
+                        swift_encode_dev_value(
+                            &plan,
+                            &parameter.ty,
+                            &format!("nexaEvent{index}"),
+                            namespace,
+                            0,
+                        )
+                    })
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or_else(|| "unsupported Dev event value type".to_owned())?;
+                out.push_str(&encoded.join(", "));
                 out.push_str("])\n            }\n            return true\n        }\n");
             }
         }
@@ -309,12 +407,12 @@ fn render_swift_components(
             if !interface
                 .properties
                 .iter()
-                .all(|property| supported_runtime_value_type(&property.ty))
+                .all(|property| supported_runtime_value_type(&plan, &property.ty))
                 || !interface.events.iter().all(|event| {
                     event
                         .parameters
                         .iter()
-                        .all(|parameter| supported_runtime_value_type(&parameter.ty))
+                        .all(|parameter| supported_runtime_value_type(&plan, &parameter.ty))
                 })
             {
                 continue;
@@ -330,6 +428,7 @@ fn render_swift_components(
                     out.push_str(&format!("            let nexaRaw_{} = {raw}\n            let nexaArg_{}: {}\n            if nexaRaw_{} == nil {{ nexaArg_{} = {} }} else {{\n", property.name, property.name, swift_type_for_dev(&property.ty), property.name, property.name, swift_literal_for_dev(default)));
                     render_swift_value_binding(
                         out,
+                        &plan,
                         &property.ty,
                         &format!("nexaRaw_{}", property.name),
                         &format!("nexaDecoded_{}", property.name),
@@ -344,6 +443,7 @@ fn render_swift_components(
                 } else {
                     render_swift_value_binding(
                         out,
+                        &plan,
                         &property.ty,
                         &raw,
                         &format!("nexaArg_{}", property.name),
@@ -371,10 +471,25 @@ fn render_swift_components(
                         .enumerate()
                         .map(|(index, _)| format!("nexaEvent{index}"))
                         .collect::<Vec<_>>();
+                    let encoded = event
+                        .parameters
+                        .iter()
+                        .enumerate()
+                        .map(|(index, parameter)| {
+                            swift_encode_dev_value(
+                                &plan,
+                                &parameter.ty,
+                                &format!("nexaEvent{index}"),
+                                namespace,
+                                0,
+                            )
+                        })
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(|| "unsupported Dev component event value type".to_owned())?;
                     let closure = format!(
                         "{{ {} in handler([{}]) }}",
                         params.join(", "),
-                        params.join(", ")
+                        encoded.join(", ")
                     );
                     format!("events[\"{callback_property}\"].map {{ handler in {closure} }}")
                 };
@@ -409,15 +524,17 @@ fn render_kotlin_instance_properties(
             .filter(|i| i.kind == InterfaceKind::NativeClass)
         {
             for property in &interface.properties {
-                if !supported_runtime_value_type(&property.ty) {
+                if !supported_runtime_value_type(&plan, &property.ty) {
                     continue;
                 }
-                out.push_str(&format!("        if (property == \"{}\" && receiver is {}) {{\n            val nexaValue = receiver.{}\n            return true to {}\n        }}\n", kotlin_escape(&property.name), interface.name, property.name, kotlin_encode_value(&property.ty, "nexaValue")));
+                let encoded = kotlin_encode_dev_value(&plan, &property.ty, "nexaValue", 0)
+                    .ok_or_else(|| format!("unsupported Dev property type {:?}", property.ty))?;
+                out.push_str(&format!("        if (property == \"{}\" && receiver is {}) {{\n            val nexaValue = receiver.{}\n            return true to {}\n        }}\n", kotlin_escape(&property.name), interface.name, property.name, encoded));
             }
         }
     }
     out.push_str("        return false to JSONObject.NULL\n    }\n\n    fun writeInstanceProperty(receiver: Any, property: String, value: Any): Boolean {\n");
-    for (contract_namespace, contract) in plugins {
+    for (namespace, contract) in plugins {
         let plan = BridgePlan::validate_kotlin_contract(contract)?;
         for interface in plan
             .interfaces
@@ -425,7 +542,7 @@ fn render_kotlin_instance_properties(
             .filter(|i| i.kind == InterfaceKind::NativeClass)
         {
             for property in &interface.properties {
-                if !property.mutable || !supported_runtime_value_type(&property.ty) {
+                if !property.mutable || !supported_runtime_value_type(&plan, &property.ty) {
                     continue;
                 }
                 out.push_str(&format!(
@@ -435,6 +552,8 @@ fn render_kotlin_instance_properties(
                 ));
                 render_kotlin_value_binding(
                     out,
+                    &plan,
+                    namespace,
                     &property.ty,
                     "value",
                     "nexaValue",
@@ -447,7 +566,6 @@ fn render_kotlin_instance_properties(
                 ));
             }
         }
-        let _ = contract_namespace;
     }
     out.push_str("        return false\n    }\n\n    fun clearInstanceEvent(receiver: Any, property: String): Boolean {\n");
     for (_namespace, contract) in plugins {
@@ -464,6 +582,10 @@ fn render_kotlin_instance_properties(
         }
     }
     out.push_str("        return false\n    }\n\n");
+    for (namespace, contract) in plugins {
+        let plan = BridgePlan::validate_kotlin_contract(contract)?;
+        render_kotlin_struct_codecs(out, namespace, &plan)?;
+    }
     Ok(())
 }
 
@@ -483,7 +605,7 @@ fn render_kotlin_instance_events(
                 if !event
                     .parameters
                     .iter()
-                    .all(|parameter| supported_runtime_value_type(&parameter.ty))
+                    .all(|parameter| supported_runtime_value_type(&plan, &parameter.ty))
                 {
                     continue;
                 }
@@ -496,12 +618,21 @@ fn render_kotlin_instance_events(
                     out.push_str(&format!("nexaEvent{index}"));
                 }
                 out.push_str(" -> handler(listOf(");
-                out.push_str(
-                    &(0..event.parameters.len())
-                        .map(|index| format!("nexaEvent{index}"))
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
+                let encoded = event
+                    .parameters
+                    .iter()
+                    .enumerate()
+                    .map(|(index, parameter)| {
+                        kotlin_encode_dev_value(
+                            &plan,
+                            &parameter.ty,
+                            &format!("nexaEvent{index}"),
+                            0,
+                        )
+                    })
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or_else(|| "unsupported Dev event value type".to_owned())?;
+                out.push_str(&encoded.join(", "));
                 out.push_str(")) }\n            return true\n        }\n");
             }
         }
@@ -525,12 +656,12 @@ fn render_kotlin_components(
             if !interface
                 .properties
                 .iter()
-                .all(|property| supported_runtime_value_type(&property.ty))
+                .all(|property| supported_runtime_value_type(&plan, &property.ty))
                 || !interface.events.iter().all(|event| {
                     event
                         .parameters
                         .iter()
-                        .all(|parameter| supported_runtime_value_type(&parameter.ty))
+                        .all(|parameter| supported_runtime_value_type(&plan, &parameter.ty))
                 })
             {
                 continue;
@@ -546,6 +677,8 @@ fn render_kotlin_components(
                     out.push_str(&format!("                val nexaArg_{} = if (!arguments.containsKey(\"{}\")) {} else {{\n", property.name, kotlin_escape(&property.name), kotlin_literal_for_dev(default)));
                     render_kotlin_value_binding(
                         out,
+                        &plan,
+                        namespace,
                         &property.ty,
                         &raw,
                         &format!("nexaDecoded_{}", property.name),
@@ -559,6 +692,8 @@ fn render_kotlin_components(
                 } else {
                     render_kotlin_value_binding(
                         out,
+                        &plan,
+                        namespace,
                         &property.ty,
                         &raw,
                         &format!("nexaArg_{}", property.name),
@@ -585,13 +720,24 @@ fn render_kotlin_components(
                             format!("nexaEvent{index}: {}", kotlin_type_for_dev(&parameter.ty))
                         })
                         .collect::<Vec<_>>();
-                    let values = (0..event.parameters.len())
-                        .map(|index| format!("nexaEvent{index}"))
-                        .collect::<Vec<_>>()
-                        .join(", ");
+                    let encoded = event
+                        .parameters
+                        .iter()
+                        .enumerate()
+                        .map(|(index, parameter)| {
+                            kotlin_encode_dev_value(
+                                &plan,
+                                &parameter.ty,
+                                &format!("nexaEvent{index}"),
+                                0,
+                            )
+                        })
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(|| "unsupported Dev component event value type".to_owned())?;
                     format!(
-                        "{{ {} -> events[\"{property}\"]?.invoke(listOf({values})) }}",
-                        params.join(", ")
+                        "{{ {} -> events[\"{property}\"]?.invoke(listOf({})) }}",
+                        params.join(", "),
+                        encoded.join(", ")
                     )
                 };
                 args.push(format!("{property} = {callback}"));
@@ -610,16 +756,113 @@ fn render_kotlin_components(
     Ok(())
 }
 
-fn supported_runtime_value_type(ty: &BridgeType) -> bool {
+fn supported_runtime_value_type(plan: &BridgePlan, ty: &BridgeType) -> bool {
     match ty {
         BridgeType::Scalar(scalar) => *scalar != BridgeScalar::Void && supported_scalar(*scalar),
         BridgeType::Named {
             kind: BridgeNamedKind::Enum | BridgeNamedKind::NativeClass,
             ..
         } => true,
-        BridgeType::Optional(inner) => supported_runtime_value_type(inner),
+        BridgeType::Named {
+            name,
+            kind: BridgeNamedKind::Struct,
+        } => supported_struct_value(plan, name, 0),
+        BridgeType::Optional(inner) => supported_runtime_value_type(plan, inner),
+        BridgeType::Array(inner) => {
+            !matches!(inner.as_ref(), BridgeType::Optional(_))
+                && supported_static_collection_element(plan, inner, 0)
+        }
+        BridgeType::Set(inner) => supported_hashable_collection_element(plan, inner),
+        BridgeType::Map(key, value) => {
+            supported_map_key(key) && supported_static_collection_element(plan, value, 0)
+        }
         _ => false,
     }
+}
+
+fn supported_static_collection_element(plan: &BridgePlan, ty: &BridgeType, depth: usize) -> bool {
+    if depth >= 64 || matches!(ty, BridgeType::Optional(_)) {
+        return false;
+    }
+    match ty {
+        BridgeType::Scalar(scalar) => *scalar != BridgeScalar::Void && supported_scalar(*scalar),
+        BridgeType::Named {
+            kind: BridgeNamedKind::Enum | BridgeNamedKind::NativeClass,
+            ..
+        } => true,
+        BridgeType::Named {
+            name,
+            kind: BridgeNamedKind::Struct,
+        } => supported_struct_value(plan, name, depth + 1),
+        BridgeType::Array(inner) => supported_static_collection_element(plan, inner, depth + 1),
+        BridgeType::Set(inner) => supported_hashable_collection_element(plan, inner),
+        BridgeType::Map(key, value) => {
+            supported_map_key(key) && supported_static_collection_element(plan, value, depth + 1)
+        }
+        _ => false,
+    }
+}
+
+fn supported_hashable_collection_element(_plan: &BridgePlan, ty: &BridgeType) -> bool {
+    matches!(
+        ty,
+        BridgeType::Scalar(
+            BridgeScalar::Bool
+                | BridgeScalar::Int8
+                | BridgeScalar::Int16
+                | BridgeScalar::Int32
+                | BridgeScalar::Int64
+                | BridgeScalar::UInt8
+                | BridgeScalar::UInt16
+                | BridgeScalar::UInt32
+                | BridgeScalar::UInt64
+                | BridgeScalar::Float32
+                | BridgeScalar::Float64
+                | BridgeScalar::String,
+        )
+    )
+}
+
+fn supported_map_key(ty: &BridgeType) -> bool {
+    matches!(
+        ty,
+        BridgeType::Scalar(
+            BridgeScalar::String
+                | BridgeScalar::Bool
+                | BridgeScalar::Int8
+                | BridgeScalar::Int16
+                | BridgeScalar::Int32
+                | BridgeScalar::Int64
+                | BridgeScalar::UInt8
+                | BridgeScalar::UInt16
+                | BridgeScalar::UInt32
+                | BridgeScalar::UInt64
+                | BridgeScalar::Float32
+                | BridgeScalar::Float64
+        )
+    )
+}
+
+fn supported_struct_value(plan: &BridgePlan, name: &str, depth: usize) -> bool {
+    if depth >= 64 {
+        return false;
+    }
+    let Some(structure) = plan
+        .types
+        .iter()
+        .find(|ty| ty.name == name && ty.kind == BridgeTypeKind::Struct)
+    else {
+        return false;
+    };
+    structure.fields.iter().all(|field| {
+        let field_depth = depth + 1;
+        match &field.ty {
+            BridgeType::Optional(inner) => {
+                supported_runtime_value_type(plan, inner) && field_depth < 64
+            }
+            other => supported_static_collection_element(plan, other, field_depth),
+        }
+    })
 }
 
 fn swift_type_for_dev(ty: &BridgeType) -> String {
@@ -639,6 +882,13 @@ fn swift_type_for_dev(ty: &BridgeType) -> String {
         BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
         BridgeType::Scalar(BridgeScalar::Bytes) => "Data".to_owned(),
         BridgeType::Named { name, .. } => name.clone(),
+        BridgeType::Array(inner) => format!("[{}]", swift_type_for_dev(inner)),
+        BridgeType::Set(inner) => format!("Set<{}>", swift_type_for_dev(inner)),
+        BridgeType::Map(key, value) => format!(
+            "[{}: {}]",
+            swift_type_for_dev(key),
+            swift_type_for_dev(value)
+        ),
         BridgeType::Optional(inner) => format!("{}?", swift_type_for_dev(inner)),
         _ => "Any".to_owned(),
     }
@@ -661,6 +911,13 @@ fn kotlin_type_for_dev(ty: &BridgeType) -> String {
         BridgeType::Scalar(BridgeScalar::String) => "String".to_owned(),
         BridgeType::Scalar(BridgeScalar::Bytes) => "ByteArray".to_owned(),
         BridgeType::Named { name, .. } => name.clone(),
+        BridgeType::Array(inner) => format!("List<{}>", kotlin_type_for_dev(inner)),
+        BridgeType::Set(inner) => format!("Set<{}>", kotlin_type_for_dev(inner)),
+        BridgeType::Map(key, value) => format!(
+            "Map<{}, {}>",
+            kotlin_type_for_dev(key),
+            kotlin_type_for_dev(value)
+        ),
         BridgeType::Optional(inner) => format!("{}?", kotlin_type_for_dev(inner)),
         _ => "Any".to_owned(),
     }
@@ -684,8 +941,10 @@ fn kotlin_literal_for_dev(literal: &nexa_plugin_idl::Literal) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_swift_value_binding(
     out: &mut String,
+    _plan: &BridgePlan,
     ty: &BridgeType,
     raw: &str,
     name: &str,
@@ -694,11 +953,11 @@ fn render_swift_value_binding(
     indent: &str,
 ) -> Result<(), String> {
     if let BridgeType::Optional(inner) = ty {
-        let decoder = swift_decode_value(inner, raw, namespace)
+        let decoder = swift_decode_value(inner, raw, namespace, 0)
             .ok_or_else(|| format!("unsupported Dev value type {ty:?}"))?;
         out.push_str(&format!("{indent}let {name}: {}\n{indent}if {raw} is NSNull {{ {name} = nil }} else {{\n{indent}    guard let nexaUnwrapped = {decoder} else {{ {failure} }}\n{indent}    {name} = nexaUnwrapped\n{indent}}}\n", swift_type_for_dev(ty)));
     } else {
-        let decoder = swift_decode_value(ty, raw, namespace)
+        let decoder = swift_decode_value(ty, raw, namespace, 0)
             .ok_or_else(|| format!("unsupported Dev value type {ty:?}"))?;
         out.push_str(&format!(
             "{indent}guard let {name} = {decoder} else {{ {failure} }}\n"
@@ -707,8 +966,11 @@ fn render_swift_value_binding(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_kotlin_value_binding(
     out: &mut String,
+    _plan: &BridgePlan,
+    namespace: &str,
     ty: &BridgeType,
     raw: &str,
     name: &str,
@@ -717,20 +979,20 @@ fn render_kotlin_value_binding(
 ) -> Result<(), String> {
     let decoder = match ty {
         BridgeType::Optional(inner) => {
-            let decoder = kotlin_decode_value(inner, raw)
+            let decoder = kotlin_decode_value(inner, raw, namespace, 0)
                 .ok_or_else(|| format!("unsupported Dev value type {ty:?}"))?;
             out.push_str(&format!("{indent}val {name}: {}\n{indent}if ({raw} == null || {raw} == JSONObject.NULL) {{ {name} = null }} else {{\n", kotlin_type_for_dev(ty)));
             out.push_str(&format!("{indent}    val nexaUnwrapped = {decoder} ?: {failure}\n{indent}    {name} = nexaUnwrapped\n{indent}}}\n"));
             return Ok(());
         }
-        _ => kotlin_decode_value(ty, raw)
+        _ => kotlin_decode_value(ty, raw, namespace, 0)
             .ok_or_else(|| format!("unsupported Dev value type {ty:?}"))?,
     };
     out.push_str(&format!("{indent}val {name} = {decoder} ?: {failure}\n"));
     Ok(())
 }
 
-fn swift_decode_value(ty: &BridgeType, raw: &str, namespace: &str) -> Option<String> {
+fn swift_decode_value(ty: &BridgeType, raw: &str, namespace: &str, depth: usize) -> Option<String> {
     Some(match ty {
         BridgeType::Scalar(_) => format!("Self.{}({raw})", swift_decoder(ty)),
         BridgeType::Named {
@@ -741,11 +1003,92 @@ fn swift_decode_value(ty: &BridgeType, raw: &str, namespace: &str) -> Option<Str
             name,
             kind: BridgeNamedKind::Enum,
         } => format!("Self.{}({raw})", swift_enum_decoder(namespace, name)),
+        BridgeType::Named {
+            name,
+            kind: BridgeNamedKind::Struct,
+        } => format!("Self.{}({raw})", swift_struct_decoder(namespace, name)),
+        BridgeType::Array(inner) => {
+            let item = format!("nexaDevArrayItem{depth}");
+            let decoded = swift_decode_value(inner, &item, namespace, depth + 1)?;
+            format!(
+                "({raw} as? [Any]).flatMap({{ values in let decoded = values.compactMap({{ {item} in {decoded} }}); return decoded.count == values.count ? decoded : nil }})"
+            )
+        }
+        BridgeType::Set(inner) => {
+            let item = format!("nexaDevSetItem{depth}");
+            let decoded = swift_decode_value(inner, &item, namespace, depth + 1)?;
+            format!("NexaDevValueCodec.transformSet({raw}, decode: {{ {item} in {decoded} }})")
+        }
+        BridgeType::Map(key, value) => {
+            let raw_key = format!("nexaDevMapKey{depth}");
+            let raw_value = format!("nexaDevMapValue{depth}");
+            let decoded_key = swift_decode_map_key(key, &raw_key)?;
+            let decoded_value = swift_decode_value(value, &raw_value, namespace, depth + 1)?;
+            format!(
+                "NexaDevValueCodec.transformMap({raw}, decodeKey: {{ {raw_key} in {decoded_key} }}, decodeValue: {{ {raw_value} in {decoded_value} }})"
+            )
+        }
         _ => return None,
     })
 }
 
-fn kotlin_decode_value(ty: &BridgeType, raw: &str) -> Option<String> {
+fn swift_decode_map_key(ty: &BridgeType, raw: &str) -> Option<String> {
+    let parse = |name: &str| format!("({raw} as? String).flatMap {{ {name}($0) }}");
+    Some(match ty {
+        BridgeType::Scalar(BridgeScalar::String) => format!("{raw} as? String"),
+        BridgeType::Scalar(BridgeScalar::Bool) => format!(
+            "({raw} as? String).flatMap {{ value in value == \"true\" ? true : value == \"false\" ? false : nil }}"
+        ),
+        BridgeType::Scalar(BridgeScalar::Int8) => parse("Int8"),
+        BridgeType::Scalar(BridgeScalar::Int16) => parse("Int16"),
+        BridgeType::Scalar(BridgeScalar::Int32) => parse("Int32"),
+        BridgeType::Scalar(BridgeScalar::Int64) => parse("Int64"),
+        BridgeType::Scalar(BridgeScalar::UInt8) => parse("UInt8"),
+        BridgeType::Scalar(BridgeScalar::UInt16) => parse("UInt16"),
+        BridgeType::Scalar(BridgeScalar::UInt32) => parse("UInt32"),
+        BridgeType::Scalar(BridgeScalar::UInt64) => parse("UInt64"),
+        BridgeType::Scalar(BridgeScalar::Float32) => parse("Float"),
+        BridgeType::Scalar(BridgeScalar::Float64) => parse("Double"),
+        _ => return None,
+    })
+}
+
+fn swift_dynamic_decode_value(
+    ty: &BridgeType,
+    raw: &str,
+    namespace: &str,
+    depth: usize,
+) -> Option<String> {
+    Some(match ty {
+        BridgeType::TypeParameter(_) => format!("NexaDevValueCodec.box({raw})"),
+        BridgeType::Array(inner) => {
+            let item = format!("nexaDevDynamicItem{depth}");
+            let decoded = swift_dynamic_decode_value(inner, &item, namespace, depth + 1)?;
+            format!("NexaDevValueCodec.transformArray({raw}, decode: {{ {item} in {decoded} }})")
+        }
+        BridgeType::Set(inner) if super::bridge_plan::contains_type_parameter(inner) => {
+            format!("NexaDevValueCodec.asSet({raw})")
+        }
+        BridgeType::Map(key, value) => {
+            let raw_key = format!("nexaDevDynamicKey{depth}");
+            let raw_value = format!("nexaDevDynamicValue{depth}");
+            let decoded_key = swift_dynamic_decode_value(key, &raw_key, namespace, depth + 1)?;
+            let decoded_value =
+                swift_dynamic_decode_value(value, &raw_value, namespace, depth + 1)?;
+            format!(
+                "NexaDevValueCodec.transformMap({raw}, decodeKey: {{ {raw_key} in {decoded_key} }}, decodeValue: {{ {raw_value} in {decoded_value} }})"
+            )
+        }
+        other => swift_decode_value(other, raw, namespace, depth)?,
+    })
+}
+
+fn kotlin_decode_value(
+    ty: &BridgeType,
+    raw: &str,
+    namespace: &str,
+    depth: usize,
+) -> Option<String> {
     Some(match ty {
         BridgeType::Scalar(BridgeScalar::String) => format!("{raw} as? String"),
         BridgeType::Scalar(BridgeScalar::Bool) => format!("{raw} as? Boolean"),
@@ -764,8 +1107,74 @@ fn kotlin_decode_value(ty: &BridgeType, raw: &str) -> Option<String> {
         } => format!(
             "({raw} as? {name}) ?: ({raw} as? String)?.let {{ requested -> {name}.values().firstOrNull {{ it.name == requested }} }}"
         ),
+        BridgeType::Named {
+            name,
+            kind: BridgeNamedKind::Struct,
+        } => format!(
+            "decode{}{}({raw})",
+            dev_struct_suffix(namespace, name),
+            "FromValue"
+        ),
+        BridgeType::Array(inner) => {
+            let item = format!("nexaDevArrayItem{depth}");
+            let decoded = kotlin_decode_value(inner, &item, namespace, depth + 1)?;
+            format!(
+                "({raw} as? List<*>)?.let {{ values -> val decoded = values.mapNotNull {{ {item} -> {decoded} }}; decoded.takeIf {{ it.size == values.size }} }}"
+            )
+        }
+        BridgeType::Set(inner) => {
+            let item = format!("nexaDevSetItem{depth}");
+            let decoded = kotlin_decode_value(inner, &item, namespace, depth + 1)?;
+            format!("NexaDevValueCodec.transformSet({raw}) {{ {item} -> {decoded} }}")
+        }
+        BridgeType::Map(key, value) => {
+            let raw_key = format!("nexaDevMapKey{depth}");
+            let raw_value = format!("nexaDevMapValue{depth}");
+            let decoded_key = kotlin_decode_map_key(key, &raw_key)?;
+            let decoded_value = kotlin_decode_value(value, &raw_value, namespace, depth + 1)?;
+            format!(
+                "NexaDevValueCodec.transformMap({raw}, decodeKey = {{ {raw_key} -> {decoded_key} }}, decodeValue = {{ {raw_value} -> {decoded_value} }})"
+            )
+        }
         _ => return None,
     })
+}
+
+fn kotlin_decode_map_key(ty: &BridgeType, raw: &str) -> Option<String> {
+    Some(match ty {
+        BridgeType::Scalar(BridgeScalar::String) => format!("{raw} as? String"),
+        BridgeType::Scalar(BridgeScalar::Bool) => format!(
+            "({raw} as? String)?.let {{ value -> when (value) {{ \"true\" -> true; \"false\" -> false; else -> null }} }}"
+        ),
+        BridgeType::Scalar(BridgeScalar::Int8) => format!("({raw} as? String)?.toByteOrNull()"),
+        BridgeType::Scalar(BridgeScalar::Int16) => format!("({raw} as? String)?.toShortOrNull()"),
+        BridgeType::Scalar(BridgeScalar::Int32) => format!("({raw} as? String)?.toIntOrNull()"),
+        BridgeType::Scalar(BridgeScalar::Int64) => format!("({raw} as? String)?.toLongOrNull()"),
+        BridgeType::Scalar(BridgeScalar::UInt8) => format!("({raw} as? String)?.toUByteOrNull()"),
+        BridgeType::Scalar(BridgeScalar::UInt16) => format!("({raw} as? String)?.toUShortOrNull()"),
+        BridgeType::Scalar(BridgeScalar::UInt32) => format!("({raw} as? String)?.toUIntOrNull()"),
+        BridgeType::Scalar(BridgeScalar::UInt64) => format!("({raw} as? String)?.toULongOrNull()"),
+        BridgeType::Scalar(BridgeScalar::Float32) => format!("({raw} as? String)?.toFloatOrNull()"),
+        BridgeType::Scalar(BridgeScalar::Float64) => {
+            format!("({raw} as? String)?.toDoubleOrNull()")
+        }
+        _ => return None,
+    })
+}
+
+fn swift_struct_decoder(namespace: &str, name: &str) -> String {
+    format!(
+        "nexaDevDecode{}FromValue",
+        dev_struct_suffix(namespace, name)
+    )
+}
+
+fn dev_struct_suffix(namespace: &str, name: &str) -> String {
+    namespace
+        .chars()
+        .chain(name.chars())
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect()
 }
 
 fn swift_encode_value(ty: &BridgeType, value: &str, namespace: &str) -> String {
@@ -783,21 +1192,175 @@ fn swift_encode_value(ty: &BridgeType, value: &str, namespace: &str) -> String {
     }
 }
 
-fn kotlin_encode_value(ty: &BridgeType, value: &str) -> String {
-    match ty {
+fn swift_encode_dev_value(
+    plan: &BridgePlan,
+    ty: &BridgeType,
+    value: &str,
+    namespace: &str,
+    depth: usize,
+) -> Option<String> {
+    Some(match ty {
+        BridgeType::Scalar(BridgeScalar::Bytes) => format!("{value}.base64EncodedString()"),
+        BridgeType::Scalar(_) => value.to_owned(),
+        BridgeType::TypeParameter(_) => {
+            format!("({value} as? NexaDevHashableValue)?.value ?? {value}")
+        }
+        BridgeType::Named {
+            name,
+            kind: BridgeNamedKind::Enum,
+        } => format!("Self.{}({value})", swift_enum_encoder(namespace, name)),
+        BridgeType::Named {
+            name,
+            kind: BridgeNamedKind::Struct,
+        } => {
+            let structure = plan
+                .types
+                .iter()
+                .find(|item| item.name == *name && item.kind == BridgeTypeKind::Struct)?;
+            let fields = structure
+                .fields
+                .iter()
+                .map(|field| {
+                    Some(format!(
+                        "\"{}\": {} as Any",
+                        swift_escape(&field.name),
+                        swift_encode_dev_value(
+                            plan,
+                            &field.ty,
+                            &format!("{value}.{}", field.name),
+                            namespace,
+                            depth + 1,
+                        )?
+                    ))
+                })
+                .collect::<Option<Vec<_>>>()?
+                .join(", ");
+            format!("[{fields}]")
+        }
+        BridgeType::Named {
+            kind: BridgeNamedKind::NativeClass,
+            ..
+        } => value.to_owned(),
+        BridgeType::Optional(inner) => {
+            let local = format!("nexaEncodeOptional{depth}");
+            format!(
+                "{value}.map {{ {local} in {} as Any }} ?? NSNull()",
+                swift_encode_dev_value(plan, inner, &local, namespace, depth + 1)?
+            )
+        }
+        BridgeType::Array(inner) => {
+            let local = format!("nexaEncodeArray{depth}");
+            format!(
+                "{value}.map {{ {local} in {} }}",
+                swift_encode_dev_value(plan, inner, &local, namespace, depth + 1)?
+            )
+        }
+        BridgeType::Set(inner) => {
+            let local = format!("nexaEncodeSet{depth}");
+            format!(
+                "Set({value}.map {{ {local} in NexaDevHashableValue({}) }})",
+                swift_encode_dev_value(plan, inner, &local, namespace, depth + 1)?
+            )
+        }
+        BridgeType::Map(key_type, inner) => {
+            let entry = format!("nexaEncodeMapEntry{depth}");
+            let key = if super::bridge_plan::contains_type_parameter(key_type) {
+                format!("({entry}.key as? NexaDevHashableValue)?.value ?? {entry}.key")
+            } else {
+                format!("{entry}.key")
+            };
+            let encoded = swift_encode_dev_value(
+                plan,
+                inner,
+                &format!("{entry}.value"),
+                namespace,
+                depth + 1,
+            )?;
+            format!(
+                "Dictionary(uniqueKeysWithValues: {value}.map {{ {entry} in (String(describing: {key}), {encoded} as Any) }})"
+            )
+        }
+        _ => return None,
+    })
+}
+
+fn kotlin_encode_dev_value(
+    plan: &BridgePlan,
+    ty: &BridgeType,
+    value: &str,
+    depth: usize,
+) -> Option<String> {
+    Some(match ty {
         BridgeType::Scalar(BridgeScalar::Bytes) => {
             format!("Base64.encodeToString({value}, Base64.NO_WRAP)")
         }
+        BridgeType::Scalar(_) | BridgeType::TypeParameter(_) => value.to_owned(),
         BridgeType::Named {
             kind: BridgeNamedKind::Enum,
             ..
         } => format!("{value}.name"),
-        BridgeType::Optional(inner) => format!(
-            "{value}?.let {{ {} }} ?: JSONObject.NULL",
-            kotlin_encode_value(inner, "it")
-        ),
-        _ => value.to_owned(),
-    }
+        BridgeType::Named {
+            name,
+            kind: BridgeNamedKind::Struct,
+        } => {
+            let structure = plan
+                .types
+                .iter()
+                .find(|item| item.name == *name && item.kind == BridgeTypeKind::Struct)?;
+            let fields = structure
+                .fields
+                .iter()
+                .map(|field| {
+                    Some(format!(
+                        "\"{}\" to {}",
+                        kotlin_escape(&field.name),
+                        kotlin_encode_dev_value(
+                            plan,
+                            &field.ty,
+                            &format!("{value}.{}", field.name),
+                            depth + 1,
+                        )?
+                    ))
+                })
+                .collect::<Option<Vec<_>>>()?
+                .join(", ");
+            format!("mapOf<String, Any>({fields})")
+        }
+        BridgeType::Named {
+            kind: BridgeNamedKind::NativeClass,
+            ..
+        } => value.to_owned(),
+        BridgeType::Optional(inner) => {
+            let local = format!("nexaEncodeOptional{depth}");
+            format!(
+                "{value}?.let {{ {local} -> {} }} ?: JSONObject.NULL",
+                kotlin_encode_dev_value(plan, inner, &local, depth + 1)?
+            )
+        }
+        BridgeType::Array(inner) => {
+            let local = format!("nexaEncodeArray{depth}");
+            format!(
+                "{value}.map {{ {local} -> {} }}",
+                kotlin_encode_dev_value(plan, inner, &local, depth + 1)?
+            )
+        }
+        BridgeType::Set(inner) => {
+            let local = format!("nexaEncodeSet{depth}");
+            format!(
+                "{value}.map {{ {local} -> {} }}.toSet()",
+                kotlin_encode_dev_value(plan, inner, &local, depth + 1)?
+            )
+        }
+        BridgeType::Map(_, inner) => {
+            let entry = format!("nexaEncodeMapEntry{depth}");
+            let encoded =
+                kotlin_encode_dev_value(plan, inner, &format!("{entry}.value"), depth + 1)?;
+            format!(
+                "{value}.entries.associate {{ {entry} -> {entry}.key.toString() to ({encoded} as Any) }}"
+            )
+        }
+        _ => return None,
+    })
 }
 
 fn render_swift_enum_codecs(out: &mut String, namespace: &str, plan: &BridgePlan) {
@@ -830,6 +1393,93 @@ fn render_swift_enum_codecs(out: &mut String, namespace: &str, plan: &BridgePlan
         }
         out.push_str("        default: return nil\n        }\n    }\n\n");
     }
+}
+
+fn render_swift_struct_codecs(
+    out: &mut String,
+    namespace: &str,
+    plan: &BridgePlan,
+) -> Result<(), String> {
+    for structure in plan
+        .types
+        .iter()
+        .filter(|ty| ty.kind == BridgeTypeKind::Struct)
+        .filter(|ty| supported_struct_value(plan, &ty.name, 0))
+    {
+        let helper = swift_struct_decoder(namespace, &structure.name);
+        out.push_str(&format!(
+            "    private static func {helper}(_ raw: Any?) -> {}? {{\n        guard let values = raw as? [String: Any] else {{ return nil }}\n",
+            structure.name
+        ));
+        for field in &structure.fields {
+            render_swift_value_binding(
+                out,
+                plan,
+                &field.ty,
+                &format!("values[\"{}\"]", swift_escape(&field.name)),
+                &format!("nexaField_{}", field.name),
+                "return nil",
+                namespace,
+                "        ",
+            )?;
+        }
+        let arguments = structure
+            .fields
+            .iter()
+            .map(|field| format!("{}: nexaField_{}", field.name, field.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "        return {}({arguments})\n    }}\n\n",
+            structure.name
+        ));
+    }
+    Ok(())
+}
+
+fn render_kotlin_struct_codecs(
+    out: &mut String,
+    namespace: &str,
+    plan: &BridgePlan,
+) -> Result<(), String> {
+    for structure in plan
+        .types
+        .iter()
+        .filter(|ty| ty.kind == BridgeTypeKind::Struct)
+        .filter(|ty| supported_struct_value(plan, &ty.name, 0))
+    {
+        let helper = format!(
+            "decode{}FromValue",
+            dev_struct_suffix(namespace, &structure.name)
+        );
+        out.push_str(&format!(
+            "    private fun {helper}(raw: Any?): {}? {{\n        val values = raw as? Map<*, *> ?: return null\n",
+            structure.name
+        ));
+        for field in &structure.fields {
+            render_kotlin_value_binding(
+                out,
+                plan,
+                namespace,
+                &field.ty,
+                &format!("values[\"{}\"]", kotlin_escape(&field.name)),
+                &format!("nexaField_{}", field.name),
+                "return null",
+                "        ",
+            )?;
+        }
+        let arguments = structure
+            .fields
+            .iter()
+            .map(|field| format!("nexaField_{}", field.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "        return {}({arguments})\n    }}\n\n",
+            structure.name
+        ));
+    }
+    Ok(())
 }
 
 fn dev_error_helper(namespace: &str, error_type: &str) -> String {
@@ -878,13 +1528,19 @@ fn render_swift_plugin_errors(
                     .iter()
                     .zip(bindings)
                     .map(|(parameter, binding)| {
-                        format!(
+                        Ok(format!(
                             "\"{}\": {} as Any",
                             swift_escape(&parameter.name),
-                            swift_encode_value(&parameter.ty, &binding, namespace)
-                        )
+                            swift_error_payload_value(
+                                &plan,
+                                &parameter.ty,
+                                &binding,
+                                namespace,
+                                0,
+                            )?
+                        ))
                     })
-                    .collect::<Vec<_>>()
+                    .collect::<Result<Vec<_>, String>>()?
                     .join(", ");
                 let payload = if fields.is_empty() {
                     "[:]".to_owned()
@@ -922,16 +1578,18 @@ fn render_kotlin_plugin_errors(
                     .parameters
                     .iter()
                     .map(|parameter| {
-                        format!(
+                        Ok(format!(
                             "\"{}\" to {}",
                             kotlin_escape(&parameter.name),
-                            kotlin_encode_value(
+                            kotlin_error_payload_value(
+                                &plan,
                                 &parameter.ty,
-                                &format!("error.{}", parameter.name)
-                            )
-                        )
+                                &format!("error.{}", parameter.name),
+                                0,
+                            )?
+                        ))
                     })
-                    .collect::<Vec<_>>()
+                    .collect::<Result<Vec<_>, String>>()?
                     .join(", ");
                 let pattern = if variant.parameters.is_empty() {
                     format!("{}.{}", error.name, variant.name)
@@ -951,6 +1609,192 @@ fn render_kotlin_plugin_errors(
     Ok(())
 }
 
+fn swift_error_payload_value(
+    plan: &BridgePlan,
+    ty: &BridgeType,
+    value: &str,
+    namespace: &str,
+    depth: usize,
+) -> Result<String, String> {
+    let nested = |ty: &BridgeType, expression: &str| {
+        swift_error_payload_value(plan, ty, expression, namespace, depth + 1)
+    };
+    Ok(match ty {
+        BridgeType::Scalar(_) => swift_encode_value(ty, value, namespace),
+        BridgeType::Named {
+            kind: BridgeNamedKind::Enum,
+            ..
+        } => swift_encode_value(ty, value, namespace),
+        BridgeType::Named {
+            name,
+            kind: BridgeNamedKind::Struct,
+        } => {
+            let structure = plan
+                .types
+                .iter()
+                .find(|candidate| {
+                    candidate.name == *name && candidate.kind == BridgeTypeKind::Struct
+                })
+                .ok_or_else(|| {
+                    format!("missing plugin struct `{name}` while encoding Dev errors")
+                })?;
+            let fields = structure
+                .fields
+                .iter()
+                .map(|field| {
+                    Ok(format!(
+                        "\"{}\": {} as Any",
+                        swift_escape(&field.name),
+                        nested(&field.ty, &format!("{value}.{}", field.name))?
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?
+                .join(", ");
+            format!("[{fields}]")
+        }
+        BridgeType::Named { .. } => value.to_owned(),
+        BridgeType::Optional(inner) => {
+            let local = format!("nexaErrorOptional{depth}");
+            format!(
+                "({value}.map {{ {local} in {} as Any }} ?? NSNull())",
+                nested(inner, &local)?
+            )
+        }
+        BridgeType::Array(inner) => {
+            let local = format!("nexaErrorArray{depth}");
+            format!("{value}.map {{ {local} in {} }}", nested(inner, &local)?)
+        }
+        BridgeType::Set(inner) => {
+            let local = format!("nexaErrorSet{depth}");
+            format!(
+                "{value}.sorted {{ String(describing: $0) < String(describing: $1) }}.map {{ {local} in {} }}",
+                nested(inner, &local)?
+            )
+        }
+        BridgeType::Map(_, element) => {
+            let entry_local = format!("nexaErrorMapEntry{depth}");
+            let value_local = format!("{entry_local}.value");
+            format!(
+                "Dictionary(uniqueKeysWithValues: {value}.map {{ {entry_local} in (String(describing: {entry_local}.key), {} as Any) }})",
+                nested(element, &value_local)?
+            )
+        }
+        BridgeType::Pair(first, second) => format!(
+            "[{} as Any, {} as Any]",
+            nested(first, &format!("{value}.0"))?,
+            nested(second, &format!("{value}.1"))?
+        ),
+        BridgeType::Triple(first, second, third) => format!(
+            "[{} as Any, {} as Any, {} as Any]",
+            nested(first, &format!("{value}.0"))?,
+            nested(second, &format!("{value}.1"))?,
+            nested(third, &format!("{value}.2"))?
+        ),
+        BridgeType::Result { success, .. } => {
+            let local = format!("nexaErrorResult{depth}");
+            format!(
+                "{{ () -> [String: Any] in switch {value} {{ case .success(let {local}): return [\"Ok\": {} as Any]; case .failure(let nexaErrorFailure{depth}): return [\"Err\": String(describing: nexaErrorFailure{depth})] }} }}()",
+                nested(success, &local)?
+            )
+        }
+        BridgeType::TypeParameter(_) => value.to_owned(),
+    })
+}
+
+fn kotlin_error_payload_value(
+    plan: &BridgePlan,
+    ty: &BridgeType,
+    value: &str,
+    depth: usize,
+) -> Result<String, String> {
+    let nested = |ty: &BridgeType, expression: &str| {
+        kotlin_error_payload_value(plan, ty, expression, depth + 1)
+    };
+    Ok(match ty {
+        BridgeType::Scalar(BridgeScalar::Bytes) => {
+            format!("Base64.encodeToString({value}, Base64.NO_WRAP)")
+        }
+        BridgeType::Scalar(BridgeScalar::Void) => "JSONObject.NULL".to_owned(),
+        BridgeType::Scalar(_) => value.to_owned(),
+        BridgeType::Named {
+            kind: BridgeNamedKind::Enum,
+            ..
+        } => format!("{value}.name"),
+        BridgeType::Named {
+            name,
+            kind: BridgeNamedKind::Struct,
+        } => {
+            let structure = plan
+                .types
+                .iter()
+                .find(|candidate| {
+                    candidate.name == *name && candidate.kind == BridgeTypeKind::Struct
+                })
+                .ok_or_else(|| {
+                    format!("missing plugin struct `{name}` while encoding Dev errors")
+                })?;
+            let fields = structure
+                .fields
+                .iter()
+                .map(|field| {
+                    Ok(format!(
+                        "\"{}\" to {}",
+                        kotlin_escape(&field.name),
+                        nested(&field.ty, &format!("{value}.{}", field.name))?
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?
+                .join(", ");
+            format!("mapOf<String, Any>({fields})")
+        }
+        BridgeType::Named { .. } => value.to_owned(),
+        BridgeType::Optional(inner) => {
+            let local = format!("nexaErrorOptional{depth}");
+            format!(
+                "{value}?.let {{ {local} -> {} }} ?: JSONObject.NULL",
+                nested(inner, &local)?
+            )
+        }
+        BridgeType::Array(inner) => {
+            let local = format!("nexaErrorArray{depth}");
+            format!("{value}.map {{ {local} -> {} }}", nested(inner, &local)?)
+        }
+        BridgeType::Set(inner) => {
+            let local = format!("nexaErrorSet{depth}");
+            format!(
+                "{value}.sortedBy {{ it.toString() }}.map {{ {local} -> {} }}",
+                nested(inner, &local)?
+            )
+        }
+        BridgeType::Map(_, element) => {
+            let local = format!("nexaErrorEntry{depth}");
+            format!(
+                "{value}.entries.associate {{ {local} -> {local}.key.toString() to {} }}",
+                nested(element, &format!("{local}.value"))?
+            )
+        }
+        BridgeType::Pair(first, second) => format!(
+            "listOf<Any>({} as Any, {} as Any)",
+            nested(first, &format!("{value}.first"))?,
+            nested(second, &format!("{value}.second"))?
+        ),
+        BridgeType::Triple(first, second, third) => format!(
+            "listOf<Any>({} as Any, {} as Any, {} as Any)",
+            nested(first, &format!("{value}.first"))?,
+            nested(second, &format!("{value}.second"))?,
+            nested(third, &format!("{value}.third"))?
+        ),
+        BridgeType::Result { success, .. } => {
+            let local = format!("nexaErrorResult{depth}");
+            format!(
+                "{value}.fold(onSuccess = {{ {local} -> mapOf<String, Any>(\"Ok\" to ({} as Any)) }}, onFailure = {{ failure -> mapOf<String, Any>(\"Err\" to failure.toString()) }})",
+                nested(success, &local)?
+            )
+        }
+        BridgeType::TypeParameter(_) => value.to_owned(),
+    })
+}
+
 fn swift_enum_base(namespace: &str, name: &str) -> String {
     let prefix = namespace
         .chars()
@@ -967,24 +1811,36 @@ fn swift_enum_decoder(namespace: &str, name: &str) -> String {
     format!("{}FromString", swift_enum_base(namespace, name))
 }
 
-fn supported_parameters(parameters: &[BridgeParameter]) -> bool {
+fn supported_parameters(plan: &BridgePlan, parameters: &[BridgeParameter]) -> bool {
     parameters
         .iter()
-        .all(|parameter| supported_value_type(&parameter.ty))
+        .all(|parameter| supported_value_type(plan, &parameter.ty))
 }
 
-fn supported_return(ty: &BridgeType) -> bool {
-    ty.is_void() || supported_value_type(ty)
+fn supported_return(plan: &BridgePlan, ty: &BridgeType) -> bool {
+    ty.is_void() || supported_value_type(plan, ty)
 }
 
-fn supported_value_type(ty: &BridgeType) -> bool {
+fn supported_value_type(plan: &BridgePlan, ty: &BridgeType) -> bool {
     match ty {
         BridgeType::Scalar(scalar) => *scalar != BridgeScalar::Void && supported_scalar(*scalar),
-        BridgeType::Optional(inner) => matches!(
-            inner.as_ref(),
-            BridgeType::Scalar(scalar)
-                if *scalar != BridgeScalar::Void && supported_scalar(*scalar)
-        ),
+        BridgeType::Optional(inner) => supported_runtime_value_type(plan, inner),
+        BridgeType::Array(inner) => {
+            !matches!(inner.as_ref(), BridgeType::Optional(_))
+                && supported_static_collection_element(plan, inner, 0)
+        }
+        BridgeType::Set(inner) => supported_hashable_collection_element(plan, inner),
+        BridgeType::Map(key, value) => {
+            supported_map_key(key) && supported_static_collection_element(plan, value, 0)
+        }
+        BridgeType::Named {
+            kind: BridgeNamedKind::Enum | BridgeNamedKind::NativeClass,
+            ..
+        } => true,
+        BridgeType::Named {
+            name,
+            kind: BridgeNamedKind::Struct,
+        } => supported_struct_value(plan, name, 0),
         _ => false,
     }
 }
@@ -1011,6 +1867,7 @@ fn supported_scalar(scalar: BridgeScalar) -> bool {
 fn render_swift_constructor(
     out: &mut String,
     namespace: &str,
+    plan: &BridgePlan,
     interface: &BridgeInterface,
     constructor: &BridgeConstructor,
 ) {
@@ -1023,6 +1880,8 @@ fn render_swift_constructor(
     for (index, parameter) in constructor.parameters.iter().enumerate() {
         render_swift_decode_argument(
             out,
+            plan,
+            namespace,
             index,
             &parameter.ty,
             &format!("arguments[{index}]"),
@@ -1042,6 +1901,7 @@ fn render_swift_constructor(
 fn render_kotlin_constructor(
     out: &mut String,
     namespace: &str,
+    plan: &BridgePlan,
     interface: &BridgeInterface,
     constructor: &BridgeConstructor,
 ) {
@@ -1054,6 +1914,8 @@ fn render_kotlin_constructor(
     for (index, parameter) in constructor.parameters.iter().enumerate() {
         render_kotlin_decode_argument(
             out,
+            plan,
+            namespace,
             index,
             &parameter.ty,
             &format!("arguments[{index}]"),
@@ -1087,28 +1949,71 @@ fn render_swift_instance_methods(
             .filter(|interface| interface.kind == InterfaceKind::NativeClass)
         {
             for method in &interface.methods {
-                if !supported(method) || (!asynchronous && method.is_async) {
+                if !supported(method, &plan) || (!asynchronous && method.is_async) {
                     continue;
                 }
                 out.push_str(&format!(
-                    "        if namespace == \"{}\", name == \"{}\", let nexaReceiver = receiver as? {} {{\n",
+                    "        if namespace == \"{}\", name == \"{}\", let nexaReceiver = receiver as? any {}Spec {{\n",
                     swift_escape(namespace),
                     swift_escape(&method.name),
                     interface.name
                 ));
-                for (index, parameter) in method.parameters.iter().enumerate() {
-                    render_swift_decode_argument(
-                        out,
-                        index,
-                        &parameter.ty,
-                        &format!("options[\"{}\"]", swift_escape(&parameter.name)),
-                        "            ",
-                    );
+                let generic = !method.type_parameters.is_empty();
+                let codec_shapes = method_codec_shapes(method);
+                if generic {
+                    out.push_str(&format!(
+                        "            guard codecs.count == {} else {{ return (false, NSNull()) }}\n",
+                        codec_shapes.len()
+                    ));
+                    for index in 0..codec_shapes.len() {
+                        out.push_str(&format!(
+                            "            let nexaCodec{index} = codecs[{index}]\n"
+                        ));
+                    }
                 }
-                let arguments = (0..method.parameters.len())
+                for (index, parameter) in method.parameters.iter().enumerate() {
+                    let raw = format!("options[\"{}\"]", swift_escape(&parameter.name));
+                    if generic && super::bridge_plan::contains_type_parameter(&parameter.ty) {
+                        render_swift_dynamic_argument(
+                            out,
+                            index,
+                            &parameter.ty,
+                            &raw,
+                            namespace,
+                            "            ",
+                        )?;
+                    } else {
+                        render_swift_decode_argument(
+                            out,
+                            &plan,
+                            namespace,
+                            index,
+                            &parameter.ty,
+                            &raw,
+                            "            ",
+                        );
+                    }
+                }
+                let mut call_arguments = (0..method.parameters.len())
                     .map(|index| format!("nexaArg{index}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                    .collect::<Vec<_>>();
+                if generic {
+                    for (index, (codec_ty, decodes)) in codec_shapes.iter().enumerate() {
+                        if *decodes {
+                            let raw = format!(
+                                "NexaDevValueCodec.read(type: nexaCodec{index}, from: nexaReader{index}, enumCases: enumCases)"
+                            );
+                            let decoded = swift_dynamic_decode_value(codec_ty, &raw, namespace, 0)
+                                .ok_or_else(|| "unsupported Dev generic return codec".to_owned())?;
+                            call_arguments.push(format!("{{ nexaReader{index} in {decoded} }}"));
+                        } else {
+                            call_arguments.push(format!(
+                                "{{ nexaItem{index}, nexaWriter{index} in _ = NexaDevValueCodec.write(nexaItem{index}, type: nexaCodec{index}, into: nexaWriter{index}, enumCases: enumCases) }}"
+                            ));
+                        }
+                    }
+                }
+                let arguments = call_arguments.join(", ");
                 let prefix = match (method.is_async, method.error_type().is_some()) {
                     (true, true) => "try await ",
                     (true, false) => "await ",
@@ -1134,7 +2039,7 @@ fn render_swift_instance_methods(
                         "{indent}let result = {prefix}nexaReceiver.{}({arguments})\n",
                         method.name,
                     ));
-                    render_swift_result(out, method.success_type(), indent);
+                    render_swift_result(out, &plan, namespace, method.success_type(), indent)?;
                 }
                 if let Some(error_type) = error_type {
                     let helper = dev_error_helper(namespace, error_type);
@@ -1170,7 +2075,7 @@ fn render_kotlin_instance_methods(
             .filter(|interface| interface.kind == InterfaceKind::NativeClass)
         {
             for method in &interface.methods {
-                if !supported(method) || (!asynchronous && method.is_async) {
+                if !supported(method, &plan) || (!asynchronous && method.is_async) {
                     continue;
                 }
                 out.push_str(&format!(
@@ -1179,23 +2084,66 @@ fn render_kotlin_instance_methods(
                     kotlin_escape(&method.name),
                     interface.name
                 ));
-                for (index, parameter) in method.parameters.iter().enumerate() {
-                    render_kotlin_decode_argument(
-                        out,
-                        index,
-                        &parameter.ty,
-                        &format!("options[\"{}\"]", kotlin_escape(&parameter.name)),
-                        &format!(
-                            "Invalid argument `{}` for {}.{}",
-                            parameter.name, namespace, method.name
-                        ),
-                        "            ",
-                    );
+                let generic = !method.type_parameters.is_empty();
+                let codec_shapes = method_codec_shapes(method);
+                if generic {
+                    out.push_str(&format!(
+                        "            if (codecs.size != {}) return false to JSONObject.NULL\n",
+                        codec_shapes.len()
+                    ));
+                    for index in 0..codec_shapes.len() {
+                        out.push_str(&format!(
+                            "            val nexaCodec{index} = codecs[{index}]\n"
+                        ));
+                    }
                 }
-                let arguments = (0..method.parameters.len())
+                for (index, parameter) in method.parameters.iter().enumerate() {
+                    let raw = format!("options[\"{}\"]", kotlin_escape(&parameter.name));
+                    let error = format!(
+                        "Invalid argument `{}` for {}.{}",
+                        parameter.name, namespace, method.name
+                    );
+                    if generic && super::bridge_plan::contains_type_parameter(&parameter.ty) {
+                        render_kotlin_dynamic_argument(
+                            out,
+                            index,
+                            &parameter.ty,
+                            &raw,
+                            &error,
+                            "            ",
+                        );
+                    } else {
+                        render_kotlin_decode_argument(
+                            out,
+                            &plan,
+                            namespace,
+                            index,
+                            &parameter.ty,
+                            &raw,
+                            &error,
+                            "            ",
+                        );
+                    }
+                }
+                let mut call_arguments = (0..method.parameters.len())
                     .map(|index| format!("nexaArg{index}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                    .collect::<Vec<_>>();
+                if generic {
+                    for (index, (codec_ty, decodes)) in codec_shapes.iter().enumerate() {
+                        if *decodes {
+                            let shape =
+                                kotlin_dynamic_type(codec_ty).unwrap_or_else(|| "Any".to_owned());
+                            call_arguments.push(format!(
+                                "{{ nexaReader{index} -> NexaDevValueCodec.read(nexaCodec{index}, nexaReader{index}, enumCases) as? {shape} }}"
+                            ));
+                        } else {
+                            call_arguments.push(format!(
+                                "{{ nexaItem{index}, nexaWriter{index} -> check(NexaDevValueCodec.write(nexaItem{index}, nexaCodec{index}, nexaWriter{index}, enumCases)) }}"
+                            ));
+                        }
+                    }
+                }
+                let arguments = call_arguments.join(", ");
                 if method.error_type().is_some() {
                     out.push_str("            try {\n");
                 }
@@ -1214,7 +2162,7 @@ fn render_kotlin_instance_methods(
                         "{indent}val result = nexaReceiver.{}({arguments})\n",
                         method.name
                     ));
-                    render_kotlin_result(out, method.success_type(), indent);
+                    render_kotlin_result(out, &plan, method.success_type(), indent)?;
                 }
                 if let Some(error_type) = method.error_type() {
                     let helper = dev_error_helper(namespace, error_type);
@@ -1231,34 +2179,53 @@ fn render_kotlin_instance_methods(
 
 fn render_swift_decode_argument(
     out: &mut String,
+    _plan: &BridgePlan,
+    namespace: &str,
     index: usize,
     ty: &BridgeType,
     raw: &str,
     indent: &str,
 ) {
-    let decoder = swift_decoder(ty);
+    let decode_type = match ty {
+        BridgeType::Optional(inner) => inner.as_ref(),
+        other => other,
+    };
+    let Some(decoder) = swift_decode_value(decode_type, raw, namespace, 0) else {
+        return;
+    };
     if matches!(ty, BridgeType::Optional(_)) {
         out.push_str(&format!(
-            "{indent}let nexaArg{index} = Self.{decoder}({raw})\n"
+            "{indent}let nexaArg{index} = {raw} is NSNull ? nil : {decoder}\n"
         ));
     } else {
         out.push_str(&format!(
-            "{indent}guard let nexaArg{index} = Self.{decoder}({raw}) else {{ return (true, NSNull()) }}\n"
+            "{indent}guard let nexaArg{index} = {decoder} else {{ return (true, NSNull()) }}\n"
         ));
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_kotlin_decode_argument(
     out: &mut String,
+    _plan: &BridgePlan,
+    namespace: &str,
     index: usize,
     ty: &BridgeType,
     raw: &str,
     error: &str,
     indent: &str,
 ) {
-    let decoder = kotlin_value_decoder(ty, raw);
+    let decode_type = match ty {
+        BridgeType::Optional(inner) => inner.as_ref(),
+        other => other,
+    };
+    let Some(decoder) = kotlin_decode_value(decode_type, raw, namespace, 0) else {
+        return;
+    };
     if matches!(ty, BridgeType::Optional(_)) {
-        out.push_str(&format!("{indent}val nexaArg{index} = {decoder}\n"));
+        out.push_str(&format!(
+            "{indent}val nexaArg{index} = if ({raw} == null || {raw} == JSONObject.NULL) null else {decoder}\n"
+        ));
     } else {
         out.push_str(&format!(
             "{indent}val nexaArg{index} = {decoder} ?: error(\"{}\")\n",
@@ -1267,69 +2234,29 @@ fn render_kotlin_decode_argument(
     }
 }
 
-fn render_swift_result(out: &mut String, ty: &BridgeType, indent: &str) {
-    match ty {
-        BridgeType::Scalar(BridgeScalar::Bytes) => out.push_str(&format!(
-            "{indent}return (true, result.base64EncodedString())\n"
-        )),
-        BridgeType::Optional(inner)
-            if matches!(inner.as_ref(), BridgeType::Scalar(BridgeScalar::Bytes)) =>
-        {
-            out.push_str(&format!(
-                "{indent}if let result {{ return (true, result.base64EncodedString()) }}\n{indent}return (true, NSNull())\n"
-            ));
-        }
-        BridgeType::Optional(_) => out.push_str(&format!(
-            "{indent}if let result {{ return (true, result) }}\n{indent}return (true, NSNull())\n"
-        )),
-        _ => out.push_str(&format!("{indent}return (true, result)\n")),
-    }
+fn render_swift_result(
+    out: &mut String,
+    plan: &BridgePlan,
+    namespace: &str,
+    ty: &BridgeType,
+    indent: &str,
+) -> Result<(), String> {
+    let encoded = swift_encode_dev_value(plan, ty, "result", namespace, 0)
+        .ok_or_else(|| format!("unsupported Dev result type {ty:?}"))?;
+    out.push_str(&format!("{indent}return (true, {encoded})\n"));
+    Ok(())
 }
 
-fn render_kotlin_result(out: &mut String, ty: &BridgeType, indent: &str) {
-    match ty {
-        BridgeType::Scalar(BridgeScalar::Bytes) => out.push_str(&format!(
-            "{indent}return true to Base64.encodeToString(result, Base64.NO_WRAP)\n"
-        )),
-        BridgeType::Optional(inner)
-            if matches!(inner.as_ref(), BridgeType::Scalar(BridgeScalar::Bytes)) =>
-        {
-            out.push_str(&format!(
-                "{indent}return true to (result?.let {{ Base64.encodeToString(it, Base64.NO_WRAP) }} ?: JSONObject.NULL)\n"
-            ));
-        }
-        BridgeType::Optional(_) => out.push_str(&format!(
-            "{indent}return true to (result ?: JSONObject.NULL)\n"
-        )),
-        _ => out.push_str(&format!("{indent}return true to result\n")),
-    }
-}
-
-fn kotlin_value_decoder(ty: &BridgeType, raw: &str) -> String {
-    match ty {
-        BridgeType::Scalar(BridgeScalar::String) => format!("{raw} as? String"),
-        BridgeType::Scalar(BridgeScalar::Bool) => format!("{raw} as? Boolean"),
-        BridgeType::Scalar(scalar) if kotlin_number_conversion(*scalar).is_some() => {
-            format!(
-                "({raw} as? Number)?.{}()",
-                kotlin_number_conversion(*scalar).unwrap()
-            )
-        }
-        BridgeType::Scalar(BridgeScalar::Bytes) => format!("decodeBytes({raw})"),
-        BridgeType::Optional(inner) => match inner.as_ref() {
-            BridgeType::Scalar(BridgeScalar::String) => format!("decodeOptionalString({raw})"),
-            BridgeType::Scalar(BridgeScalar::Bool) => format!("decodeOptionalBool({raw})"),
-            BridgeType::Scalar(BridgeScalar::Bytes) => format!("decodeOptionalBytes({raw})"),
-            BridgeType::Scalar(scalar) if kotlin_number_conversion(*scalar).is_some() => {
-                format!(
-                    "({raw} as? Number)?.{}()",
-                    kotlin_number_conversion(*scalar).unwrap()
-                )
-            }
-            _ => unreachable!("unsupported optional plugin argument passed generation"),
-        },
-        _ => unreachable!("unsupported plugin argument passed generation"),
-    }
+fn render_kotlin_result(
+    out: &mut String,
+    plan: &BridgePlan,
+    ty: &BridgeType,
+    indent: &str,
+) -> Result<(), String> {
+    let encoded = kotlin_encode_dev_value(plan, ty, "result", 0)
+        .ok_or_else(|| format!("unsupported Dev result type {ty:?}"))?;
+    out.push_str(&format!("{indent}return true to ({encoded} as Any)\n"));
+    Ok(())
 }
 
 fn kotlin_number_conversion(scalar: BridgeScalar) -> Option<&'static str> {
@@ -1348,33 +2275,137 @@ fn kotlin_number_conversion(scalar: BridgeScalar) -> Option<&'static str> {
     })
 }
 
+fn render_swift_dynamic_argument(
+    out: &mut String,
+    index: usize,
+    ty: &BridgeType,
+    raw: &str,
+    namespace: &str,
+    indent: &str,
+) -> Result<(), String> {
+    out.push_str(&format!(
+        "{indent}guard let nexaRaw{index} = {raw} else {{ return (false, NSNull()) }}\n"
+    ));
+    let decoder = swift_dynamic_decode_value(ty, &format!("nexaRaw{index}"), namespace, 0)
+        .ok_or_else(|| format!("unsupported Dev generic argument type {ty:?}"))?;
+    out.push_str(&format!(
+        "{indent}guard let nexaArg{index} = {decoder} else {{ return (false, NSNull()) }}\n"
+    ));
+    Ok(())
+}
+
+fn render_kotlin_dynamic_argument(
+    out: &mut String,
+    index: usize,
+    ty: &BridgeType,
+    raw: &str,
+    error: &str,
+    indent: &str,
+) {
+    let shape = kotlin_dynamic_type(ty).unwrap_or_else(|| "Any".to_owned());
+    out.push_str(&format!(
+        "{indent}val nexaRaw{index} = {raw} ?: error(\"{}\")\n",
+        kotlin_escape(error)
+    ));
+    match ty {
+        BridgeType::TypeParameter(_) => {
+            out.push_str(&format!("{indent}val nexaArg{index}: {shape} = nexaRaw{index}\n"));
+        }
+        BridgeType::Optional(inner) => {
+            let inner_shape = kotlin_dynamic_type(inner).unwrap_or_else(|| "Any".to_owned());
+            out.push_str(&format!(
+                "{indent}val nexaArg{index}: {shape} = if (nexaRaw{index} == JSONObject.NULL) null else nexaRaw{index} as? {inner_shape} ?: error(\"{}\")\n",
+                kotlin_escape(error)
+            ));
+        }
+        BridgeType::Set(_) => out.push_str(&format!(
+            "{indent}val nexaArg{index} = NexaDevValueCodec.asSet(nexaRaw{index}) ?: error(\"{}\")\n",
+            kotlin_escape(error)
+        )),
+        BridgeType::Map(key, _) if super::bridge_plan::contains_type_parameter(key) => {
+            out.push_str(&format!(
+                "{indent}val nexaArg{index} = NexaDevValueCodec.asMap(nexaRaw{index}) ?: error(\"{}\")\n",
+                kotlin_escape(error)
+            ));
+        }
+        _ => out.push_str(&format!(
+            "{indent}val nexaArg{index} = nexaRaw{index} as? {shape} ?: error(\"{}\")\n",
+            kotlin_escape(error)
+        )),
+    }
+}
+
 fn render_swift_method(
     out: &mut String,
     namespace: &str,
+    plan: &BridgePlan,
     method: &BridgeMethod,
     asynchronous: bool,
-) {
+) -> Result<(), String> {
     if !asynchronous && method.is_async {
-        return;
+        return Ok(());
     }
     out.push_str(&format!(
         "        case (\"{}\", \"{}\"):\n",
         swift_escape(namespace),
         swift_escape(&method.name)
     ));
-    for (index, parameter) in method.parameters.iter().enumerate() {
-        render_swift_decode_argument(
-            out,
-            index,
-            &parameter.ty,
-            &format!("options[\"{}\"]", swift_escape(&parameter.name)),
-            "            ",
-        );
+    let generic = !method.type_parameters.is_empty();
+    let codec_shapes = method_codec_shapes(method);
+    if generic {
+        out.push_str(&format!(
+            "            guard codecs.count == {} else {{ return (false, NSNull()) }}\n",
+            codec_shapes.len()
+        ));
+        for index in 0..codec_shapes.len() {
+            out.push_str(&format!(
+                "            let nexaCodec{index} = codecs[{index}]\n"
+            ));
+        }
     }
-    let args = (0..method.parameters.len())
+    for (index, parameter) in method.parameters.iter().enumerate() {
+        let raw = format!("options[\"{}\"]", swift_escape(&parameter.name));
+        if generic && super::bridge_plan::contains_type_parameter(&parameter.ty) {
+            render_swift_dynamic_argument(
+                out,
+                index,
+                &parameter.ty,
+                &raw,
+                namespace,
+                "            ",
+            )?;
+        } else {
+            render_swift_decode_argument(
+                out,
+                plan,
+                namespace,
+                index,
+                &parameter.ty,
+                &raw,
+                "            ",
+            );
+        }
+    }
+    let mut call_arguments = (0..method.parameters.len())
         .map(|index| format!("nexaArg{index}"))
-        .collect::<Vec<_>>()
-        .join(", ");
+        .collect::<Vec<_>>();
+    if generic {
+        for (index, (codec_ty, decodes)) in codec_shapes.iter().enumerate() {
+            if *decodes {
+                let raw = format!(
+                    "NexaDevValueCodec.read(type: nexaCodec{index}, from: nexaReader{index}, enumCases: enumCases)"
+                );
+                let decoded = swift_dynamic_decode_value(codec_ty, &raw, namespace, 0)
+                    .ok_or_else(|| "unsupported Dev generic return codec".to_owned())?;
+                call_arguments.push(format!("{{ nexaReader{index} in {decoded} }}"));
+            } else {
+                call_arguments.push(format!(
+                    "{{ nexaItem{index}, nexaWriter{index} in _ = NexaDevValueCodec.write(nexaItem{index}, type: nexaCodec{index}, into: nexaWriter{index}, enumCases: enumCases) }}"
+                ));
+            }
+        }
+    }
+    let args = call_arguments.join(", ");
     let invoke = format!("{}Plugin.shared.{}({args})", namespace, method.name);
     let prefix = match (method.is_async, method.error_type().is_some()) {
         (true, true) => "try await ",
@@ -1397,7 +2428,7 @@ fn render_swift_method(
         ));
     } else {
         out.push_str(&format!("{indent}let result = {prefix}{invoke}\n"));
-        render_swift_result(out, method.success_type(), indent);
+        render_swift_result(out, plan, namespace, method.success_type(), indent)?;
     }
     if let Some(error_type) = error_type {
         let helper = dev_error_helper(namespace, error_type);
@@ -1413,39 +2444,83 @@ fn render_swift_method(
         }
         out.push_str("            }\n");
     }
+    Ok(())
 }
 
 fn render_kotlin_method(
     out: &mut String,
     namespace: &str,
+    plan: &BridgePlan,
     method: &BridgeMethod,
     asynchronous: bool,
-) {
+) -> Result<(), String> {
     if !asynchronous && method.is_async {
-        return;
+        return Ok(());
     }
     out.push_str(&format!(
         "            \"{}.{}\" -> {{\n",
         kotlin_escape(namespace),
         kotlin_escape(&method.name)
     ));
-    for (index, parameter) in method.parameters.iter().enumerate() {
-        render_kotlin_decode_argument(
-            out,
-            index,
-            &parameter.ty,
-            &format!("options[\"{}\"]", kotlin_escape(&parameter.name)),
-            &format!(
-                "Invalid argument `{}` for {namespace}.{}",
-                parameter.name, method.name
-            ),
-            "                ",
-        );
+    let generic = !method.type_parameters.is_empty();
+    let codec_shapes = method_codec_shapes(method);
+    if generic {
+        out.push_str(&format!(
+            "                if (codecs.size != {}) return false to JSONObject.NULL\n",
+            codec_shapes.len()
+        ));
+        for index in 0..codec_shapes.len() {
+            out.push_str(&format!(
+                "                val nexaCodec{index} = codecs[{index}]\n"
+            ));
+        }
     }
-    let args = (0..method.parameters.len())
+    for (index, parameter) in method.parameters.iter().enumerate() {
+        let raw = format!("options[\"{}\"]", kotlin_escape(&parameter.name));
+        let error = format!(
+            "Invalid argument `{}` for {namespace}.{}",
+            parameter.name, method.name
+        );
+        if generic && super::bridge_plan::contains_type_parameter(&parameter.ty) {
+            render_kotlin_dynamic_argument(
+                out,
+                index,
+                &parameter.ty,
+                &raw,
+                &error,
+                "                ",
+            );
+        } else {
+            render_kotlin_decode_argument(
+                out,
+                plan,
+                namespace,
+                index,
+                &parameter.ty,
+                &raw,
+                &error,
+                "                ",
+            );
+        }
+    }
+    let mut call_arguments = (0..method.parameters.len())
         .map(|index| format!("nexaArg{index}"))
-        .collect::<Vec<_>>()
-        .join(", ");
+        .collect::<Vec<_>>();
+    if generic {
+        for (index, (codec_ty, decodes)) in codec_shapes.iter().enumerate() {
+            if *decodes {
+                let shape = kotlin_dynamic_type(codec_ty).unwrap_or_else(|| "Any".to_owned());
+                call_arguments.push(format!(
+                    "{{ nexaReader{index} -> NexaDevValueCodec.read(nexaCodec{index}, nexaReader{index}, enumCases) as? {shape} }}"
+                ));
+            } else {
+                call_arguments.push(format!(
+                    "{{ nexaItem{index}, nexaWriter{index} -> check(NexaDevValueCodec.write(nexaItem{index}, nexaCodec{index}, nexaWriter{index}, enumCases)) }}"
+                ));
+            }
+        }
+    }
+    let args = call_arguments.join(", ");
     let call = format!("{}Plugin.instance.{}({args})", namespace, method.name);
     if method.error_type().is_some() {
         out.push_str("                try {\n");
@@ -1461,7 +2536,7 @@ fn render_kotlin_method(
         ));
     } else {
         out.push_str(&format!("{indent}val result = {call}\n"));
-        render_kotlin_result(out, method.success_type(), indent);
+        render_kotlin_result(out, plan, method.success_type(), indent)?;
     }
     if let Some(error_type) = method.error_type() {
         let helper = dev_error_helper(namespace, error_type);
@@ -1470,6 +2545,7 @@ fn render_kotlin_method(
         ));
     }
     out.push_str("            }\n");
+    Ok(())
 }
 
 fn swift_decoder(ty: &BridgeType) -> &'static str {
@@ -1549,6 +2625,105 @@ mod tests {
         )]
     }
 
+    fn generic_store() -> Vec<(String, PluginIdl)> {
+        vec![(
+            "Storage".to_owned(),
+            nexa_plugin_idl::parse(
+                r#"
+                native class DevStore {
+                    init()
+                    fn setObject<T>(key: String, value: T) -> Bool
+                    fn getObject<T>(key: String) -> T?
+                    fn setList<T>(key: String, values: Array<T>) -> Bool
+                    fn setSet<T>(key: String, values: Set<T>) -> Bool
+                    fn getSet<T>(key: String) -> Set<T>?
+                    fn setMap<K, V>(key: String, values: Map<K, V>) -> Bool
+                    fn getMap<K, V>(key: String) -> Map<K, V>?
+                }
+                "#,
+            )
+            .expect("parse generic native-class contract"),
+        )]
+    }
+
+    fn compound_errors() -> Vec<(String, PluginIdl)> {
+        vec![(
+            "Storage".to_owned(),
+            nexa_plugin_idl::parse(
+                r#"
+                struct StoreSnapshot {
+                    values: Array<String>
+                }
+                error StoreError {
+                    invalid(snapshot: StoreSnapshot, ids: Array<Int32>, counts: Map<String, UInt32>, note: String?)
+                }
+                service Cache {
+                    async fn open() throws StoreError
+                }
+                native class Session {
+                    init()
+                    async fn refresh() throws StoreError
+                }
+                "#,
+            )
+            .expect("parse compound Dev error contract"),
+        )]
+    }
+
+    fn compound_store() -> Vec<(String, PluginIdl)> {
+        vec![(
+            "Storage".to_owned(),
+            nexa_plugin_idl::parse(
+                r#"
+                struct StoreStats {
+                    count: Int64
+                    totalSize: Int64
+                }
+                native class DevStore {
+                    init(instanceID: String)
+                    readonly property stats: StoreStats
+                    fn getAllKeys() -> Array<String>
+                    fn removeMany(keys: Array<String>) -> Int32
+                    fn statsSnapshot() -> StoreStats
+                    fn update(stats: StoreStats) -> Bool
+                    fn merge(stats: Array<StoreStats>) -> Bool
+                    fn statsHistory(limit: Int32) -> Array<StoreStats>
+                    event updated(stats: StoreStats, keys: Array<String>)
+                }
+                native component StatsBadge {
+                    content
+                    prop stats: StoreStats
+                    event selected(keys: Array<String>)
+                }
+                "#,
+            )
+            .expect("parse compound native-class contract"),
+        )]
+    }
+
+    fn collection_store() -> Vec<(String, PluginIdl)> {
+        vec![(
+            "Storage".to_owned(),
+            nexa_plugin_idl::parse(
+                r#"
+                service StoreApi {
+                    fn normalize(index: Map<Int32, Set<Int32>>) -> Map<Int32, Set<Int32>>
+                }
+                native class DevStore {
+                    init(index: Map<Int32, Set<Int32>>)
+                    property index: Map<Int32, Set<Int32>>
+                    fn replace(index: Map<Int32, Set<Int32>>) -> Map<Int32, Set<Int32>>
+                    event changed(index: Map<Int32, Set<Int32>>)
+                }
+                native component IndexBadge {
+                    prop index: Map<Int32, Set<Int32>>
+                }
+                "#,
+            )
+            .expect("parse native collection contract"),
+        )]
+    }
+
     fn video_player() -> Vec<(String, PluginIdl)> {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../examples/plugins/video-player/native.nxid");
@@ -1580,23 +2755,142 @@ mod tests {
     fn swift_bridge_emits_direct_construction_and_scalar_native_class_calls() {
         let generated = swift(&scalar_store()).expect("render Swift Dev bridge");
         assert!(generated.contains("case (\"Storage\", \"DevStore\")"));
-        assert!(generated.contains("let nexaArg1 = Self.decodeOptionalString(arguments[1])"));
+        assert!(generated.contains(
+            "let nexaArg1 = arguments[1] is NSNull ? nil : Self.decodeString(arguments[1])"
+        ));
         assert!(generated.contains("DevStore(nexaArg0, nexaArg1)"));
         assert!(generated.contains("nexaReceiver.setString(nexaArg0, nexaArg1)"));
         assert!(generated.contains("nexaReceiver.getString(nexaArg0)"));
-        assert!(generated.contains("if let result { return (true, result) }"));
+        assert!(generated.contains(
+            "result.map { nexaEncodeOptional0 in nexaEncodeOptional0 as Any } ?? NSNull()"
+        ));
     }
 
     #[test]
     fn kotlin_bridge_emits_direct_construction_and_scalar_native_class_calls() {
         let generated = kotlin(&scalar_store()).expect("render Kotlin Dev bridge");
         assert!(generated.contains("\"Storage.DevStore\" -> {"));
-        assert!(generated.contains("decodeOptionalString(arguments[1])"));
+        assert!(generated.contains("if (arguments[1] == null || arguments[1] == JSONObject.NULL) null else arguments[1] as? String"));
         assert!(generated.contains("DevStore(nexaArg0, nexaArg1)"));
         assert!(generated.contains("nexaReceiver.setString(nexaArg0, nexaArg1)"));
         assert!(generated.contains("nexaReceiver.getString(nexaArg0)"));
         assert!(generated.contains("?.toInt()?.toUInt()"));
-        assert!(generated.contains("return true to (result ?: JSONObject.NULL)"));
+        assert!(generated.contains(
+            "result?.let { nexaEncodeOptional0 -> nexaEncodeOptional0 } ?: JSONObject.NULL"
+        ));
+    }
+
+    #[test]
+    fn generic_plugin_calls_receive_hot_reload_value_codecs() {
+        let contracts = generic_store();
+        let swift = swift(&contracts).expect("render Swift Dev bridge");
+        assert!(swift.contains("codecs: [Any], enumCases: [String: [String]]"));
+        assert!(swift.contains("receiver as? any DevStoreSpec"));
+        assert!(swift.contains("NexaDevValueCodec.write(nexaItem0, type: nexaCodec0"));
+        assert!(swift.contains("NexaDevValueCodec.read(type: nexaCodec0"));
+        assert!(swift.contains("nexaReceiver.setObject(nexaArg0, nexaArg1"));
+        assert!(swift.contains("NexaDevValueCodec.transformMap(nexaRaw1"));
+        assert!(swift.contains("NexaDevHashableValue((nexaEncodeSet1 as? NexaDevHashableValue)?.value ?? nexaEncodeSet1)"));
+        assert!(swift.contains(
+            "String(describing: (nexaEncodeMapEntry1.key as? NexaDevHashableValue)?.value ?? nexaEncodeMapEntry1.key)"
+        ));
+
+        let kotlin = kotlin(&contracts).expect("render Kotlin Dev bridge");
+        assert!(kotlin.contains("codecs: List<Any>, enumCases: Map<String, List<String>>"));
+        assert!(kotlin.contains("NexaDevValueCodec.write(nexaItem0, nexaCodec0"));
+        assert!(kotlin.contains("NexaDevValueCodec.read(nexaCodec0, nexaReader0, enumCases)"));
+        assert!(kotlin.contains("nexaReceiver.setObject(nexaArg0, nexaArg1"));
+        assert!(kotlin.contains("as? Map<Any, Any>"));
+        assert!(kotlin.contains(".map { nexaEncodeSet1 -> nexaEncodeSet1 }.toSet()"));
+        assert!(kotlin.contains("nexaEncodeMapEntry1.key.toString()"));
+    }
+
+    #[test]
+    fn plugin_methods_route_compound_typed_errors_in_both_dev_bridges() {
+        let contracts = compound_errors();
+        let swift = swift(&contracts).expect("render Swift Dev bridge");
+        assert!(swift.contains("nexaReceiver.refresh()"));
+        assert!(swift.contains("try await StoragePlugin.shared.open()"));
+        assert!(swift.contains("\"snapshot\": [\"values\": nexaPayload0.values.map"));
+        assert!(swift.contains("\"ids\": nexaPayload1.map"));
+        assert!(swift.contains("\"counts\": Dictionary(uniqueKeysWithValues:"));
+        assert!(swift.contains("\"note\": (nexaPayload3.map"));
+        assert!(swift.contains("throw Self.nexaDevFailureStorageStoreError(error)"));
+
+        let kotlin = kotlin(&contracts).expect("render Kotlin Dev bridge");
+        assert!(kotlin.contains("nexaReceiver.refresh()"));
+        assert!(kotlin.contains("StoragePlugin.instance.open()"));
+        assert!(
+            kotlin
+                .contains("\"snapshot\" to mapOf<String, Any>(\"values\" to error.snapshot.values")
+        );
+        assert!(kotlin.contains("\"ids\" to error.ids.map"));
+        assert!(kotlin.contains("\"counts\" to error.counts.entries.associate"));
+        assert!(kotlin.contains("\"note\" to error.note?.let"));
+        assert!(kotlin.contains("throw nexaDevFailureStorageStoreError(error)"));
+    }
+
+    #[test]
+    fn native_class_methods_route_array_and_struct_values_in_both_dev_bridges() {
+        let contracts = compound_store();
+        let swift = swift(&contracts).expect("render Swift Dev bridge");
+        assert!(swift.contains("nexaReceiver.getAllKeys()"));
+        assert!(swift.contains(
+            "values.compactMap({ nexaDevArrayItem0 in Self.decodeString(nexaDevArrayItem0) })"
+        ));
+        assert!(swift.contains("nexaReceiver.removeMany(nexaArg0)"));
+        assert!(swift.contains("return (true, [\"count\": result.count as Any, \"totalSize\": result.totalSize as Any])"));
+        assert!(swift.contains("Self.nexaDevDecodeStorageStoreStatsFromValue(options[\"stats\"])"));
+        assert!(swift.contains("Self.nexaDevDecodeStorageStoreStatsFromValue(nexaDevArrayItem0)"));
+        assert!(swift.contains("nexaReceiver.onUpdated = { nexaEvent0, nexaEvent1 in"));
+        assert!(swift.contains("handler([[\"count\": nexaEvent0.count as Any"));
+        assert!(swift.contains("case (\"Storage\", \"StatsBadge\")"));
+        assert!(swift.contains("StatsBadge(stats: nexaArg_stats"));
+        assert!(swift.contains("onSelected: events[\"onSelected\"].map { handler in"));
+
+        let kotlin = kotlin(&contracts).expect("render Kotlin Dev bridge");
+        assert!(kotlin.contains("nexaReceiver.getAllKeys()"));
+        assert!(
+            kotlin.contains(
+                "values.mapNotNull { nexaDevArrayItem0 -> nexaDevArrayItem0 as? String }"
+            )
+        );
+        assert!(kotlin.contains("nexaReceiver.removeMany(nexaArg0)"));
+        assert!(kotlin.contains("return true to (mapOf<String, Any>(\"count\" to result.count, \"totalSize\" to result.totalSize) as Any)"));
+        assert!(kotlin.contains("decodeStorageStoreStatsFromValue(options[\"stats\"])"));
+        assert!(kotlin.contains("decodeStorageStoreStatsFromValue(nexaDevArrayItem0)"));
+        assert!(kotlin.contains("receiver.onUpdated = {nexaEvent0, nexaEvent1 ->"));
+        assert!(kotlin.contains("handler(listOf(mapOf<String, Any>(\"count\" to nexaEvent0.count"));
+        assert!(kotlin.contains("\"Storage.StatsBadge\" -> {"));
+        assert!(kotlin.contains("StatsBadge(stats = nexaArg_stats"));
+    }
+
+    #[test]
+    fn static_collection_plugin_values_are_supported_in_both_dev_bridges() {
+        let contracts = collection_store();
+        let swift = swift(&contracts).expect("render Swift Dev bridge");
+        assert!(swift.contains("StoragePlugin.shared.normalize(nexaArg0)"));
+        assert!(swift.contains("NexaDevValueCodec.transformMap(options[\"index\"]"));
+        assert!(swift.contains(
+            "decodeKey: { nexaDevMapKey0 in (nexaDevMapKey0 as? String).flatMap { Int32($0) } }"
+        ));
+        assert!(swift.contains("NexaDevValueCodec.transformSet(nexaDevMapValue0"));
+        assert!(swift.contains("nexaReceiver.replace(nexaArg0)"));
+        assert!(swift.contains("nexaReceiver.index = nexaValue"));
+        assert!(swift.contains("handler([Dictionary(uniqueKeysWithValues:"));
+        assert!(swift.contains("IndexBadge(index: nexaArg_index"));
+
+        let kotlin = kotlin(&contracts).expect("render Kotlin Dev bridge");
+        assert!(kotlin.contains("StoragePlugin.instance.normalize(nexaArg0)"));
+        assert!(kotlin.contains("NexaDevValueCodec.transformMap(options[\"index\"]"));
+        assert!(kotlin.contains(
+            "decodeKey = { nexaDevMapKey0 -> (nexaDevMapKey0 as? String)?.toIntOrNull() }"
+        ));
+        assert!(kotlin.contains("NexaDevValueCodec.transformSet(nexaDevMapValue0)"));
+        assert!(kotlin.contains("nexaReceiver.replace(nexaArg0)"));
+        assert!(kotlin.contains("receiver.index = nexaValue"));
+        assert!(kotlin.contains("receiver.onChanged = {nexaEvent0 -> handler(listOf("));
+        assert!(kotlin.contains("IndexBadge(index = nexaArg_index"));
     }
 
     #[test]

@@ -277,8 +277,11 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         .zip(compilations)
         .map(|(target, compilation)| {
             warnings.extend(compilation.warnings);
-            let packages =
-                plugin_package::packages_for_module(&compilation.plugins, &compilation.module);
+            let packages = if dev_session.is_some() {
+                plugin_package::packages_for_dev(&compilation.plugins)
+            } else {
+                plugin_package::packages_for_module(&compilation.plugins, &compilation.module)
+            };
             (target, compilation.module, packages)
         })
         .collect::<Vec<_>>();
@@ -551,6 +554,10 @@ fn generate_ios(
 
 const IOS_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
     (
+        "NexaDevValueCodec.swift",
+        include_str!("../../../runtime/ios/NexaDevValueCodec.swift"),
+    ),
+    (
         "NexaDevSchema.swift",
         include_str!("../../../runtime/ios/NexaDevSchema.swift"),
     ),
@@ -589,6 +596,10 @@ const IOS_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
 ];
 
 const ANDROID_DEV_RUNTIME_FILES: &[(&str, &str)] = &[
+    (
+        "NexaDevValueCodec.kt",
+        include_str!("../../../runtime/android/NexaDevValueCodec.kt"),
+    ),
     (
         "NexaDevSchema.kt",
         include_str!("../../../runtime/android/NexaDevSchema.kt"),
@@ -836,6 +847,7 @@ fn ios_plan(
         for (filename, _) in IOS_DEV_RUNTIME_FILES {
             plan = plan.with_removal(format!("{directory}/{filename}"));
         }
+        plan = plan.with_removal(format!("{directory}/NexaDevPluginBridge.swift"));
     }
     match templates::ios_entitlements(config, plugins)? {
         Some(entitlements) => {
@@ -916,13 +928,18 @@ fn generate_android(
     // The generated core runtime is written outside the app's package: a
     // plugin lives in its own package and still has to reach the application
     // context, and a generic plugin contract names the value codec. The codec
-    // is only generated when the app actually uses one.
+    // is emitted when app calls or included plugin declarations need it.
     let core_package_path = nexa_codegen::value::KOTLIN_CORE_PACKAGE.replace('.', "/");
     let mut value_codec_files = vec![(
         format!("{core_package_path}/NexaRuntimeCore.kt"),
         nexa_codegen::value::kotlin_core_runtime_source(),
     )];
-    if !nexa_codegen::value::collect(module).is_empty() {
+    let plugin_value_runtime =
+        dev_session.is_none() && plugin_packages_require_value_runtime(plugins)?;
+    if !nexa_codegen::value::collect(module).is_empty()
+        || dev_session.is_some()
+        || plugin_value_runtime
+    {
         value_codec_files.push((
             format!("{core_package_path}/NexaValue.kt"),
             nexa_codegen::value::kotlin_runtime_source(),
@@ -962,7 +979,7 @@ fn generate_android(
     }
     // The core runtime lives outside the app's source directory, so the unit
     // sweep never sees it. An app that stopped using generic plugin calls must
-    // not keep compiling a value codec nothing references.
+    // not keep compiling a value codec no app or plugin contract references.
     if value_codec_files.len() == 1 {
         let _ = fs::remove_file(
             root.join("android/app/src/main/java")
@@ -1108,6 +1125,7 @@ fn android_plan(
         for (filename, _) in ANDROID_DEV_RUNTIME_FILES {
             plan = plan.with_removal(format!("{source_directory}/{filename}"));
         }
+        plan = plan.with_removal(format!("{source_directory}/NexaDevPluginBridge.kt"));
         plan = plan.with_removal("android/app/src/debug/AndroidManifest.xml");
     }
     plan.validate()?;
@@ -1217,8 +1235,11 @@ fn ios_source_units(
     config: &ProjectConfig,
     dev_runtime: bool,
 ) -> Result<Vec<nexa_codegen::SourceUnit>, String> {
+    let plugin_value_runtime = !dev_runtime && plugin_packages_require_value_runtime(plugins)?;
     let mut sources = if dev_runtime {
         SwiftBackend.generate_for_dev_units(module)
+    } else if plugin_value_runtime {
+        SwiftBackend.generate_units_with_plugin_value_runtime(module)
     } else {
         SwiftBackend.generate_units(module)
     };
@@ -1229,7 +1250,7 @@ fn ios_source_units(
             contents: nexa_codegen::plugin::render_dev_bridge_swift(&contracts)?,
         });
     }
-    if module.plugins.is_empty() {
+    if module.plugins.is_empty() && (!dev_runtime || plugins.is_empty()) {
         return Ok(sources.into_files(&[], ""));
     }
     let plugin_config = plugins::render_swift_plugin_config(plugins, config);
@@ -1247,6 +1268,23 @@ fn dev_plugin_contracts(
             Ok((plugin.namespace.clone(), contract))
         })
         .collect()
+}
+
+fn plugin_packages_require_value_runtime(
+    plugins: &[plugin_package::PluginPackage],
+) -> Result<bool, String> {
+    for plugin in plugins {
+        let contract = nexa_plugin_idl::parse_file(Path::new(&plugin.idl_path))?;
+        if contract.interfaces.iter().any(|interface| {
+            interface
+                .methods
+                .iter()
+                .any(|method| !method.type_parameters.is_empty())
+        }) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {

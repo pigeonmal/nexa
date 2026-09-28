@@ -22,11 +22,13 @@ final class NexaDevStateStore: ObservableObject {
     var typeSignatures: [String: String] = [:]
     var functions: [String: [String: Any]] = [:]
     var structs: [String: [[String: Any]]] = [:]
+    var enumCases: [String: [String]] = [:]
     var routeArguments: [String: (screen: String, values: [String: Any], signature: String)] = [:]
     var navigationRoot: String?
     var activeFunctions = Set<String>()
     var focusBindings: [String: (scope: String, state: String?)] = [:]
     var nativeEventSubscriptions: [NexaDevNativeEventSubscription] = []
+    var activeScreenParameters: [String: [String: Any]] = [:]
     var pendingPluginFailure: NexaDevPluginFailure?
     var hasInstalledModule = false
 
@@ -45,6 +47,13 @@ final class NexaDevStateStore: ObservableObject {
             (module["structs"] as? [[String: Any]] ?? []).compactMap { declaration in
                 guard let name = declaration["name"] as? String else { return nil }
                 return (name, declaration["fields"] as? [[String: Any]] ?? [])
+            },
+            uniquingKeysWith: { _, newest in newest }
+        )
+        enumCases = Dictionary(
+            (module["enums"] as? [[String: Any]] ?? []).compactMap { declaration in
+                guard let name = declaration["name"] as? String else { return nil }
+                return (name, declaration["cases"] as? [String] ?? [])
             },
             uniquingKeysWith: { _, newest in newest }
         )
@@ -68,6 +77,10 @@ final class NexaDevStateStore: ObservableObject {
         values = nextValues
         typeSignatures = nextTypes
         if isHotReplacement {
+            let currentScreens = Set(screens.compactMap { $0["name"] as? String })
+            activeScreenParameters = activeScreenParameters.filter { scope, _ in
+                currentScreens.contains(String(scope.split(separator: "/").last ?? ""))
+            }
             refreshNativeEventSubscriptions(module: module)
         }
         var nextFocusBindings: [String: (scope: String, state: String?)] = [:]
@@ -107,6 +120,7 @@ final class NexaDevStateStore: ObservableObject {
 
     func hotRestart(module: [String: Any]) {
         clearNativeEventSubscriptions()
+        activeScreenParameters.removeAll(keepingCapacity: true)
         let screens = module["screens"] as? [[String: Any]] ?? []
         let appStates = module["states"] as? [[String: Any]] ?? []
         var nextValues: [String: Any] = [:]
@@ -147,6 +161,15 @@ final class NexaDevStateStore: ObservableObject {
 
     func focusChanged(to nextIdentity: String?) {
         focusedFieldKey = nextIdentity
+    }
+
+    func screenDidAppear(scope: String, parameters: [String: Any]) {
+        activeScreenParameters[scope] = parameters
+    }
+
+    func screenDidDisappear(scope: String) {
+        activeScreenParameters.removeValue(forKey: scope)
+        clearNativeEventSubscriptions(scope: scope)
     }
 
     static func collectFocusBindings(
@@ -196,7 +219,9 @@ final class NexaDevStateStore: ObservableObject {
         case "Array":
             return (payload as? [Any] ?? []).map { evaluate($0, locals: locals, scope: scope) }
         case "Set":
-            return Set((payload as? [Any] ?? []).map { stringify(evaluate($0, locals: locals, scope: scope)) })
+            return Set((payload as? [Any] ?? []).map {
+                NexaDevHashableValue(evaluate($0, locals: locals, scope: scope))
+            })
         case "Map":
             var result: [String: Any] = [:]
             for pair in payload as? [[Any]] ?? [] where pair.count >= 2 {
@@ -293,10 +318,14 @@ final class NexaDevStateStore: ObservableObject {
         case "CollectionTransform":
             let fields = payload as? [String: Any] ?? [:]
             guard let collectionExpression = fields["collection"],
-                  let collection = evaluate(collectionExpression, locals: locals, scope: scope) as? [Any],
                   let closure = fields["closure"] as? [String: Any],
                   let closurePayload = closure["Closure"] as? [String: Any]
             else { return [] }
+            let collectionValue = evaluate(collectionExpression, locals: locals, scope: scope)
+            let setItems = NexaDevValueCodec.asSet(collectionValue)?
+                .sorted { $0.stableOrderKey < $1.stableOrderKey }
+                .map(\.value) ?? []
+            let collection = collectionValue as? [Any] ?? setItems
             let parameters = closurePayload["parameters"] as? [String] ?? []
             let body = closurePayload["body"] ?? NSNull()
             func apply(_ item: Any, _ accumulator: Any? = nil) -> Any {
@@ -658,7 +687,7 @@ final class NexaDevStateStore: ObservableObject {
             for entry in entries {
                 values.append(try await evaluateAsync(entry, locals: locals, scope: scope))
             }
-            if kind == "Set" { return Set(values.compactMap { $0 as? String }) }
+            if kind == "Set" { return Set(values.map(NexaDevHashableValue.init)) }
             return values
         case "Pair", "Triple":
             let entries = payload as? [Any] ?? []
@@ -779,7 +808,10 @@ final class NexaDevStateStore: ObservableObject {
                   let collectionExpression = fields["collection"]
             else { return [Any]() }
             let collectionValue = try await evaluateAsync(collectionExpression, locals: locals, scope: scope)
-            let items = collectionValue as? [Any] ?? (collectionValue as? Set<String>)?.sorted() ?? []
+            let setItems = NexaDevValueCodec.asSet(collectionValue)?
+                .sorted { $0.stableOrderKey < $1.stableOrderKey }
+                .map(\.value) ?? []
+            let items = collectionValue as? [Any] ?? setItems
             let closureObject = (fields["closure"] as? [String: Any])?["Closure"] as? [String: Any] ?? [:]
             let parameters = closureObject["parameters"] as? [String] ?? []
             let body = closureObject["body"] ?? NSNull()
@@ -894,6 +926,18 @@ final class NexaDevStateStore: ObservableObject {
             )
             if result.0 { return result.1 }
         }
+        if call["is_constructor"] as? Bool == true,
+           let name = call["name"] as? String,
+           let fields = structs[name] {
+            let arguments = call["arguments"] as? [Any] ?? []
+            guard fields.count == arguments.count else { return NSNull() }
+            var instance: [String: Any] = [:]
+            for (field, argument) in zip(fields, arguments) {
+                guard let fieldName = field["name"] as? String else { continue }
+                instance[fieldName] = try await evaluateAsync(argument, locals: locals, scope: scope)
+            }
+            return instance
+        }
         guard let name = call["name"] as? String,
               let function = functions[name],
               activeFunctions.insert(name).inserted
@@ -934,7 +978,9 @@ final class NexaDevStateStore: ObservableObject {
 
     func contains(_ value: Any, in collection: Any) -> Bool {
         if let values = collection as? [Any] { return values.contains { stringify($0) == stringify(value) } }
-        if let values = collection as? Set<String> { return values.contains(stringify(value)) }
+        if let values = NexaDevValueCodec.asSet(collection) {
+            return values.contains(NexaDevHashableValue(value))
+        }
         if let values = collection as? [String: Any] { return values[stringify(value)] != nil }
         if let text = collection as? String, let needle = value as? String { return text.contains(needle) }
         return false
@@ -1035,6 +1081,7 @@ final class NexaDevStateStore: ObservableObject {
     }
 
     func stringify(_ value: Any) -> String {
+        if let wrapped = value as? NexaDevHashableValue { return stringify(wrapped.value) }
         if value is NSNull { return "null" }
         if let number = value as? NSNumber {
             if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue ? "true" : "false" }

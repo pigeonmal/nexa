@@ -28,6 +28,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     internal var typeSignatures = mutableMapOf<String, String>()
     internal var functions = mutableMapOf<String, JSONObject>()
     internal var structs = mutableMapOf<String, JSONArray>()
+    internal var enumCases = mutableMapOf<String, List<String>>()
     internal val activeFunctions = mutableSetOf<String>()
     var module by mutableStateOf<JSONObject?>(null)
         private set
@@ -46,6 +47,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     private var navigationScreensSignature: String? = null
     internal var focusBindings = mutableMapOf<String, Pair<String, String?>>()
     internal val nativeEventSubscriptions = mutableListOf<NexaDevNativeEventSubscription>()
+    internal val activeScreenParameters = mutableMapOf<String, Map<String, Any>>()
     internal var pendingPluginFailure: NexaDevPluginFailure? = null
     private var hasInstalledModule = false
 
@@ -64,6 +66,13 @@ internal class NexaDevStateStore(internal val context: Context) {
             val declaration = nextStructs.optJSONObject(index) ?: return@mapNotNull null
             val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: return@mapNotNull null
             name to (declaration.optJSONArray("fields") ?: JSONArray())
+        }.toMap().toMutableMap()
+        val nextEnums = next.optJSONArray("enums") ?: JSONArray()
+        enumCases = (0 until nextEnums.length()).mapNotNull { index ->
+            val declaration = nextEnums.optJSONObject(index) ?: return@mapNotNull null
+            val name = declaration.optString("name").takeIf(String::isNotEmpty) ?: return@mapNotNull null
+            val cases = declaration.optJSONArray("cases") ?: JSONArray()
+            name to (0 until cases.length()).map { cases.optString(it) }
         }.toMap().toMutableMap()
         val nextValues = mutableMapOf<String, Any>()
         val nextTypes = mutableMapOf<String, String>()
@@ -95,6 +104,12 @@ internal class NexaDevStateStore(internal val context: Context) {
         values.clear()
         values.putAll(nextValues)
         typeSignatures = nextTypes
+        if (isHotReplacement) {
+            val currentScreens = (0 until screens.length())
+                .mapNotNull(screens::optJSONObject)
+                .mapTo(mutableSetOf()) { it.optString("name") }
+            activeScreenParameters.keys.removeAll { it.substringAfterLast('/') !in currentScreens }
+        }
         val nextFocusBindings = mutableMapOf<String, Pair<String, String?>>()
         collectFocusBindings(next.optJSONArray("body") ?: JSONArray(), "app", nextFocusBindings)
         for (screenIndex in 0 until screens.length()) {
@@ -127,7 +142,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             navigationScreensSignature = currentScreensSignature
             navigationEpoch++
         }
-        module = next
+    module = next
         if (isHotReplacement) refreshNativeEventSubscriptions(next)
         moduleRevision++
         diagnostics = emptyList()
@@ -139,6 +154,7 @@ internal class NexaDevStateStore(internal val context: Context) {
 
     fun hotRestart() {
         clearNativeEventSubscriptions()
+        activeScreenParameters.clear()
         val current = module ?: return
         val states = current.optJSONArray("states") ?: JSONArray()
         val screens = current.optJSONArray("screens") ?: JSONArray()
@@ -325,7 +341,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             }
             "Set" -> {
                 val array = payload as? JSONArray ?: JSONArray()
-                (0 until array.length()).map { stringify(evaluate(array.opt(it), locals, scope)) }.toSet()
+                (0 until array.length()).map { evaluate(array.opt(it), locals, scope) }.toSet()
             }
             "Map" -> {
                 val array = payload as? JSONArray ?: JSONArray()
@@ -709,7 +725,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             "Array", "Set" -> {
                 val array = payload as? JSONArray ?: JSONArray()
                 val list = (0 until array.length()).map { evaluateAsync(array.opt(it), locals, scope) }
-                if (kind == "Set") list.map { stringify(it) }.toSet() else list
+                if (kind == "Set") list.toSet() else list
             }
             "Pair", "Triple" -> {
                 val array = payload as? JSONArray ?: JSONArray()
@@ -921,6 +937,18 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val result = NexaDevPluginBridge.construct(namespace, className, arguments)
                 if (result.first) return result.second
             }
+            val name = call.optString("name")
+            val fields = structs[name]
+            if (fields != null) {
+                val arguments = call.optJSONArray("arguments") ?: JSONArray()
+                if (fields.length() != arguments.length()) return JSONObject.NULL
+                val instance = linkedMapOf<String, Any>()
+                for (index in 0 until fields.length()) {
+                    val fieldName = fields.optJSONObject(index)?.optString("name") ?: continue
+                    instance[fieldName] = evaluateAsync(arguments.opt(index), locals, scope)
+                }
+                return instance
+            }
         }
         val name = call.optString("name")
         val declaration = functions[name] ?: return JSONObject.NULL
@@ -1029,7 +1057,7 @@ internal class NexaDevStateStore(internal val context: Context) {
 
     internal fun contains(value: Any?, collection: Any?): Boolean = when (collection) {
         is List<*> -> collection.any { stringify(it ?: JSONObject.NULL) == stringify(value ?: JSONObject.NULL) }
-        is Set<*> -> collection.contains(stringify(value ?: JSONObject.NULL))
+        is Set<*> -> collection.any { stringify(it ?: JSONObject.NULL) == stringify(value ?: JSONObject.NULL) }
         is Map<*, *> -> collection.containsKey(stringify(value ?: JSONObject.NULL))
         is String -> collection.contains(stringify(value ?: JSONObject.NULL))
         else -> false

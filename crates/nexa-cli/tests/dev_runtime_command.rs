@@ -52,6 +52,7 @@ fn dev_rejects_conflicting_once_and_compile_only_modes() {
 }
 
 const IOS_DEV_RUNTIME_MODULES: &[&str] = &[
+    "NexaDevValueCodec.swift",
     "NexaDevSchema.swift",
     "NexaDevProtocol.swift",
     "NexaDevState.swift",
@@ -64,6 +65,7 @@ const IOS_DEV_RUNTIME_MODULES: &[&str] = &[
 ];
 
 const ANDROID_DEV_RUNTIME_MODULES: &[&str] = &[
+    "NexaDevValueCodec.kt",
     "NexaDevSchema.kt",
     "NexaDevProtocol.kt",
     "NexaDevState.kt",
@@ -107,8 +109,11 @@ fn development_runtime_is_debug_only_and_removed_by_aot_regeneration() {
 
     nexa_cli::generate_project(&entry, "all", &output, "RuntimeSmoke").expect("generate AOT hosts");
     let ios_app = output.join("ios/RuntimeSmoke/RuntimeSmokeApp.swift");
+    let ios_plugin_bridge = output.join("ios/RuntimeSmoke/NexaDevPluginBridge.swift");
     let android_root =
         output.join("android/app/src/main/java/dev/nexa/runtimesmoke/MainActivity.kt");
+    let android_plugin_bridge =
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevPluginBridge.kt");
     assert!(ios_app.is_file());
     assert!(
         !fs::read_to_string(&ios_app)
@@ -165,6 +170,14 @@ fn development_runtime_is_debug_only_and_removed_by_aot_regeneration() {
             .expect("read Android activity")
             .contains("NexaDevRuntimeRoot")
     );
+    assert!(
+        ios_plugin_bridge.is_file(),
+        "Dev build should generate its iOS plugin bridge"
+    );
+    assert!(
+        android_plugin_bridge.is_file(),
+        "Dev build should generate its Android plugin bridge"
+    );
 
     nexa_cli::generate_project(&entry, "all", &output, "RuntimeSmoke")
         .expect("regenerate AOT hosts");
@@ -187,6 +200,14 @@ fn development_runtime_is_debug_only_and_removed_by_aot_regeneration() {
         !fs::read_to_string(ios_app)
             .expect("read regenerated iOS app entry")
             .contains("NexaDevRuntime")
+    );
+    assert!(
+        !ios_plugin_bridge.exists(),
+        "AOT regeneration should remove the iOS Dev plugin bridge"
+    );
+    assert!(
+        !android_plugin_bridge.exists(),
+        "AOT regeneration should remove the Android Dev plugin bridge"
     );
 }
 
@@ -241,6 +262,57 @@ fn development_runtime_generates_typed_bridges_for_declared_plugin_services() {
     assert!(android_bridge.contains("FastMathPlugin.instance.heavyCalculation(nexaArg0)"));
     assert!(ios_native_apis.contains("NexaDevPluginBridge.invokeSync"));
     assert!(android_native_apis.contains("NexaDevPluginBridge.invokeSync"));
+}
+
+#[test]
+fn aot_plugin_hosts_include_value_runtime_when_unused_generic_methods_exist() {
+    let project = nexa_testkit::TestProject::new("nexa-aot-plugin-value-runtime");
+    project.write(
+        "plugins/codec-probe/native.nxid",
+        "service CodecProbe {\n    fn echo<T>(value: T) -> T\n    fn ready() -> Bool\n}\n",
+    );
+    project.write(
+        "plugins/codec-probe/plugin.config.nx",
+        "plugin { schema: 2 id: \"dev.nexa.codec-probe\" version: \"0.1.0\" sources { native: \"native.nxid\" } android { sources: [\"android/src/main/kotlin/**/*.kt\"] } }\n",
+    );
+    project.write(
+        "plugins/codec-probe/android/src/main/kotlin/dev/nexa/codeprobe/CodecProbeImpl.kt",
+        "package dev.nexa.codeprobe\n",
+    );
+    let plugin_path = project
+        .path()
+        .join("plugins/codec-probe")
+        .display()
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    project.write(
+        "nexa.config.nx",
+        format!(
+            "config {{ dependencies {{ CodecProbe {{ id: \"dev.nexa.codec-probe\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
+        ),
+    );
+    project.write(
+        "App.nx",
+        "plugin \"dev.nexa.codec-probe\" as CodecProbe\napp CodecRuntimeSmoke { state ready: Bool = false body { OnAppear { ready = CodecProbe.ready() } Text(\"ready\") } }\n",
+    );
+
+    let entry = project.path().join("App.nx");
+    let output = project.path().join("build");
+    nexa_cli::generate_project(&entry, "all", &output, "CodecRuntimeSmoke")
+        .expect("generate AOT hosts with a generic plugin method");
+
+    let ios_types =
+        fs::read_to_string(output.join("ios/CodecRuntimeSmoke/NexaGenerated_types.swift"))
+            .expect("read generated Swift type unit");
+    assert!(ios_types.contains("public final class NexaValueWriter"));
+    assert!(ios_types.contains("public final class NexaValueReader"));
+    assert!(
+        output
+            .join("android/app/src/main/java/dev/nexa/core/NexaValue.kt")
+            .is_file(),
+        "AOT Android plugin hosts need the codec runtime even before a generic method is called"
+    );
 }
 
 #[test]

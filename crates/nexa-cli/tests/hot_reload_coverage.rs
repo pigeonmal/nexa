@@ -38,10 +38,13 @@ fn public_enums(source: &str) -> BTreeSet<String> {
 /// Returns the documented Dev boundary for IR cases the interpreter cannot execute.
 fn dev_boundary(enum_name: &str, variant_name: &str) -> Option<&'static str> {
     match (enum_name, variant_name) {
-        // Native plugin types have direct Dev bridges for a supported subset
-        // of scalar and Bytes class constructors and methods.
+        // Plugin calls use generated direct adapters for scalar values,
+        // generic codecs, and non-generic arrays/structs. Some compound IDL
+        // types still require AOT, so the complete IR case remains partial.
         ("Type", "Plugin") => Some("partial"),
-        // These have direct typed Dev adapters for supported plugin IDL shapes.
+        // Plugin property, event, and visual-component adapters share the
+        // supported value subset above; this inventory records that boundary
+        // but does not replace the focused bridge and device checks.
         ("Node", "NativeComponentCall")
         | ("Action", "NativePropertyAssign" | "NativeEventSubscribe") => Some("partial"),
         _ => None,

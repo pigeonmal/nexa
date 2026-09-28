@@ -13,9 +13,7 @@ pub(super) use components::{
 };
 pub(super) use engine::state::{render_immutable_state, render_native_object_state};
 use engine::types::{self, swift_type};
-pub(super) use engine::{
-    colors, expressions, features, functions, imports, structs, utils, value,
-};
+pub(super) use engine::{colors, expressions, features, functions, imports, structs, utils, value};
 
 /// Generates the release source as one concatenated string.
 ///
@@ -35,7 +33,23 @@ pub(super) fn generate_units(module: &Module) -> GeneratedSources {
     generate_with_analysis(module, features)
 }
 
+/// Generates release units with the generic codec runtime needed by native
+/// plugin contracts, including when the app only calls a non-generic method.
+pub(super) fn generate_units_with_plugin_value_runtime(module: &Module) -> GeneratedSources {
+    let features = features::Features::analyze(module);
+    generate_with_analysis_mode(module, features, false, true)
+}
+
 fn generate_with_analysis(module: &Module, features: features::Features) -> GeneratedSources {
+    generate_with_analysis_mode(module, features, false, false)
+}
+
+fn generate_with_analysis_mode(
+    module: &Module,
+    features: features::Features,
+    dev_runtime: bool,
+    plugin_value_runtime: bool,
+) -> GeneratedSources {
     let app_focus_bindings = features.facts.focus_bindings.app.clone();
     let mut all_focus_bindings = app_focus_bindings.clone();
     for bindings in features.facts.focus_bindings.screens.values() {
@@ -60,7 +74,13 @@ fn generate_with_analysis(module: &Module, features: features::Features) -> Gene
         types::render_enums(module, out);
         structs::render(module, out);
         types::render_navigation_routes(module, out);
-        value::render(&value_codecs, out);
+        if dev_runtime {
+            value::render_for_dev(&value_codecs, out);
+        } else if plugin_value_runtime {
+            value::render_with_runtime(&value_codecs, out);
+        } else {
+            value::render(&value_codecs, out);
+        }
     });
 
     units.write("app", |out| {
@@ -251,7 +271,7 @@ pub(super) fn generate_for_dev_units(module: &Module) -> GeneratedSources {
     .collect();
     features.expose_permissions_to_dev_runtime = true;
     features.uses_native_library = true;
-    generate_with_analysis(module, features)
+    generate_with_analysis_mode(module, features, true, false)
 }
 
 fn module_has_native_object_state(module: &Module) -> bool {

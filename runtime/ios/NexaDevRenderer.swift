@@ -857,6 +857,7 @@ struct NexaDevNodeList: View {
             stateScope: scope
         )
         .onAppear {
+            store.screenDidAppear(scope: scope, parameters: parameters)
             let actions = screen["on_appear"] as? [Any] ?? []
             if screen["on_appear_async"] as? Bool == true {
                 Task { @MainActor in
@@ -868,7 +869,7 @@ struct NexaDevNodeList: View {
         }
         .onDisappear {
             store.perform(screen["on_disappear"] as? [Any] ?? [], scope: scope, locals: parameters)
-            store.clearNativeEventSubscriptions(scope: scope)
+            store.screenDidDisappear(scope: scope)
         })
     }
 }

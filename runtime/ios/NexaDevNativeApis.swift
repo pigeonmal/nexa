@@ -9,6 +9,7 @@ extension NexaDevStateStore {
     ) async throws -> Any {
         let namespace = call["namespace"] as? String ?? ""
         let name = call["name"] as? String ?? ""
+        let codecs = (call["codecs"] as? [Any]) ?? []
         var options: [String: Any] = [:]
         for argument in call["arguments"] as? [[Any]] ?? [] where argument.count >= 2 {
             guard let argumentName = argument[0] as? String else { continue }
@@ -20,7 +21,9 @@ extension NexaDevStateStore {
                 receiver: receiver,
                 namespace: namespace,
                 name: name,
-                options: options
+                options: options,
+                codecs: codecs,
+                enumCases: enumCases
             )
             if pluginResult.0 {
                 if let failure = pluginResult.1 as? NexaDevPluginFailure {
@@ -32,7 +35,9 @@ extension NexaDevStateStore {
             let pluginResult = try await NexaDevPluginBridge.invokeAsync(
                 namespace: namespace,
                 name: name,
-                options: options
+                options: options,
+                codecs: codecs,
+                enumCases: enumCases
             )
             if pluginResult.0 {
                 if let failure = pluginResult.1 as? NexaDevPluginFailure {
@@ -168,6 +173,7 @@ extension NexaDevStateStore {
     ) -> Any {
         let namespace = call["namespace"] as? String ?? ""
         let name = call["name"] as? String ?? ""
+        let codecs = (call["codecs"] as? [Any]) ?? []
         var options: [String: Any] = [:]
         for argument in call["arguments"] as? [[Any]] ?? [] where argument.count >= 2 {
             guard let argumentName = argument[0] as? String else { continue }
@@ -179,7 +185,9 @@ extension NexaDevStateStore {
                 receiver: receiver,
                 namespace: namespace,
                 name: name,
-                options: options
+                options: options,
+                codecs: codecs,
+                enumCases: enumCases
             )
             if pluginResult.0 {
                 if let failure = pluginResult.1 as? NexaDevPluginFailure {
@@ -192,7 +200,9 @@ extension NexaDevStateStore {
             let pluginResult = NexaDevPluginBridge.invokeSync(
                 namespace: namespace,
                 name: name,
-                options: options
+                options: options,
+                codecs: codecs,
+                enumCases: enumCases
             )
             if pluginResult.0 {
                 if let failure = pluginResult.1 as? NexaDevPluginFailure {

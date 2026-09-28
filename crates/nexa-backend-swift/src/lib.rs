@@ -23,6 +23,15 @@ impl SwiftBackend {
     pub fn generate_units(&self, module: &nexa_ir::Module) -> GeneratedSources {
         generator::generate_units(module)
     }
+
+    /// Generate release units with the value codec runtime required by a
+    /// native plugin contract that declares generic methods.
+    pub fn generate_units_with_plugin_value_runtime(
+        &self,
+        module: &nexa_ir::Module,
+    ) -> GeneratedSources {
+        generator::generate_units_with_plugin_value_runtime(module)
+    }
 }
 
 impl nexa_codegen::Backend for SwiftBackend {

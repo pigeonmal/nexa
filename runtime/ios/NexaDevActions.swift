@@ -43,6 +43,9 @@ extension NexaDevStateStore {
                 let values = evaluate(iterableExpression, locals: locals, scope: scope)
                 let items: [Any]
                 if let array = values as? [Any] { items = array }
+                else if let set = NexaDevValueCodec.asSet(values) {
+                    items = set.sorted { $0.stableOrderKey < $1.stableOrderKey }.map(\.value)
+                }
                 else if let range = values as? Range<Int> { items = Array(range) }
                 else if let range = values as? ClosedRange<Int> { items = Array(range) }
                 else { items = [] }
@@ -190,7 +193,6 @@ extension NexaDevStateStore {
     }
 
     func refreshNativeEventSubscriptions(module: [String: Any]) {
-        guard !nativeEventSubscriptions.isEmpty else { return }
         let previous = nativeEventSubscriptions
         nativeEventSubscriptions.removeAll(keepingCapacity: true)
         for subscription in previous {
@@ -223,6 +225,88 @@ extension NexaDevStateStore {
                 scope: subscription.scope,
                 locals: subscription.locals
             )
+        }
+
+        if let actions = module["on_appear"] as? [Any] {
+            installLifecycleNativeEventSubscriptions(actions, scope: "app", locals: [:])
+        }
+        let screens = module["screens"] as? [[String: Any]] ?? []
+        for (scope, parameters) in activeScreenParameters {
+            guard let screenName = scope.split(separator: "/").last.map(String.init),
+                  let screen = screens.first(where: { $0["name"] as? String == screenName }),
+                  let actions = screen["on_appear"] as? [Any]
+            else { continue }
+            installLifecycleNativeEventSubscriptions(actions, scope: scope, locals: parameters)
+        }
+    }
+
+    private func installLifecycleNativeEventSubscriptions(
+        _ actions: [Any],
+        scope: String,
+        locals: [String: Any]
+    ) {
+        for raw in actions {
+            guard let tagged = raw as? [String: Any], let (kind, payload) = tagged.first else { continue }
+            let fields = payload as? [String: Any] ?? [:]
+            if kind == "NativeEventSubscribe",
+               let receiverExpression = fields["receiver"],
+               let property = fields["property"] as? String,
+               let receiver = stableNativeEventReceiver(receiverExpression, locals: locals, scope: scope) {
+                let alreadyInstalled = nativeEventSubscriptions.contains {
+                    $0.receiver === (receiver as AnyObject) && $0.property == property
+                }
+                if !alreadyInstalled {
+                    _ = subscribeNativeEvent(
+                        receiver: receiver,
+                        property: property,
+                        fields["actions"] as? [Any] ?? [],
+                        parameters: fields["parameters"] as? [String] ?? [],
+                        scope: scope,
+                        locals: locals
+                    )
+                }
+                continue
+            }
+            if kind == "If", let condition = fields["condition"] {
+                let selected = truthy(evaluate(condition, locals: locals, scope: scope))
+                    ? fields["then_branch"] as? [Any]
+                    : fields["else_branch"] as? [Any]
+                if let selected {
+                    installLifecycleNativeEventSubscriptions(selected, scope: scope, locals: locals)
+                }
+            } else if kind == "For",
+                      let name = fields["name"] as? String,
+                      let iterable = fields["iterable"] {
+                let values = evaluate(iterable, locals: locals, scope: scope)
+                let items = (values as? [Any]) ?? (values as? Set<NexaDevHashableValue>)?.map(\.value) ?? []
+                for item in items {
+                    var iterationLocals = locals
+                    iterationLocals[name] = item
+                    installLifecycleNativeEventSubscriptions(
+                        fields["body"] as? [Any] ?? [], scope: scope, locals: iterationLocals
+                    )
+                }
+            } else if kind == "ForMap",
+                      let keyName = fields["key_name"] as? String,
+                      let valueName = fields["value_name"] as? String,
+                      let iterable = fields["iterable"] {
+                let values = evaluate(iterable, locals: locals, scope: scope) as? [String: Any] ?? [:]
+                for key in values.keys.sorted() {
+                    var iterationLocals = locals
+                    iterationLocals[keyName] = key
+                    iterationLocals[valueName] = values[key] ?? NSNull()
+                    installLifecycleNativeEventSubscriptions(
+                        fields["body"] as? [Any] ?? [], scope: scope, locals: iterationLocals
+                    )
+                }
+            } else if kind == "While", let condition = fields["condition"] {
+                for _ in 0..<10_000 {
+                    guard truthy(evaluate(condition, locals: locals, scope: scope)) else { break }
+                    installLifecycleNativeEventSubscriptions(
+                        fields["body"] as? [Any] ?? [], scope: scope, locals: locals
+                    )
+                }
+            }
         }
     }
 
@@ -286,8 +370,8 @@ extension NexaDevStateStore {
             if let index = (arguments.first as? NSNumber)?.intValue, array.indices.contains(index) { array.remove(at: index) }
             setValue(name, value: array, scope: scope)
         case "SetInsert", "SetRemove":
-            var set = value(name, scope: scope) as? Set<String> ?? []
-            if let item = arguments.first.map(stringify) {
+            var set = NexaDevValueCodec.asSet(value(name, scope: scope)) ?? []
+            if let item = arguments.first.map(NexaDevHashableValue.init) {
                 if mutation["operation"] as? String == "SetInsert" { set.insert(item) } else { set.remove(item) }
             }
             setValue(name, value: set, scope: scope)
@@ -391,8 +475,8 @@ extension NexaDevStateStore {
                 let items: [Any]
                 if let array = evaluated as? [Any] {
                     items = array
-                } else if let set = evaluated as? Set<String> {
-                    items = set.sorted()
+                } else if let set = NexaDevValueCodec.asSet(evaluated) {
+                    items = set.sorted { $0.stableOrderKey < $1.stableOrderKey }.map(\.value)
                 } else {
                     items = []
                 }

@@ -13,8 +13,8 @@
 
 use nexa_codegen::SourceWriter;
 
-use crate::generator::engine::imports::ImportSet;
 use crate::generator::engine::features::Features;
+use crate::generator::engine::imports::ImportSet;
 
 /// Declares what the clock needs: `Date` for the wall clock, `Dispatch` for the
 /// monotonic counter, and `String(format:)` for the ISO 8601 layout.

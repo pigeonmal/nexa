@@ -140,9 +140,21 @@ pub fn packages_for_module(
     packages
 }
 
+/// Build the native packages a development host must have available for later
+/// hot reloads. Unlike an AOT target, the DevRuntime may receive a call to a
+/// plugin that the first module did not reference, so every configured native
+/// dependency is linked into the host up front.
+pub fn packages_for_dev(declarations: &[nexa_syntax::ast::PluginDecl]) -> Vec<PluginPackage> {
+    declarations
+        .iter()
+        .filter(|declaration| !declaration.pure)
+        .map(PluginPackage::from_decl)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{PluginPackage, packages_for_module};
+    use super::{PluginPackage, packages_for_dev, packages_for_module};
     use nexa_compiler::Span;
 
     fn declaration(namespace: &str, pure: bool) -> nexa_syntax::ast::PluginDecl {
@@ -231,5 +243,19 @@ mod tests {
             .map(|package| package.namespace.as_str())
             .collect();
         assert_eq!(namespaces, ["Video", "Audio"]);
+    }
+
+    #[test]
+    fn dev_packages_include_configured_native_plugins_before_first_use() {
+        let declarations = [
+            declaration("dev.nexa.used", false),
+            declaration("dev.nexa.pure", true),
+        ];
+        let packages = packages_for_dev(&declarations);
+        let namespaces: Vec<&str> = packages
+            .iter()
+            .map(|package| package.namespace.as_str())
+            .collect();
+        assert_eq!(namespaces, ["dev.nexa.used"]);
     }
 }

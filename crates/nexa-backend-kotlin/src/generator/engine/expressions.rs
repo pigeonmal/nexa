@@ -369,9 +369,9 @@ fn native_call(
         .iter()
         .map(|(_, value)| expression_with_locals(value, locals))
         .collect::<Vec<_>>();
-    // Kotlin spells plugin parameters by name, so a generic call passes its
-    // value codecs as named arguments. The bound type never appears as a
-    // string in the generated code.
+    // Codec closures are appended positionally. Plugin implementations may
+    // choose their own parameter names, and positional calls keep those source
+    // names out of the generated app code.
     for codec in codecs {
         let function = nexa_codegen::value::codec_name(
             &codec.ty,
@@ -382,9 +382,9 @@ fn native_call(
             },
         );
         rendered.push(if codec.decodes {
-            format!("decode = {{ reader -> {function}(reader) }}")
+            format!("{{ reader -> {function}(reader) }}")
         } else {
-            format!("encode = {{ item, writer -> {function}(item, writer) }}")
+            format!("{{ item, writer -> {function}(item, writer) }}")
         });
     }
     if let Some(receiver) = receiver {

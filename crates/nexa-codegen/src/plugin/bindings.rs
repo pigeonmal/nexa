@@ -555,7 +555,80 @@ fn swift_generics(method: &BridgeMethod) -> String {
     if method.type_parameters.is_empty() {
         return String::new();
     }
-    format!("<{}>", method.type_parameters.join(", "))
+    let mut hashable = std::collections::HashSet::new();
+    for parameter in &method.parameters {
+        collect_hashable_type_parameters(&parameter.ty, &mut hashable);
+    }
+    collect_hashable_type_parameters(method.success_type(), &mut hashable);
+    let parameters = method
+        .type_parameters
+        .iter()
+        .map(|parameter| {
+            if hashable.contains(parameter) {
+                format!("{parameter}: Copyable & Hashable")
+            } else {
+                format!("{parameter}: Copyable")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("<{parameters}>")
+}
+
+fn collect_hashable_type_parameters(
+    ty: &BridgeType,
+    hashable: &mut std::collections::HashSet<String>,
+) {
+    match ty {
+        BridgeType::Set(inner) => collect_all_type_parameters(inner, hashable),
+        BridgeType::Map(key, value) => {
+            collect_all_type_parameters(key, hashable);
+            collect_hashable_type_parameters(value, hashable);
+        }
+        BridgeType::Array(inner) | BridgeType::Optional(inner) => {
+            collect_hashable_type_parameters(inner, hashable)
+        }
+        BridgeType::Pair(first, second) => {
+            collect_hashable_type_parameters(first, hashable);
+            collect_hashable_type_parameters(second, hashable);
+        }
+        BridgeType::Triple(first, second, third) => {
+            collect_hashable_type_parameters(first, hashable);
+            collect_hashable_type_parameters(second, hashable);
+            collect_hashable_type_parameters(third, hashable);
+        }
+        BridgeType::Result { success, .. } => {
+            collect_hashable_type_parameters(success, hashable);
+        }
+        BridgeType::TypeParameter(_) | BridgeType::Scalar(_) | BridgeType::Named { .. } => {}
+    }
+}
+
+fn collect_all_type_parameters(
+    ty: &BridgeType,
+    parameters: &mut std::collections::HashSet<String>,
+) {
+    match ty {
+        BridgeType::TypeParameter(name) => {
+            parameters.insert(name.clone());
+        }
+        BridgeType::Array(inner) | BridgeType::Set(inner) | BridgeType::Optional(inner) => {
+            collect_all_type_parameters(inner, parameters);
+        }
+        BridgeType::Map(key, value) | BridgeType::Pair(key, value) => {
+            collect_all_type_parameters(key, parameters);
+            collect_all_type_parameters(value, parameters);
+        }
+        BridgeType::Triple(first, second, third) => {
+            collect_all_type_parameters(first, parameters);
+            collect_all_type_parameters(second, parameters);
+            collect_all_type_parameters(third, parameters);
+        }
+        BridgeType::Result { success, .. } => {
+            collect_all_type_parameters(success, parameters);
+        }
+        BridgeType::Scalar(_) | BridgeType::Named { .. } => {}
+    }
 }
 
 fn kotlin_method(method: &BridgeMethod) -> String {
@@ -589,15 +662,16 @@ fn kotlin_codec_parameters(method: &BridgeMethod) -> String {
     let reader = format!("{}.NexaValueReader", crate::value::KOTLIN_CORE_PACKAGE);
     let writer = format!("{}.NexaValueWriter", crate::value::KOTLIN_CORE_PACKAGE);
     let mut rendered = String::new();
-    for (ty, decodes) in codec_types(method) {
+    for (index, (ty, decodes)) in codec_types(method).into_iter().enumerate() {
+        let parameter = if decodes { "decode" } else { "encode" };
         if decodes {
             rendered.push_str(&format!(
-                ", decode: ({reader}) -> {}?",
+                ", {parameter}{index}: ({reader}) -> {}?",
                 kotlin_type(ty)
             ));
         } else {
             rendered.push_str(&format!(
-                ", encode: ({}, {writer}) -> Unit",
+                ", {parameter}{index}: ({}, {writer}) -> Unit",
                 kotlin_type(ty)
             ));
         }
@@ -705,7 +779,8 @@ mod tests {
 
     fn validate_swift_and_kotlin(source: &str) -> BridgePlan {
         let idl = nexa_plugin_idl::parse(source).expect("IDL should parse");
-        BridgePlan::validate_swift_contract(&idl).expect("Swift and Kotlin contract should validate")
+        BridgePlan::validate_swift_contract(&idl)
+            .expect("Swift and Kotlin contract should validate")
     }
 
     /// A generic method's contract carries one value codec per parameter or
@@ -719,6 +794,9 @@ mod tests {
                 init()
                 fn setObject<T>(key: String, value: T) -> Bool
                 fn getObject<T>(key: String) -> T?
+                fn setSet<T>(key: String, values: Set<T>) -> Bool
+                fn getSet<T>(key: String) -> Set<T>?
+                fn setMap<K, V>(key: String, values: Map<K, V>) -> Bool
                 fn getMap<K, V>(key: String) -> Map<K, V>?
                 fn dispose()
             }
@@ -726,19 +804,26 @@ mod tests {
         );
         let swift = swift(&plan);
         assert!(swift.contains(
-            "func setObject<T>(_ key: String, _ value: T, _ encode: (T, NexaValueWriter) -> Void) -> Bool"
+            "func setObject<T: Copyable>(_ key: String, _ value: T, _ encode: (T, NexaValueWriter) -> Void) -> Bool"
         ));
-        assert!(swift.contains("func getObject<T>(_ key: String, _ decode: (NexaValueReader) -> T?) -> T?"));
+        assert!(swift.contains(
+            "func getObject<T: Copyable>(_ key: String, _ decode: (NexaValueReader) -> T?) -> T?"
+        ));
+        assert!(swift.contains(
+            "func getSet<T: Copyable & Hashable>(_ key: String, _ decode: (NexaValueReader) -> Set<T>?) -> Set<T>?"
+        ));
         // The map codec covers the whole map, not its two type parameters.
         assert!(
-            swift.contains("func getMap<K, V>(_ key: String, _ decode: (NexaValueReader) -> [K: V]?) -> [K: V]?")
+            swift.contains("func getMap<K: Copyable & Hashable, V: Copyable>(_ key: String, _ decode: (NexaValueReader) -> [K: V]?) -> [K: V]?")
         );
 
         let kotlin = kotlin(&plan, "dev.example.store");
-        assert!(kotlin.contains("fun <T> setObject(key: String, value: T, encode: (T, dev.nexa.core.NexaValueWriter) -> Unit): Boolean"));
-        assert!(kotlin.contains("fun <T> getObject(key: String, decode: (dev.nexa.core.NexaValueReader) -> T?): T?"));
+        assert!(kotlin.contains("fun <T> setObject(key: String, value: T, encode0: (T, dev.nexa.core.NexaValueWriter) -> Unit): Boolean"));
         assert!(kotlin.contains(
-            "fun <K, V> getMap(key: String, decode: (dev.nexa.core.NexaValueReader) -> Map<K, V>?): Map<K, V>?"
+            "fun <T> getObject(key: String, decode0: (dev.nexa.core.NexaValueReader) -> T?): T?"
+        ));
+        assert!(kotlin.contains(
+            "fun <K, V> getMap(key: String, decode0: (dev.nexa.core.NexaValueReader) -> Map<K, V>?): Map<K, V>?"
         ));
     }
 
@@ -757,7 +842,8 @@ mod tests {
             "#,
         )
         .expect("IDL should parse");
-        let error = BridgePlan::validate_contract(&idl).expect_err("generics are Swift and Kotlin only");
+        let error =
+            BridgePlan::validate_contract(&idl).expect_err("generics are Swift and Kotlin only");
         assert!(
             error.contains("does not support value type parameters"),
             "unexpected diagnostic: {error}"
