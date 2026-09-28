@@ -3,6 +3,8 @@ package __NEXA_PACKAGE__
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import java.lang.ref.WeakReference
 
 internal enum class NexaDevActionFlow { Normal, Break, Continue }
 
@@ -92,6 +94,32 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
             }
             continue
         }
+        val nativeAssignment = action.optJSONObject("NativePropertyAssign")
+        if (nativeAssignment != null) {
+            val receiver = evaluate(nativeAssignment.opt("receiver"), locals, scope)
+            val property = nativeAssignment.optString("property")
+            val value = evaluate(nativeAssignment.opt("value"), locals, scope)
+            if (!NexaDevPluginBridge.writeInstanceProperty(receiver, property, value)) {
+                android.util.Log.w("NexaDevRuntime", "Native property write is unsupported: $property")
+            }
+            continue
+        }
+        val subscription = action.optJSONObject("NativeEventSubscribe")
+        if (subscription != null) {
+            val receiver = evaluate(subscription.opt("receiver"), locals, scope)
+            val property = subscription.optString("property")
+            if (!subscribeNativeEvent(
+                receiver = receiver,
+                property = property,
+                actions = subscription.optJSONArray("actions") ?: JSONArray(),
+                parameterNames = subscription.optJSONArray("parameters") ?: JSONArray(),
+                scope = scope,
+                locals = locals,
+            )) {
+                android.util.Log.w("NexaDevRuntime", "Native event subscription is unsupported: $property")
+            }
+            continue
+        }
         val mutation = action.optJSONObject("CollectionMutation")
         if (mutation != null) {
             mutateCollection(mutation, scope, locals)
@@ -107,6 +135,118 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
         if (action.has("Continue")) return NexaDevActionFlow.Continue
     }
     return NexaDevActionFlow.Normal
+}
+
+internal fun NexaDevStateStore.devNativeEventHandler(
+    actions: JSONArray,
+    parameterNames: JSONArray,
+    scope: String,
+    locals: Map<String, Any>,
+): (List<Any>) -> Unit {
+    val storeReference = WeakReference(this)
+    return { arguments ->
+        storeReference.get()?.eventScope?.launch {
+            val store = storeReference.get() ?: return@launch
+            val eventLocals = locals.toMutableMap()
+            for (index in 0 until minOf(parameterNames.length(), arguments.size)) {
+                val name = parameterNames.optString(index)
+                if (name.isNotEmpty()) eventLocals[name] = arguments[index]
+            }
+            try {
+                store.performAsync(actions, scope, eventLocals)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                android.util.Log.e("NexaDevRuntime", "Native event action failed", error)
+            }
+        }
+    }
+}
+
+internal fun NexaDevStateStore.subscribeNativeEvent(
+    receiver: Any,
+    property: String,
+    actions: JSONArray,
+    parameterNames: JSONArray,
+    scope: String,
+    locals: Map<String, Any>,
+): Boolean {
+    val handler = devNativeEventHandler(actions, parameterNames, scope, locals)
+    if (!NexaDevPluginBridge.subscribeInstanceEvent(receiver, property, handler)) return false
+    nativeEventSubscriptions.removeAll { it.receiver === receiver && it.property == property }
+    nativeEventSubscriptions += NexaDevNativeEventSubscription(
+        receiver = receiver,
+        property = property,
+        actions = actions,
+        parameters = parameterNames,
+        scope = scope,
+        locals = locals.toMap(),
+    )
+    return true
+}
+
+internal fun NexaDevStateStore.refreshNativeEventSubscriptions(module: JSONObject) {
+    if (nativeEventSubscriptions.isEmpty()) return
+    val previous = nativeEventSubscriptions.toList()
+    nativeEventSubscriptions.clear()
+    previous.forEach { NexaDevPluginBridge.clearInstanceEvent(it.receiver, it.property) }
+    val candidates = mutableListOf<JSONObject>()
+    collectNativeEventSubscriptions(module, candidates)
+    for (subscription in previous) {
+        var replacement: JSONObject? = null
+        for (candidate in candidates) {
+            if (candidate.optString("property") != subscription.property) continue
+            val receiverExpression = candidate.opt("receiver")
+            val resolved = stableNativeEventReceiver(receiverExpression, subscription.locals, subscription.scope)
+            if (resolved === subscription.receiver) replacement = candidate
+        }
+        val next = replacement ?: continue
+        subscribeNativeEvent(
+            receiver = subscription.receiver,
+            property = subscription.property,
+            actions = next.optJSONArray("actions") ?: JSONArray(),
+            parameterNames = next.optJSONArray("parameters") ?: JSONArray(),
+            scope = subscription.scope,
+            locals = subscription.locals,
+        )
+    }
+}
+
+internal fun NexaDevStateStore.clearNativeEventSubscriptions(scope: String? = null) {
+    val removed = nativeEventSubscriptions.filter { scope == null || it.scope == scope }
+    nativeEventSubscriptions.removeAll { scope == null || it.scope == scope }
+    removed.forEach { NexaDevPluginBridge.clearInstanceEvent(it.receiver, it.property) }
+}
+
+private fun NexaDevStateStore.stableNativeEventReceiver(
+    expression: Any?,
+    locals: Map<String, Any>,
+    scope: String,
+): Any? {
+    val tagged = expression as? JSONObject ?: return null
+    val iterator = tagged.keys()
+    if (!iterator.hasNext()) return null
+    val kind = iterator.next()
+    return when (kind) {
+        "State" -> evaluate(expression, locals, scope)
+        "Member" -> {
+            val member = tagged.optJSONObject("Member") ?: return null
+            val base = member.opt("base")
+            if (stableNativeEventReceiver(base, locals, scope) == null) null else evaluate(expression, locals, scope)
+        }
+        else -> null
+    }
+}
+
+private fun collectNativeEventSubscriptions(value: Any?, result: MutableList<JSONObject>) {
+    when (value) {
+        is JSONArray -> for (index in 0 until value.length()) collectNativeEventSubscriptions(value.opt(index), result)
+        is JSONObject -> {
+            value.optJSONObject("NativeEventSubscribe")?.let(result::add)
+            val keys = value.keys()
+            while (keys.hasNext()) collectNativeEventSubscriptions(value.opt(keys.next()), result)
+        }
+    }
 }
 
 internal fun NexaDevStateStore.mutateCollection(mutation: JSONObject, scope: String, locals: Map<String, Any>) {
@@ -208,6 +348,32 @@ internal suspend fun NexaDevStateStore.performAsync(
             val nextValue = evaluateAsync(assign.opt("value"), locals, scope)
             setState(name, nextValue, scope)
             moduleRevision++
+            continue
+        }
+        val nativeAssignment = action.optJSONObject("NativePropertyAssign")
+        if (nativeAssignment != null) {
+            val receiver = evaluateAsync(nativeAssignment.opt("receiver"), locals, scope)
+            val property = nativeAssignment.optString("property")
+            val value = evaluateAsync(nativeAssignment.opt("value"), locals, scope)
+            if (!NexaDevPluginBridge.writeInstanceProperty(receiver, property, value)) {
+                android.util.Log.w("NexaDevRuntime", "Native property write is unsupported: $property")
+            }
+            continue
+        }
+        val subscription = action.optJSONObject("NativeEventSubscribe")
+        if (subscription != null) {
+            val receiver = evaluateAsync(subscription.opt("receiver"), locals, scope)
+            val property = subscription.optString("property")
+            if (!subscribeNativeEvent(
+                receiver = receiver,
+                property = property,
+                actions = subscription.optJSONArray("actions") ?: JSONArray(),
+                parameterNames = subscription.optJSONArray("parameters") ?: JSONArray(),
+                scope = scope,
+                locals = locals,
+            )) {
+                android.util.Log.w("NexaDevRuntime", "Native event subscription is unsupported: $property")
+            }
             continue
         }
         val branch = action.optJSONObject("If")

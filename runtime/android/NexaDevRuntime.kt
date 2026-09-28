@@ -78,6 +78,7 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
     DisposableEffect(lifecycleOwner) {
         onDispose {
             latestModule.value?.optJSONArray("on_disappear")?.let { store.perform(it, "app", emptyMap()) }
+            store.clearNativeEventSubscriptions("app")
         }
     }
     var fps by remember { mutableIntStateOf(0) }

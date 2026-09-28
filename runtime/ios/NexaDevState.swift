@@ -3,6 +3,15 @@ import CoreFoundation
 import UIKit
 
 /// Reactive state store and expression evaluation engine for the Nexa dev runtime.
+struct NexaDevNativeEventSubscription {
+    let receiver: AnyObject
+    let property: String
+    var actions: [Any]
+    var parameters: [String]
+    let scope: String
+    let locals: [String: Any]
+}
+
 @MainActor
 final class NexaDevStateStore: ObservableObject {
     @Published var revision = 0
@@ -17,9 +26,11 @@ final class NexaDevStateStore: ObservableObject {
     var navigationRoot: String?
     var activeFunctions = Set<String>()
     var focusBindings: [String: (scope: String, state: String?)] = [:]
+    var nativeEventSubscriptions: [NexaDevNativeEventSubscription] = []
     var hasInstalledModule = false
 
     func install(module: [String: Any]) {
+        let isHotReplacement = hasInstalledModule
         let screens = module["screens"] as? [[String: Any]] ?? []
         let appStates = module["states"] as? [[String: Any]] ?? []
         functions = Dictionary(
@@ -55,6 +66,9 @@ final class NexaDevStateStore: ObservableObject {
         }
         values = nextValues
         typeSignatures = nextTypes
+        if isHotReplacement {
+            refreshNativeEventSubscriptions(module: module)
+        }
         var nextFocusBindings: [String: (scope: String, state: String?)] = [:]
         Self.collectFocusBindings(module["body"] as? [Any] ?? [], scope: "app", into: &nextFocusBindings)
         for screen in screens {
@@ -91,6 +105,7 @@ final class NexaDevStateStore: ObservableObject {
     }
 
     func hotRestart(module: [String: Any]) {
+        clearNativeEventSubscriptions()
         let screens = module["screens"] as? [[String: Any]] ?? []
         let appStates = module["states"] as? [[String: Any]] ?? []
         var nextValues: [String: Any] = [:]
@@ -334,6 +349,11 @@ final class NexaDevStateStore: ObservableObject {
             let fields = payload as? [String: Any] ?? [:]
             guard let base = fields["base"], let name = fields["name"] as? String else { return NSNull() }
             let value = evaluate(base, locals: locals, scope: scope)
+            if let memberKind = fields["kind"] as? [String: Any],
+               let property = memberKind["PluginField"] as? String {
+                let result = NexaDevPluginBridge.readInstanceProperty(receiver: value, property: property)
+                if result.0 { return result.1 }
+            }
             if name == "count" {
                 if let values = value as? [Any] { return Int32(values.count) }
                 if let values = value as? [String: Any] { return Int32(values.count) }
@@ -601,6 +621,11 @@ final class NexaDevStateStore: ObservableObject {
                   let name = member["name"] as? String
             else { return NSNull() }
             let value = try await evaluateAsync(base, locals: locals, scope: scope)
+            if let memberKind = member["kind"] as? [String: Any],
+               let property = memberKind["PluginField"] as? String {
+                let result = NexaDevPluginBridge.readInstanceProperty(receiver: value, property: property)
+                if result.0 { return result.1 }
+            }
             return (value as? [String: Any])?[name] ?? NSNull()
         case "Array", "Set":
             let entries = payload as? [Any] ?? []

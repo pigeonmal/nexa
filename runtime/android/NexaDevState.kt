@@ -9,8 +9,21 @@ import androidx.compose.runtime.setValue
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+
+internal data class NexaDevNativeEventSubscription(
+    val receiver: Any,
+    val property: String,
+    var actions: JSONArray,
+    var parameters: JSONArray,
+    val scope: String,
+    val locals: Map<String, Any>,
+)
 
 internal class NexaDevStateStore(internal val context: Context) {
+    internal val eventScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     internal val values = mutableStateMapOf<String, Any>()
     internal var typeSignatures = mutableMapOf<String, String>()
     internal var functions = mutableMapOf<String, JSONObject>()
@@ -32,9 +45,11 @@ internal class NexaDevStateStore(internal val context: Context) {
     private var navigationRoot: String? = null
     private var navigationScreensSignature: String? = null
     internal var focusBindings = mutableMapOf<String, Pair<String, String?>>()
+    internal val nativeEventSubscriptions = mutableListOf<NexaDevNativeEventSubscription>()
     private var hasInstalledModule = false
 
     fun install(next: JSONObject) {
+        val isHotReplacement = hasInstalledModule
         val screens = next.optJSONArray("screens") ?: JSONArray()
         val states = next.optJSONArray("states") ?: JSONArray()
         val nextFunctions = next.optJSONArray("functions") ?: JSONArray()
@@ -112,6 +127,7 @@ internal class NexaDevStateStore(internal val context: Context) {
             navigationEpoch++
         }
         module = next
+        if (isHotReplacement) refreshNativeEventSubscriptions(next)
         moduleRevision++
         diagnostics = emptyList()
         if (!hasInstalledModule) {
@@ -121,6 +137,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     }
 
     fun hotRestart() {
+        clearNativeEventSubscriptions()
         val current = module ?: return
         val states = current.optJSONArray("states") ?: JSONArray()
         val screens = current.optJSONArray("screens") ?: JSONArray()
@@ -464,6 +481,11 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val fields = payload as? JSONObject ?: JSONObject()
                 val base = evaluate(fields.opt("base"), locals, scope)
                 val name = fields.optString("name")
+                val property = fields.optJSONObject("kind")?.optString("PluginField")
+                if (!property.isNullOrEmpty()) {
+                    val result = NexaDevPluginBridge.readInstanceProperty(base, property)
+                    if (result.first) return result.second
+                }
                 when (name) {
                     "count" -> when (base) {
                         is Collection<*> -> base.size
@@ -655,6 +677,11 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val fields = payload as? JSONObject ?: JSONObject()
                 val base = evaluateAsync(fields.opt("base"), locals, scope)
                 val memberName = fields.optString("name")
+                val property = fields.optJSONObject("kind")?.optString("PluginField")
+                if (!property.isNullOrEmpty()) {
+                    val result = NexaDevPluginBridge.readInstanceProperty(base, property)
+                    if (result.first) return result.second
+                }
                 when (base) {
                     is Map<*, *> -> base[memberName] ?: JSONObject.NULL
                     is JSONObject -> base.opt(memberName) ?: JSONObject.NULL

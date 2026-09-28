@@ -75,6 +75,29 @@ extension NexaDevStateStore {
                     case .normal, .continue: continue
                     }
                 }
+            } else if let assignment = tagged["NativePropertyAssign"] as? [String: Any],
+                      let receiverExpression = assignment["receiver"],
+                      let property = assignment["property"] as? String,
+                      let valueExpression = assignment["value"] {
+                let receiver = evaluate(receiverExpression, locals: locals, scope: scope)
+                let value = evaluate(valueExpression, locals: locals, scope: scope)
+                if !NexaDevPluginBridge.writeInstanceProperty(receiver: receiver, property: property, value: value) {
+                    NSLog("NexaDevRuntime: native property write is unsupported: %@", property)
+                }
+            } else if let subscription = tagged["NativeEventSubscribe"] as? [String: Any],
+                      let receiverExpression = subscription["receiver"],
+                      let property = subscription["property"] as? String {
+                let receiver = evaluate(receiverExpression, locals: locals, scope: scope)
+                if !subscribeNativeEvent(
+                    receiver: receiver,
+                    property: property,
+                    subscription["actions"] as? [Any] ?? [],
+                    parameters: subscription["parameters"] as? [String] ?? [],
+                    scope: scope,
+                    locals: locals
+                ) {
+                    NSLog("NexaDevRuntime: native event subscription is unsupported: %@", property)
+                }
             } else if let mutation = tagged["CollectionMutation"] as? [String: Any],
                       let name = mutation["name"] as? String {
                 performCollectionMutation(mutation, name: name, scope: scope, locals: locals)
@@ -98,6 +121,135 @@ extension NexaDevStateStore {
     ) {
         let arguments = (mutation["arguments"] as? [Any] ?? []).map { evaluate($0, locals: locals, scope: scope) }
         applyCollectionMutation(mutation, name: name, scope: scope, arguments: arguments)
+    }
+
+    func devNativeEventHandler(
+        _ actions: [Any],
+        parameters: [String],
+        scope: String,
+        locals: [String: Any]
+    ) -> ([Any]) -> Void {
+        { [weak self] arguments in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                var eventLocals = locals
+                for (name, value) in zip(parameters, arguments) { eventLocals[name] = value }
+                do {
+                    _ = try await self.performAsync(actions, scope: scope, locals: eventLocals)
+                } catch {
+                    NSLog("NexaDevRuntime native event action failed: %@", String(describing: error))
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    func subscribeNativeEvent(
+        receiver: Any,
+        property: String,
+        _ actions: [Any],
+        parameters: [String],
+        scope: String,
+        locals: [String: Any]
+    ) -> Bool {
+        let nativeReceiver = receiver as AnyObject
+        let callback = devNativeEventHandler(actions, parameters: parameters, scope: scope, locals: locals)
+        guard NexaDevPluginBridge.subscribeInstanceEvent(
+            receiver: receiver,
+            property: property,
+            handler: callback
+        ) else { return false }
+        nativeEventSubscriptions.removeAll { $0.receiver === nativeReceiver && $0.property == property }
+        nativeEventSubscriptions.append(NexaDevNativeEventSubscription(
+            receiver: nativeReceiver,
+            property: property,
+            actions: actions,
+            parameters: parameters,
+            scope: scope,
+            locals: locals
+        ))
+        return true
+    }
+
+    func refreshNativeEventSubscriptions(module: [String: Any]) {
+        guard !nativeEventSubscriptions.isEmpty else { return }
+        let previous = nativeEventSubscriptions
+        nativeEventSubscriptions.removeAll(keepingCapacity: true)
+        for subscription in previous {
+            _ = NexaDevPluginBridge.clearInstanceEvent(
+                receiver: subscription.receiver,
+                property: subscription.property
+            )
+        }
+        var candidates: [[String: Any]] = []
+        collectNativeEventSubscriptions(module, into: &candidates)
+        for subscription in previous {
+            var replacement: [String: Any]?
+            for candidate in candidates where candidate["property"] as? String == subscription.property {
+                guard let receiverExpression = candidate["receiver"],
+                      let resolved = stableNativeEventReceiver(
+                        receiverExpression,
+                        locals: subscription.locals,
+                        scope: subscription.scope
+                      ) as? AnyObject,
+                      resolved === subscription.receiver
+                else { continue }
+                replacement = candidate
+            }
+            guard let replacement else { continue }
+            _ = subscribeNativeEvent(
+                receiver: subscription.receiver,
+                property: subscription.property,
+                replacement["actions"] as? [Any] ?? [],
+                parameters: replacement["parameters"] as? [String] ?? [],
+                scope: subscription.scope,
+                locals: subscription.locals
+            )
+        }
+    }
+
+    func clearNativeEventSubscriptions(scope: String? = nil) {
+        let removed = nativeEventSubscriptions.filter { scope == nil || $0.scope == scope }
+        nativeEventSubscriptions.removeAll { scope == nil || $0.scope == scope }
+        for subscription in removed {
+            _ = NexaDevPluginBridge.clearInstanceEvent(
+                receiver: subscription.receiver,
+                property: subscription.property
+            )
+        }
+    }
+
+    private func stableNativeEventReceiver(
+        _ expression: Any,
+        locals: [String: Any],
+        scope: String
+    ) -> Any? {
+        guard let tagged = expression as? [String: Any],
+              let (kind, payload) = tagged.first
+        else { return nil }
+        switch kind {
+        case "State":
+            return evaluate(expression, locals: locals, scope: scope)
+        case "Member":
+            guard let member = payload as? [String: Any],
+                  let base = member["base"],
+                  stableNativeEventReceiver(base, locals: locals, scope: scope) != nil
+            else { return nil }
+            return evaluate(expression, locals: locals, scope: scope)
+        default:
+            return nil
+        }
+    }
+
+    private func collectNativeEventSubscriptions(_ value: Any, into result: inout [[String: Any]]) {
+        if let array = value as? [Any] {
+            for item in array { collectNativeEventSubscriptions(item, into: &result) }
+        } else if let object = value as? [String: Any] {
+            if let subscription = object["NativeEventSubscribe"] as? [String: Any] {
+                result.append(subscription)
+            }
+            for nested in object.values { collectNativeEventSubscriptions(nested, into: &result) }
+        }
     }
 
     private func applyCollectionMutation(
@@ -173,6 +325,29 @@ extension NexaDevStateStore {
                 let value = try await evaluateAsync(expression, locals: locals, scope: scope)
                 setValue(name, value: value, scope: scope)
                 revision += 1
+            } else if let assignment = tagged["NativePropertyAssign"] as? [String: Any],
+                      let receiverExpression = assignment["receiver"],
+                      let property = assignment["property"] as? String,
+                      let valueExpression = assignment["value"] {
+                let receiver = try await evaluateAsync(receiverExpression, locals: locals, scope: scope)
+                let value = try await evaluateAsync(valueExpression, locals: locals, scope: scope)
+                if !NexaDevPluginBridge.writeInstanceProperty(receiver: receiver, property: property, value: value) {
+                    NSLog("NexaDevRuntime: native property write is unsupported: %@", property)
+                }
+            } else if let subscription = tagged["NativeEventSubscribe"] as? [String: Any],
+                      let receiverExpression = subscription["receiver"],
+                      let property = subscription["property"] as? String {
+                let receiver = try await evaluateAsync(receiverExpression, locals: locals, scope: scope)
+                if !subscribeNativeEvent(
+                    receiver: receiver,
+                    property: property,
+                    subscription["actions"] as? [Any] ?? [],
+                    parameters: subscription["parameters"] as? [String] ?? [],
+                    scope: scope,
+                    locals: locals
+                ) {
+                    NSLog("NexaDevRuntime: native event subscription is unsupported: %@", property)
+                }
             } else if let branch = tagged["If"] as? [String: Any],
                       let condition = branch["condition"] {
                 let value = try await evaluateAsync(condition, locals: locals, scope: scope)

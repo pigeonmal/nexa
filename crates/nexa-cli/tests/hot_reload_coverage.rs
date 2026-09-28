@@ -41,10 +41,9 @@ fn dev_boundary(enum_name: &str, variant_name: &str) -> Option<&'static str> {
         // Native plugin types have direct Dev bridges for a supported subset
         // of scalar and Bytes class constructors and methods.
         ("Type", "Plugin") => Some("partial"),
-        // These need the ordinary AOT app path. Rebuilding the Dev host does not
-        // add interpreter support for native property/event/component IR.
+        // These have direct typed Dev adapters for supported plugin IDL shapes.
         ("Node", "NativeComponentCall")
-        | ("Action", "NativePropertyAssign" | "NativeEventSubscribe") => Some("aot_only"),
+        | ("Action", "NativePropertyAssign" | "NativeEventSubscribe") => Some("partial"),
         _ => None,
     }
 }
@@ -175,7 +174,6 @@ fn hot_reload_interpreter_variants_have_both_native_dispatches() {
         "OnActive",
         "OnInactive",
         "OnBackground",
-        "NativeComponentCall",
     ];
     for entry in inventory["Node"].as_array().expect("Node inventory") {
         let variant = entry["name"].as_str().expect("variant name");
@@ -184,6 +182,13 @@ fn hot_reload_interpreter_variants_have_both_native_dispatches() {
         }
         assert_runtime_dispatch(&swift, "Node", variant, "iOS");
         assert_runtime_dispatch(&kotlin, "Node", variant, "Android");
+    }
+
+    assert_runtime_dispatch(&swift, "Node", "NativeComponentCall", "iOS");
+    assert_runtime_dispatch(&kotlin, "Node", "NativeComponentCall", "Android");
+    for variant in ["NativePropertyAssign", "NativeEventSubscribe"] {
+        assert_runtime_dispatch(&swift, "Action", variant, "iOS");
+        assert_runtime_dispatch(&kotlin, "Action", variant, "Android");
     }
 }
 

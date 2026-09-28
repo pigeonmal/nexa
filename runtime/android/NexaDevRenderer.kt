@@ -220,6 +220,38 @@ internal fun NexaDevNode(
                 )
             }
         }
+        "NativeComponentCall" -> {
+            val namespace = fields.optString("namespace")
+            val name = fields.optString("name")
+            val arguments = mutableMapOf<String, Any>()
+            val rawArguments = fields.optJSONArray("arguments") ?: JSONArray()
+            for (index in 0 until rawArguments.length()) {
+                val argument = rawArguments.optJSONArray(index) ?: continue
+                val argumentName = argument.optString(0)
+                if (argumentName.isNotEmpty()) {
+                    arguments[argumentName] = store.evaluate(argument.opt(1), locals, scope)
+                }
+            }
+            val events = mutableMapOf<String, (List<Any>) -> Unit>()
+            val handlers = fields.optJSONArray("event_handlers") ?: JSONArray()
+            for (index in 0 until handlers.length()) {
+                val handler = handlers.optJSONObject(index) ?: continue
+                val property = handler.optString("property")
+                if (property.isNotEmpty()) {
+                    events[property] = store.devNativeEventHandler(
+                        handler.optJSONArray("actions") ?: JSONArray(),
+                        parameterNames = handler.optJSONArray("parameters") ?: JSONArray(),
+                        scope = scope,
+                        locals = locals,
+                    )
+                }
+            }
+            val children = fields.optJSONArray("children") ?: JSONArray()
+            val rendered = NexaDevPluginBridge.renderComponent(namespace, name, arguments, events) {
+                NexaDevNodeList(children, module, store, parameters = locals, scope = scope)
+            }
+            if (!rendered) android.util.Log.w("NexaDevRuntime", "Native component is unsupported: $namespace.$name")
+        }
         "Layout" -> {
             val children = fields.optJSONArray("children") ?: JSONArray()
             val spacing = fields.optDouble("spacing", 0.0).dp

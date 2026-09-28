@@ -388,6 +388,44 @@ struct NexaDevNodeList: View {
                 parameters: componentParameters,
                 stateScope: "component/\(name)"
             ).environment(\.nexaDevContentSlot, slot))
+        case "NativeComponentCall":
+            let namespace = fields["namespace"] as? String ?? ""
+            let name = fields["name"] as? String ?? ""
+            var arguments: [String: Any] = [:]
+            for argument in fields["arguments"] as? [[Any]] ?? [] where argument.count >= 2 {
+                guard let argumentName = argument[0] as? String else { continue }
+                arguments[argumentName] = store.evaluate(argument[1], locals: locals, scope: scope)
+            }
+            var events: [String: ([Any]) -> Void] = [:]
+            for handler in fields["event_handlers"] as? [[String: Any]] ?? [] {
+                guard let property = handler["property"] as? String else { continue }
+                events[property] = store.devNativeEventHandler(
+                    handler["actions"] as? [Any] ?? [],
+                    parameters: handler["parameters"] as? [String] ?? [],
+                    scope: scope,
+                    locals: locals
+                )
+            }
+            let children = fields["children"] as? [Any] ?? []
+            let content = AnyView(NexaDevNodeList(
+                nodes: children,
+                module: module,
+                store: store,
+                focusedField: focusedField,
+                parameters: locals,
+                stateScope: scope
+            ))
+            if let component = NexaDevPluginBridge.renderComponent(
+                namespace: namespace,
+                name: name,
+                arguments: arguments,
+                events: events,
+                content: content
+            ) {
+                return component
+            }
+            NSLog("NexaDevRuntime: native component is unsupported: %@.%@", namespace, name)
+            return AnyView(EmptyView())
         case "Button":
             let label = store.stringify(store.evaluate(fields["label"] ?? "", locals: locals, scope: scope))
             let actions = fields["actions"] as? [Any] ?? []
@@ -830,6 +868,7 @@ struct NexaDevNodeList: View {
         }
         .onDisappear {
             store.perform(screen["on_disappear"] as? [Any] ?? [], scope: scope, locals: parameters)
+            store.clearNativeEventSubscriptions(scope: scope)
         })
     }
 }

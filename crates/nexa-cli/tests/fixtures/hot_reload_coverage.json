@@ -801,8 +801,8 @@
       },
       {
         "name": "NativeComponentCall",
-        "ios": "aot_only",
-        "android": "aot_only"
+        "ios": "partial",
+        "android": "partial"
       }
     ],
     "AccessibilityRole": [
@@ -1047,13 +1047,13 @@
       },
       {
         "name": "NativePropertyAssign",
-        "ios": "aot_only",
-        "android": "aot_only"
+        "ios": "partial",
+        "android": "partial"
       },
       {
         "name": "NativeEventSubscribe",
-        "ios": "aot_only",
-        "android": "aot_only"
+        "ios": "partial",
+        "android": "partial"
       },
       {
         "name": "CollectionMutation",
@@ -1470,8 +1470,8 @@
       "android": "partial"
     },
     "native_plugin_properties_events_and_components": {
-      "ios": "aot_only",
-      "android": "aot_only"
+      "ios": "partial",
+      "android": "partial"
     }
   }
 }
