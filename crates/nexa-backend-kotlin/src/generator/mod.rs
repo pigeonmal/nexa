@@ -122,7 +122,12 @@ fn has_collection_state(module: &Module) -> bool {
     module
         .states
         .iter()
-        .chain(module.screens.iter().flat_map(|screen| screen.states.iter()))
+        .chain(
+            module
+                .screens
+                .iter()
+                .flat_map(|screen| screen.states.iter()),
+        )
         .chain(
             module
                 .components
@@ -240,6 +245,9 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
     });
 
     units.write("app", |out| {
+            if features.uses_picker {
+                controls::render_picker_helper(out);
+            }
             if features.uses_bottom_sheet || features.uses_segmented_control {
                 out.push_str("@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)\n");
             }

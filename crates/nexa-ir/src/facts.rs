@@ -154,6 +154,7 @@ pub struct UiFacts {
     pub progress_bar_present: bool,
     pub progress_ring_present: bool,
     pub segmented_control_present: bool,
+    pub picker_present: bool,
     pub pressable: PressableFacts,
     pub layout: LayoutFacts,
     pub style: StyleFacts,
@@ -666,6 +667,9 @@ fn observe_node(
         }
         Node::SegmentedControl { .. } => {
             ui.segmented_control_present = true;
+        }
+        Node::Picker { .. } => {
+            ui.picker_present = true;
         }
         Node::Image {
             source,

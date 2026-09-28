@@ -81,7 +81,7 @@
       "patterns": [
         {
           "name": "support.class.component.nexa",
-          "match": "\\b(Accessibility|AppBottomBar|BottomSheet|Button|Column|Content|Dialog|Direction|Divider|FastList|Image|KeyboardAware|Link|NavigationBack|NavigationLink|NavigationStack|OnActive|OnAppear|OnBackground|OnDisappear|OnInactive|Pressable|ProgressBar|ProgressRing|RefreshControl|Row|SegmentedControl|Slider|Spacer|Stack|StatusBar|Switch|Tab|Text|TextInput)\\b"
+          "match": "\\b(Accessibility|AppBottomBar|BottomSheet|Button|Column|Content|Dialog|Direction|Divider|FastList|Image|KeyboardAware|Link|NavigationBack|NavigationLink|NavigationStack|OnActive|OnAppear|OnBackground|OnDisappear|OnInactive|Picker|Pressable|ProgressBar|ProgressRing|RefreshControl|Row|SegmentedControl|Slider|Spacer|Stack|StatusBar|Switch|Tab|Text|TextInput)\\b"
         }
       ]
     },

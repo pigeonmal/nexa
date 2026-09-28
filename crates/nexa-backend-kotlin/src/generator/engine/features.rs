@@ -73,6 +73,7 @@ pub(crate) struct Features {
     pub(crate) uses_progress_bar: bool,
     pub(crate) uses_progress_ring: bool,
     pub(crate) uses_segmented_control: bool,
+    pub(crate) uses_picker: bool,
     pub(crate) uses_pressable: bool,
     pub(crate) uses_haptic: bool,
     pub(crate) app_uses_haptic: bool,
@@ -226,6 +227,7 @@ impl Features {
         self.uses_progress_bar = ui.progress_bar_present;
         self.uses_progress_ring = ui.progress_ring_present;
         self.uses_segmented_control = ui.segmented_control_present;
+        self.uses_picker = ui.picker_present;
 
         let pressable = &ui.pressable;
         self.uses_pressable = pressable.present;

@@ -155,6 +155,7 @@ pub(crate) fn render_node(
         Node::SegmentedControl { items, state } => {
             controls::render_segmented_control(items, state, depth, out)
         }
+        Node::Picker { items, state } => controls::render_picker(items, state, depth, out),
         Node::Image {
             source,
             description,

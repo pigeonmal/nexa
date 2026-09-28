@@ -1,0 +1,9 @@
+app PickerSmoke {
+    state sizes: Array<String> = ["Small", "Medium", "Large"]
+    state selectedSize: String = "Medium"
+
+    body {
+        Picker(items: sizes, selected: selectedSize)
+        Text(selectedSize)
+    }
+}

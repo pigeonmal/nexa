@@ -41,6 +41,27 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.material3.SingleChoiceSegmentedButtonRow",
     );
     imports.add(
+        features.uses_picker,
+        "androidx.compose.foundation.layout.Box",
+    );
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.material3.DropdownMenu",
+    );
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.material3.DropdownMenuItem",
+    );
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.material3.TextButton",
+    );
+    imports.add(
+        features.uses_picker,
+        "androidx.compose.runtime.mutableStateOf",
+    );
+    imports.add(features.uses_picker, "androidx.compose.runtime.remember");
+    imports.add(
         features.uses_progress_bar,
         "androidx.compose.material3.LinearProgressIndicator",
     );
@@ -49,7 +70,7 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.material3.CircularProgressIndicator",
     );
     imports.add(
-        features.uses_button || features.uses_segmented_control,
+        features.uses_button || features.uses_segmented_control || features.uses_picker,
         "androidx.compose.material3.Text",
     );
     imports.add(
@@ -221,6 +242,23 @@ pub(crate) fn render_segmented_control(
     out.line_at(depth + 2, format_args!("}}"));
     out.line_at(depth + 1, format_args!("}}"));
     out.line_at(depth, format_args!("}}"));
+}
+
+pub(crate) fn render_picker(items: &Expr, state: &str, depth: usize, out: &mut SourceWriter) {
+    let selected = state_name(state);
+    out.line_at(
+        depth,
+        format_args!(
+            "nexaPickerMenu({}, {selected}, {{ {selected} = it }})",
+            expression(items)
+        ),
+    );
+}
+
+pub(crate) fn render_picker_helper(out: &mut SourceWriter) {
+    out.push_str(
+        "@Composable\ninternal fun nexaPickerMenu(\n    items: List<String>,\n    selected: String,\n    onSelectionChanged: (String) -> Unit,\n) {\n    val expanded = remember { mutableStateOf(false) }\n    Box {\n        TextButton(onClick = { expanded.value = true }) {\n            Text(selected)\n        }\n        DropdownMenu(\n            expanded = expanded.value,\n            onDismissRequest = { expanded.value = false },\n        ) {\n            items.forEach { item ->\n                DropdownMenuItem(\n                    text = { Text(item) },\n                    onClick = {\n                        onSelectionChanged(item)\n                        expanded.value = false\n                    },\n                )\n            }\n        }\n    }\n}\n\n",
+    );
 }
 
 pub(crate) fn render_pressable(

@@ -553,6 +553,17 @@ struct NexaDevNodeList: View {
                     Text(item).tag(item)
                 }
             }.pickerStyle(.segmented).labelsHidden())
+        case "Picker":
+            let name = fields["state"] as? String ?? ""
+            let items = store.evaluate(fields["items"] ?? NSNull(), locals: locals, scope: scope) as? [String] ?? []
+            return AnyView(Picker("", selection: Binding(
+                get: { store.value(name, scope: scope) as? String ?? "" },
+                set: { store.setValue(name, value: $0, scope: scope) }
+            )) {
+                ForEach(items, id: \.self) { item in
+                    Text(item).tag(item)
+                }
+            }.pickerStyle(.menu).labelsHidden())
         case "Image":
             let source = fields["source"] as? [String: Any] ?? [:]
             let description = fields["description"] as? String ?? ""

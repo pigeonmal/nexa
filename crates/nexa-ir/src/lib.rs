@@ -571,6 +571,10 @@ pub enum Node {
         items: Expr,
         state: String,
     },
+    Picker {
+        items: Expr,
+        state: String,
+    },
     Image {
         source: ImageSource,
         description: String,

@@ -442,6 +442,44 @@ fn segmented_control_lowers_a_string_array_and_mutable_string_binding() {
 }
 
 #[test]
+fn picker_lowers_a_string_array_and_mutable_string_binding() {
+    let module = compile(
+        r#"
+        app SizePicker {
+            state sizes: Array<String> = ["Small", "Medium", "Large"]
+            state selectedSize: String = "Medium"
+
+            body {
+                Picker(items: sizes, selected: selectedSize)
+            }
+        }
+        "#,
+    )
+    .expect("a string array and mutable string selection should compile");
+
+    assert!(matches!(
+        &module.body[0],
+        Node::Picker {
+            items: Expr::State(name, Type::Array(element)),
+            state,
+        } if name == "sizes" && **element == Type::String && state == "selectedSize"
+    ));
+
+    let invalid = compile(
+        r#"
+        app InvalidPicker {
+            let sizes: Array<Int32> = [1, 2]
+            state selectedSize: String = "Medium"
+            body {
+                Picker(items: sizes, selected: selectedSize)
+            }
+        }
+        "#,
+    );
+    assert!(invalid.is_err(), "picker options must be Array<String>");
+}
+
+#[test]
 fn dialog_lowers_typed_text_and_actions_for_mutable_state() {
     let module = compile(
         r#"

@@ -156,6 +156,20 @@ Modifiers: none
 
 Reference: components.md#button
 
+### `Picker`
+
+Selects one string option from a native menu
+
+Signature: `Picker(items, selected)`
+
+Required options: `items`, `selected`
+
+Children: none
+
+Modifiers: none
+
+Reference: components.md#picker
+
 ### `ProgressBar`
 
 Shows linear progress for a Float64 value

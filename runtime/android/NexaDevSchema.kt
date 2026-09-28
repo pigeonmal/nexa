@@ -5,8 +5,8 @@ package __NEXA_PACKAGE__
  * shared between Nexa development servers and Android dev runtimes.
  */
 internal object NexaDevSchema {
-    const val PROTOCOL_VERSION: Int = 7
-    const val DEV_IR_FORMAT_VERSION: Int = 5
+    const val PROTOCOL_VERSION: Int = 8
+    const val DEV_IR_FORMAT_VERSION: Int = 6
     const val TARGET_PLATFORM: String = "android"
 }
 
@@ -121,6 +121,7 @@ internal object NexaDevNodeKind {
     const val BOTTOM_SHEET = "BottomSheet"
     const val DIALOG = "Dialog"
     const val SEGMENTED_CONTROL = "SegmentedControl"
+    const val PICKER = "Picker"
     const val NAVIGATION_STACK = "NavigationStack"
     const val NAVIGATION_LINK = "NavigationLink"
     const val NAVIGATION_BACK = "NavigationBack"

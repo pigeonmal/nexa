@@ -97,6 +97,21 @@ mod tests {
     }
 
     #[test]
+    fn picker_imports_are_gated_to_the_native_menu_control() {
+        let mut features = Features::default();
+        features.uses_picker = true;
+        let imports = render_features(&features);
+
+        assert!(imports.contains("import androidx.compose.foundation.layout.Box\n"));
+        assert!(imports.contains("import androidx.compose.material3.DropdownMenu\n"));
+        assert!(imports.contains("import androidx.compose.material3.DropdownMenuItem\n"));
+        assert!(imports.contains("import androidx.compose.material3.TextButton\n"));
+        assert!(imports.contains("import androidx.compose.runtime.mutableStateOf\n"));
+        assert!(imports.contains("import androidx.compose.runtime.remember\n"));
+        assert!(!imports.contains("import androidx.compose.material3.SegmentedButton\n"));
+    }
+
+    #[test]
     fn local_images_do_not_pull_remote_image_or_network_imports() {
         let mut features = Features::default();
         features.uses_asset = true;

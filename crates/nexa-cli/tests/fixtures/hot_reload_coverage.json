@@ -760,6 +760,11 @@
         "android": "covered"
       },
       {
+        "name": "Picker",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "RefreshControl",
         "ios": "covered",
         "android": "covered"

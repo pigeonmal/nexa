@@ -239,6 +239,23 @@ app FilterTabs {
 - **Properties**: `items: Array<String>`, `selected: String` (mutable state binding).
 - Option labels should be distinct; the selected value is the matching label.
 
+### `Picker`
+Native menu-style single-choice control for a set of string options. `selected` is a mutable `String` state bound to the active option.
+
+```nexa
+app SizePicker {
+    state sizes: Array<String> = ["Small", "Medium", "Large"]
+    state selectedSize: String = "Medium"
+
+    body {
+        Picker(items: sizes, selected: selectedSize)
+        Text(selectedSize)
+    }
+}
+```
+- **Properties**: `items: Array<String>`, `selected: String` (mutable state binding).
+- Option labels should be distinct; the selected value should match one of the labels.
+
 ---
 
 ### `Pressable`

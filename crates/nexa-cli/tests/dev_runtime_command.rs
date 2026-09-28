@@ -548,6 +548,37 @@ fn development_runtime_renders_segmented_controls_on_both_platforms() {
 }
 
 #[test]
+fn development_runtime_renders_pickers_on_both_platforms() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/dev_picker.nx"),
+        &entry,
+    )
+    .expect("write picker smoke app");
+    let output = root.join("build");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "RuntimeSmoke",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate picker dev hosts");
+
+    let swift = read_ios_dev_runtime(&output);
+    assert!(swift.contains("case \"Picker\":"));
+    assert!(swift.contains(".pickerStyle(.menu)"));
+
+    let kotlin = read_android_dev_runtime(&output);
+    assert!(kotlin.contains("\"Picker\" ->"));
+    assert!(kotlin.contains("DropdownMenuItem("));
+    assert!(kotlin.contains("store.setState(state, item, scope)"));
+}
+
+#[test]
 fn development_runtime_renders_bottom_tabs_on_both_platforms() {
     let root = temporary_project();
     let entry = root.join("App.nx");

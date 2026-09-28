@@ -49,6 +49,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
@@ -590,6 +592,33 @@ internal fun NexaDevNode(
                         shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
                     ) {
                         Text(item)
+                    }
+                }
+            }
+        }
+        "Picker" -> {
+            val state = fields.optString("state")
+            val selected = store.state(state, scope) as? String ?: ""
+            val options = (store.evaluate(fields.opt("items"), locals, scope) as? List<*>)
+                ?.filterIsInstance<String>()
+                ?: emptyList()
+            val expanded = remember(state, scope) { mutableStateOf(false) }
+            Box {
+                androidx.compose.material3.TextButton(onClick = { expanded.value = true }) {
+                    Text(selected)
+                }
+                DropdownMenu(
+                    expanded = expanded.value,
+                    onDismissRequest = { expanded.value = false },
+                ) {
+                    options.forEach { item ->
+                        DropdownMenuItem(
+                            text = { Text(item) },
+                            onClick = {
+                                store.setState(state, item, scope)
+                                expanded.value = false
+                            },
+                        )
                     }
                 }
             }

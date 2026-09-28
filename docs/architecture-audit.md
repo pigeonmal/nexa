@@ -5,6 +5,7 @@ previous compiler output.
 
 ## Cache schema
 
+- `build-v99`: adds a native menu-style Picker and Dev IR/runtime rendering on both platforms; advances the development protocol and format versions.
 - `build-v98`: adds native string-backed SegmentedControl lowering and Dev IR/rendering on both platforms; advances the development protocol and format versions.
 - `build-v97`: adds typed native Dialog alerts and Dev IR/runtime rendering on both platforms; advances the development protocol and format versions.
 - `build-v96`: adds native Float64 Slider and progress controls, extends both development runtimes with their state/expression handling, and advances Dev IR and protocol versions.

@@ -127,6 +127,7 @@ pub fn walk_ir(
                 walk_expression(progress, visit_expression)
             }
             Node::SegmentedControl { items, .. } => walk_expression(items, visit_expression),
+            Node::Picker { items, .. } => walk_expression(items, visit_expression),
             Node::Button {
                 label,
                 loading,
@@ -519,6 +520,7 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::ProgressBar { .. }
         | Node::ProgressRing { .. }
         | Node::SegmentedControl { .. }
+        | Node::Picker { .. }
         | Node::Image { .. }
         | Node::NavigationStack { .. }
         | Node::NavigationBack { .. }
@@ -854,6 +856,7 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             visitor.visit_expr(progress)
         }
         Node::SegmentedControl { items, .. } => visitor.visit_expr(items),
+        Node::Picker { items, .. } => visitor.visit_expr(items),
         Node::Button {
             label,
             loading,
@@ -1306,6 +1309,10 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             progress: folder.fold_expr(progress),
         }),
         Node::SegmentedControl { items, state } => Some(Node::SegmentedControl {
+            items: folder.fold_expr(items),
+            state,
+        }),
+        Node::Picker { items, state } => Some(Node::Picker {
             items: folder.fold_expr(items),
             state,
         }),
