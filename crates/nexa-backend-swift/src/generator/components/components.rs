@@ -1,6 +1,7 @@
 use nexa_codegen::SourceWriter;
 use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 
+use super::dialogs;
 use crate::generator::{
     accessibility, bottom_bar, colors, controls,
     engine::features::Features,
@@ -226,6 +227,14 @@ pub(crate) fn render_node(
             partial,
             children,
         } => sheets::render_bottom_sheet(state, *partial, children, module, features, depth, out),
+        Node::Dialog {
+            state,
+            title,
+            message,
+            children,
+        } => dialogs::render_dialog(
+            state, title, message, children, module, features, depth, out,
+        ),
         Node::RefreshControl {
             state,
             children,

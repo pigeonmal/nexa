@@ -8,7 +8,7 @@
 use nexa_ir::{Module, Node};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 3;
+pub const DEV_IR_FORMAT_VERSION: u16 = 4;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DevModule {
@@ -267,6 +267,7 @@ fn node_kind(node: &Node) -> &'static str {
         Node::Accessibility { .. } => "Accessibility",
         Node::KeyboardAware { .. } => "KeyboardAware",
         Node::BottomSheet { .. } => "BottomSheet",
+        Node::Dialog { .. } => "Dialog",
         Node::RefreshControl { .. } => "RefreshControl",
         Node::AppBottomBar { .. } => "AppBottomBar",
         Node::FastList { .. } => "FastList",
@@ -289,6 +290,7 @@ fn node_child_groups(node: &Node) -> Vec<(String, &[Node])> {
         | Node::Accessibility { children, .. }
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
+        | Node::Dialog { children, .. }
         | Node::RefreshControl { children, .. } => vec![("body".to_owned(), children)],
         Node::FastList { plan } => {
             let mut groups = vec![("body".to_owned(), plan.children())];

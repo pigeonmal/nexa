@@ -15,6 +15,16 @@ pub fn walk_ir(
             Node::Layout { children, .. }
             | Node::KeyboardAware { children, .. }
             | Node::BottomSheet { children, .. } => walk_ir(children, visit_node, visit_expression),
+            Node::Dialog {
+                title,
+                message,
+                children,
+                ..
+            } => {
+                walk_expression(title, visit_expression);
+                walk_expression(message, visit_expression);
+                walk_ir(children, visit_node, visit_expression);
+            }
             Node::Pressable {
                 disabled,
                 children,
@@ -480,6 +490,7 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::Accessibility { children, .. }
         | Node::Pressable { children, .. }
         | Node::BottomSheet { children, .. }
+        | Node::Dialog { children, .. }
         | Node::RefreshControl { children, .. } => contains_scrollable(children),
         Node::AppBottomBar { tabs, .. } => {
             tabs.iter().any(|tab| contains_scrollable(&tab.children))
@@ -737,7 +748,8 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
     match node {
         Node::Layout { children, .. }
         | Node::KeyboardAware { children, .. }
-        | Node::BottomSheet { children, .. } => visitor.visit_nodes(children),
+        | Node::BottomSheet { children, .. }
+        | Node::Dialog { children, .. } => visitor.visit_nodes(children),
         Node::Pressable {
             disabled,
             children,
@@ -1157,6 +1169,17 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         } => Some(Node::BottomSheet {
             state,
             partial,
+            children: folder.fold_nodes(children),
+        }),
+        Node::Dialog {
+            state,
+            title,
+            message,
+            children,
+        } => Some(Node::Dialog {
+            state,
+            title: folder.fold_expr(title),
+            message: folder.fold_expr(message),
             children: folder.fold_nodes(children),
         }),
         Node::Pressable {

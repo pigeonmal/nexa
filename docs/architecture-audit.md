@@ -5,6 +5,7 @@ previous compiler output.
 
 ## Cache schema
 
+- `build-v97`: adds typed native Dialog alerts and Dev IR/runtime rendering on both platforms; advances the development protocol and format versions.
 - `build-v96`: adds native Float64 Slider and progress controls, extends both development runtimes with their state/expression handling, and advances Dev IR and protocol versions.
 - `build-v95`: added typed arithmetic IR and native lowering for subtraction,
   multiplication, division, remainder, and unary negation; added string

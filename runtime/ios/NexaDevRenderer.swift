@@ -663,6 +663,19 @@ struct NexaDevNodeList: View {
             })
         case "BottomSheet":
             return AnyView(EmptyView())
+        case "Dialog":
+            let state = fields["state"] as? String ?? ""
+            let title = store.stringify(store.evaluate(fields["title"] ?? NSNull(), locals: locals, scope: scope))
+            let message = store.stringify(store.evaluate(fields["message"] ?? NSNull(), locals: locals, scope: scope))
+            let children = fields["children"] as? [Any] ?? []
+            return AnyView(EmptyView().alert(Text(title), isPresented: Binding(
+                get: { store.truthy(store.value(state, scope: scope)) },
+                set: { store.setValue(state, value: $0, scope: scope) }
+            )) {
+                NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
+            } message: {
+                Text(message)
+            })
         case "NavigationStack":
             return navigationStack(fields, locals: locals, scope: scope)
         case "NavigationLink":

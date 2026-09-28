@@ -1,0 +1,13 @@
+app DialogSmoke {
+    state showDialog: Bool = true
+
+    body {
+        Dialog(
+            isPresented: showDialog,
+            title: "Dialog smoke test",
+            message: "Native alert is active."
+        ) {
+            Button("Close") { showDialog = false }
+        }
+    }
+}

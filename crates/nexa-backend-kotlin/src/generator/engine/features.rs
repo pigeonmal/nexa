@@ -8,6 +8,7 @@ pub(crate) struct Features {
     pub(crate) uses_bottom_bar: bool,
     pub(crate) uses_bottom_sheet: bool,
     pub(crate) uses_bottom_sheet_partial: bool,
+    pub(crate) uses_dialog: bool,
     pub(crate) uses_refresh_control: bool,
     pub(crate) uses_refresh_scroll: bool,
     pub(crate) uses_asset: bool,
@@ -166,6 +167,7 @@ impl Features {
         self.uses_tab_badge_placeholder = ui.bottom_bar.tab_badge_placeholder;
         self.uses_bottom_sheet = ui.bottom_sheet.present;
         self.uses_bottom_sheet_partial = ui.bottom_sheet.partial;
+        self.uses_dialog = ui.dialog_present;
         self.uses_refresh_control = ui.refresh.present || ui.lists.refresh_fused;
         self.uses_refresh_scroll = ui.refresh.scroll_variant;
         self.uses_asset = ui.image.asset;

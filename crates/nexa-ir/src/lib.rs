@@ -612,6 +612,12 @@ pub enum Node {
         partial: bool,
         children: Vec<Node>,
     },
+    Dialog {
+        state: String,
+        title: Expr,
+        message: Expr,
+        children: Vec<Node>,
+    },
     RefreshControl {
         state: String,
         children: Vec<Node>,

@@ -168,6 +168,7 @@ internal class NexaDevStateStore(internal val context: Context) {
                 ?: node.optJSONObject("If")?.optJSONArray("then_body")
                 ?: node.optJSONObject("If")?.optJSONArray("else_body")
                 ?: node.optJSONObject("BottomSheet")?.optJSONArray("children")
+                ?: node.optJSONObject("Dialog")?.optJSONArray("children")
                 ?: node.optJSONObject("KeyboardAware")?.optJSONArray("children")
                 ?: node.optJSONObject("Accessibility")?.optJSONArray("children")
                 ?: node.optJSONObject("Pressable")?.optJSONArray("children")

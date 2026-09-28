@@ -5,6 +5,7 @@ pub(crate) mod bottom_bar;
 pub(crate) mod components;
 pub(crate) mod controls;
 pub(crate) mod custom_components;
+pub(crate) mod dialogs;
 pub(crate) mod direction;
 pub(crate) mod images;
 pub(crate) mod input;

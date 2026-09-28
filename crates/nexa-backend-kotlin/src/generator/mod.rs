@@ -9,8 +9,8 @@ use crate::generator::engine::types::kotlin_type;
 pub(super) use api::{network, permissions};
 use components::components as component_renderer;
 pub(super) use components::{
-    accessibility, assets, bottom_bar, controls, custom_components, images, input, keyboard,
-    layout, links, lists, navigation, refresh, sheets,
+    accessibility, assets, bottom_bar, controls, custom_components, dialogs, images, input,
+    keyboard, layout, links, lists, navigation, refresh, sheets,
 };
 pub(super) use engine::{
     colors, expressions, features, functions, runtime, state, structs, utils, value,

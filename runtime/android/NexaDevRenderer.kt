@@ -44,6 +44,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -712,6 +713,21 @@ internal fun NexaDevNode(
                 ModalBottomSheet(onDismissRequest = { store.setState(state, false, scope) }) {
                     RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
                 }
+            }
+        }
+        "Dialog" -> {
+            val state = fields.optString("state")
+            if (store.state(state, scope) as? Boolean == true) {
+                val title = store.stringify(store.evaluate(fields.opt("title"), locals, scope))
+                val message = store.stringify(store.evaluate(fields.opt("message"), locals, scope))
+                AlertDialog(
+                    onDismissRequest = { store.setState(state, false, scope) },
+                    title = { Text(title) },
+                    text = { Text(message) },
+                    confirmButton = {
+                        RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
+                    },
+                )
             }
         }
         "NavigationStack" -> RenderNavigationStack(fields, module, store, locals, scope)

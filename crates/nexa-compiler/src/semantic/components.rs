@@ -1006,6 +1006,28 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                 children: lowered_children,
             })
         }
+        ast::Node::ComponentInvocation(inv) if inv.name == "Dialog" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let is_presented = take_required_arg(&mut args, &inv.name, "isPresented", span)?;
+            let title = take_required_arg(&mut args, &inv.name, "title", span)?;
+            let message = take_required_arg(&mut args, &inv.name, "message", span)?;
+            let state =
+                require_mutable_binding(&is_presented, &Type::Bool, symbols, span, "Dialog")?;
+            let title = lower_expr(&title, Some(&Type::String), &cx.exprs(false))?;
+            let message = lower_expr(&message, Some(&Type::String), &cx.exprs(false))?;
+            let children = match inv.children {
+                ast::ChildBody::Nodes(children) => children,
+                _ => return Err(child_mismatch(span)),
+            };
+            let lowered_children = lower_nodes(children, &child_cx)?;
+            Ok(Node::Dialog {
+                state,
+                title,
+                message,
+                children: lowered_children,
+            })
+        }
         ast::Node::ComponentInvocation(inv) if inv.name == "RefreshControl" => {
             let span = inv.span;
             let schema = invocation_schema(&inv)?;

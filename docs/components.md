@@ -365,6 +365,33 @@ app BottomSheetExample {
 ```
 - **Properties**: `isPresented: Bool` (state binding), `partial: Bool`.
 
+### `Dialog`
+Native modal alert controlled by mutable Boolean state. The title and message accept `String` expressions, and the child block contains the dialog buttons.
+
+```nexa
+app DialogExample {
+    state showConfirmation: Bool = false
+    state itemCount: Int32 = 1
+
+    body {
+        Button("Delete") { showConfirmation = true }
+        Dialog(
+            isPresented: showConfirmation,
+            title: "Delete item?",
+            message: "This action cannot be undone."
+        ) {
+            Button("Cancel") { showConfirmation = false }
+            Button("Delete") {
+                itemCount = 0
+                showConfirmation = false
+            }
+        }
+    }
+}
+```
+- **Properties**: `isPresented: Bool` (state binding), `title: String`, `message: String`.
+- **Children**: native button content. Buttons close the dialog by setting its binding to `false`.
+
 ---
 
 ### `RefreshControl`

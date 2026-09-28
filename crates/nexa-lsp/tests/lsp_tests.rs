@@ -168,12 +168,14 @@ fn lsp_rejects_unsupported_component_names() {
         "Slider(value: amount, min: 0.0, max: 1.0, step: 0.1)",
         "ProgressBar(progress: progress)",
         "ProgressRing(progress: progress)",
+        "Dialog(isPresented: show, title: \"Title\", message: \"Message\") { Button(\"OK\") { show = false } }",
         "TextInput(value: name, placeholder: \"Name\")",
     ] {
         let state = match component {
             value if value.contains("value: name") => "    state name: String = \"\"\n",
             value if value.contains("value: amount") => "    state amount: Float64 = 0.5\n",
             value if value.contains("progress: progress") => "    state progress: Float64 = 0.5\n",
+            value if value.contains("isPresented: show") => "    state show: Bool = false\n",
             _ => "",
         };
         let source = format!("app P {{\n{state}    body {{\n        {component}\n    }}\n}}\n");
@@ -223,6 +225,7 @@ fn lsp_completion_response_matches_the_catalog() {
         "Slider",
         "ProgressBar",
         "ProgressRing",
+        "Dialog",
     ] {
         assert!(labels.contains(&supported), "{supported} should be offered");
     }

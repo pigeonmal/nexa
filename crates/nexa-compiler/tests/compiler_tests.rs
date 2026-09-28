@@ -404,6 +404,55 @@ fn progress_controls_lower_float64_expressions() {
 }
 
 #[test]
+fn dialog_lowers_typed_text_and_actions_for_mutable_state() {
+    let module = compile(
+        r#"
+        app DeleteConfirmation {
+            state isPresented: Bool = false
+            state deleted: Bool = false
+
+            body {
+                Dialog(isPresented: isPresented, title: "Delete item?", message: "This cannot be undone.") {
+                    Button("Cancel") { isPresented = false }
+                    Button("Delete") {
+                        deleted = true
+                        isPresented = false
+                    }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("dialog text, state binding, and native action buttons should compile");
+
+    assert!(matches!(
+        &module.body[0],
+        Node::Dialog {
+            state,
+            title: Expr::String(title),
+            message: Expr::String(message),
+            children,
+        } if state == "isPresented"
+            && title == "Delete item?"
+            && message == "This cannot be undone."
+            && children.len() == 2
+            && children.iter().all(|node| matches!(node, Node::Button { .. }))
+    ));
+
+    let invalid = compile(
+        r#"
+        app InvalidDialog {
+            state isPresented: Bool = false
+            body {
+                Dialog(isPresented: isPresented, title: 1, message: "Message") { }
+            }
+        }
+        "#,
+    );
+    assert!(invalid.is_err(), "dialog title must be a String expression");
+}
+
+#[test]
 fn unused_native_plugins_are_pruned_from_both_target_modules() {
     let project = TestProject::new("nexa-plugin-pruning");
     for (directory, id, service) in [

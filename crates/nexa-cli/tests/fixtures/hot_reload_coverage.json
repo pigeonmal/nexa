@@ -750,6 +750,11 @@
         "android": "covered"
       },
       {
+        "name": "Dialog",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "RefreshControl",
         "ios": "covered",
         "android": "covered"

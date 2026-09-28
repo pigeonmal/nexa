@@ -507,6 +507,7 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::Accessibility { children, .. }
         | Node::KeyboardAware { children, .. }
         | Node::BottomSheet { children, .. }
+        | Node::Dialog { children, .. }
         | Node::RefreshControl { children, .. } => {
             for child in children {
                 collect_ir_component_calls(child, calls);

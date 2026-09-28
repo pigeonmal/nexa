@@ -142,6 +142,7 @@ pub struct UiFacts {
     pub status_bar: bool,
     pub bottom_bar: BottomBarFacts,
     pub bottom_sheet: BottomSheetFacts,
+    pub dialog_present: bool,
     pub refresh: RefreshFacts,
     pub image: ImageFacts,
     pub lists: ListFacts,
@@ -719,6 +720,10 @@ fn observe_node(
         } => {
             ui.bottom_sheet.present = true;
             ui.bottom_sheet.partial |= *partial;
+            record_child_layout(children, ui);
+        }
+        Node::Dialog { children, .. } => {
+            ui.dialog_present = true;
             record_child_layout(children, ui);
         }
         Node::AppBottomBar { tabs, .. } => {

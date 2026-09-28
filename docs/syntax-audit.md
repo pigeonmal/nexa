@@ -500,6 +500,20 @@ Modifiers: none
 
 Reference: components.md#bottomsheet
 
+### `Dialog`
+
+Native modal alert with a boolean binding and action content
+
+Signature: `Dialog(isPresented, title, message) { ... }`
+
+Required options: `isPresented`, `title`, `message`
+
+Children: node block
+
+Modifiers: none
+
+Reference: components.md#dialog
+
 ## Composition
 
 ### `Content`
