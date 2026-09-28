@@ -1,5 +1,8 @@
 use nexa_dev_ir::{IdentityKind, lower};
-use nexa_ir::{DirectionConfig, DirectionStyle, Module, Node, NumericType, State, TextStyle, Type};
+use nexa_ir::{
+    Component, ComponentParameter, DirectionConfig, DirectionStyle, Expr, Module, Node,
+    NumericType, State, TextStyle, Type,
+};
 
 fn module(body: Vec<Node>, state_type: Type) -> Module {
     Module {
@@ -38,6 +41,27 @@ fn text(value: &str) -> Node {
     Node::Text {
         value: nexa_ir::Expr::String(value.to_owned()),
         style: TextStyle::default(),
+    }
+}
+
+fn component_call(name: &str) -> Node {
+    Node::ComponentCall {
+        name: name.to_owned(),
+        arguments: vec![("title".to_owned(), Expr::String("Title".to_owned()))],
+        children: Some(vec![text("Projected child")]),
+    }
+}
+
+fn component(name: &str) -> Component {
+    Component {
+        name: name.to_owned(),
+        source_file: None,
+        parameters: vec![ComponentParameter {
+            name: "title".to_owned(),
+            ty: Type::String,
+        }],
+        states: Vec::new(),
+        body: vec![text("Component body"), Node::Content],
     }
 }
 
@@ -137,6 +161,55 @@ fn diff_replaces_an_array_when_its_shape_changes() {
     assert_eq!(patch.operations.len(), 1);
     assert_eq!(patch.operations[0].path, "/body");
     assert!(patch.operations[0].value.is_some());
+}
+
+#[test]
+fn diff_hot_reloads_custom_component_renames_and_removals() {
+    let mut original_module = module(
+        vec![component_call("Card")],
+        Type::Numeric(NumericType::Int32),
+    );
+    original_module.components.push(component("Card"));
+    let original = lower(&original_module, "revision-1");
+
+    let mut renamed_module = module(
+        vec![component_call("ProductCard")],
+        Type::Numeric(NumericType::Int32),
+    );
+    renamed_module.components.push(component("ProductCard"));
+    let renamed = lower(&renamed_module, "revision-2");
+    let rename_patch = nexa_dev_ir::diff(&original, &renamed)
+        .expect("renaming a custom component should be patchable");
+
+    assert!(rename_patch.operations.iter().any(|operation| {
+        operation.path == "/components/0/name"
+            && operation.value == Some(serde_json::json!("ProductCard"))
+    }));
+    assert!(rename_patch.operations.iter().any(|operation| {
+        operation.path == "/body/0/ComponentCall/name"
+            && operation.value == Some(serde_json::json!("ProductCard"))
+    }));
+
+    let mut removed_module = module(
+        vec![text("Standalone after component removal")],
+        Type::Numeric(NumericType::Int32),
+    );
+    removed_module.components.clear();
+    let removed = lower(&removed_module, "revision-3");
+    let remove_patch =
+        nexa_dev_ir::diff(&renamed, &removed).expect("removing a component should be patchable");
+
+    assert!(remove_patch.operations.iter().any(|operation| {
+        operation.path == "/components" && operation.value == Some(serde_json::json!([]))
+    }));
+    assert!(remove_patch.operations.iter().any(|operation| {
+        operation.path == "/body/0/Text"
+            && operation
+                .value
+                .as_ref()
+                .and_then(|node| node.pointer("/value/String"))
+                == Some(&serde_json::json!("Standalone after component removal"))
+    }));
 }
 
 #[test]

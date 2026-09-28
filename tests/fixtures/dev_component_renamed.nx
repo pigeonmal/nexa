@@ -1,0 +1,16 @@
+component ProductCard(title: String) {
+    body {
+        Column {
+            Text("Product: $title")
+            Content()
+        }
+    }
+}
+
+app ComponentSmoke {
+    body {
+        Column {
+            ProductCard(title: "Renamed") { Text("Projected child") }
+        }
+    }
+}

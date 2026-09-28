@@ -2101,6 +2101,21 @@ fn native_plan(
             destination: Box::new(take("destinationPath")?),
             request: Box::new(network_request()?),
         }),
+        "Path.documents" | "Path.caches" | "Path.temporary" | "Path.appSupport" => {
+            let Some((namespace, name)) = qualified_name.split_once('.') else {
+                return Err(CompileError::new(span, "invalid built-in path API"));
+            };
+            Ok(Expr::NativeCall {
+                receiver: None,
+                namespace: namespace.to_owned(),
+                name: name.to_owned(),
+                arguments: Vec::new(),
+                codecs: Vec::new(),
+                return_type: Type::String,
+                is_async: false,
+                is_throwing: false,
+            })
+        }
         "Path.join" => Ok(Expr::PathJoin {
             path: Box::new(take("path")?),
             component: Box::new(take("component")?),

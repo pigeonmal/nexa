@@ -313,7 +313,7 @@ internal fun NexaDevNode(
                 val fontSize = if (style.has("font_size") && !style.isNull("font_size")) style.getDouble("font_size").sp else androidx.compose.ui.unit.TextUnit.Unspecified
                 val maxLines = if (style.has("line_limit") && !style.isNull("line_limit")) style.getInt("line_limit") else Int.MAX_VALUE
                 val letterSpacing = if (style.has("letter_spacing") && !style.isNull("letter_spacing")) style.getDouble("letter_spacing").sp else androidx.compose.ui.unit.TextUnit.Unspecified
-                var modifier = Modifier
+                var modifier: Modifier = Modifier
                 val effects = style.optJSONObject("effects") ?: JSONObject()
                 if (!style.isNull("opacity")) modifier = modifier.alpha(style.optDouble("opacity").toFloat())
                 if (!effects.isNull("scale") || !effects.isNull("rotation")) {
