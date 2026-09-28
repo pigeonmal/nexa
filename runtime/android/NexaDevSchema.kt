@@ -5,8 +5,8 @@ package __NEXA_PACKAGE__
  * shared between Nexa development servers and Android dev runtimes.
  */
 internal object NexaDevSchema {
-    const val PROTOCOL_VERSION: Int = 4
-    const val DEV_IR_FORMAT_VERSION: Int = 2
+    const val PROTOCOL_VERSION: Int = 5
+    const val DEV_IR_FORMAT_VERSION: Int = 3
     const val TARGET_PLATFORM: String = "android"
 }
 
@@ -107,6 +107,9 @@ internal object NexaDevNodeKind {
     const val TEXT_INPUT = "TextInput"
     const val FAST_LIST = "FastList"
     const val SWITCH = "Switch"
+    const val SLIDER = "Slider"
+    const val PROGRESS_BAR = "ProgressBar"
+    const val PROGRESS_RING = "ProgressRing"
     const val IMAGE = "Image"
     const val REFRESH_CONTROL = "RefreshControl"
     const val IF = "If"

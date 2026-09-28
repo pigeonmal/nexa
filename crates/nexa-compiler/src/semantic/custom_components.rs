@@ -560,6 +560,9 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::Button { .. }
         | Node::TextInput { .. }
         | Node::Switch { .. }
+        | Node::Slider { .. }
+        | Node::ProgressBar { .. }
+        | Node::ProgressRing { .. }
         | Node::Image { .. }
         | Node::NavigationStack { .. }
         | Node::NavigationBack { .. }

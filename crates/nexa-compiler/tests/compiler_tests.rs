@@ -266,16 +266,20 @@ fn conditional_expressions_infer_shared_and_optional_branch_types() {
             ..
         }
     ));
-    assert!(matches!(
-        &module.body[1],
-        Node::Text {
-            value: Expr::Conditional {
-                value_type: Type::String,
+    assert!(
+        matches!(
+            &module.body[1],
+            Node::Text {
+                value: Expr::Conditional {
+                    value_type: Type::String,
+                    ..
+                },
                 ..
-            },
-            ..
-        }
-    ));
+            }
+        ),
+        "unexpected lowered ring: {:?}",
+        module.body[1]
+    );
 }
 
 #[test]
@@ -318,6 +322,84 @@ fn chained_text_styles_lower_to_native_text_style_fields() {
                 && style.font_size == Some(18.0)
                 && style.font_weight == Some(nexa_ir::FontWeight::Bold)
                 && style.padding == Some(12.0)
+    ));
+}
+
+#[test]
+fn slider_lowers_a_mutable_float64_binding_and_static_range() {
+    let module = compile(
+        r#"
+        app VolumeControl {
+            state volume: Float64 = 0.5
+
+            body {
+                Slider(value: volume, min: 0.0, max: 1.0, step: 0.1)
+            }
+        }
+        "#,
+    )
+    .expect("a valid stepped Float64 slider should compile");
+
+    assert!(matches!(
+        &module.body[0],
+        Node::Slider { state, min, max, step }
+            if state == "volume" && *min == 0.0 && *max == 1.0 && *step == 0.1
+    ));
+
+    let negative_range = compile(
+        r#"
+        app SignedSlider {
+            state balance: Float64 = 0.0
+            body {
+                Slider(value: balance, min: -1.0, max: 1.0, step: 0.5)
+            }
+        }
+        "#,
+    )
+    .expect("negative numeric range endpoints should be accepted");
+    assert!(matches!(
+        &negative_range.body[0],
+        Node::Slider { min, max, .. } if *min == -1.0 && *max == 1.0
+    ));
+
+    let invalid = compile(
+        r#"
+        app InvalidSlider {
+            state volume: Float64 = 0.5
+            body {
+                Slider(value: volume, min: 0.0, max: 1.0, step: 0.3)
+            }
+        }
+        "#,
+    );
+    assert!(invalid.is_err(), "the range must divide evenly into steps");
+}
+
+#[test]
+fn progress_controls_lower_float64_expressions() {
+    let module = compile(
+        r#"
+        app ProgressControls {
+            state progress: Float64 = 0.5
+            body {
+                ProgressBar(progress: progress)
+                ProgressRing(progress: progress + 0.1)
+            }
+        }
+        "#,
+    )
+    .expect("native progress controls should accept Float64 expressions");
+
+    assert!(matches!(
+        &module.body[0],
+        Node::ProgressBar { progress: Expr::State(name, Type::Numeric(NumericType::Float64)) }
+            if name == "progress"
+    ));
+    assert!(matches!(
+        &module.body[1],
+        Node::ProgressRing {
+            progress: Expr::Add(_, _, NumericType::Float64)
+        }
     ));
 }
 

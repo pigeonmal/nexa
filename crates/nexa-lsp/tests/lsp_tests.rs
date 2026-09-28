@@ -165,12 +165,16 @@ fn lsp_rejects_unsupported_component_names() {
     for component in [
         "Spacer()",
         "Divider(color: \"#808080\", thickness: 1)",
+        "Slider(value: amount, min: 0.0, max: 1.0, step: 0.1)",
+        "ProgressBar(progress: progress)",
+        "ProgressRing(progress: progress)",
         "TextInput(value: name, placeholder: \"Name\")",
     ] {
-        let state = if component.contains("value: name") {
-            "    state name: String = \"\"\n"
-        } else {
-            ""
+        let state = match component {
+            value if value.contains("value: name") => "    state name: String = \"\"\n",
+            value if value.contains("value: amount") => "    state amount: Float64 = 0.5\n",
+            value if value.contains("progress: progress") => "    state progress: Float64 = 0.5\n",
+            _ => "",
         };
         let source = format!("app P {{\n{state}    body {{\n        {component}\n    }}\n}}\n");
         let diagnostics = nexa_lsp::check_source(&source);
@@ -216,6 +220,9 @@ fn lsp_completion_response_matches_the_catalog() {
         "Pressable",
         "Spacer",
         "Divider",
+        "Slider",
+        "ProgressBar",
+        "ProgressRing",
     ] {
         assert!(labels.contains(&supported), "{supported} should be offered");
     }

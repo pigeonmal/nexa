@@ -156,6 +156,48 @@ Modifiers: none
 
 Reference: components.md#button
 
+### `ProgressBar`
+
+Shows linear progress for a Float64 value
+
+Signature: `ProgressBar(progress)`
+
+Required options: `progress`
+
+Children: none
+
+Modifiers: none
+
+Reference: components.md#progressbar
+
+### `ProgressRing`
+
+Shows circular progress for a Float64 value
+
+Signature: `ProgressRing(progress)`
+
+Required options: `progress`
+
+Children: none
+
+Modifiers: none
+
+Reference: components.md#progressring
+
+### `Slider`
+
+Adjusts a Float64 state value within a stepped range
+
+Signature: `Slider(value, min, max, step)`
+
+Required options: `value`, `min`, `max`, `step`
+
+Children: none
+
+Modifiers: none
+
+Reference: components.md#slider
+
 ### `Switch`
 
 Boolean toggle with a label

@@ -113,6 +113,9 @@ pub fn walk_ir(
                 walk_ir(else_body, visit_node, visit_expression);
             }
             Node::Text { value, .. } => walk_expression(value, visit_expression),
+            Node::ProgressBar { progress } | Node::ProgressRing { progress } => {
+                walk_expression(progress, visit_expression)
+            }
             Node::Button {
                 label,
                 loading,
@@ -162,6 +165,7 @@ pub fn walk_ir(
             | Node::Spacer
             | Node::Divider { .. }
             | Node::Switch { .. }
+            | Node::Slider { .. }
             | Node::StatusBar { .. }
             | Node::Direction { .. } => {}
             Node::NavigationStack { arguments, .. } => {
@@ -499,6 +503,9 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::Button { .. }
         | Node::TextInput { .. }
         | Node::Switch { .. }
+        | Node::Slider { .. }
+        | Node::ProgressBar { .. }
+        | Node::ProgressRing { .. }
         | Node::Image { .. }
         | Node::NavigationStack { .. }
         | Node::NavigationBack { .. }
@@ -829,6 +836,9 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             visitor.visit_nodes(else_body);
         }
         Node::Text { value, .. } => visitor.visit_expr(value),
+        Node::ProgressBar { progress } | Node::ProgressRing { progress } => {
+            visitor.visit_expr(progress)
+        }
         Node::Button {
             label,
             loading,
@@ -878,6 +888,7 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         | Node::Spacer
         | Node::Divider { .. }
         | Node::Switch { .. }
+        | Node::Slider { .. }
         | Node::StatusBar { .. }
         | Node::Direction { .. } => {}
         Node::NavigationStack { arguments, .. } => {
@@ -1262,6 +1273,12 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             value: folder.fold_expr(value),
             style,
         }),
+        Node::ProgressBar { progress } => Some(Node::ProgressBar {
+            progress: folder.fold_expr(progress),
+        }),
+        Node::ProgressRing { progress } => Some(Node::ProgressRing {
+            progress: folder.fold_expr(progress),
+        }),
         Node::Button {
             label,
             icon,
@@ -1363,6 +1380,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         | Node::Spacer
         | Node::Divider { .. }
         | Node::Switch { .. }
+        | Node::Slider { .. }
         | Node::StatusBar { .. }
         | Node::Direction { .. } => Some(node),
     }

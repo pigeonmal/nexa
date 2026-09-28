@@ -68,6 +68,9 @@ pub(crate) struct Features {
     pub(crate) uses_secure_text_input: bool,
     pub(crate) uses_capitalization: bool,
     pub(crate) uses_switch: bool,
+    pub(crate) uses_slider: bool,
+    pub(crate) uses_progress_bar: bool,
+    pub(crate) uses_progress_ring: bool,
     pub(crate) uses_pressable: bool,
     pub(crate) uses_haptic: bool,
     pub(crate) app_uses_haptic: bool,
@@ -216,6 +219,9 @@ impl Features {
 
         self.uses_switch = ui.switch_present;
         self.uses_modifier |= ui.switch_present;
+        self.uses_slider = ui.slider_present;
+        self.uses_progress_bar = ui.progress_bar_present;
+        self.uses_progress_ring = ui.progress_ring_present;
 
         let pressable = &ui.pressable;
         self.uses_pressable = pressable.present;

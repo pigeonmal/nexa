@@ -555,6 +555,18 @@ pub enum Node {
         state: String,
         label: String,
     },
+    Slider {
+        state: String,
+        min: f64,
+        max: f64,
+        step: f64,
+    },
+    ProgressBar {
+        progress: Expr,
+    },
+    ProgressRing {
+        progress: Expr,
+    },
     Image {
         source: ImageSource,
         description: String,

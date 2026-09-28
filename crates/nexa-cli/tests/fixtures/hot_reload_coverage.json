@@ -690,6 +690,21 @@
         "android": "covered"
       },
       {
+        "name": "Slider",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ProgressBar",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "ProgressRing",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Image",
         "ios": "covered",
         "android": "covered"

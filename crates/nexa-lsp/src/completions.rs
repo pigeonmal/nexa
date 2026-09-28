@@ -111,6 +111,9 @@ mod tests {
         assert!(labels.contains(&"FastList".to_string()));
         assert!(labels.contains(&"Spacer".to_string()));
         assert!(labels.contains(&"Divider".to_string()));
+        assert!(labels.contains(&"Slider".to_string()));
+        assert!(labels.contains(&"ProgressBar".to_string()));
+        assert!(labels.contains(&"ProgressRing".to_string()));
         assert!(labels.contains(&"state".to_string()));
         assert!(labels.contains(&"Result".to_string()));
     }

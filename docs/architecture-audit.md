@@ -5,6 +5,7 @@ previous compiler output.
 
 ## Cache schema
 
+- `build-v96`: adds native Float64 Slider and progress controls, extends both development runtimes with their state/expression handling, and advances Dev IR and protocol versions.
 - `build-v95`: added typed arithmetic IR and native lowering for subtraction,
   multiplication, division, remainder, and unary negation; added string
   concatenation lowering and native collection `count`/`isEmpty` accessors;

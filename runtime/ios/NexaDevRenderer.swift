@@ -527,6 +527,21 @@ struct NexaDevNodeList: View {
                 get: { store.truthy(store.value(name, scope: scope)) },
                 set: { store.setValue(name, value: $0, scope: scope) }
             )))
+        case "Slider":
+            let name = fields["state"] as? String ?? ""
+            let min = fields["min"] as? Double ?? 0
+            let max = fields["max"] as? Double ?? 1
+            let step = fields["step"] as? Double ?? 0.1
+            return AnyView(Slider(value: Binding(
+                get: { (store.value(name, scope: scope) as? NSNumber)?.doubleValue ?? min },
+                set: { store.setValue(name, value: $0, scope: scope) }
+            ), in: min...max, step: step))
+        case "ProgressBar":
+            let progress = (store.evaluate(fields["progress"] ?? NSNull(), locals: locals, scope: scope) as? NSNumber)?.doubleValue ?? 0
+            return AnyView(ProgressView(value: min(max(progress, 0), 1), total: 1))
+        case "ProgressRing":
+            let progress = (store.evaluate(fields["progress"] ?? NSNull(), locals: locals, scope: scope) as? NSNumber)?.doubleValue ?? 0
+            return AnyView(ProgressView(value: min(max(progress, 0), 1), total: 1).progressViewStyle(.circular))
         case "Image":
             let source = fields["source"] as? [String: Any] ?? [:]
             let description = fields["description"] as? String ?? ""

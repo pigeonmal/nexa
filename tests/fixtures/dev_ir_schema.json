@@ -2,8 +2,8 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "NexaDevIRSchema",
   "description": "Canonical schema definitions for Nexa dynamic Dev IR protocol, operations, and interpreter keys",
-  "protocol_version": 4,
-  "dev_ir_format_version": 2,
+  "protocol_version": 5,
+  "dev_ir_format_version": 3,
   "platforms": [
     "ios",
     "android"
@@ -42,6 +42,9 @@
     "TextInput",
     "FastList",
     "Switch",
+    "Slider",
+    "ProgressBar",
+    "ProgressRing",
     "Image",
     "RefreshControl",
     "If",

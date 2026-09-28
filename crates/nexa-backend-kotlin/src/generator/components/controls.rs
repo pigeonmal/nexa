@@ -27,6 +27,15 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.material3.CircularProgressIndicator",
     );
     imports.add(features.uses_switch, "androidx.compose.material3.Switch");
+    imports.add(features.uses_slider, "androidx.compose.material3.Slider");
+    imports.add(
+        features.uses_progress_bar,
+        "androidx.compose.material3.LinearProgressIndicator",
+    );
+    imports.add(
+        features.uses_progress_ring,
+        "androidx.compose.material3.CircularProgressIndicator",
+    );
     imports.add(features.uses_button, "androidx.compose.material3.Text");
     imports.add(
         features.uses_tab_icon || features.uses_button_icon,
@@ -122,6 +131,48 @@ pub(crate) fn render_switch(state: &str, label: &str, depth: usize, out: &mut So
         state_name(state),
         kotlin_string(label)
     ));
+}
+
+pub(crate) fn render_slider(
+    state: &str,
+    min: f64,
+    max: f64,
+    step: f64,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let intervals = ((max - min) / step).round() as i32;
+    out.line_at(
+        depth,
+        format_args!(
+            "Slider(value = {}.toFloat(), onValueChange = {{ {} = it.toDouble() }}, valueRange = {}f..{}f, steps = {})",
+            state_name(state),
+            state_name(state),
+            min as f32,
+            max as f32,
+            intervals.saturating_sub(1).max(0),
+        ),
+    );
+}
+
+pub(crate) fn render_progress_bar(progress: &Expr, depth: usize, out: &mut SourceWriter) {
+    out.line_at(
+        depth,
+        format_args!(
+            "LinearProgressIndicator(progress = {{ ({}.toFloat()).coerceIn(0f, 1f) }})",
+            expression(progress)
+        ),
+    );
+}
+
+pub(crate) fn render_progress_ring(progress: &Expr, depth: usize, out: &mut SourceWriter) {
+    out.line_at(
+        depth,
+        format_args!(
+            "CircularProgressIndicator(progress = {{ ({}.toFloat()).coerceIn(0f, 1f) }})",
+            expression(progress)
+        ),
+    );
 }
 
 pub(crate) fn render_pressable(
@@ -448,7 +499,32 @@ mod tests {
     use nexa_codegen::SourceWriter;
     use nexa_ir::{Action, Expr, NumericType, Type};
 
-    use super::render_actions;
+    use super::{render_actions, render_progress_bar, render_progress_ring, render_slider};
+
+    #[test]
+    fn renders_native_progress_indicators_with_bounded_float_values() {
+        let progress = Expr::State(
+            "progress".to_owned(),
+            nexa_ir::Type::Numeric(nexa_ir::NumericType::Float64),
+        );
+        let mut output = SourceWriter::new();
+        render_progress_bar(&progress, 0, &mut output);
+        render_progress_ring(&progress, 0, &mut output);
+        assert_eq!(
+            output.as_str(),
+            "LinearProgressIndicator(progress = { (nexa_progress.toFloat()).coerceIn(0f, 1f) })\nCircularProgressIndicator(progress = { (nexa_progress.toFloat()).coerceIn(0f, 1f) })\n"
+        );
+    }
+
+    #[test]
+    fn renders_slider_as_a_compose_float_binding_with_static_steps() {
+        let mut output = SourceWriter::new();
+        render_slider("volume", 0.0, 1.0, 0.1, 0, &mut output);
+        assert_eq!(
+            output.as_str(),
+            "Slider(value = nexa_volume.toFloat(), onValueChange = { nexa_volume = it.toDouble() }, valueRange = 0f..1f, steps = 9)\n"
+        );
+    }
 
     #[test]
     fn renders_typed_native_event_handler_on_its_instance() {

@@ -191,6 +191,39 @@ app SwitchExample {
 
 ---
 
+### `Slider`
+Continuous value control backed by a mutable `Float64` state. Its range must contain a whole number of steps, and Android requires the bounds to fit a native `Float`.
+
+```nexa
+app SliderExample {
+    state volume: Float64 = 0.5
+
+    body {
+        Slider(value: volume, min: 0.0, max: 1.0, step: 0.01)
+    }
+}
+```
+- **Properties**: `value: Float64` (two-way binding), `min`, `max`, and positive `step` as numeric literals.
+
+---
+
+### `ProgressBar` and `ProgressRing`
+Native linear and circular progress indicators. Both accept a `Float64` expression and clamp it to the normalized `0...1` progress range.
+
+```nexa
+app DownloadProgress {
+    state progress: Float64 = 0.35
+
+    body {
+        ProgressBar(progress: progress)
+        ProgressRing(progress: progress)
+    }
+}
+```
+- **Properties**: `progress: Float64`.
+
+---
+
 ### `Pressable`
 Gesture wrapper detecting tap and long-press interactions with hardware haptics.
 

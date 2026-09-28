@@ -149,6 +149,9 @@ pub struct UiFacts {
     pub button: ButtonFacts,
     pub text_input: TextInputFacts,
     pub switch_present: bool,
+    pub slider_present: bool,
+    pub progress_bar_present: bool,
+    pub progress_ring_present: bool,
     pub pressable: PressableFacts,
     pub layout: LayoutFacts,
     pub style: StyleFacts,
@@ -649,6 +652,15 @@ fn observe_node(
         }
         Node::Switch { .. } => {
             ui.switch_present = true;
+        }
+        Node::Slider { .. } => {
+            ui.slider_present = true;
+        }
+        Node::ProgressBar { .. } => {
+            ui.progress_bar_present = true;
+        }
+        Node::ProgressRing { .. } => {
+            ui.progress_ring_present = true;
         }
         Node::Image {
             source,

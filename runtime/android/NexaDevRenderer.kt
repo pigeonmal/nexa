@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,9 +47,12 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -83,6 +88,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import kotlin.math.roundToInt
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -137,7 +143,7 @@ internal fun ColumnScope.RenderColumnChildren(
     for (index in 0 until nodes.length()) {
         androidx.compose.runtime.key(index) {
             val child = nexaDevNodeObject(nodes.opt(index))
-            val modifier = if (child.has("FastList") || child.has("RefreshControl")) Modifier.weight(1f) else Modifier
+            val modifier = if (child.has("FastList") || child.has("RefreshControl") || child.has("Spacer")) Modifier.weight(1f) else Modifier
             NexaDevNode(child, module, store, locals, scope, modifier)
         }
     }
@@ -238,7 +244,7 @@ internal fun NexaDevNode(
                         "End" -> Alignment.Bottom
                         else -> Alignment.CenterVertically
                     },
-                ) { RenderChildren(children, module, store, locals, scope) }
+                ) { RenderRowChildren(children, module, store, locals, scope) }
                 "Stack" -> Box(
                     modifier,
                     contentAlignment = when (style.optString("alignment")) {
@@ -300,7 +306,7 @@ internal fun NexaDevNode(
             }
             if (style.optBoolean("selectable")) SelectionContainer { content() } else content()
         }
-        "Spacer" -> Spacer(modifier = Modifier.weight(1f))
+        "Spacer" -> Spacer(modifier = modifier)
         "Divider" -> HorizontalDivider(
             color = nexaDevColor(fields.optJSONObject("color"), isSystemInDarkTheme()) ?: Color.Gray,
             thickness = (fields.optDouble("thickness", 1.0)).dp,
@@ -544,6 +550,28 @@ internal fun NexaDevNode(
                 Switch(checked = store.state(state, scope) as? Boolean ?: false, onCheckedChange = { store.setState(state, it, scope) })
             }
         }
+        "Slider" -> {
+            val state = fields.optString("state")
+            val min = fields.optDouble("min").toFloat()
+            val max = fields.optDouble("max").toFloat()
+            val step = fields.optDouble("step").toFloat()
+            val intervals = if (step > 0f) ((max - min) / step).roundToInt().coerceAtLeast(1) else 1
+            val value = (store.state(state, scope) as? Number)?.toFloat()?.coerceIn(min, max) ?: min
+            Slider(
+                value = value,
+                onValueChange = { store.setState(state, it.toDouble(), scope) },
+                valueRange = min..max,
+                steps = intervals - 1,
+            )
+        }
+        "ProgressBar" -> {
+            val progress = (store.evaluate(fields.opt("progress"), locals, scope) as? Number)?.toFloat() ?: 0f
+            LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) })
+        }
+        "ProgressRing" -> {
+            val progress = (store.evaluate(fields.opt("progress"), locals, scope) as? Number)?.toFloat() ?: 0f
+            CircularProgressIndicator(progress = { progress.coerceIn(0f, 1f) })
+        }
         "Image" -> {
             val source = fields.optJSONObject("source") ?: JSONObject()
             val description = fields.optString("description").takeIf(String::isNotEmpty)
@@ -724,6 +752,23 @@ internal fun RenderChildren(
     for (index in 0 until nodes.length()) {
         androidx.compose.runtime.key(index) {
             NexaDevNode(nexaDevNodeObject(nodes.opt(index)), module, store, locals, scope)
+        }
+    }
+}
+
+@Composable
+internal fun RowScope.RenderRowChildren(
+    nodes: JSONArray,
+    module: JSONObject,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+) {
+    for (index in 0 until nodes.length()) {
+        androidx.compose.runtime.key(index) {
+            val child = nexaDevNodeObject(nodes.opt(index))
+            val modifier = if (child.has("Spacer")) Modifier.weight(1f) else Modifier
+            NexaDevNode(child, module, store, locals, scope, modifier)
         }
     }
 }

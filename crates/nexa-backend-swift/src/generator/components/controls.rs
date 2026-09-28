@@ -117,6 +117,46 @@ pub(crate) fn render_switch(state: &str, label: &str, depth: usize, out: &mut So
     );
 }
 
+pub(crate) fn render_slider(
+    state: &str,
+    min: f64,
+    max: f64,
+    step: f64,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    out.line_at(
+        depth,
+        format_args!(
+            "Slider(value: ${}, in: {}...{}, step: {})",
+            state_name(state),
+            min,
+            max,
+            step
+        ),
+    );
+}
+
+pub(crate) fn render_progress_bar(progress: &nexa_ir::Expr, depth: usize, out: &mut SourceWriter) {
+    out.line_at(
+        depth,
+        format_args!(
+            "ProgressView(value: min(max({}, 0.0), 1.0), total: 1.0)",
+            expression(progress)
+        ),
+    );
+}
+
+pub(crate) fn render_progress_ring(progress: &nexa_ir::Expr, depth: usize, out: &mut SourceWriter) {
+    out.line_at(
+        depth,
+        format_args!(
+            "ProgressView(value: min(max({}, 0.0), 1.0), total: 1.0).progressViewStyle(.circular)",
+            expression(progress)
+        ),
+    );
+}
+
 pub(crate) fn render_pressable(
     disabled: &nexa_ir::Expr,
     haptic: Option<HapticStyle>,
@@ -440,7 +480,32 @@ mod tests {
     use nexa_codegen::SourceWriter;
     use nexa_ir::{Action, Expr, NumericType, Type};
 
-    use super::render_actions;
+    use super::{render_actions, render_progress_bar, render_progress_ring, render_slider};
+
+    #[test]
+    fn renders_native_progress_indicators_with_bounded_values() {
+        let progress = nexa_ir::Expr::State(
+            "progress".to_owned(),
+            nexa_ir::Type::Numeric(nexa_ir::NumericType::Float64),
+        );
+        let mut output = SourceWriter::new();
+        render_progress_bar(&progress, 0, &mut output);
+        render_progress_ring(&progress, 0, &mut output);
+        assert_eq!(
+            output.as_str(),
+            "ProgressView(value: min(max(nexa_progress, 0.0), 1.0), total: 1.0)\nProgressView(value: min(max(nexa_progress, 0.0), 1.0), total: 1.0).progressViewStyle(.circular)\n"
+        );
+    }
+
+    #[test]
+    fn renders_slider_as_a_native_double_binding() {
+        let mut output = SourceWriter::new();
+        render_slider("volume", 0.0, 1.0, 0.1, 0, &mut output);
+        assert_eq!(
+            output.as_str(),
+            "Slider(value: $nexa_volume, in: 0...1, step: 0.1)\n"
+        );
+    }
 
     #[test]
     fn renders_typed_native_event_handler_on_its_instance() {

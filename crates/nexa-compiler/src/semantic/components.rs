@@ -420,6 +420,81 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
             .ok_or_else(|| CompileError::new(span, "Divider requires a `thickness` value"))?;
             Ok(Node::Divider { color, thickness })
         }
+        ast::Node::ComponentInvocation(inv) if inv.name == "Slider" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let value = take_required_arg(&mut args, &inv.name, "value", span)?;
+            let state = require_mutable_binding(
+                &value,
+                &Type::Numeric(NumericType::Float64),
+                symbols,
+                span,
+                "Slider",
+            )?;
+            let min = require_f64_literal(
+                &take_required_arg(&mut args, &inv.name, "min", span)?,
+                "Slider min",
+            )?;
+            let max = require_f64_literal(
+                &take_required_arg(&mut args, &inv.name, "max", span)?,
+                "Slider max",
+            )?;
+            let step = require_f64_literal(
+                &take_required_arg(&mut args, &inv.name, "step", span)?,
+                "Slider step",
+            )?;
+            if min >= max {
+                return Err(CompileError::new(span, "Slider min must be less than max"));
+            }
+            if step <= 0.0 {
+                return Err(CompileError::new(
+                    span,
+                    "Slider step must be greater than zero",
+                ));
+            }
+            let intervals = (max - min) / step;
+            let rounded_intervals = intervals.round();
+            let tolerance = intervals.abs().max(1.0) * 1e-9;
+            if !intervals.is_finite()
+                || rounded_intervals < 1.0
+                || rounded_intervals > i32::MAX as f64
+                || (intervals - rounded_intervals).abs() > tolerance
+            {
+                return Err(CompileError::new(
+                    span,
+                    "Slider range must contain a whole number of steps",
+                ));
+            }
+            if min.abs() > f32::MAX as f64 || max.abs() > f32::MAX as f64 {
+                return Err(CompileError::new(
+                    span,
+                    "Slider min and max must fit the native Android Float range",
+                ));
+            }
+            Ok(Node::Slider {
+                state,
+                min,
+                max,
+                step,
+            })
+        }
+        ast::Node::ComponentInvocation(inv)
+            if inv.name == "ProgressBar" || inv.name == "ProgressRing" =>
+        {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let progress = take_required_arg(&mut args, &inv.name, "progress", span)?;
+            let progress = lower_expr(
+                &progress,
+                Some(&Type::Numeric(NumericType::Float64)),
+                &cx.exprs(false),
+            )?;
+            if inv.name == "ProgressBar" {
+                Ok(Node::ProgressBar { progress })
+            } else {
+                Ok(Node::ProgressRing { progress })
+            }
+        }
         ast::Node::ComponentInvocation(inv) if inv.name == "Button" => {
             let span = inv.span;
             let mut positional = inv.positional;
@@ -3280,6 +3355,35 @@ fn require_string_literal(expr: &ast::Expr, field: &str) -> Result<String, Compi
             format!("{field} must be a string literal"),
         )),
     }
+}
+
+fn require_f64_literal(expr: &ast::Expr, field: &str) -> Result<f64, CompileError> {
+    let (raw, span, sign) = match expr {
+        ast::Expr::Number(raw, span) => (raw, *span, 1.0),
+        ast::Expr::Negate(inner, span) => match inner.as_ref() {
+            ast::Expr::Number(raw, _) => (raw, *span, -1.0),
+            _ => {
+                return Err(CompileError::new(
+                    expr.span(),
+                    format!("{field} must be a Float64 literal"),
+                ));
+            }
+        },
+        _ => {
+            return Err(CompileError::new(
+                expr.span(),
+                format!("{field} must be a Float64 literal"),
+            ));
+        }
+    };
+    let value = raw
+        .parse::<f64>()
+        .map_err(|_| CompileError::new(span, format!("{field} must be a Float64 literal")))?
+        * sign;
+    if !value.is_finite() {
+        return Err(CompileError::new(span, format!("{field} must be finite")));
+    }
+    Ok(value)
 }
 
 fn optional_bool(
