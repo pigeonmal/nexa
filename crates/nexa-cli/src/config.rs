@@ -7,6 +7,22 @@ use nexa_ir::Permission;
 use nexa_plugin_idl::{ConfigOption, Literal, PluginIdl, TypeRef};
 use nexa_syntax::ast::{ConfigValue, PluginDependencyConfig};
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) enum AndroidCronetProvider {
+    #[default]
+    PlayServices,
+    Embedded,
+}
+
+impl AndroidCronetProvider {
+    pub(super) fn config_value(self) -> &'static str {
+        match self {
+            Self::PlayServices => "play-services",
+            Self::Embedded => "embedded",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct PluginDefinition {
     pub(super) namespace: String,
@@ -40,6 +56,8 @@ pub(super) struct ProjectConfig {
     pub(super) ios_arch: Option<Vec<String>>,
     pub(super) android_min_sdk: u32,
     pub(super) android_arch: Option<Vec<String>>,
+    pub(super) android_cronet_provider: AndroidCronetProvider,
+    pub(super) android_cronet_disk_cache_size_mb: u32,
     pub(super) android_target_sdk: u32,
     pub(super) ios_bundle_identifier: String,
     pub(super) android_application_id: String,
@@ -140,6 +158,23 @@ impl ProjectConfig {
         let app = config.app;
         let ios = config.ios;
         let android = config.android;
+        let cronet = android.as_ref().and_then(|android| android.cronet.as_ref());
+        let android_cronet_provider = match cronet
+            .and_then(|cronet| cronet.provider.as_deref())
+            .unwrap_or("play-services")
+        {
+            "play-services" => AndroidCronetProvider::PlayServices,
+            "embedded" => AndroidCronetProvider::Embedded,
+            provider => {
+                return Err(format!(
+                    "{}: Android Cronet provider must be `play-services` or `embedded` (found `{provider}`)",
+                    path.display()
+                ));
+            }
+        };
+        let android_cronet_disk_cache_size_mb = cronet
+            .and_then(|cronet| cronet.disk_cache_size_mb)
+            .unwrap_or(64);
         let assets = config.assets;
         let display_name = app
             .as_ref()
@@ -251,6 +286,8 @@ impl ProjectConfig {
             ios_arch,
             android_min_sdk,
             android_arch,
+            android_cronet_provider,
+            android_cronet_disk_cache_size_mb,
             android_target_sdk,
             ios_bundle_identifier,
             android_application_id,
@@ -283,6 +320,8 @@ impl ProjectConfig {
             ios_arch: None,
             android_min_sdk: 24,
             android_arch: None,
+            android_cronet_provider: AndroidCronetProvider::PlayServices,
+            android_cronet_disk_cache_size_mb: 64,
             android_target_sdk: 36,
             ios_bundle_identifier: format!("com.nexa.{}", fallback_name.to_ascii_lowercase()),
             android_application_id: format!("com.nexa.{}", fallback_name.to_ascii_lowercase()),
@@ -314,7 +353,7 @@ impl ProjectConfig {
             .map(|architectures| format!(", arch: {}", render_string_array(architectures)))
             .unwrap_or_default();
         let mut output = format!(
-            "config {{\n    app {{ displayName: {}, version: {}, buildNumber: {}, stagingSuffix: {}, deepLinks: {} }}\n    assets {{ icon: {}, splash: {} }}\n    ios {{ minVersion: {}, bundleIdentifier: {}, icon: {}{ios_arch} }}\n    android {{ minSdk: {}, targetSdk: {}, applicationId: {}, icon: {}{android_arch} }}\n    permissions {{\n",
+            "config {{\n    app {{ displayName: {}, version: {}, buildNumber: {}, stagingSuffix: {}, deepLinks: {} }}\n    assets {{ icon: {}, splash: {} }}\n    ios {{ minVersion: {}, bundleIdentifier: {}, icon: {}{ios_arch} }}\n    android {{ minSdk: {}, targetSdk: {}, applicationId: {}, icon: {}{android_arch}, cronet {{ provider: {}, diskCacheSizeMb: {} }} }}\n    permissions {{\n",
             nexa_config_string(&self.display_name),
             nexa_config_string(&self.version),
             self.build_number,
@@ -340,7 +379,9 @@ impl ProjectConfig {
             self.android_icon
                 .as_ref()
                 .map(|path| nexa_config_string(&path.display().to_string()))
-                .unwrap_or_else(|| "\"\"".to_owned())
+                .unwrap_or_else(|| "\"\"".to_owned()),
+            nexa_config_string(self.android_cronet_provider.config_value()),
+            self.android_cronet_disk_cache_size_mb,
         );
         for (index, (permission, message)) in self.permissions.iter().enumerate() {
             output.push_str("        ");
@@ -697,7 +738,7 @@ pub(super) fn load_plugin_definitions(
 
 pub(super) fn render_template(plugin_definitions: &[PluginDefinition]) -> String {
     let mut output = String::from(
-        "config {\n    app { stagingSuffix: \"staging\" }\n    ios { minVersion: \"16.0\" }\n    android { minSdk: 24, targetSdk: 36 }\n    permissions {}\n",
+        "config {\n    app { stagingSuffix: \"staging\" }\n    ios { minVersion: \"16.0\" }\n    android { minSdk: 24, targetSdk: 36, cronet { provider: \"play-services\", diskCacheSizeMb: 64 } }\n    permissions {}\n",
     );
     let configured_plugins = plugin_definitions
         .iter()

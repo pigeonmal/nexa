@@ -74,10 +74,20 @@ The scaffold defaults to iOS 16.0, Android minSdk 24, and Android targetSdk 36. 
 config {
     app { displayName: "Hello World", version: "1.0.0", buildNumber: 1 }
     ios { minVersion: "16.0", bundleIdentifier: "dev.example.hello" }
-    android { minSdk: 24, targetSdk: 36, applicationId: "dev.example.hello" }
+    android {
+        minSdk: 24,
+        targetSdk: 36,
+        applicationId: "dev.example.hello",
+        cronet { provider: "play-services", diskCacheSizeMb: 64 }
+    }
     permissions {}
 }
 ```
+
+Android Cronet defaults to the Play Services provider, so release builds do
+not package the embedded Cronet native library. Set `provider: "embedded"` to
+package it for devices without Google Play Services. `diskCacheSizeMb` sets
+the shared network and remote-image disk cache; `0` disables that cache.
 
 To derive launcher icons for both platforms and splash artwork from one PNG, JPEG, or WebP source:
 

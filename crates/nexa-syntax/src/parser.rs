@@ -317,9 +317,21 @@ impl Parser {
             application_id: None,
             icon: None,
             arch: None,
+            cronet: None,
         };
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
             let (field, field_span) = self.ident()?;
+            if field == "cronet" {
+                if config.cronet.is_some() {
+                    return Err(CompileError::new(
+                        field_span,
+                        "Android cronet config is declared more than once",
+                    ));
+                }
+                config.cronet = Some(self.config_android_cronet_decl()?);
+                self.config_field_separator("Android config")?;
+                continue;
+            }
             self.expect(Kind::Colon, "expected `:` after Android config field")?;
             match field.as_str() {
                 "minSdk" => config.min_sdk = Some(self.config_u32("android minSdk")?),
@@ -339,6 +351,51 @@ impl Parser {
             self.config_field_separator("Android config")?;
         }
         self.expect(Kind::RBrace, "expected `}` to close config android")?;
+        Ok(config)
+    }
+
+    fn config_android_cronet_decl(&mut self) -> Result<AndroidCronetConfig, CompileError> {
+        self.expect(Kind::LBrace, "expected `{` after Android `cronet`")?;
+        let mut config = AndroidCronetConfig {
+            provider: None,
+            disk_cache_size_mb: None,
+        };
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            let (field, field_span) = self.ident()?;
+            self.expect(
+                Kind::Colon,
+                "expected `:` after Android Cronet config field",
+            )?;
+            match field.as_str() {
+                "provider" => {
+                    if config.provider.is_some() {
+                        return Err(CompileError::new(
+                            field_span,
+                            "Android Cronet provider is declared more than once",
+                        ));
+                    }
+                    config.provider = Some(self.config_string("Android Cronet provider")?);
+                }
+                "diskCacheSizeMb" => {
+                    if config.disk_cache_size_mb.is_some() {
+                        return Err(CompileError::new(
+                            field_span,
+                            "Android Cronet diskCacheSizeMb is declared more than once",
+                        ));
+                    }
+                    config.disk_cache_size_mb =
+                        Some(self.config_u32("Android Cronet diskCacheSizeMb")?);
+                }
+                _ => {
+                    return Err(CompileError::new(
+                        field_span,
+                        format!("unknown Android Cronet config field `{field}`"),
+                    ));
+                }
+            }
+            self.config_field_separator("Android Cronet config")?;
+        }
+        self.expect(Kind::RBrace, "expected `}` to close Android cronet")?;
         Ok(config)
     }
 

@@ -147,6 +147,13 @@ pub struct AndroidConfig {
     pub application_id: Option<String>,
     pub icon: Option<String>,
     pub arch: Option<Vec<String>>,
+    pub cronet: Option<AndroidCronetConfig>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AndroidCronetConfig {
+    pub provider: Option<String>,
+    pub disk_cache_size_mb: Option<u32>,
 }
 
 #[derive(Clone, Debug)]

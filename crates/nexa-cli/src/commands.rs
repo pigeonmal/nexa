@@ -1471,7 +1471,7 @@ fn starter_config(name: &str) -> String {
         .collect::<String>()
         .to_ascii_lowercase();
     format!(
-        "config {{\n    app {{ displayName: \"{name}\", version: \"1.0.0\", buildNumber: 1, deepLinks: [] }}\n    flavors {{ staging {{ suffix: \"staging\" }} }}\n    ios {{ minVersion: \"16.0\", bundleIdentifier: \"dev.nexa.{id}\" }}\n    android {{ minSdk: 24, targetSdk: 36, applicationId: \"dev.nexa.{id}\" }}\n    permissions {{}}\n}}\n"
+        "config {{\n    app {{ displayName: \"{name}\", version: \"1.0.0\", buildNumber: 1, deepLinks: [] }}\n    flavors {{ staging {{ suffix: \"staging\" }} }}\n    ios {{ minVersion: \"16.0\", bundleIdentifier: \"dev.nexa.{id}\" }}\n    android {{ minSdk: 24, targetSdk: 36, applicationId: \"dev.nexa.{id}\", cronet {{ provider: \"play-services\", diskCacheSizeMb: 64 }} }}\n    permissions {{}}\n}}\n"
     )
 }
 

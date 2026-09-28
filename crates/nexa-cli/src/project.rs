@@ -880,6 +880,15 @@ fn generate_android(
     } else {
         KotlinBackend.generate_units_with_project_features(module)
     };
+    if dev_session.is_some() || project_features.uses_network {
+        sources.units.push(nexa_codegen::SourceUnit {
+            name: "NexaCronetConfig.kt".to_owned(),
+            contents: format!(
+                "internal object NexaCronetConfig {{\n    const val DISK_CACHE_SIZE_BYTES: Long = {}L * 1024L * 1024L\n}}\n",
+                config.android_cronet_disk_cache_size_mb
+            ),
+        });
+    }
     if dev_session.is_some() {
         let contracts = dev_plugin_contracts(plugins)?;
         sources.units.push(nexa_codegen::SourceUnit {
@@ -1015,7 +1024,9 @@ fn android_plan(
         ),
         None => format!("{screen}()"),
     };
-    let cronet_import = if project_features.uses_network {
+    let install_play_services_cronet = project_features.uses_network
+        && config.android_cronet_provider == config::AndroidCronetProvider::PlayServices;
+    let cronet_import = if install_play_services_cronet {
         "import com.google.android.gms.net.CronetProviderInstaller\n"
     } else {
         ""
@@ -1028,9 +1039,9 @@ fn android_plan(
     } else {
         ("", "")
     };
-    let activity_content = if project_features.uses_network {
+    let activity_content = if install_play_services_cronet {
         format!(
-            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Play Services Cronet unavailable; using bundled Cronet when available\", result.exception)\n            setContent {{ MaterialTheme {{ {compose_root} }} }}\n        }}\n"
+            "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Play Services Cronet provider is unavailable; network calls may fail\", result.exception)\n            setContent {{ MaterialTheme {{ {compose_root} }} }}\n        }}\n"
         )
     } else {
         format!("        setContent {{ MaterialTheme {{ {compose_root} }} }}\n")

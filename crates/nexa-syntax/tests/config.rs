@@ -62,6 +62,46 @@ fn parses_multiple_platform_architectures() {
 }
 
 #[test]
+fn parses_android_cronet_provider_and_disk_cache_options() {
+    let config = parse_config(
+        r#"config {
+            android {
+                minSdk: 24,
+                cronet {
+                    provider: "embedded",
+                    diskCacheSizeMb: 128
+                }
+            }
+        }"#,
+    )
+    .expect("valid Android Cronet configuration");
+    let cronet = config
+        .android
+        .expect("Android config")
+        .cronet
+        .expect("Cronet config");
+    assert_eq!(cronet.provider.as_deref(), Some("embedded"));
+    assert_eq!(cronet.disk_cache_size_mb, Some(128));
+}
+
+#[test]
+fn rejects_duplicate_android_cronet_blocks_and_fields() {
+    for (source, expected) in [
+        (
+            r#"config { android { cronet {}, cronet {} } }"#,
+            "Android cronet config is declared more than once",
+        ),
+        (
+            r#"config { android { cronet { provider: "embedded", provider: "play-services" } } }"#,
+            "Android Cronet provider is declared more than once",
+        ),
+    ] {
+        let error = parse_config(source).expect_err("duplicate Cronet config should fail");
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
+
+#[test]
 fn requires_git_plugin_dependencies_to_pin_a_revision() {
     let error = parse_config(
         r#"config { dependencies { Math { id: "dev.example.math", git: "https://example.dev/math.git" } } }"#,

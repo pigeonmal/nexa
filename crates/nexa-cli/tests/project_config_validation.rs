@@ -29,6 +29,27 @@ fn check_accepts_supported_configured_sdk_minimums() {
 }
 
 #[test]
+fn check_validates_android_cronet_provider_and_cache_size() {
+    let project = setup_project();
+    for config in [
+        r#"config { android { cronet { provider: "play-services", diskCacheSizeMb: 64 } } }"#,
+        r#"config { android { cronet { provider: "embedded", diskCacheSizeMb: 0 } } }"#,
+    ] {
+        let output = check_config(&project, config);
+        assert_output_success(&output);
+    }
+
+    let output = check_config(
+        &project,
+        r#"config { android { cronet { provider: "fallback" } } }"#,
+    );
+    assert_output_failure(
+        &output,
+        "Android Cronet provider must be `play-services` or `embedded`",
+    );
+}
+
+#[test]
 fn check_rejects_malformed_ios_minimum_versions_table() {
     let project = setup_project();
     let cases = [

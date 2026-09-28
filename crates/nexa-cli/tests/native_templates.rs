@@ -129,13 +129,13 @@ fn android_dev_runtime_preloads_compose_and_platform_dependencies() {
         "io.coil-kt.coil3:coil-compose",
         "io.coil-kt.coil3:coil-network-core",
         "com.google.android.gms:play-services-cronet",
-        "org.chromium.net:cronet-embedded",
     ] {
         assert!(
             dependencies.contains(&format!("implementation(\"{dependency}")),
             "dev dependency {dependency} should be preloaded"
         );
     }
+    assert!(!dependencies.contains("org.chromium.net:cronet-embedded"));
 }
 
 #[test]
@@ -171,7 +171,7 @@ fn android_aot_dependencies_remain_feature_gated() {
 }
 
 #[test]
-fn android_network_release_bundles_the_cronet_fallback() {
+fn android_network_release_uses_play_services_cronet_by_default() {
     let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
     let dependencies = templates::android_app_gradle_with_dev_runtime(
         "demo",
@@ -187,7 +187,49 @@ fn android_network_release_bundles_the_cronet_fallback() {
     .unwrap();
 
     assert!(dependencies.contains("com.google.android.gms:play-services-cronet"));
+    assert!(!dependencies.contains("org.chromium.net:cronet-embedded"));
+}
+
+#[test]
+fn android_embedded_cronet_is_an_explicit_provider_choice() {
+    let mut config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    config.android_cronet_provider = config::AndroidCronetProvider::Embedded;
+    config.android_cronet_disk_cache_size_mb = 0;
+    let dependencies = templates::android_app_gradle_with_dev_runtime(
+        "demo",
+        nexa_backend_kotlin::KotlinProjectFeatures {
+            uses_network: true,
+            ..Default::default()
+        },
+        &[],
+        &[],
+        &config,
+        false,
+    )
+    .unwrap();
+
     assert!(dependencies.contains("org.chromium.net:cronet-embedded:143.7445.0"));
+    assert!(!dependencies.contains("com.google.android.gms:play-services-cronet"));
+}
+
+#[test]
+fn normalized_project_config_renders_cronet_defaults_and_round_trips() {
+    let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    assert_eq!(
+        config.android_cronet_provider,
+        config::AndroidCronetProvider::PlayServices
+    );
+    assert_eq!(config.android_cronet_disk_cache_size_mb, 64);
+
+    let rendered = config.render();
+    let parsed = nexa_syntax::parse_config(&rendered).expect("rendered config should parse");
+    let cronet = parsed
+        .android
+        .expect("rendered Android config")
+        .cronet
+        .expect("rendered Cronet config");
+    assert_eq!(cronet.provider.as_deref(), Some("play-services"));
+    assert_eq!(cronet.disk_cache_size_mb, Some(64));
 }
 
 mod template_generation {

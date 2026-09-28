@@ -99,14 +99,16 @@ private object NexaCronetRuntime {
         val cacheDirectory = java.io.File(applicationContext.cacheDir, "nexa-cronet").apply {
             mkdirs()
         }
+        val diskCacheSizeBytes = NexaCronetConfig.DISK_CACHE_SIZE_BYTES
         val builder = CronetEngine.Builder(applicationContext)
             .enableHttp2(true)
             .enableQuic(true)
             .enableBrotli(true)
             .setStoragePath(cacheDirectory.absolutePath)
             .enableHttpCache(
-                CronetEngine.Builder.HTTP_CACHE_DISK,
-                64L * 1024L * 1024L,
+                if (diskCacheSizeBytes > 0L) CronetEngine.Builder.HTTP_CACHE_DISK
+                else CronetEngine.Builder.HTTP_CACHE_DISABLED,
+                diskCacheSizeBytes,
             )
         val expiration = java.util.Date(System.currentTimeMillis() + 365L * 24L * 60L * 60L * 1000L)
         for ((host, pins) in certificatePins) {
@@ -531,5 +533,17 @@ mod tests {
         assert!(output.contains("certificate pins must be 64-character SHA-256 SPKI hex values"));
         assert!(output.contains("ByteArray(32)"));
         assert!(output.contains("digitToInt(16)"));
+    }
+
+    #[test]
+    fn network_cache_uses_the_generated_project_cronet_configuration() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, false, false, false, false);
+
+        assert!(output.contains("NexaCronetConfig.DISK_CACHE_SIZE_BYTES"));
+        assert!(output.contains("CronetEngine.Builder.HTTP_CACHE_DISABLED"));
+        assert!(!output.contains(
+            ".enableHttpCache(\n                CronetEngine.Builder.HTTP_CACHE_DISK,\n                64L * 1024L * 1024L"
+        ));
     }
 }

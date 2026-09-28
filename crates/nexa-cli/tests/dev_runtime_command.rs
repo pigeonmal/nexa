@@ -265,6 +265,60 @@ fn development_runtime_generates_typed_bridges_for_declared_plugin_services() {
 }
 
 #[test]
+fn android_cronet_config_selects_provider_and_cache_for_dev_and_aot_hosts() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dev_network_fetch.nx"),
+        &entry,
+    )
+    .expect("write network app source");
+    fs::write(
+        root.join("nexa.config.nx"),
+        r#"config { android { cronet { provider: "embedded", diskCacheSizeMb: 32 } } }"#,
+    )
+    .expect("write Android Cronet config");
+    let output = root.join("build");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "android",
+        &output,
+        "RuntimeSmoke",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate embedded Cronet Dev host");
+
+    let source_directory = output.join("android/app/src/main/java/com/nexa/runtimesmoke");
+    let activity = fs::read_to_string(source_directory.join("MainActivity.kt"))
+        .expect("read embedded Cronet Dev activity");
+    assert!(!activity.contains("CronetProviderInstaller"));
+    let gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
+        .expect("read embedded Cronet Dev dependencies");
+    assert!(gradle.contains("org.chromium.net:cronet-embedded:143.7445.0"));
+    assert!(!gradle.contains("com.google.android.gms:play-services-cronet"));
+    let cronet_config = fs::read_to_string(source_directory.join("NexaCronetConfig.kt"))
+        .expect("read generated Cronet Dev config");
+    assert!(cronet_config.contains("DISK_CACHE_SIZE_BYTES: Long = 32L * 1024L * 1024L"));
+    let native_library =
+        fs::read_to_string(source_directory.join("NexaGenerated_native_library.kt"))
+            .expect("read generated Cronet Dev adapter");
+    assert!(native_library.contains("NexaCronetConfig.DISK_CACHE_SIZE_BYTES"));
+    assert!(native_library.contains("CronetEngine.Builder.HTTP_CACHE_DISABLED"));
+
+    nexa_cli::generate_project(&entry, "android", &output, "RuntimeSmoke")
+        .expect("generate embedded Cronet AOT host");
+    let aot_gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
+        .expect("read embedded Cronet AOT dependencies");
+    assert!(aot_gradle.contains("org.chromium.net:cronet-embedded:143.7445.0"));
+    assert!(!aot_gradle.contains("com.google.android.gms:play-services-cronet"));
+    let aot_config = fs::read_to_string(source_directory.join("NexaCronetConfig.kt"))
+        .expect("read generated Cronet AOT config");
+    assert!(aot_config.contains("DISK_CACHE_SIZE_BYTES: Long = 32L * 1024L * 1024L"));
+}
+
+#[test]
 fn aot_plugin_hosts_include_value_runtime_when_unused_generic_methods_exist() {
     let project = nexa_testkit::TestProject::new("nexa-aot-plugin-value-runtime");
     project.write(
@@ -386,7 +440,9 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     )
     .expect("read Android dev activity");
     assert!(activity.contains("CronetProviderInstaller.installProvider(this)"));
-    assert!(activity.contains("using bundled Cronet when available"));
+    assert!(
+        activity.contains("Play Services Cronet provider is unavailable; network calls may fail")
+    );
     assert!(activity.contains("setContent { MaterialTheme { NexaDevRuntimeRoot"));
     assert!(!activity.contains("Network provider unavailable"));
 
@@ -395,7 +451,12 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(gradle.contains("io.coil-kt.coil3:coil-compose"));
     assert!(gradle.contains("io.coil-kt.coil3:coil-network-core"));
     assert!(gradle.contains("com.google.android.gms:play-services-cronet"));
-    assert!(gradle.contains("org.chromium.net:cronet-embedded:143.7445.0"));
+    assert!(!gradle.contains("org.chromium.net:cronet-embedded"));
+    let cronet_config = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaCronetConfig.kt"),
+    )
+    .expect("read Android Cronet host configuration");
+    assert!(cronet_config.contains("DISK_CACHE_SIZE_BYTES: Long = 64L * 1024L * 1024L"));
 
     nexa_cli::generate_project(&entry, "all", &output, "RuntimeSmoke")
         .expect("regenerate the AOT host");

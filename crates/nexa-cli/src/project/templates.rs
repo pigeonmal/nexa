@@ -1169,18 +1169,13 @@ pub(super) fn android_app_gradle_with_dev_runtime(
         dependencies.push_str("    implementation(\"androidx.core:core-splashscreen:1.0.1\")\n");
     }
     if dev_runtime || features.uses_network {
-        dependencies.push_str(
-            "    implementation(\"com.google.android.gms:play-services-cronet:18.0.1\")\n",
-        );
-    }
-    // Keep the network API usable when Play Services Cronet cannot install
-    // its provider (for example on non-GMS devices). Dev builds preload this
-    // path, while AOT builds include it only when the app uses networking.
-    // CronetEngine.Builder selects the bundled provider as a fallback while
-    // retaining the same NexaNetwork implementation.
-    if dev_runtime || features.uses_network {
-        dependencies
-            .push_str("    implementation(\"org.chromium.net:cronet-embedded:143.7445.0\")\n");
+        match config.android_cronet_provider {
+            crate::config::AndroidCronetProvider::PlayServices => dependencies.push_str(
+                "    implementation(\"com.google.android.gms:play-services-cronet:18.0.1\")\n",
+            ),
+            crate::config::AndroidCronetProvider::Embedded => dependencies
+                .push_str("    implementation(\"org.chromium.net:cronet-embedded:143.7445.0\")\n"),
+        }
     }
     for dependency in maven_dependencies {
         dependencies.push_str(&format!("    implementation(\"{dependency}\")\n"));
