@@ -144,6 +144,9 @@ fn generated_source_and_dependencies(target: &str, module: &Module) -> (String, 
         if features.uses_navigation {
             dependencies.push("androidx.navigation:navigation-compose".to_owned());
         }
+        if features.uses_compose_animation {
+            dependencies.push("androidx.compose.animation:animation".to_owned());
+        }
         if features.uses_lifecycle_events {
             dependencies.push("androidx.lifecycle:lifecycle-runtime-compose".to_owned());
         }

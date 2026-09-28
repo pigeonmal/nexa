@@ -411,6 +411,38 @@ fn spring_animation_lowers_custom_physics_and_rejects_nonpositive_values() {
 }
 
 #[test]
+fn conditional_transitions_lower_to_typed_ir() {
+    let module = compile(
+        r#"app ConditionalTransitions {
+            state visible = false
+            body {
+                if visible { Text("shown") }.transition(.fade)
+                when visible {
+                    true: { Text("yes") }
+                    else: { Text("no") }
+                }.transition(.scale)
+            }
+        }"#,
+    )
+    .expect("conditional transition declarations should compile");
+
+    assert!(matches!(
+        &module.body[0],
+        Node::If {
+            transition: Some(nexa_ir::ViewTransition::Fade),
+            ..
+        }
+    ));
+    assert!(matches!(
+        &module.body[1],
+        Node::When {
+            transition: Some(nexa_ir::ViewTransition::Scale),
+            ..
+        }
+    ));
+}
+
+#[test]
 fn visual_modifiers_reject_invalid_ranges_and_shapes() {
     for (body, expected) in [
         (

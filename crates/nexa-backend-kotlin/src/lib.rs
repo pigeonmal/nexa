@@ -7,6 +7,7 @@ pub struct KotlinProjectFeatures {
     pub uses_coroutines: bool,
     pub uses_permission_request: bool,
     pub uses_navigation: bool,
+    pub uses_compose_animation: bool,
     pub uses_compose_graphics: bool,
     pub uses_lifecycle_events: bool,
 }

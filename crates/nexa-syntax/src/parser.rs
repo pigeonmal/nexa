@@ -2975,12 +2975,66 @@ impl Parser {
         } else {
             None
         };
+        let transition = self.conditional_transition()?;
         Ok(Node::If {
             condition,
             then_body,
             else_body,
+            transition,
             span,
         })
+    }
+
+    /// Parses the closed transition vocabulary accepted on `if` and `when`
+    /// view blocks. Keeping this grammar explicit avoids treating transitions
+    /// as dynamic expressions in either native backend.
+    fn conditional_transition(&mut self) -> Result<Option<ViewTransition>, CompileError> {
+        if !self.take(&Kind::Dot) {
+            return Ok(None);
+        }
+        let (modifier, modifier_span) = self.ident()?;
+        if modifier != "transition" {
+            return Err(CompileError::new(
+                modifier_span,
+                "conditional view blocks only support the `.transition(...)` modifier",
+            ));
+        }
+        self.expect(Kind::LParen, "expected `(` after `.transition`")?;
+        self.expect(Kind::Dot, "expected a transition such as `.fade`")?;
+        let (kind, kind_span) = self.ident()?;
+        let transition = match kind.as_str() {
+            "fade" => ViewTransition::Fade,
+            "scale" => ViewTransition::Scale,
+            "slide" => {
+                self.expect(Kind::LParen, "expected `(` after `.slide`")?;
+                let (argument, argument_span) = self.ident()?;
+                if argument != "from" {
+                    return Err(CompileError::new(
+                        argument_span,
+                        "`.slide` expects `from: .bottom`",
+                    ));
+                }
+                self.expect(Kind::Colon, "expected `:` after `from`")?;
+                self.expect(Kind::Dot, "expected a slide edge such as `.bottom`")?;
+                let (edge, edge_span) = self.ident()?;
+                if edge != "bottom" {
+                    return Err(CompileError::new(
+                        edge_span,
+                        "conditional slide transitions currently support `.bottom`",
+                    ));
+                }
+                self.expect(Kind::RParen, "expected `)` after `.slide(from: .bottom)`")?;
+                ViewTransition::SlideFromBottom
+            }
+            _ => {
+                return Err(CompileError::new(
+                    kind_span,
+                    "transition must be `.fade`, `.slide(from: .bottom)`, or `.scale`",
+                ));
+            }
+        };
+        self.expect(Kind::RParen, "expected `)` after transition")?;
+        Ok(Some(transition))
     }
 
     fn when_node(&mut self) -> Result<Node, CompileError> {
@@ -3029,6 +3083,7 @@ impl Parser {
             value,
             cases,
             else_body,
+            transition: self.conditional_transition()?,
             span,
         })
     }

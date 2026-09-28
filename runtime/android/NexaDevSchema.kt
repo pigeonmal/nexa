@@ -5,8 +5,8 @@ package __NEXA_PACKAGE__
  * shared between Nexa development servers and Android dev runtimes.
  */
 internal object NexaDevSchema {
-    const val PROTOCOL_VERSION: Int = 9
-    const val DEV_IR_FORMAT_VERSION: Int = 9
+    const val PROTOCOL_VERSION: Int = 10
+    const val DEV_IR_FORMAT_VERSION: Int = 10
     const val TARGET_PLATFORM: String = "android"
 }
 
@@ -71,6 +71,7 @@ internal object NexaDevKeys {
     const val ON_ACTIVE = "on_active"
     const val ON_INACTIVE = "on_inactive"
     const val ON_BACKGROUND = "on_background"
+    const val TRANSITION = "transition"
 
     // Screen fields
     const val NAME = "name"

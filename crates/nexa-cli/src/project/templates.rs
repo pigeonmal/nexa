@@ -1146,6 +1146,9 @@ pub(super) fn android_app_gradle_with_dev_runtime(
     if dev_runtime || features.uses_compose_graphics {
         dependencies.push_str("    implementation(\"androidx.compose.ui:ui-graphics\")\n");
     }
+    if dev_runtime || features.uses_compose_animation {
+        dependencies.push_str("    implementation(\"androidx.compose.animation:animation\")\n");
+    }
     if dev_runtime || features.uses_navigation {
         dependencies
             .push_str("    implementation(\"androidx.navigation:navigation-compose:2.10.1\")\n");

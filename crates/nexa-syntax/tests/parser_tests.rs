@@ -403,6 +403,51 @@ fn parses_ranges_as_collection_method_arguments() {
 }
 
 #[test]
+fn parses_closed_transition_modifiers_on_if_and_when_blocks() {
+    let app = nexa_syntax::parse(
+        r#"app Demo {
+            state visible = false
+            body {
+                if visible { Text("shown") }.transition(.fade)
+                when visible {
+                    true: { Text("yes") }
+                    else: { Text("no") }
+                }.transition(.slide(from: .bottom))
+            }
+        }"#,
+    )
+    .expect("conditional transition syntax should parse");
+
+    assert!(matches!(
+        &app.body[0],
+        Node::If {
+            transition: Some(nexa_syntax::ast::ViewTransition::Fade),
+            ..
+        }
+    ));
+    assert!(matches!(
+        &app.body[1],
+        Node::When {
+            transition: Some(nexa_syntax::ast::ViewTransition::SlideFromBottom),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn conditional_transitions_reject_unknown_edges() {
+    let error = nexa_syntax::parse(
+        r#"app Demo {
+            state visible = false
+            body { if visible { Text("shown") }.transition(.slide(from: .top)) }
+        }"#,
+    )
+    .expect_err("unsupported transition edges should be rejected");
+
+    assert!(error.message.contains("currently support `.bottom`"));
+}
+
+#[test]
 fn parses_if_expressions_as_typed_value_branches() {
     let app = nexa_syntax::parse(
         r#"app Demo {

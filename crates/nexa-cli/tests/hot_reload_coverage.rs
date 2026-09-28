@@ -269,6 +269,28 @@ fn pressable_double_tap_actions_are_consumed_by_both_dev_renderers() {
 }
 
 #[test]
+/// Checks the DevRuntime conditional rendering paths and their transition table.
+/// Device animation timing still requires a native runtime test.
+fn conditional_view_transitions_are_consumed_by_both_dev_renderers() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS renderer");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android renderer");
+
+    assert!(swift.contains("private func nexaDevTransition(_ raw: Any?) -> AnyTransition?"));
+    assert!(
+        swift.contains("rendered.transition(transition).animation(.default, value: condition)")
+    );
+    assert!(swift.contains("rendered.transition(transition).animation(.default, value: value)"));
+    for transition in ["Fade", "SlideFromBottom", "Scale"] {
+        assert!(kotlin.contains(&format!("\"{transition}\" ->")));
+    }
+    assert!(kotlin.contains("AnimatedContent(\n                    targetState = condition"));
+    assert!(kotlin.contains("AnimatedContent(\n                    targetState = value"));
+}
+
+#[test]
 /// Scenario labels are maintainer inventory metadata; this test does not run
 /// each listed scenario on a simulator or emulator.
 fn runtime_acceptance_scenarios_have_explicit_dual_platform_status() {

@@ -4,6 +4,7 @@ pub(crate) mod accessibility;
 pub(crate) mod assets;
 pub(crate) mod bottom_bar;
 pub(crate) mod components;
+pub(crate) mod conditional;
 pub(crate) mod controls;
 pub(crate) mod custom_components;
 pub(crate) mod dialogs;

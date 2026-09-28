@@ -95,6 +95,38 @@ fn generated_ios_example_hosts_build_with_xcode_when_available() {
             String::from_utf8_lossy(&built.stderr)
         );
     }
+
+    let dev_project = temp.join("spring-animation-dev-ios");
+    nexa_cli::generate_dev_project(
+        &example_path("spring_animation.nx"),
+        "ios",
+        &dev_project,
+        "NexaSpringAnimation",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate iOS DevRuntime host");
+    let sources = swift_sources(&dev_project.join("ios/NexaSpringAnimation"));
+    let built = Command::new("xcrun")
+        .args([
+            "--sdk",
+            "iphonesimulator",
+            "swiftc",
+            "-typecheck",
+            "-sdk",
+            sdk,
+            "-target",
+            "arm64-apple-ios16.0-simulator",
+        ])
+        .args(&sources)
+        .output()
+        .expect("Swift compiler should start for the iOS DevRuntime host");
+    assert!(
+        built.status.success(),
+        "iOS DevRuntime host failed to type-check:\n{}\n{}",
+        String::from_utf8_lossy(&built.stdout),
+        String::from_utf8_lossy(&built.stderr)
+    );
 }
 
 #[test]
@@ -135,6 +167,28 @@ fn generated_android_example_hosts_build_with_gradle_when_available() {
     assert!(
         built.status.success(),
         "generated Android sources for the example set failed to compile:\n{}\n{}",
+        String::from_utf8_lossy(&built.stdout),
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let dev_project = temp.join("spring-animation-dev-android");
+    nexa_cli::generate_dev_project(
+        &example_path("spring_animation.nx"),
+        "android",
+        &dev_project,
+        "NexaSpringAnimation",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Android DevRuntime host");
+    let built = Command::new(gradle)
+        .args([":app:assembleDebug"])
+        .current_dir(dev_project.join("android"))
+        .output()
+        .expect("Gradle should start for the Android DevRuntime host");
+    assert!(
+        built.status.success(),
+        "Android DevRuntime host failed to compile:\n{}\n{}",
         String::from_utf8_lossy(&built.stdout),
         String::from_utf8_lossy(&built.stderr)
     );

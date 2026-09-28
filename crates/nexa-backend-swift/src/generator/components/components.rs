@@ -1,5 +1,5 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{LayoutKind, Module, Node, ViewStyle, ViewTransition};
 
 use super::dialogs;
 use crate::generator::{
@@ -241,32 +241,52 @@ pub(crate) fn render_node(
             condition,
             then_body,
             else_body,
+            transition,
         } => {
+            let content_depth = depth + usize::from(transition.is_some());
+            if transition.is_some() {
+                out.line_at(depth, format_args!("Group {{"));
+            }
             out.line_at(
-                depth,
+                content_depth,
                 format_args!(
                     "if {} {{",
                     crate::generator::engine::expressions::expression(condition)
                 ),
             );
-            render_children(then_body, module, features, depth + 1, out);
+            render_children(then_body, module, features, content_depth + 1, out);
             if let Some(else_body) = else_body {
                 out.push('\n');
-                indent(out, depth);
+                indent(out, content_depth);
                 out.push_str("} else {\n");
-                render_children(else_body, module, features, depth + 1, out);
+                render_children(else_body, module, features, content_depth + 1, out);
             }
             out.push('\n');
-            indent(out, depth);
+            indent(out, content_depth);
             out.push('}');
+            if let Some(transition) = transition {
+                out.push('\n');
+                indent(out, depth);
+                out.push('}');
+                out.push_str(&format!(
+                    ".transition({}).animation(.default, value: {})",
+                    swift_transition(*transition),
+                    crate::generator::engine::expressions::expression(condition)
+                ));
+            }
         }
         Node::When {
             value,
             cases,
             else_body,
+            transition,
         } => {
+            let content_depth = depth + usize::from(transition.is_some());
+            if transition.is_some() {
+                out.line_at(depth, format_args!("Group {{"));
+            }
             out.line_at(
-                depth,
+                content_depth,
                 format_args!(
                     "switch {} {{",
                     crate::generator::engine::expressions::expression(value)
@@ -274,21 +294,31 @@ pub(crate) fn render_node(
             );
             for case in cases {
                 out.line_at(
-                    depth + 1,
+                    content_depth + 1,
                     format_args!(
                         "case {}:",
                         crate::generator::engine::expressions::expression(&case.value)
                     ),
                 );
-                render_children(&case.body, module, features, depth + 2, out);
+                render_children(&case.body, module, features, content_depth + 2, out);
                 out.push('\n');
             }
-            indent(out, depth + 1);
+            indent(out, content_depth + 1);
             out.push_str("default:\n");
-            render_children(else_body, module, features, depth + 2, out);
+            render_children(else_body, module, features, content_depth + 2, out);
             out.push('\n');
-            indent(out, depth);
+            indent(out, content_depth);
             out.push('}');
+            if let Some(transition) = transition {
+                out.push('\n');
+                indent(out, depth);
+                out.push('}');
+                out.push_str(&format!(
+                    ".transition({}).animation(.default, value: {})",
+                    swift_transition(*transition),
+                    crate::generator::engine::expressions::expression(value)
+                ));
+            }
         }
         Node::Content => {
             indent(out, depth);
@@ -356,6 +386,14 @@ pub(crate) fn render_node(
                 out.push('}');
             }
         }
+    }
+}
+
+fn swift_transition(transition: ViewTransition) -> &'static str {
+    match transition {
+        ViewTransition::Fade => ".opacity",
+        ViewTransition::SlideFromBottom => ".move(edge: .bottom)",
+        ViewTransition::Scale => ".scale",
     }
 }
 

@@ -155,6 +155,8 @@ pub struct UiFacts {
     pub progress_ring_present: bool,
     pub segmented_control_present: bool,
     pub picker_present: bool,
+    /// A conditional view requests a native insertion/removal transition.
+    pub conditional_transition: bool,
     pub pressable: PressableFacts,
     pub layout: LayoutFacts,
     pub style: StyleFacts,
@@ -806,17 +808,19 @@ fn observe_node(
         Node::If {
             then_body,
             else_body,
+            transition,
             ..
         } => {
+            ui.conditional_transition |= transition.is_some();
             record_child_layout(then_body, ui);
             if let Some(else_body) = else_body {
                 record_child_layout(else_body, ui);
             }
         }
-        Node::Content
-        | Node::NavigationStack { .. }
-        | Node::When { .. }
-        | Node::NativeComponentCall { .. } => {}
+        Node::When { transition, .. } => {
+            ui.conditional_transition |= transition.is_some();
+        }
+        Node::Content | Node::NavigationStack { .. } | Node::NativeComponentCall { .. } => {}
         Node::ComponentCall { name, .. } => {
             if let Some(calls) = calls {
                 calls.push(name.clone());

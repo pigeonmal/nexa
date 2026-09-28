@@ -106,6 +106,7 @@ pub(crate) struct Features {
     pub(crate) uses_animation_ease_out: bool,
     pub(crate) uses_animation_ease_in_out: bool,
     pub(crate) uses_animation_linear: bool,
+    pub(crate) uses_conditional_transition: bool,
     pub(crate) uses_color: bool,
     pub(crate) uses_dp: bool,
     pub(crate) uses_mutable_state: bool,
@@ -310,6 +311,7 @@ impl Features {
         self.uses_animation_ease_out = style.ease_out;
         self.uses_animation_ease_in_out = style.ease_in_out;
         self.uses_animation_linear = style.linear;
+        self.uses_conditional_transition = ui.conditional_transition;
         self.uses_modifier |= style.modifier;
         self.uses_color |= style.color;
         self.uses_dp |= style.dp;

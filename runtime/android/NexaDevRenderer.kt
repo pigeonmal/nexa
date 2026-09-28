@@ -3,7 +3,15 @@ package __NEXA_PACKAGE__
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -787,17 +795,47 @@ internal fun NexaDevNode(
         }
         "If" -> {
             val condition = store.evaluate(fields.opt("condition"), locals, scope) as? Boolean ?: false
-            RenderChildren(fields.optJSONArray(if (condition) "then_body" else "else_body") ?: JSONArray(), module, store, locals, scope)
+            val transition = fields.optString("transition")
+            if (transition.isEmpty()) {
+                RenderChildren(fields.optJSONArray(if (condition) "then_body" else "else_body") ?: JSONArray(), module, store, locals, scope)
+            } else {
+                AnimatedContent(
+                    targetState = condition,
+                    transitionSpec = {
+                        when (transition) {
+                            "Fade" -> fadeIn() togetherWith fadeOut()
+                            "SlideFromBottom" -> slideInVertically { height -> height } togetherWith slideOutVertically { height -> height }
+                            "Scale" -> scaleIn() togetherWith scaleOut()
+                            else -> fadeIn() togetherWith fadeOut()
+                        }
+                    },
+                    label = "dev-if-transition",
+                ) { target ->
+                    RenderChildren(fields.optJSONArray(if (target) "then_body" else "else_body") ?: JSONArray(), module, store, locals, scope)
+                }
+            }
         }
         "When" -> {
             val value = store.stringify(store.evaluate(fields.opt("value"), locals, scope))
-            val cases = fields.optJSONArray("cases") ?: JSONArray()
-            val matching = (0 until cases.length())
-                .mapNotNull(cases::optJSONObject)
-                .firstOrNull { item ->
-                    store.stringify(store.evaluate(item.opt("value"), locals, scope)) == value
+            val transition = fields.optString("transition")
+            if (transition.isEmpty()) {
+                renderWhenTarget(value, fields, module, store, locals, scope)
+            } else {
+                AnimatedContent(
+                    targetState = value,
+                    transitionSpec = {
+                        when (transition) {
+                            "Fade" -> fadeIn() togetherWith fadeOut()
+                            "SlideFromBottom" -> slideInVertically { height -> height } togetherWith slideOutVertically { height -> height }
+                            "Scale" -> scaleIn() togetherWith scaleOut()
+                            else -> fadeIn() togetherWith fadeOut()
+                        }
+                    },
+                    label = "dev-when-transition",
+                ) { target ->
+                    renderWhenTarget(target, fields, module, store, locals, scope)
                 }
-            RenderChildren(matching?.optJSONArray("body") ?: fields.optJSONArray("else_body") ?: JSONArray(), module, store, locals, scope)
+            }
         }
         "Link" -> {
             val context = LocalContext.current
@@ -919,6 +957,30 @@ internal fun NexaDevNode(
             }
         }
     }
+}
+
+@Composable
+private fun renderWhenTarget(
+    target: String,
+    fields: JSONObject,
+    module: JSONObject,
+    store: NexaDevStateStore,
+    locals: Map<String, Any>,
+    scope: String,
+) {
+    val cases = fields.optJSONArray("cases") ?: JSONArray()
+    val matching = (0 until cases.length())
+        .mapNotNull(cases::optJSONObject)
+        .firstOrNull { item ->
+            store.stringify(store.evaluate(item.opt("value"), locals, scope)) == target
+        }
+    RenderChildren(
+        matching?.optJSONArray("body") ?: fields.optJSONArray("else_body") ?: JSONArray(),
+        module,
+        store,
+        locals,
+        scope,
+    )
 }
 
 @Composable

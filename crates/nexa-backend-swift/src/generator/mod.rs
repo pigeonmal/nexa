@@ -298,7 +298,7 @@ mod tests {
     use super::generate;
     use nexa_ir::{
         Action, AnimationSpec, Component, Expr, Function, LayoutKind, Module, Node, NumericType,
-        Screen, ScreenId, State, TextStyle, Type, ViewStyle,
+        Screen, ScreenId, State, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
 
     #[test]
@@ -341,6 +341,60 @@ mod tests {
         assert!(
             generate(&module).contains("animation(.spring(response: 0.35, dampingFraction: 0.8))")
         );
+    }
+
+    #[test]
+    fn conditional_view_transitions_use_native_swiftui_modifiers() {
+        let module = Module {
+            app_name: "ConditionalTransitions".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![
+                Node::If {
+                    condition: Expr::State("visible".to_owned(), Type::Bool),
+                    then_body: vec![Node::Text {
+                        value: Expr::String("shown".to_owned()),
+                        style: TextStyle::default(),
+                    }],
+                    else_body: None,
+                    transition: Some(ViewTransition::Fade),
+                },
+                Node::When {
+                    value: Expr::State("visible".to_owned(), Type::Bool),
+                    cases: vec![WhenCase {
+                        value: Expr::Bool(true),
+                        body: vec![Node::Text {
+                            value: Expr::String("yes".to_owned()),
+                            style: TextStyle::default(),
+                        }],
+                    }],
+                    else_body: vec![Node::Text {
+                        value: Expr::String("no".to_owned()),
+                        style: TextStyle::default(),
+                    }],
+                    transition: Some(ViewTransition::SlideFromBottom),
+                },
+            ],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+        assert!(swift.contains("Group {\n"));
+        assert!(swift.contains(".transition(.opacity).animation(.default, value:"));
+        assert!(swift.contains(".transition(.move(edge: .bottom)).animation(.default, value:"));
     }
 
     #[test]

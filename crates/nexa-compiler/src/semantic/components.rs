@@ -7,7 +7,7 @@ use nexa_ir::{
     DirectionStyle, Expr, FastListRefresh, FontWeight, HapticStyle, ImageScale, ImageSource,
     KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis, ListCommon, ListPlan,
     NativeComponentEventHandler, Node, NumericType, ScreenId, SectionedListCommon, StatusBarConfig,
-    StatusBarStyle, TextStyle, Type, WhenCase,
+    StatusBarStyle, TextStyle, Type, ViewTransition as IrViewTransition, WhenCase,
 };
 use nexa_syntax::{ast, catalog};
 
@@ -1673,6 +1673,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             condition,
             then_body,
             else_body,
+            transition,
             ..
         } => {
             let condition = lower_expr(&condition, Some(&Type::Bool), &cx.exprs(false))?;
@@ -1684,12 +1685,18 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 condition,
                 then_body: lowered_then,
                 else_body: lowered_else,
+                transition: transition.map(|transition| match transition {
+                    ast::ViewTransition::Fade => IrViewTransition::Fade,
+                    ast::ViewTransition::SlideFromBottom => IrViewTransition::SlideFromBottom,
+                    ast::ViewTransition::Scale => IrViewTransition::Scale,
+                }),
             })
         }
         ast::Node::When {
             value,
             cases,
             else_body,
+            transition,
             span,
         } => {
             let value_type = infer_expr_type(&value, symbols, functions)
@@ -1738,6 +1745,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 value: lowered_value,
                 cases: lowered_cases,
                 else_body: lowered_else,
+                transition: transition.map(|transition| match transition {
+                    ast::ViewTransition::Fade => IrViewTransition::Fade,
+                    ast::ViewTransition::SlideFromBottom => IrViewTransition::SlideFromBottom,
+                    ast::ViewTransition::Scale => IrViewTransition::Scale,
+                }),
             })
         }
         ast::Node::ComponentCall {

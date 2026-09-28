@@ -314,12 +314,14 @@ pub enum Node {
         condition: Expr,
         then_body: Vec<Node>,
         else_body: Option<Vec<Node>>,
+        transition: Option<ViewTransition>,
         span: Span,
     },
     When {
         value: Expr,
         cases: Vec<WhenCase>,
         else_body: Vec<Node>,
+        transition: Option<ViewTransition>,
         span: Span,
     },
     ComponentCall {
@@ -416,6 +418,14 @@ pub struct WhenCase {
     pub value: Expr,
     pub body: Vec<Node>,
     pub span: Span,
+}
+
+/// Native appearance/removal effect attached to a conditional view block.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewTransition {
+    Fade,
+    SlideFromBottom,
+    Scale,
 }
 
 #[derive(Clone, Debug)]

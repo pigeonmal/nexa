@@ -52,6 +52,7 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     crate::generator::components::accessibility::imports(context.features, &mut imports);
     crate::generator::components::assets::imports(context.features, &mut imports);
     crate::generator::components::bottom_bar::imports(context.features, &mut imports);
+    crate::generator::components::conditional::imports(context.features, &mut imports);
     crate::generator::components::controls::imports(context.features, &mut imports);
     crate::generator::components::dialogs::imports(context.features, &mut imports);
     crate::generator::components::images::imports(context.features, &mut imports);

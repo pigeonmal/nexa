@@ -105,6 +105,7 @@ pub fn walk_ir(
                 condition,
                 then_body,
                 else_body,
+                ..
             } => {
                 walk_expression(condition, visit_expression);
                 walk_ir(then_body, visit_node, visit_expression);
@@ -116,6 +117,7 @@ pub fn walk_ir(
                 value,
                 cases,
                 else_body,
+                ..
             } => {
                 walk_expression(value, visit_expression);
                 for case in cases {
@@ -839,6 +841,7 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             condition,
             then_body,
             else_body,
+            ..
         } => {
             visitor.visit_expr(condition);
             visitor.visit_nodes(then_body);
@@ -850,6 +853,7 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             value,
             cases,
             else_body,
+            ..
         } => {
             visitor.visit_expr(value);
             for case in cases {
@@ -1287,15 +1291,18 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             condition,
             then_body,
             else_body,
+            transition,
         } => Some(Node::If {
             condition: folder.fold_expr(condition),
             then_body: folder.fold_nodes(then_body),
             else_body: else_body.map(|b| folder.fold_nodes(b)),
+            transition,
         }),
         Node::When {
             value,
             cases,
             else_body,
+            transition,
         } => Some(Node::When {
             value: folder.fold_expr(value),
             cases: cases
@@ -1306,6 +1313,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
                 })
                 .collect(),
             else_body: folder.fold_nodes(else_body),
+            transition,
         }),
         Node::Text { value, style } => Some(Node::Text {
             value: folder.fold_expr(value),
@@ -2044,6 +2052,7 @@ mod tests {
                         }],
                     }],
                     else_body: None,
+                    transition: None,
                 },
             ],
         };

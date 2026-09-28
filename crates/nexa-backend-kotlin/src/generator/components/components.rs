@@ -6,6 +6,7 @@ use crate::generator::{
     layout, links, lists, navigation, refresh, sheets, utils::indent,
 };
 
+use super::conditional;
 use crate::generator::components::text;
 
 pub(crate) fn render_node(
@@ -183,59 +184,39 @@ pub(crate) fn render_node(
             condition,
             then_body,
             else_body,
+            transition,
         } => {
-            out.line_at(
-                depth,
-                format_args!(
-                    "if ({}) {{",
-                    crate::generator::engine::expressions::expression(condition)
-                ),
+            conditional::render_if(
+                condition,
+                then_body,
+                else_body.as_deref(),
+                *transition,
+                conditional::RenderScope {
+                    module,
+                    features,
+                    depth,
+                    out,
+                },
             );
-            render_children(then_body, module, features, depth + 1, out);
-            if let Some(else_body) = else_body {
-                out.push('\n');
-                indent(out, depth);
-                out.push_str("} else {\n");
-                render_children(else_body, module, features, depth + 1, out);
-            }
-            out.push('\n');
-            indent(out, depth);
-            out.push('}');
         }
         Node::When {
             value,
             cases,
             else_body,
+            transition,
         } => {
-            out.line_at(
-                depth,
-                format_args!(
-                    "when ({}) {{",
-                    crate::generator::engine::expressions::expression(value)
-                ),
+            conditional::render_when(
+                value,
+                cases,
+                else_body,
+                *transition,
+                conditional::RenderScope {
+                    module,
+                    features,
+                    depth,
+                    out,
+                },
             );
-            for case in cases {
-                out.line_at(
-                    depth + 1,
-                    format_args!(
-                        "{} -> {{",
-                        crate::generator::engine::expressions::expression(&case.value)
-                    ),
-                );
-                render_children(&case.body, module, features, depth + 2, out);
-                out.push('\n');
-                indent(out, depth + 1);
-                out.push_str("}\n");
-            }
-            indent(out, depth + 1);
-            out.push_str("else -> {\n");
-            render_children(else_body, module, features, depth + 2, out);
-            out.push('\n');
-            indent(out, depth + 1);
-            out.push('}');
-            out.push('\n');
-            indent(out, depth);
-            out.push('}');
         }
         Node::Content => {
             indent(out, depth);

@@ -627,6 +627,7 @@ fn walk_node(
             then_body,
             else_body,
             span,
+            ..
         } => {
             warn_constant_condition(condition, *span, file, warnings);
             walk_expression(condition, names, used);

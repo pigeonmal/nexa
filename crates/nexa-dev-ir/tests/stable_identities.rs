@@ -1,7 +1,7 @@
 use nexa_dev_ir::{IdentityKind, lower};
 use nexa_ir::{
     Action, Component, ComponentParameter, DirectionConfig, DirectionStyle, Expr, Module, Node,
-    NumericType, State, TextStyle, Type,
+    NumericType, State, TextStyle, Type, ViewTransition,
 };
 
 fn module(body: Vec<Node>, state_type: Type) -> Module {
@@ -85,6 +85,28 @@ fn double_tap_action_changes_are_carried_by_a_hot_reload_patch() {
     assert_eq!(patch.operations.len(), 1);
     assert!(patch.operations[0].path.contains("/double_tap_actions/"));
     assert_eq!(patch.operations[0].value, Some(serde_json::json!("2")));
+}
+
+#[test]
+fn conditional_transition_changes_are_carried_by_a_hot_reload_patch() {
+    let conditional = |transition| Node::If {
+        condition: Expr::State("visible".to_owned(), Type::Bool),
+        then_body: vec![text("Visible")],
+        else_body: None,
+        transition,
+    };
+    let original = lower(&module(vec![conditional(None)], Type::Bool), "revision-1");
+    let updated = lower(
+        &module(vec![conditional(Some(ViewTransition::Fade))], Type::Bool),
+        "revision-2",
+    );
+
+    let payload = serde_json::to_value(&updated.module).expect("Dev IR serializes");
+    assert_eq!(payload["body"][0]["If"]["transition"], "Fade");
+    let patch = nexa_dev_ir::diff(&original, &updated).expect("transition change is patchable");
+    assert_eq!(patch.operations.len(), 1);
+    assert_eq!(patch.operations[0].path, "/body/0/If/transition");
+    assert_eq!(patch.operations[0].value, Some(serde_json::json!("Fade")));
 }
 
 fn component_call(name: &str) -> Node {

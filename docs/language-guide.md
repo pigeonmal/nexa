@@ -107,6 +107,29 @@ Text styles can be chained after a component call. For example, `Text("Hi").font
 
 Layout `animation` accepts `Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`. Customize spring response time in seconds and damping ratio with `Spring(response: 0.35, damping: 0.8)`; omitted values use `0.5` seconds and `0.825`. Response and damping must be finite and greater than zero. SwiftUI receives these values directly. Compose uses the damping ratio directly and maps response to a native spring stiffness, so the motion is platform-native and approximate rather than frame-for-frame identical.
 
+Conditional view blocks accept `.transition(.fade)`, `.transition(.scale)`, or `.transition(.slide(from: .bottom))`. The transition runs when an `if` branch or `when` case changes. The current slide syntax supports `.bottom`:
+
+```nexa
+app ConditionalTransitions {
+    state expanded: Bool = false
+
+    body {
+        Button("Toggle") {
+            expanded = !expanded
+        }
+        if expanded {
+            Text("Details")
+        }.transition(.fade)
+        when expanded {
+            true: { Text("Expanded") }
+            else: { Spacer() }
+        }.transition(.slide(from: .bottom))
+    }
+}
+```
+
+These modifiers are part of the typed module and DevRuntime payload, so changing the transition remains compatible with hot reload after the app has a DevRuntime build.
+
 `Spacer()` consumes remaining space on a `Row` or `Column` axis. `Divider(color: "#808080", thickness: 1)` inserts a horizontal separator.
 `Slider(value: amount, min: 0.0, max: 1.0, step: 0.01)` binds a stepped native slider to mutable `Float64` state.
 `ProgressBar(progress: amount)` and `ProgressRing(progress: amount)` render normalized linear and circular progress controls.

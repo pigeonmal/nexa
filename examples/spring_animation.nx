@@ -9,7 +9,12 @@ app SpringAnimation {
 
             if expanded {
                 Text("The layout expands with a configured spring.")
-            }
+            }.transition(.fade)
+
+            when expanded {
+                true: { Text("Conditional content enters from the bottom.") }
+                else: { Spacer() }
+            }.transition(.slide(from: .bottom))
         }
     }
 }

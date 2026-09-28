@@ -28,6 +28,7 @@ fn project_features_from_analysis(
             || features.uses_permission_request,
         uses_permission_request: features.uses_permission_request,
         uses_navigation: !module.screens.is_empty(),
+        uses_compose_animation: features.uses_conditional_transition,
         uses_compose_graphics: features.uses_color
             || features.uses_asset
             || features.uses_tab_icon
@@ -419,7 +420,7 @@ mod tests {
     use super::generate;
     use nexa_ir::{
         Action, AnimationSpec, Component, Expr, Function, LayoutKind, Module, Node, NumericType,
-        Screen, ScreenId, State, TextStyle, Type, ViewStyle,
+        Screen, ScreenId, State, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
 
     #[test]
@@ -461,6 +462,61 @@ mod tests {
 
         let kotlin = generate(&module);
         assert!(kotlin.contains("spring(dampingRatio = 0.8f, stiffness = 816.32654f)"));
+    }
+
+    #[test]
+    fn conditional_view_transitions_use_native_compose_animated_content() {
+        let module = Module {
+            app_name: "ConditionalTransitions".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![
+                Node::If {
+                    condition: Expr::State("visible".to_owned(), Type::Bool),
+                    then_body: vec![Node::Text {
+                        value: Expr::String("shown".to_owned()),
+                        style: TextStyle::default(),
+                    }],
+                    else_body: None,
+                    transition: Some(ViewTransition::Fade),
+                },
+                Node::When {
+                    value: Expr::State("visible".to_owned(), Type::Bool),
+                    cases: vec![WhenCase {
+                        value: Expr::Bool(true),
+                        body: vec![Node::Text {
+                            value: Expr::String("yes".to_owned()),
+                            style: TextStyle::default(),
+                        }],
+                    }],
+                    else_body: vec![Node::Text {
+                        value: Expr::String("no".to_owned()),
+                        style: TextStyle::default(),
+                    }],
+                    transition: Some(ViewTransition::SlideFromBottom),
+                },
+            ],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        assert!(kotlin.contains("import androidx.compose.animation.AnimatedContent"));
+        assert!(kotlin.contains("AnimatedContent(targetState = "));
+        assert!(kotlin.contains("fadeIn() togetherWith fadeOut()"));
+        assert!(kotlin.contains("slideInVertically { height -> height } togetherWith slideOutVertically { height -> height }"));
     }
 
     #[test]

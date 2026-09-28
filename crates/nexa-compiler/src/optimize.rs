@@ -891,6 +891,7 @@ impl IrFolder for IrOptimizer {
                 condition,
                 then_body,
                 else_body,
+                transition,
             } => {
                 let condition = self.fold_expr(condition);
                 let then_body = self.fold_nodes(then_body);
@@ -902,6 +903,7 @@ impl IrFolder for IrOptimizer {
                         condition,
                         then_body,
                         else_body,
+                        transition,
                     }),
                 }
             }

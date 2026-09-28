@@ -122,6 +122,7 @@ fn android_dev_runtime_preloads_compose_and_platform_dependencies() {
     for dependency in [
         "androidx.compose.foundation:foundation",
         "androidx.compose.runtime:runtime",
+        "androidx.compose.animation:animation",
         "androidx.navigation:navigation-compose",
         "androidx.lifecycle:lifecycle-runtime-compose",
         "org.jetbrains.kotlinx:kotlinx-coroutines-android",
@@ -154,6 +155,7 @@ fn android_aot_dependencies_remain_feature_gated() {
     for dependency in [
         "androidx.compose.foundation:foundation",
         "androidx.compose.runtime:runtime",
+        "androidx.compose.animation:animation",
         "androidx.navigation:navigation-compose",
         "androidx.lifecycle:lifecycle-runtime-compose",
         "org.jetbrains.kotlinx:kotlinx-coroutines-android",
@@ -168,6 +170,25 @@ fn android_aot_dependencies_remain_feature_gated() {
             "AOT dependency {dependency} should remain feature-gated"
         );
     }
+}
+
+#[test]
+fn android_compose_animation_dependency_is_feature_gated_for_aot() {
+    let config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    let dependencies = templates::android_app_gradle_with_dev_runtime(
+        "demo",
+        nexa_backend_kotlin::KotlinProjectFeatures {
+            uses_compose_animation: true,
+            ..Default::default()
+        },
+        &[],
+        &[],
+        &config,
+        false,
+    )
+    .unwrap();
+
+    assert!(dependencies.contains("implementation(\"androidx.compose.animation:animation\")"));
 }
 
 #[test]

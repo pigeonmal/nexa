@@ -983,6 +983,23 @@
         "android": "covered"
       }
     ],
+    "ViewTransition": [
+      {
+        "name": "Fade",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SlideFromBottom",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Scale",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "Alignment": [
       {
         "name": "Start",
@@ -1472,6 +1489,10 @@
     "native_plugin_properties_events_and_components": {
       "ios": "partial",
       "android": "partial"
+    },
+    "conditional_view_transitions": {
+      "ios": "covered",
+      "android": "covered"
     }
   }
 }

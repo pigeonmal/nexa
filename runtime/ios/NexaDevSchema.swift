@@ -4,10 +4,10 @@ import Foundation
 /// shared between Nexa development servers and native dev runtimes.
 public enum NexaDevSchema {
     /// Dev protocol version exchanged during WebSocket handshake.
-    public static let protocolVersion: Int = 9
+    public static let protocolVersion: Int = 10
 
     /// Format version of the Dev IR payload.
-    public static let devIRFormatVersion: Int = 9
+    public static let devIRFormatVersion: Int = 10
 
     /// Platform identifier for iOS dev runtimes.
     public static let targetPlatform = "ios"
@@ -72,6 +72,7 @@ public enum NexaDevKeys {
     public static let onActive = "on_active"
     public static let onInactive = "on_inactive"
     public static let onBackground = "on_background"
+    public static let transition = "transition"
 
     // Screen fields
     public static let name = "name"

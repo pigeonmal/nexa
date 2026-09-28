@@ -643,11 +643,13 @@ pub enum Node {
         condition: Expr,
         then_body: Vec<Node>,
         else_body: Option<Vec<Node>>,
+        transition: Option<ViewTransition>,
     },
     When {
         value: Expr,
         cases: Vec<WhenCase>,
         else_body: Vec<Node>,
+        transition: Option<ViewTransition>,
     },
     Content,
     ComponentCall {
@@ -1093,6 +1095,14 @@ pub enum AnimationSpec {
     EaseOut,
     EaseInOut,
     Linear,
+}
+
+/// Native appearance/removal effect for a conditional view block.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ViewTransition {
+    Fade,
+    SlideFromBottom,
+    Scale,
 }
 
 /// Cross-axis alignment for a native row or column layout.

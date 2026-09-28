@@ -2,6 +2,15 @@ import Foundation
 import SwiftUI
 import UIKit
 
+private func nexaDevTransition(_ raw: Any?) -> AnyTransition? {
+    switch raw as? String {
+    case "Fade": .opacity
+    case "SlideFromBottom": .move(edge: .bottom)
+    case "Scale": .scale
+    default: nil
+    }
+}
+
 struct NexaDevContentSlot: @unchecked Sendable {
     let nodes: [Any]
     let scope: String
@@ -730,7 +739,9 @@ struct NexaDevNodeList: View {
             let children = condition
                 ? fields["then_body"] as? [Any] ?? []
                 : fields["else_body"] as? [Any] ?? []
-            return AnyView(NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope))
+            let rendered = AnyView(NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope))
+            guard let transition = nexaDevTransition(fields["transition"]) else { return rendered }
+            return AnyView(rendered.transition(transition).animation(.default, value: condition))
         case "When":
             let value = store.stringify(store.evaluate(fields["value"] ?? NSNull(), locals: locals, scope: scope))
             let cases = fields["cases"] as? [[String: Any]] ?? []
@@ -738,7 +749,9 @@ struct NexaDevNodeList: View {
                 store.stringify(store.evaluate(item["value"] ?? NSNull(), locals: locals, scope: scope)) == value
             }
             let children = matchingCase?["body"] as? [Any] ?? fields["else_body"] as? [Any] ?? []
-            return AnyView(NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope))
+            let rendered = AnyView(NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope))
+            guard let transition = nexaDevTransition(fields["transition"]) else { return rendered }
+            return AnyView(rendered.transition(transition).animation(.default, value: value))
         case "Link":
             let urlText = store.stringify(store.evaluate(fields["url"] ?? "", locals: locals, scope: scope))
             guard let destination = URL(string: urlText) else {
