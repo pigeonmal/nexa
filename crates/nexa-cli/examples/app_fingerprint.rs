@@ -110,9 +110,7 @@ app KitchenSink {
                 TextInput(value: label, placeholder: "Name", keyboard: Email, autocorrect: false, capitalization: Sentences, multiline: true, maxLength: 120)
                 TextInput(value: label, placeholder: "Password", secure: true)
                 Switch(value: isPresented, label: "Sheet")
-                Accessibility(label: "status", hint: "current value", role: Button) {
-                    Text("Accessible")
-                }
+                Text("Accessible", accessibilityLabel: "status", accessibilityHint: "current value", accessibilityRole: Button)
                 Link(url: "https://nexa.dev") {
                     Text("Docs")
                 }

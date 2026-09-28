@@ -220,6 +220,25 @@ fn fast_list_source_grammar_is_catalogued() {
     assert_eq!(catalog::FASTLIST_KEY_OPTION, "key");
 }
 
+#[test]
+fn accessibility_options_are_component_arguments_not_a_standalone_component() {
+    assert!(catalog::component_schema("Accessibility").is_none());
+    for name in ["Text", "Image", "Button"] {
+        let schema = catalog::component_schema(name).expect("visual component schema");
+        let options = catalog::schema_option_names(schema);
+        for option in catalog::ACCESSIBILITY_ARGUMENTS {
+            assert!(options.contains(option), "{name} should accept `{option}`");
+        }
+    }
+    let status_bar = catalog::component_schema("StatusBar").expect("StatusBar schema");
+    let status_bar_options = catalog::schema_option_names(status_bar);
+    assert!(
+        catalog::ACCESSIBILITY_ARGUMENTS
+            .iter()
+            .all(|option| !status_bar_options.contains(option))
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Generated snapshots: the VSCode TextMate grammar alternations and the
 // syntax audit are rendered from the catalog. Tests assert byte equality;

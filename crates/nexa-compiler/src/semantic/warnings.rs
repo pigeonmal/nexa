@@ -312,6 +312,11 @@ fn walk_invocation(
                 })
         })
     };
+    for option in nexa_syntax::catalog::ACCESSIBILITY_ARGUMENTS {
+        if let Some(value) = inv.arguments.get(*option) {
+            walk_expression(value, names, used);
+        }
+    }
     match inv.name.as_str() {
         "Column" | "Row" | "Stack" => {
             if let Some(spacing) = inv.arguments.get("spacing") {
@@ -411,14 +416,6 @@ fn walk_invocation(
         "Link" => {
             if let Some(url) = inv.arguments.get("url") {
                 walk_expression(url, names, used);
-            }
-            if let ast::ChildBody::Nodes(children) = &inv.children {
-                walk_child_nodes(children, names, used, target, file, warnings);
-            }
-        }
-        "Accessibility" => {
-            if let Some(label) = inv.arguments.get("label") {
-                walk_expression(label, names, used);
             }
             if let ast::ChildBody::Nodes(children) = &inv.children {
                 walk_child_nodes(children, names, used, target, file, warnings);

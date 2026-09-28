@@ -175,7 +175,98 @@ enum ListSourceParts {
     },
 }
 
-pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, CompileError> {
+pub(super) fn lower_node(mut node: ast::Node, cx: &SemanticContext) -> Result<Node, CompileError> {
+    let accessibility = match &mut node {
+        ast::Node::ComponentInvocation(invocation) => {
+            take_accessibility_options(&mut invocation.arguments, invocation.span, cx)?
+        }
+        ast::Node::ComponentCall {
+            arguments, span, ..
+        }
+        | ast::Node::NativeComponentCall {
+            arguments, span, ..
+        } => take_accessibility_options(arguments, *span, cx)?,
+        _ => None,
+    };
+    let lowered = lower_node_inner(node, cx)?;
+    match accessibility {
+        Some((label, hint, role)) => Ok(Node::Accessibility {
+            label,
+            hint,
+            role,
+            children: vec![lowered],
+        }),
+        None => Ok(lowered),
+    }
+}
+
+fn take_accessibility_options(
+    arguments: &mut BTreeMap<String, ast::Expr>,
+    span: Span,
+    cx: &SemanticContext,
+) -> Result<Option<(Expr, Option<Expr>, AccessibilityRole)>, CompileError> {
+    let label = arguments.remove("accessibilityLabel");
+    let hint = arguments.remove("accessibilityHint");
+    let role = arguments.remove("accessibilityRole");
+    if label.is_none() && hint.is_none() && role.is_none() {
+        return Ok(None);
+    }
+    let Some(label) = label else {
+        let option_span = hint
+            .as_ref()
+            .or(role.as_ref())
+            .map(ast::Expr::span)
+            .unwrap_or(span);
+        return Err(CompileError::new(
+            option_span,
+            "accessibilityLabel is required when accessibility options are supplied",
+        ));
+    };
+    let lowered_label = lower_expr(&label, Some(&Type::String), &cx.exprs(false))?;
+    if matches!(&label, ast::Expr::String(value, _) if value.is_empty()) {
+        return Err(CompileError::new(
+            label.span(),
+            "Accessibility label cannot be empty",
+        ));
+    }
+    let lowered_hint = hint
+        .map(|hint| {
+            let lowered = lower_expr(&hint, Some(&Type::String), &cx.exprs(false))?;
+            if matches!(&hint, ast::Expr::String(value, _) if value.is_empty()) {
+                return Err(CompileError::new(
+                    hint.span(),
+                    "Accessibility hint cannot be empty",
+                ));
+            }
+            Ok(lowered)
+        })
+        .transpose()?;
+    let role = match role {
+        None => AccessibilityRole::None,
+        Some(ast::Expr::Name(name, role_span)) => match name.as_str() {
+            "None" => AccessibilityRole::None,
+            "Button" => AccessibilityRole::Button,
+            "Link" => AccessibilityRole::Link,
+            "Header" => AccessibilityRole::Header,
+            "Image" => AccessibilityRole::Image,
+            _ => {
+                return Err(CompileError::new(
+                    role_span,
+                    "Accessibility role must be `None`, `Button`, `Link`, `Header`, or `Image`",
+                ));
+            }
+        },
+        Some(expr) => {
+            return Err(CompileError::new(
+                expr.span(),
+                "Accessibility role must be a role name",
+            ));
+        }
+    };
+    Ok(Some((lowered_label, lowered_hint, role)))
+}
+
+fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, CompileError> {
     let symbols = cx.symbols;
     let screen_ids = cx.screen_ids;
     let themes = cx.themes;
@@ -957,75 +1048,6 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
             let children = lower_nodes(children, &child_cx)?;
             Ok(Node::Link {
                 url: lowered_url,
-                children,
-            })
-        }
-        ast::Node::ComponentInvocation(inv) if inv.name == "Accessibility" => {
-            let span = inv.span;
-            let mut args = inv.arguments;
-            let label = take_required_arg(&mut args, &inv.name, "label", span)?;
-            let hint = args.remove("hint");
-            let role = args.remove("role");
-            let children = match inv.children {
-                ast::ChildBody::Nodes(children) => children,
-                _ => return Err(child_mismatch(span)),
-            };
-            let lowered_label = lower_expr(&label, Some(&Type::String), &cx.exprs(false))?;
-            if let ast::Expr::String(value, _) = &label
-                && value.is_empty()
-            {
-                return Err(CompileError::new(
-                    span,
-                    "Accessibility label cannot be empty",
-                ));
-            }
-            let lowered_hint = hint
-                .map(|hint| {
-                    let lowered = lower_expr(&hint, Some(&Type::String), &cx.exprs(false))?;
-                    if let ast::Expr::String(value, _) = &hint
-                        && value.is_empty()
-                    {
-                        return Err(CompileError::new(
-                            hint.span(),
-                            "Accessibility hint cannot be empty",
-                        ));
-                    }
-                    Ok(lowered)
-                })
-                .transpose()?;
-            let role = match role {
-                None => AccessibilityRole::None,
-                Some(ast::Expr::Name(name, role_span)) => match name.as_str() {
-                    "None" => AccessibilityRole::None,
-                    "Button" => AccessibilityRole::Button,
-                    "Link" => AccessibilityRole::Link,
-                    "Header" => AccessibilityRole::Header,
-                    "Image" => AccessibilityRole::Image,
-                    _ => {
-                        return Err(CompileError::new(
-                            role_span,
-                            "Accessibility role must be `None`, `Button`, `Link`, `Header`, or `Image`",
-                        ));
-                    }
-                },
-                Some(expr) => {
-                    return Err(CompileError::new(
-                        expr.span(),
-                        "Accessibility role must be a role name",
-                    ));
-                }
-            };
-            let children = lower_nodes(children, &child_cx)?;
-            if children.is_empty() {
-                return Err(CompileError::new(
-                    span,
-                    "Accessibility requires at least one child",
-                ));
-            }
-            Ok(Node::Accessibility {
-                label: lowered_label,
-                hint: lowered_hint,
-                role,
                 children,
             })
         }

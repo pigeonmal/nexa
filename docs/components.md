@@ -515,19 +515,20 @@ app DirectionExample {
 
 ---
 
-### `Accessibility`
-Screen reader annotations for VoiceOver (iOS) and TalkBack (Android).
+### Accessibility options
+Add screen reader semantics directly to a visual component, custom component, or qualified native plugin component.
 
 ```nexa
 app AccessibilityExample {
     body {
-        Accessibility(label: "Close dialog", hint: "Discards changes", role: Button) {
-            Image(asset: "close_icon", description: "Close")
-        }
+        Image(asset: "close_icon", description: "Close", accessibilityLabel: "Close dialog", accessibilityHint: "Closes this dialog", accessibilityRole: Button)
+        Text("Profile", accessibilityLabel: "Profile heading", accessibilityRole: Header)
     }
 }
 ```
-- **Properties**: `label: String`, optional `hint: String`, and `role: None | Button | Link | Header | Image`.
+- **Properties**: optional `accessibilityLabel: String`, `accessibilityHint: String`, and `accessibilityRole: None | Button | Link | Header | Image`.
+- `accessibilityLabel` is required whenever any accessibility option is provided. Labels and hints accept typed `String` expressions; literal values must be non-empty.
+- Swift emits native accessibility modifiers. Android emits Compose semantics, including hint text and heading semantics for `Header`.
 
 ---
 

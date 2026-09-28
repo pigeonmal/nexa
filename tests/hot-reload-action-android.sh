@@ -310,19 +310,19 @@ old_status = 'StatusBar(style: Light, hidden: false, background: "#223344")'
 if old_status not in source:
     raise SystemExit("visible light status bar setting was not found")
 source = source.replace(old_status, 'StatusBar(style: Dark, hidden: true, background: "#445566")', 1)
-old_accessibility = 'label: "Accessible Action V1"'
+old_accessibility = 'accessibilityLabel: "Accessible Action V1"'
 if old_accessibility not in source:
     raise SystemExit("accessible button label was not found")
-source = source.replace(old_accessibility, 'label: "Accessible Action V2"', 1)
+source = source.replace(old_accessibility, 'accessibilityLabel: "Accessible Action V2"', 1)
 old_stack = 'Text("Stack Overlay V1")'
 if old_stack not in source:
     raise SystemExit("stack overlay label was not found")
 source = source.replace(old_stack, 'Text("Stack Overlay V2")', 1)
 for old, new in [
-    ('label: "Accessible Link V1"', 'label: "Accessible Link V2"'),
-    ('label: "Accessible Header V1"', 'label: "Accessible Header V2"'),
-    ('label: "Accessible Image V1"', 'label: "Accessible Image V2"'),
-    ('label: "Accessible Plain V1"', 'label: "Accessible Plain V2"'),
+    ('accessibilityLabel: "Accessible Link V1"', 'accessibilityLabel: "Accessible Link V2"'),
+    ('accessibilityLabel: "Accessible Header V1"', 'accessibilityLabel: "Accessible Header V2"'),
+    ('accessibilityLabel: "Accessible Image V1"', 'accessibilityLabel: "Accessible Image V2"'),
+    ('accessibilityLabel: "Accessible Plain V1"', 'accessibilityLabel: "Accessible Plain V2"'),
 ]:
     if old not in source:
         raise SystemExit(f"accessibility label was not found: {old}")

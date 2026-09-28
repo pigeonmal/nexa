@@ -83,7 +83,7 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         name: "Spacer",
         summary: "Expands along the parent layout axis",
         snippet: "Spacer()",
-        probe: "app P { body { Column { Text(\"a\") Spacer() Text(\"b\") } } }",
+        probe: "app P { body { Column { Text(\"a\") Spacer(accessibilityLabel: \"Spacer\") Text(\"b\") } } }",
     },
     ComponentEntry {
         name: "Divider",
@@ -95,7 +95,7 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         name: "Text",
         summary: "Displays formatted text",
         snippet: "Text(\"${1:Label}\")",
-        probe: "app P { body { Text(\"a\", fontSize: 18) } }",
+        probe: "app P { body { Text(\"a\", fontSize: 18, accessibilityLabel: \"a label\", accessibilityHint: \"more detail\", accessibilityRole: Image) } }",
     },
     ComponentEntry {
         name: "Button",
@@ -148,8 +148,8 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     ComponentEntry {
         name: "Image",
         summary: "Displays an asset or network image",
-        snippet: "Image(asset: \"${1:icon}\", description: \"${2:}\")",
-        probe: "app P { body { Image(asset: \"logo\", description: \"Logo\") } }",
+        snippet: "Image(asset: \"${1:icon}\", description: \"${2:}\", accessibilityLabel: \"${3:}\")",
+        probe: "app P { body { Image(asset: \"logo\", description: \"Logo\", accessibilityLabel: \"Brand mark\", accessibilityRole: Image) } }",
     },
     ComponentEntry {
         name: "Pressable",
@@ -180,12 +180,6 @@ pub const COMPONENTS: &[ComponentEntry] = &[
         summary: "Opens a URL in the system browser",
         snippet: "Link(url: \"${1:https://example.com}\") {\n    $0\n}",
         probe: "app P { body { Link(url: \"https://example.com\") { Text(\"x\") } } }",
-    },
-    ComponentEntry {
-        name: "Accessibility",
-        summary: "Accessibility label, hint, and role wrapper",
-        snippet: "Accessibility(label: \"${1:}\") {\n    $0\n}",
-        probe: "app P { body { Accessibility(label: \"x\") { Text(\"x\") } } }",
     },
     ComponentEntry {
         name: "KeyboardAware",
@@ -870,6 +864,13 @@ const LAYOUT_ARGUMENTS: &[ArgSchema] = &[
 pub const FASTLIST_SOURCE_KEYS: &[&str] = &["count", "sections"];
 /// FastList row-key option, consumed by the same dedicated source reader.
 pub const FASTLIST_KEY_OPTION: &str = "key";
+/// Accessibility options shared by visual built-ins, custom component calls,
+/// and qualified native plugin components.
+pub const ACCESSIBILITY_ARGUMENTS: &[&str] = &[
+    "accessibilityLabel",
+    "accessibilityHint",
+    "accessibilityRole",
+];
 
 /// Declarative shape of every built-in component, in `COMPONENTS` order.
 /// The parser validates invocations against these schemas; semantic lowering
@@ -1214,20 +1215,6 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         trailing_message: None,
     },
     ComponentSchema {
-        name: "Accessibility",
-        aliases: &[],
-        doc: "components.md#accessibility",
-        features: &[FeatureTag::Accessibility],
-        parens: ParensModel::Required,
-        positional: PositionalModel::None,
-        arguments: &[req("label"), opt("hint"), opt("role")],
-        exclusive: &[],
-        children: ChildModel::Nodes,
-        modifiers: &[],
-        flags: &[],
-        trailing_message: None,
-    },
-    ComponentSchema {
         name: "KeyboardAware",
         aliases: &[],
         doc: "components.md#keyboardaware",
@@ -1484,9 +1471,29 @@ pub fn is_component(name: &str) -> bool {
     component_schema(name).is_some()
 }
 
+/// Whether a built-in has a user-visible rendered node that can receive
+/// accessibility semantics.
+pub fn supports_accessibility_options(schema: &ComponentSchema) -> bool {
+    !matches!(
+        schema.name,
+        "Content"
+            | "Direction"
+            | "OnAppear"
+            | "OnDisappear"
+            | "OnActive"
+            | "OnInactive"
+            | "OnBackground"
+            | "StatusBar"
+    ) && !matches!(schema.parens, ParensModel::None)
+}
+
 /// Names a schema's parenthesis group accepts, for `named_args` validation.
 pub fn schema_option_names(schema: &ComponentSchema) -> Vec<&'static str> {
-    schema.arguments.iter().map(|arg| arg.name).collect()
+    let mut names: Vec<_> = schema.arguments.iter().map(|arg| arg.name).collect();
+    if supports_accessibility_options(schema) {
+        names.extend(ACCESSIBILITY_ARGUMENTS);
+    }
+    names
 }
 
 /// Missing-option diagnostic for a required argument.
@@ -1663,14 +1670,17 @@ fn audit_signature(schema: &ComponentSchema) -> String {
         PositionalModel::Single => head.push_str("value, "),
         PositionalModel::ListSource => head.push_str("collection | count: | sections:, "),
     }
-    let options: Vec<String> = schema
-        .arguments
+    let options: Vec<String> = schema_option_names(schema)
         .iter()
-        .map(|arg| {
-            if arg.required {
-                arg.name.to_owned()
+        .map(|name| {
+            if schema
+                .arguments
+                .iter()
+                .any(|arg| arg.required && arg.name == *name)
+            {
+                (*name).to_owned()
             } else {
-                format!("{}:", arg.name)
+                format!("{name}:")
             }
         })
         .collect();
@@ -1721,9 +1731,10 @@ pub fn render_syntax_audit() -> String {
     );
     out.push_str("Sections:\n\n");
     for tag in FEATURE_ORDER {
-        if COMPONENT_SCHEMAS
-            .iter()
-            .any(|schema| schema.features.contains(tag))
+        if *tag == FeatureTag::Accessibility
+            || COMPONENT_SCHEMAS
+                .iter()
+                .any(|schema| schema.features.contains(tag))
         {
             out.push_str(&format!(
                 "- [{}](#{})\n",
@@ -1734,6 +1745,18 @@ pub fn render_syntax_audit() -> String {
     }
     out.push('\n');
     for tag in FEATURE_ORDER {
+        if *tag == FeatureTag::Accessibility {
+            out.push_str(
+                "## Accessibility\n\n\
+                ### Component options\n\n\
+                Pass accessibility options directly to a visual built-in, custom component, or qualified native plugin component.\n\n\
+                Signature: `Component(..., accessibilityLabel: String, accessibilityHint: String, accessibilityRole: None|Button|Link|Header|Image)`\n\n\
+                `accessibilityLabel` is required whenever any accessibility option is present. Labels and hints accept typed `String` expressions; literal values must be non-empty. The options are optional and may be used with the component's normal children and modifiers.\n\n\
+                Swift emits native accessibility modifiers. Android emits Compose semantics, including hint text and heading semantics for `Header`.\n\n\
+                Reference: components.md#accessibility-options\n\n",
+            );
+            continue;
+        }
         let mut entries: Vec<&ComponentSchema> = COMPONENT_SCHEMAS
             .iter()
             .filter(|schema| schema.features.contains(tag))
@@ -1754,7 +1777,7 @@ pub fn render_syntax_audit() -> String {
             if !schema.aliases.is_empty() {
                 out.push_str(&format!("Aliases: {}\n\n", schema.aliases.join(", ")));
             }
-            let (required, optional): (Vec<_>, Vec<_>) =
+            let (required, _optional): (Vec<_>, Vec<_>) =
                 schema.arguments.iter().partition(|arg| arg.required);
             if !required.is_empty() {
                 out.push_str(&format!(
@@ -1766,12 +1789,18 @@ pub fn render_syntax_audit() -> String {
                         .join(", ")
                 ));
             }
-            if !optional.is_empty() {
+            let required_names: std::collections::HashSet<_> =
+                required.iter().map(|arg| arg.name).collect();
+            let optional_names: Vec<_> = schema_option_names(schema)
+                .into_iter()
+                .filter(|name| !required_names.contains(name))
+                .collect();
+            if !optional_names.is_empty() {
                 out.push_str(&format!(
                     "Optional options: {}\n\n",
-                    optional
+                    optional_names
                         .iter()
-                        .map(|arg| format!("`{}`", arg.name))
+                        .map(|name| format!("`{name}`"))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));

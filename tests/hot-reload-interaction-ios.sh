@@ -109,13 +109,12 @@ source = path.read_text()
 replacements = {
     'count = count + 1': 'count = count + 10',
     'taps = taps + 1': 'taps = taps + 10',
-    'Text("Details V1")': 'Text("Details V2")',
     'Text("Stack Overlay V1")': 'Text("Stack Overlay V2")',
-    'label: "Accessible Action V1"': 'label: "Accessible Action V2"',
-    'label: "Accessible Link V1"': 'label: "Accessible Link V2"',
-    'label: "Accessible Header V1"': 'label: "Accessible Header V2"',
-    'label: "Accessible Image V1"': 'label: "Accessible Image V2"',
-    'label: "Accessible Plain V1"': 'label: "Accessible Plain V2"',
+    'accessibilityLabel: "Accessible Action V1"': 'accessibilityLabel: "Accessible Action V2"',
+    'accessibilityLabel: "Accessible Link V1"': 'accessibilityLabel: "Accessible Link V2"',
+    'accessibilityLabel: "Accessible Header V1"': 'accessibilityLabel: "Accessible Header V2"',
+    'accessibilityLabel: "Accessible Image V1"': 'accessibilityLabel: "Accessible Image V2"',
+    'accessibilityLabel: "Accessible Plain V1"': 'accessibilityLabel: "Accessible Plain V2"',
     'Direction(value: RTL)': 'Direction(value: LTR)',
     'StatusBar(style: Light, hidden: false, background: "#223344")': 'StatusBar(style: Dark, hidden: true, background: "#445566")',
 }
@@ -141,4 +140,4 @@ grep -Fq '** TEST SUCCEEDED **' "$xcode_log" || {
     echo "iOS hot-reload UI test did not report success" >&2
     exit 1
 }
-echo "Nexa iOS action, navigation, and direction hot reload passed."
+echo "Nexa iOS action, navigation, direction, and accessibility hot reload passed."

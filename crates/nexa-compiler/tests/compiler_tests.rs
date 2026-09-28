@@ -1,7 +1,7 @@
 use std::{fs, path::Path};
 
 use nexa_ir::{
-    Action, ArithmeticOp, Expr, MemberKind, Node, NumericType, Type,
+    AccessibilityRole, Action, ArithmeticOp, Expr, MemberKind, Node, NumericType, Type,
     walk::{walk_actions, walk_ir},
 };
 
@@ -391,6 +391,90 @@ fn visual_modifiers_reject_invalid_ranges_and_shapes() {
     ] {
         let source = format!("app Invalid {{ body {{ {body} }} }}");
         let error = compile(&source).expect_err("invalid visual modifiers should fail");
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn accessibility_options_lower_on_builtins_and_custom_components() {
+    let module = compile(
+        r#"
+        component Caption(title: String) {
+            body { Text(title) }
+        }
+
+        app AccessibilityOptions {
+            body {
+                Text("Continue", accessibilityLabel: "Continue action", accessibilityHint: "Opens the next screen", accessibilityRole: Button)
+                Image(asset: "brand", description: "Brand", accessibilityLabel: "Brand mark", accessibilityRole: Image)
+                Caption(title: "Profile", accessibilityLabel: "Profile heading", accessibilityRole: Header)
+            }
+        }
+        "#,
+    )
+    .expect("component accessibility options should compile");
+
+    let [
+        Node::Accessibility {
+            label: Expr::String(label),
+            hint: Some(Expr::String(hint)),
+            role: AccessibilityRole::Button,
+            children: text_children,
+        },
+        Node::Accessibility {
+            label: Expr::String(image_label),
+            role: AccessibilityRole::Image,
+            children: image_children,
+            ..
+        },
+        Node::Accessibility {
+            label: Expr::String(custom_label),
+            role: AccessibilityRole::Header,
+            children: custom_children,
+            ..
+        },
+    ] = module.body.as_slice()
+    else {
+        panic!("accessibility parameters should become typed annotations on each component");
+    };
+    assert_eq!(label, "Continue action");
+    assert_eq!(hint, "Opens the next screen");
+    assert_eq!(image_label, "Brand mark");
+    assert_eq!(custom_label, "Profile heading");
+    assert!(matches!(text_children.as_slice(), [Node::Text { .. }]));
+    assert!(matches!(image_children.as_slice(), [Node::Image { .. }]));
+    assert!(
+        matches!(custom_children.as_slice(), [Node::ComponentCall { name, arguments, .. }]
+        if name == "Caption" && arguments.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>() == ["title"])
+    );
+}
+
+#[test]
+fn accessibility_options_require_a_valid_nonempty_label_and_role() {
+    for (node, expected) in [
+        (
+            "Text(\"x\", accessibilityHint: \"hint\")",
+            "accessibilityLabel is required",
+        ),
+        (
+            "Text(\"x\", accessibilityLabel: \"\")",
+            "Accessibility label cannot be empty",
+        ),
+        (
+            "Text(\"x\", accessibilityLabel: \"x\", accessibilityHint: \"\")",
+            "Accessibility hint cannot be empty",
+        ),
+        (
+            "Text(\"x\", accessibilityLabel: \"x\", accessibilityRole: Slider)",
+            "Accessibility role must be",
+        ),
+        (
+            "Accessibility(label: \"x\") { Text(\"x\") }",
+            "unknown component `Accessibility`",
+        ),
+    ] {
+        let source = format!("app Invalid {{ body {{ {node} }} }}");
+        let error = compile(&source).expect_err("invalid accessibility source should fail");
         assert!(error.to_string().contains(expected), "{error}");
     }
 }

@@ -1308,10 +1308,16 @@ impl Parser {
                 }
                 ParensModel::Empty => {
                     self.expect(Kind::LParen, &format!("expected `(` after {}", schema.name))?;
-                    self.expect(
-                        Kind::RParen,
-                        &format!("{} does not accept arguments", schema.name),
-                    )?;
+                    if self.check(&Kind::RParen) {
+                        self.advance();
+                    } else {
+                        arguments =
+                            self.named_args_contents(&catalog::schema_option_names(schema))?;
+                        self.expect(
+                            Kind::RParen,
+                            &format!("expected `)` after {} options", schema.name),
+                        )?;
+                    }
                 }
             },
             PositionalModel::Single => {
