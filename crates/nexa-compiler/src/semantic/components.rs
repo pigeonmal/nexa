@@ -17,7 +17,10 @@ use super::{
         FunctionSignatures, functions_with_error_handling, infer_expr_type, lower_expr,
         plugin_error_variant, type_name,
     },
-    styles::{lower_style, optional_color, optional_dimension, parse_color_literal},
+    styles::{
+        lower_opacity, lower_style, lower_view_effects, optional_color, optional_dimension,
+        parse_color_literal,
+    },
 };
 use crate::Target;
 
@@ -332,6 +335,12 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                 border_color: args.remove("borderColor"),
                 border_width: args.remove("borderWidth"),
                 opacity: args.remove("opacity"),
+                scale: args.remove("scale"),
+                rotation: args.remove("rotation"),
+                shadow: args.remove("shadow"),
+                blur: args.remove("blur"),
+                clip: args.remove("clip"),
+                z_index: args.remove("zIndex"),
                 animation: args.remove("animation"),
             };
             let children = match inv.children {
@@ -372,6 +381,7 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
             let line_height = args.remove("lineHeight");
             let letter_spacing = args.remove("letterSpacing");
             let selectable = args.remove("selectable");
+            let opacity = args.remove("opacity");
             let value = lower_expr(&value, None, &cx.exprs(false))?;
             let color = optional_color(color, "text color", themes)?;
             let font_size = optional_dimension(
@@ -391,6 +401,16 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
             let line_height = optional_dimension(line_height, "lineHeight", None, themes)?;
             let letter_spacing = optional_dimension(letter_spacing, "letterSpacing", None, themes)?;
             let selectable = optional_bool(selectable, false, "selectable")?;
+            let opacity = lower_opacity(opacity)?;
+            let effects = lower_view_effects(
+                args.remove("scale"),
+                args.remove("rotation"),
+                args.remove("shadow"),
+                args.remove("blur"),
+                args.remove("clip"),
+                args.remove("zIndex"),
+                themes,
+            )?;
             Ok(Node::Text {
                 value,
                 style: TextStyle {
@@ -398,6 +418,8 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                     font_size,
                     font_weight,
                     padding,
+                    opacity,
+                    effects,
                     line_limit,
                     line_height,
                     letter_spacing,

@@ -574,6 +574,41 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         snippet: "padding(${1:12})",
     },
     DotModifierEntry {
+        name: "opacity",
+        summary: "Set a view's opacity between zero and one",
+        snippet: "opacity(${1:0.8})",
+    },
+    DotModifierEntry {
+        name: "scale",
+        summary: "Scale a view uniformly",
+        snippet: "scale(${1:1.1})",
+    },
+    DotModifierEntry {
+        name: "rotation",
+        summary: "Rotate a view in degrees",
+        snippet: "rotation(${1:15})",
+    },
+    DotModifierEntry {
+        name: "shadow",
+        summary: "Draw a colored drop shadow behind a view",
+        snippet: "shadow(radius: ${1:8}, x: ${2:0}, y: ${3:4}, color: \"${4:#00000040}\")",
+    },
+    DotModifierEntry {
+        name: "blur",
+        summary: "Blur a view",
+        snippet: "blur(${1:4})",
+    },
+    DotModifierEntry {
+        name: "clip",
+        summary: "Clip a view to a rounded rectangle",
+        snippet: "clip(shape: Rounded(${1:12}))",
+    },
+    DotModifierEntry {
+        name: "zIndex",
+        summary: "Set drawing order among overlapping siblings",
+        snippet: "zIndex(${1:1})",
+    },
+    DotModifierEntry {
         name: "onPress",
         summary: "Pressable tap action (required)",
         snippet: "onPress {\n    $0\n}",
@@ -820,6 +855,12 @@ const LAYOUT_ARGUMENTS: &[ArgSchema] = &[
     opt("borderColor"),
     opt("borderWidth"),
     opt("opacity"),
+    opt("scale"),
+    opt("rotation"),
+    opt("shadow"),
+    opt("blur"),
+    opt("clip"),
+    opt("zIndex"),
     opt("animation"),
 ];
 
@@ -916,6 +957,13 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             opt("fontSize"),
             opt("fontWeight"),
             opt("padding"),
+            opt("opacity"),
+            opt("scale"),
+            opt("rotation"),
+            opt("shadow"),
+            opt("blur"),
+            opt("clip"),
+            opt("zIndex"),
             opt("lineLimit"),
             opt("lineHeight"),
             opt("letterSpacing"),
@@ -1420,6 +1468,13 @@ pub fn chained_style_argument(component: &str, modifier: &str) -> Option<&'stati
         ("Text", "fontSize") => Some("fontSize"),
         ("Text", "bold") => Some("fontWeight"),
         ("Text" | "Column" | "Row" | "Stack", "padding") => Some("padding"),
+        ("Text" | "Column" | "Row" | "Stack", "opacity") => Some("opacity"),
+        ("Text" | "Column" | "Row" | "Stack", "scale") => Some("scale"),
+        ("Text" | "Column" | "Row" | "Stack", "rotation") => Some("rotation"),
+        ("Text" | "Column" | "Row" | "Stack", "shadow") => Some("shadow"),
+        ("Text" | "Column" | "Row" | "Stack", "blur") => Some("blur"),
+        ("Text" | "Column" | "Row" | "Stack", "clip") => Some("clip"),
+        ("Text" | "Column" | "Row" | "Stack", "zIndex") => Some("zIndex"),
         _ => None,
     }
 }

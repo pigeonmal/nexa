@@ -126,9 +126,7 @@ fn append_style(out: &mut SourceWriter, depth: usize, style: &ViewStyle) {
             ),
         );
     }
-    if let Some(opacity) = style.opacity {
-        append_modifier(out, depth, &format!("opacity({})", number(opacity)));
-    }
+    append_visual_effects(out, depth, style.opacity, &style.effects);
     if let Some(animation) = style.animation {
         let value = match animation {
             AnimationSpec::Spring => ".spring()",
@@ -138,6 +136,56 @@ fn append_style(out: &mut SourceWriter, depth: usize, style: &ViewStyle) {
             AnimationSpec::Linear => ".linear",
         };
         append_modifier(out, depth, &format!("animation({value})"));
+    }
+}
+
+pub(crate) fn append_visual_effects(
+    out: &mut SourceWriter,
+    depth: usize,
+    opacity: Option<f32>,
+    effects: &nexa_ir::ViewEffects,
+) {
+    if let Some(opacity) = opacity {
+        append_modifier(out, depth, &format!("opacity({})", number(opacity)));
+    }
+    if let Some(scale) = effects.scale {
+        append_modifier(out, depth, &format!("scaleEffect({})", number(scale)));
+    }
+    if let Some(rotation) = effects.rotation {
+        append_modifier(
+            out,
+            depth,
+            &format!("rotationEffect(.degrees({}))", number(rotation)),
+        );
+    }
+    if let Some(shadow) = effects.shadow {
+        append_modifier(
+            out,
+            depth,
+            &format!(
+                "shadow(color: {}, radius: {}, x: {}, y: {})",
+                colors::expression(shadow.color),
+                number(shadow.radius),
+                number(shadow.x),
+                number(shadow.y)
+            ),
+        );
+    }
+    if let Some(blur) = effects.blur {
+        append_modifier(out, depth, &format!("blur(radius: {})", number(blur)));
+    }
+    if let Some(radius) = effects.clip_rounded {
+        append_modifier(
+            out,
+            depth,
+            &format!(
+                "clipShape(RoundedRectangle(cornerRadius: {}))",
+                number(radius)
+            ),
+        );
+    }
+    if let Some(z_index) = effects.z_index {
+        append_modifier(out, depth, &format!("zIndex({z_index})"));
     }
 }
 

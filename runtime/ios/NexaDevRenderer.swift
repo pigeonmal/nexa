@@ -276,6 +276,24 @@ struct NexaDevNodeList: View {
                 styled = AnyView(styled.overlay(RoundedRectangle(cornerRadius: style["corner_radius"] as? Double ?? 0).stroke(border, lineWidth: width)))
             }
             if let opacity = style["opacity"] as? Double { styled = AnyView(styled.opacity(opacity)) }
+            let effects = style["effects"] as? [String: Any] ?? [:]
+            if let scale = effects["scale"] as? Double { styled = AnyView(styled.scaleEffect(scale)) }
+            if let rotation = effects["rotation"] as? Double { styled = AnyView(styled.rotationEffect(.degrees(rotation))) }
+            if let shadow = effects["shadow"] as? [String: Any],
+               let radius = shadow["radius"] as? Double,
+               let color = devColor(shadow["color"], isDark: colorScheme == .dark) {
+                styled = AnyView(styled.shadow(
+                    color: color,
+                    radius: radius,
+                    x: shadow["x"] as? Double ?? 0,
+                    y: shadow["y"] as? Double ?? 0
+                ))
+            }
+            if let blur = effects["blur"] as? Double { styled = AnyView(styled.blur(radius: blur)) }
+            if let radius = effects["clip_rounded"] as? Double {
+                styled = AnyView(styled.clipShape(RoundedRectangle(cornerRadius: radius)))
+            }
+            if let zIndex = effects["z_index"] as? Int { styled = AnyView(styled.zIndex(Double(zIndex))) }
             if let animation = style["animation"] as? String {
                 let value: Animation
                 switch animation {
@@ -309,6 +327,25 @@ struct NexaDevNodeList: View {
             if let letterSpacing = style["letter_spacing"] as? Double { styled = AnyView(styled.tracking(letterSpacing)) }
             if style["selectable"] as? Bool == true { styled = AnyView(styled.textSelection(.enabled)) }
             if let padding = style["padding"] as? Double { styled = AnyView(styled.padding(padding)) }
+            if let opacity = style["opacity"] as? Double { styled = AnyView(styled.opacity(opacity)) }
+            let effects = style["effects"] as? [String: Any] ?? [:]
+            if let scale = effects["scale"] as? Double { styled = AnyView(styled.scaleEffect(scale)) }
+            if let rotation = effects["rotation"] as? Double { styled = AnyView(styled.rotationEffect(.degrees(rotation))) }
+            if let shadow = effects["shadow"] as? [String: Any],
+               let radius = shadow["radius"] as? Double,
+               let color = devColor(shadow["color"], isDark: colorScheme == .dark) {
+                styled = AnyView(styled.shadow(
+                    color: color,
+                    radius: radius,
+                    x: shadow["x"] as? Double ?? 0,
+                    y: shadow["y"] as? Double ?? 0
+                ))
+            }
+            if let blur = effects["blur"] as? Double { styled = AnyView(styled.blur(radius: blur)) }
+            if let radius = effects["clip_rounded"] as? Double {
+                styled = AnyView(styled.clipShape(RoundedRectangle(cornerRadius: radius)))
+            }
+            if let zIndex = effects["z_index"] as? Int { styled = AnyView(styled.zIndex(Double(zIndex))) }
             return styled
         case "Spacer":
             return AnyView(Spacer())

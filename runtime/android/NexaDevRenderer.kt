@@ -74,11 +74,15 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -97,6 +101,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import kotlin.math.roundToInt
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -233,13 +239,34 @@ internal fun NexaDevNode(
                     max = style.optDouble("max_height").takeIf { style.has("max_height") }?.dp ?: Dp.Unspecified,
                 )
             }
+            val effects = style.optJSONObject("effects") ?: JSONObject()
+            if (!effects.isNull("scale") || !effects.isNull("rotation")) {
+                val scale = effects.optDouble("scale", 1.0).toFloat()
+                val rotation = effects.optDouble("rotation", 0.0).toFloat()
+                modifier = modifier.graphicsLayer(scaleX = scale, scaleY = scale, rotationZ = rotation)
+            }
+            if (!effects.isNull("blur")) modifier = modifier.blur(effects.optDouble("blur").dp)
+            effects.optJSONObject("shadow")?.let { shadow ->
+                val radius = effects.optDouble("clip_rounded", style.optDouble("corner_radius", 0.0)).dp
+                val color = nexaDevColor(shadow.optJSONObject("color"), isSystemInDarkTheme()) ?: Color.Black
+                modifier = modifier.dropShadow(
+                    RoundedCornerShape(radius),
+                    Shadow(
+                        radius = shadow.optDouble("radius", 0.0).dp,
+                        color = color,
+                        offset = DpOffset(shadow.optDouble("x", 0.0).dp, shadow.optDouble("y", 0.0).dp),
+                    ),
+                )
+            }
             nexaDevColor(style.optJSONObject("background"), isSystemInDarkTheme())?.let { modifier = modifier.background(it) }
             val cornerRadius = style.optDouble("corner_radius", 0.0).dp
-            if (style.has("corner_radius")) modifier = modifier.clip(RoundedCornerShape(cornerRadius))
+            val clipRadius = if (!effects.isNull("clip_rounded")) effects.optDouble("clip_rounded").dp else cornerRadius
+            if (!effects.isNull("clip_rounded") || !style.isNull("corner_radius")) modifier = modifier.clip(RoundedCornerShape(clipRadius))
             nexaDevColor(style.optJSONObject("border_color"), isSystemInDarkTheme())?.let {
                 modifier = modifier.border(style.optDouble("border_width", 1.0).dp, it, RoundedCornerShape(cornerRadius))
             }
             if (style.has("opacity")) modifier = modifier.alpha(style.optDouble("opacity").toFloat())
+            if (!effects.isNull("z_index")) modifier = modifier.zIndex(effects.optInt("z_index").toFloat())
             if (style.has("animation")) modifier = modifier.animateContentSize()
             when (fields.optString("kind")) {
                 "Row" -> Row(
@@ -286,7 +313,30 @@ internal fun NexaDevNode(
                 val fontSize = if (style.has("font_size") && !style.isNull("font_size")) style.getDouble("font_size").sp else androidx.compose.ui.unit.TextUnit.Unspecified
                 val maxLines = if (style.has("line_limit") && !style.isNull("line_limit")) style.getInt("line_limit") else Int.MAX_VALUE
                 val letterSpacing = if (style.has("letter_spacing") && !style.isNull("letter_spacing")) style.getDouble("letter_spacing").sp else androidx.compose.ui.unit.TextUnit.Unspecified
-                val modifier = if (style.has("padding") && !style.isNull("padding")) Modifier.padding(style.getDouble("padding").dp) else Modifier
+                var modifier = Modifier
+                val effects = style.optJSONObject("effects") ?: JSONObject()
+                if (!style.isNull("opacity")) modifier = modifier.alpha(style.optDouble("opacity").toFloat())
+                if (!effects.isNull("scale") || !effects.isNull("rotation")) {
+                    val scale = effects.optDouble("scale", 1.0).toFloat()
+                    val rotation = effects.optDouble("rotation", 0.0).toFloat()
+                    modifier = modifier.graphicsLayer(scaleX = scale, scaleY = scale, rotationZ = rotation)
+                }
+                if (!effects.isNull("blur")) modifier = modifier.blur(effects.optDouble("blur").dp)
+                effects.optJSONObject("shadow")?.let { shadow ->
+                    val radius = effects.optDouble("clip_rounded", 0.0).dp
+                    val color = nexaDevColor(shadow.optJSONObject("color"), isSystemInDarkTheme()) ?: Color.Black
+                    modifier = modifier.dropShadow(
+                        RoundedCornerShape(radius),
+                        Shadow(
+                            radius = shadow.optDouble("radius", 0.0).dp,
+                            color = color,
+                            offset = DpOffset(shadow.optDouble("x", 0.0).dp, shadow.optDouble("y", 0.0).dp),
+                        ),
+                    )
+                }
+                if (!effects.isNull("clip_rounded")) modifier = modifier.clip(RoundedCornerShape(effects.optDouble("clip_rounded").dp))
+                if (!style.isNull("padding")) modifier = modifier.padding(style.optDouble("padding").dp)
+                if (!effects.isNull("z_index")) modifier = modifier.zIndex(effects.optInt("z_index").toFloat())
                 if (style.has("line_height") && !style.isNull("line_height")) {
                     Text(
                         text = text,

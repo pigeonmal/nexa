@@ -32,9 +32,6 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
     if let Some(color) = style.color {
         out.push_str(&format!(", color = {}", colors::expression(color)));
     }
-    if let Some(padding) = style.padding {
-        out.push_str(&format!(", modifier = Modifier.padding({}.dp)", number(padding)));
-    }
     if let Some(font_size) = style.font_size {
         out.push_str(&format!(", fontSize = {}.sp", number(font_size)));
     }
@@ -53,11 +50,59 @@ pub(crate) fn render(value: &Expr, style: &TextStyle, depth: usize, out: &mut So
     if let Some(letter_spacing) = style.letter_spacing {
         out.push_str(&format!(", letterSpacing = {}.sp", number(letter_spacing)));
     }
+    append_visual_modifier(style, out);
     out.push(')');
     if style.selectable {
         out.push('\n');
         indent(out, depth);
         out.push('}');
+    }
+}
+
+fn append_visual_modifier(style: &TextStyle, out: &mut SourceWriter) {
+    let effects = &style.effects;
+    if style.padding.is_none() && style.opacity.is_none() && !effects.has_modifiers() {
+        return;
+    }
+    out.push_str(", modifier = Modifier");
+    if let Some(opacity) = style.opacity {
+        out.push_str(&format!(".alpha({}f)", number(opacity)));
+    }
+    if effects.scale.is_some() || effects.rotation.is_some() {
+        let scale = effects
+            .scale
+            .map(number)
+            .unwrap_or_else(|| "1.0".to_owned());
+        let rotation = effects
+            .rotation
+            .map(number)
+            .unwrap_or_else(|| "0.0".to_owned());
+        out.push_str(&format!(
+            ".graphicsLayer(scaleX = {scale}f, scaleY = {scale}f, rotationZ = {rotation}f)"
+        ));
+    }
+    if let Some(blur) = effects.blur {
+        out.push_str(&format!(".blur({}.dp)", number(blur)));
+    }
+    if let Some(shadow) = effects.shadow {
+        let radius = effects.clip_rounded.unwrap_or(0.0);
+        out.push_str(&format!(
+            ".dropShadow(shape = RoundedCornerShape({}.dp), shadow = Shadow(radius = {}.dp, color = {}, offset = DpOffset({}.dp, {}.dp)))",
+            number(radius),
+            number(shadow.radius),
+            colors::expression(shadow.color),
+            number(shadow.x),
+            number(shadow.y)
+        ));
+    }
+    if let Some(radius) = effects.clip_rounded {
+        out.push_str(&format!(".clip(RoundedCornerShape({}.dp))", number(radius)));
+    }
+    if let Some(padding) = style.padding {
+        out.push_str(&format!(".padding({}.dp)", number(padding)));
+    }
+    if let Some(z_index) = effects.z_index {
+        out.push_str(&format!(".zIndex({}f)", z_index));
     }
 }
 

@@ -1030,6 +1030,7 @@ pub struct ViewStyle {
     pub border_color: Option<ColorValue>,
     pub border_width: Option<f32>,
     pub opacity: Option<f32>,
+    pub effects: ViewEffects,
     pub animation: Option<AnimationSpec>,
 }
 
@@ -1048,8 +1049,40 @@ impl ViewStyle {
             || self.border_color.is_some()
             || self.border_width.is_some()
             || self.opacity.is_some()
+            || self.effects.has_modifiers()
             || self.animation.is_some()
     }
+}
+
+/// Static visual effects applied to one native view.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+pub struct ViewEffects {
+    pub scale: Option<f32>,
+    pub rotation: Option<f32>,
+    pub shadow: Option<ViewShadow>,
+    pub blur: Option<f32>,
+    pub clip_rounded: Option<f32>,
+    pub z_index: Option<i32>,
+}
+
+impl ViewEffects {
+    pub fn has_modifiers(&self) -> bool {
+        self.scale.is_some()
+            || self.rotation.is_some()
+            || self.shadow.is_some()
+            || self.blur.is_some()
+            || self.clip_rounded.is_some()
+            || self.z_index.is_some()
+    }
+}
+
+/// Static rounded-rectangle shadow parameters shared by SwiftUI and Compose.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct ViewShadow {
+    pub radius: f32,
+    pub x: f32,
+    pub y: f32,
+    pub color: ColorValue,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1089,6 +1122,8 @@ pub struct TextStyle {
     pub font_size: Option<f32>,
     pub font_weight: Option<FontWeight>,
     pub padding: Option<f32>,
+    pub opacity: Option<f32>,
+    pub effects: ViewEffects,
     pub line_limit: Option<i32>,
     pub line_height: Option<f32>,
     pub letter_spacing: Option<f32>,

@@ -89,6 +89,7 @@ pub(crate) fn render_node(
                     number(padding)
                 ));
             }
+            layout::append_visual_effects(out, depth, style.opacity, &style.effects);
         }
         Node::Spacer => out.line_at(depth, format_args!("Spacer()")),
         Node::Divider { color, thickness } => {

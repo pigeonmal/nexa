@@ -446,6 +446,12 @@ pub struct LayoutStyle {
     pub border_color: Option<Expr>,
     pub border_width: Option<Expr>,
     pub opacity: Option<Expr>,
+    pub scale: Option<Expr>,
+    pub rotation: Option<Expr>,
+    pub shadow: Option<Expr>,
+    pub blur: Option<Expr>,
+    pub clip: Option<Expr>,
+    pub z_index: Option<Expr>,
     pub animation: Option<Expr>,
 }
 

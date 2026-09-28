@@ -326,6 +326,76 @@ fn chained_text_styles_lower_to_native_text_style_fields() {
 }
 
 #[test]
+fn visual_modifiers_lower_to_validated_static_effects() {
+    let module = compile(
+        r##"
+        app VisualEffects {
+            body {
+                Column {
+                    Text("Card").scale(0.95).clip(shape: Rounded(5))
+                }
+                .opacity(0.8)
+                .scale(1.1)
+                .rotation(-6)
+                .shadow(radius: 4, x: 1, y: -2, color: "#00000080")
+                .blur(2)
+                .clip(shape: Rounded(12))
+                .zIndex(-3)
+            }
+        }
+        "##,
+    )
+    .expect("valid static visual effects should compile");
+
+    let Node::Layout {
+        style, children, ..
+    } = &module.body[0]
+    else {
+        panic!("expected a styled layout");
+    };
+    assert_eq!(style.opacity, Some(0.8));
+    assert_eq!(style.effects.scale, Some(1.1));
+    assert_eq!(style.effects.rotation, Some(-6.0));
+    assert_eq!(style.effects.blur, Some(2.0));
+    assert_eq!(style.effects.clip_rounded, Some(12.0));
+    assert_eq!(style.effects.z_index, Some(-3));
+    let shadow = style
+        .effects
+        .shadow
+        .expect("shadow parameters should lower");
+    assert_eq!(shadow.radius, 4.0);
+    assert_eq!(shadow.x, 1.0);
+    assert_eq!(shadow.y, -2.0);
+    assert!(matches!(shadow.color, nexa_ir::ColorValue::Static(color) if color.alpha == 128));
+
+    let Node::Text { style, .. } = &children[0] else {
+        panic!("expected a styled text node");
+    };
+    assert_eq!(style.effects.scale, Some(0.95));
+    assert_eq!(style.effects.clip_rounded, Some(5.0));
+}
+
+#[test]
+fn visual_modifiers_reject_invalid_ranges_and_shapes() {
+    for (body, expected) in [
+        (
+            "Column { Text(\"x\") }.opacity(1.1)",
+            "opacity must be between 0 and 1",
+        ),
+        ("Column { Text(\"x\") }.blur(-1)", "blur radius"),
+        (
+            "Column { Text(\"x\") }.clip(shape: Circle())",
+            "Rounded(radius)",
+        ),
+        ("Column { Text(\"x\") }.zIndex(2147483648)", "Int32 range"),
+    ] {
+        let source = format!("app Invalid {{ body {{ {body} }} }}");
+        let error = compile(&source).expect_err("invalid visual modifiers should fail");
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
+
+#[test]
 fn slider_lowers_a_mutable_float64_binding_and_static_range() {
     let module = compile(
         r#"

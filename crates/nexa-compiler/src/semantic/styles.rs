@@ -1,5 +1,5 @@
 use nexa_diagnostics::{CompileError, Span};
-use nexa_ir::{Alignment, AnimationSpec, Color, ColorValue, ViewStyle};
+use nexa_ir::{Alignment, AnimationSpec, Color, ColorValue, ViewEffects, ViewShadow, ViewStyle};
 use nexa_syntax::ast;
 
 use super::themes::ThemeSymbols;
@@ -57,19 +57,16 @@ pub(super) fn lower_style(
             "borderColor and borderWidth must be provided together",
         ));
     }
-    let opacity = match style.opacity {
-        Some(expr) => {
-            let value = number_value(&expr, "opacity")?;
-            if !(0.0..=1.0).contains(&value) {
-                return Err(CompileError::new(
-                    expr.span(),
-                    "opacity must be between 0 and 1",
-                ));
-            }
-            Some(value)
-        }
-        None => None,
-    };
+    let opacity = lower_opacity(style.opacity)?;
+    let effects = lower_view_effects(
+        style.scale,
+        style.rotation,
+        style.shadow,
+        style.blur,
+        style.clip,
+        style.z_index,
+        themes,
+    )?;
     let alignment = style.alignment.map(parse_alignment).transpose()?;
     let animation = style.animation.map(parse_animation).transpose()?;
     let background = style
@@ -90,8 +87,152 @@ pub(super) fn lower_style(
         border_color,
         border_width,
         opacity,
+        effects,
         animation,
     })
+}
+
+pub(super) fn lower_opacity(expr: Option<ast::Expr>) -> Result<Option<f32>, CompileError> {
+    expr.map(|expr| {
+        let value = number_value(&expr, "opacity")?;
+        if !(0.0..=1.0).contains(&value) {
+            return Err(CompileError::new(
+                expr.span(),
+                "opacity must be between 0 and 1",
+            ));
+        }
+        Ok(value)
+    })
+    .transpose()
+}
+
+pub(super) fn lower_view_effects(
+    scale: Option<ast::Expr>,
+    rotation: Option<ast::Expr>,
+    shadow: Option<ast::Expr>,
+    blur: Option<ast::Expr>,
+    clip: Option<ast::Expr>,
+    z_index: Option<ast::Expr>,
+    themes: &ThemeSymbols,
+) -> Result<ViewEffects, CompileError> {
+    let scale = scale
+        .map(|expr| finite_number_value(&expr, "scale"))
+        .transpose()?;
+    let rotation = rotation
+        .map(|expr| finite_number_value(&expr, "rotation"))
+        .transpose()?;
+    let blur = blur
+        .map(|expr| number_value(&expr, "blur radius"))
+        .transpose()?;
+    let shadow = shadow.map(|expr| lower_shadow(expr, themes)).transpose()?;
+    let clip_rounded = clip.map(lower_rounded_clip).transpose()?;
+    let z_index = z_index.map(lower_z_index).transpose()?;
+    Ok(ViewEffects {
+        scale,
+        rotation,
+        shadow,
+        blur,
+        clip_rounded,
+        z_index,
+    })
+}
+
+fn lower_shadow(expr: ast::Expr, themes: &ThemeSymbols) -> Result<ViewShadow, CompileError> {
+    let ast::Expr::Call(name, type_arguments, mut arguments, span) = expr else {
+        return Err(CompileError::new(
+            expr.span(),
+            "shadow must specify radius, x, y, and color",
+        ));
+    };
+    if name != "Shadow" || !type_arguments.is_empty() || arguments.len() != 4 {
+        return Err(CompileError::new(
+            span,
+            "shadow must use `Shadow(radius, x, y, color)`",
+        ));
+    }
+    let color_expr = arguments
+        .pop()
+        .ok_or_else(|| CompileError::new(span, "shadow must use `Shadow(radius, x, y, color)`"))?;
+    let y_expr = arguments
+        .pop()
+        .ok_or_else(|| CompileError::new(span, "shadow must use `Shadow(radius, x, y, color)`"))?;
+    let x_expr = arguments
+        .pop()
+        .ok_or_else(|| CompileError::new(span, "shadow must use `Shadow(radius, x, y, color)`"))?;
+    let radius_expr = arguments
+        .pop()
+        .ok_or_else(|| CompileError::new(span, "shadow must use `Shadow(radius, x, y, color)`"))?;
+    Ok(ViewShadow {
+        radius: number_value(&radius_expr, "shadow radius")?,
+        x: finite_number_value(&x_expr, "shadow x offset")?,
+        y: finite_number_value(&y_expr, "shadow y offset")?,
+        color: parse_color(color_expr, themes, "shadow color")?,
+    })
+}
+
+fn lower_rounded_clip(expr: ast::Expr) -> Result<f32, CompileError> {
+    let ast::Expr::Call(name, type_arguments, arguments, span) = expr else {
+        return Err(CompileError::new(
+            expr.span(),
+            "clip shape must be `Rounded(radius)`",
+        ));
+    };
+    if name != "Rounded" || !type_arguments.is_empty() || arguments.len() != 1 {
+        return Err(CompileError::new(
+            span,
+            "clip shape must be `Rounded(radius)`",
+        ));
+    }
+    number_value(&arguments[0], "clip radius")
+}
+
+fn lower_z_index(expr: ast::Expr) -> Result<i32, CompileError> {
+    let span = expr.span();
+    let value = match expr {
+        ast::Expr::Number(raw, _) => raw.parse::<i64>().ok(),
+        ast::Expr::Negate(inner, _) => match *inner {
+            ast::Expr::Number(raw, _) => raw.parse::<i64>().ok().and_then(i64::checked_neg),
+            _ => None,
+        },
+        _ => None,
+    }
+    .ok_or_else(|| CompileError::new(span, "zIndex must be an Int32 literal"))?;
+    i32::try_from(value).map_err(|_| CompileError::new(span, "zIndex is outside the Int32 range"))
+}
+
+fn finite_number_value(expr: &ast::Expr, field: &str) -> Result<f32, CompileError> {
+    let (raw, span, negative) = match expr {
+        ast::Expr::Number(raw, span) => (raw.as_str(), *span, false),
+        ast::Expr::Negate(inner, span) => match inner.as_ref() {
+            ast::Expr::Number(raw, _) => (raw.as_str(), *span, true),
+            _ => {
+                return Err(CompileError::new(
+                    expr.span(),
+                    format!("`{field}` must be a finite numeric literal"),
+                ));
+            }
+        },
+        _ => {
+            return Err(CompileError::new(
+                expr.span(),
+                format!("`{field}` must be a finite numeric literal"),
+            ));
+        }
+    };
+    let value = raw.parse::<f32>().map_err(|_| {
+        CompileError::new(
+            span,
+            format!("`{field}` is outside the supported numeric range"),
+        )
+    })?;
+    let value = if negative { -value } else { value };
+    if !value.is_finite() {
+        return Err(CompileError::new(
+            span,
+            format!("`{field}` must be a finite numeric literal"),
+        ));
+    }
+    Ok(value)
 }
 
 fn validate_bounds(

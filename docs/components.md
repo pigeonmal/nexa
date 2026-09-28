@@ -17,7 +17,7 @@ app ColumnExample {
     }
 }
 ```
-- **Properties**: `spacing`, `alignment: Start | Center | End`, `padding`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `borderColor`, `borderWidth`, `opacity`.
+- **Properties**: `spacing`, `alignment: Start | Center | End`, `padding`, `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`, `background`, `cornerRadius`, `borderColor`, `borderWidth`, `opacity`, `scale`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`.
 
 ---
 
@@ -51,7 +51,7 @@ app StackExample {
     }
 }
 ```
-- **Properties**: `alignment: Start | Center | End`, along with sizing and background modifiers.
+- **Properties**: `alignment: Start | Center | End`, along with the same sizing, visual effect, and background options as `Column`.
 
 ---
 
@@ -94,8 +94,19 @@ app TextExample {
     }
 }
 ```
-- **Properties**: `value` (positional), `color`, `fontSize`, `fontWeight`, `padding`, `lineLimit`, `lineHeight`, `letterSpacing`, `selectable`.
-- **Chained styles**: `.fontSize(value)`, `.bold()`, and `.padding(value)`. These set the corresponding text options.
+- **Properties**: `value` (positional), `color`, `fontSize`, `fontWeight`, `padding`, `opacity`, `scale`, `rotation`, `shadow`, `blur`, `clip`, `zIndex`, `lineLimit`, `lineHeight`, `letterSpacing`, `selectable`.
+- **Chained styles**: `.fontSize(value)`, `.bold()`, `.padding(value)`, `.opacity(value)`, `.scale(value)`, `.rotation(degrees)`, `.shadow(radius:, x:, y:, color:)`, `.blur(radius)`, `.clip(shape: Rounded(radius))`, and `.zIndex(value)`. These apply to `Text`, `Column`, `Row`, and `Stack`.
+
+Visual modifier values are compile-time numeric literals. Opacity must be between `0` and `1`; blur, shadow radius, and rounded clip radius must be non-negative. Rotation and shadow offsets may be negative. `zIndex` is a signed `Int32`.
+
+```nexa
+Column {
+    Text("Featured")
+}
+.scale(1.02)
+.shadow(radius: 8, x: 0, y: 4, color: "#00000040")
+.clip(shape: Rounded(12))
+```
 
 ---
 

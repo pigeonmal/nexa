@@ -498,3 +498,46 @@ fn parses_component_style_chains_into_typed_options() {
         Some(Expr::Number(value, _)) if value == "12"
     ));
 }
+
+#[test]
+fn parses_visual_modifier_chains_as_typed_style_arguments() {
+    let app = nexa_syntax::parse(
+        r##"app Demo {
+            body {
+                Column { Text("Card") }
+                    .opacity(0.8)
+                    .scale(1.1)
+                    .rotation(-6)
+                    .shadow(radius: 4, x: 1, y: -2, color: "#00000080")
+                    .blur(2)
+                    .clip(shape: Rounded(12))
+                    .zIndex(-3)
+            }
+        }"##,
+    )
+    .expect("visual modifier chains should parse");
+
+    let Node::ComponentInvocation(layout) = &app.body[0] else {
+        panic!("expected a layout component");
+    };
+    assert_eq!(layout.arguments.len(), 7);
+    assert!(
+        matches!(layout.arguments.get("opacity"), Some(Expr::Number(value, _)) if value == "0.8")
+    );
+    assert!(
+        matches!(layout.arguments.get("scale"), Some(Expr::Number(value, _)) if value == "1.1")
+    );
+    assert!(
+        matches!(layout.arguments.get("rotation"), Some(Expr::Number(value, _)) if value == "-6")
+    );
+    assert!(
+        matches!(layout.arguments.get("shadow"), Some(Expr::Call(name, _, arguments, _)) if name == "Shadow" && arguments.len() == 4)
+    );
+    assert!(matches!(layout.arguments.get("blur"), Some(Expr::Number(value, _)) if value == "2"));
+    assert!(
+        matches!(layout.arguments.get("clip"), Some(Expr::Call(name, _, arguments, _)) if name == "Rounded" && arguments.len() == 1)
+    );
+    assert!(
+        matches!(layout.arguments.get("zIndex"), Some(Expr::Number(value, _)) if value == "-3")
+    );
+}

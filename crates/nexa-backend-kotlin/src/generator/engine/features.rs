@@ -95,6 +95,10 @@ pub(crate) struct Features {
     pub(crate) uses_height_in: bool,
     pub(crate) uses_corner_radius: bool,
     pub(crate) uses_opacity: bool,
+    pub(crate) uses_graphics_layer: bool,
+    pub(crate) uses_drop_shadow: bool,
+    pub(crate) uses_blur: bool,
+    pub(crate) uses_z_index: bool,
     pub(crate) uses_animation: bool,
     pub(crate) uses_animation_spring: bool,
     pub(crate) uses_animation_ease_in: bool,
@@ -294,6 +298,10 @@ impl Features {
         self.uses_border = style.border;
         self.uses_corner_radius = style.corner_radius;
         self.uses_opacity = style.opacity;
+        self.uses_graphics_layer = style.scale || style.rotation;
+        self.uses_drop_shadow = style.shadow;
+        self.uses_blur = style.blur;
+        self.uses_z_index = style.z_index;
         self.uses_animation = style.animation;
         self.uses_animation_spring = style.spring;
         self.uses_animation_ease_in = style.ease_in;

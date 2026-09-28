@@ -90,9 +90,27 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_opacity, "androidx.compose.ui.draw.alpha");
     imports.add(features.uses_corner_radius, "androidx.compose.ui.draw.clip");
     imports.add(
-        features.uses_corner_radius,
+        features.uses_corner_radius || features.uses_drop_shadow,
         "androidx.compose.foundation.shape.RoundedCornerShape",
     );
+    imports.add(
+        features.uses_graphics_layer,
+        "androidx.compose.ui.graphics.graphicsLayer",
+    );
+    imports.add(
+        features.uses_drop_shadow,
+        "androidx.compose.ui.draw.dropShadow",
+    );
+    imports.add(
+        features.uses_drop_shadow,
+        "androidx.compose.ui.graphics.shadow.Shadow",
+    );
+    imports.add(
+        features.uses_drop_shadow,
+        "androidx.compose.ui.unit.DpOffset",
+    );
+    imports.add(features.uses_blur, "androidx.compose.ui.draw.blur");
+    imports.add(features.uses_z_index, "androidx.compose.ui.zIndex");
     imports.add(features.uses_color, "androidx.compose.ui.graphics.Color");
     imports.add(features.uses_dp, "androidx.compose.ui.unit.dp");
     imports.add(features.uses_text_sp, "androidx.compose.ui.unit.sp");
@@ -183,10 +201,40 @@ pub(crate) fn render_layout(
 }
 
 fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
+    let effects = &style.effects;
     if let Some(opacity) = style.opacity {
         out.push_str(&format!("\n{}.alpha({}f)", spaces(depth), number(opacity)));
     }
-    if let Some(radius) = style.corner_radius {
+    if effects.scale.is_some() || effects.rotation.is_some() {
+        let scale = effects
+            .scale
+            .map(number)
+            .unwrap_or_else(|| "1.0".to_owned());
+        let rotation = effects
+            .rotation
+            .map(number)
+            .unwrap_or_else(|| "0.0".to_owned());
+        out.push_str(&format!(
+            "\n{}.graphicsLayer(scaleX = {scale}f, scaleY = {scale}f, rotationZ = {rotation}f)",
+            spaces(depth)
+        ));
+    }
+    if let Some(blur) = effects.blur {
+        out.push_str(&format!("\n{}.blur({}.dp)", spaces(depth), number(blur)));
+    }
+    if let Some(shadow) = effects.shadow {
+        let radius = effects.clip_rounded.or(style.corner_radius).unwrap_or(0.0);
+        out.push_str(&format!(
+            "\n{}.dropShadow(shape = RoundedCornerShape({}.dp), shadow = Shadow(radius = {}.dp, color = {}, offset = DpOffset({}.dp, {}.dp)))",
+            spaces(depth),
+            number(radius),
+            number(shadow.radius),
+            colors::expression(shadow.color),
+            number(shadow.x),
+            number(shadow.y)
+        ));
+    }
+    if let Some(radius) = effects.clip_rounded.or(style.corner_radius) {
         out.push_str(&format!(
             "\n{}.clip(RoundedCornerShape({}.dp))",
             spaces(depth),
@@ -254,6 +302,9 @@ fn render_modifiers(style: &ViewStyle, depth: usize, out: &mut SourceWriter) {
             spaces(depth),
             height_bounds.join(", ")
         ));
+    }
+    if let Some(z_index) = effects.z_index {
+        out.push_str(&format!("\n{}.zIndex({}f)", spaces(depth), z_index));
     }
     if let Some(animation) = style.animation {
         let spec = match animation {

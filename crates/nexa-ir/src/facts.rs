@@ -276,6 +276,12 @@ pub struct StyleFacts {
     pub border: bool,
     pub corner_radius: bool,
     pub opacity: bool,
+    pub scale: bool,
+    pub rotation: bool,
+    pub shadow: bool,
+    pub blur: bool,
+    pub clip: bool,
+    pub z_index: bool,
     pub animation: bool,
     pub spring: bool,
     pub ease_in: bool,
@@ -614,6 +620,10 @@ fn observe_node(
                 scope.adaptive_border |= style
                     .border_color
                     .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
+                scope.adaptive_background |= style
+                    .effects
+                    .shadow
+                    .is_some_and(|shadow| matches!(shadow.color, ColorValue::Adaptive { .. }));
             }
             observe_style(style, &mut ui.style);
         }
@@ -626,9 +636,16 @@ fn observe_node(
             ui.text.selectable |= style.selectable;
             ui.text.color |= style.color.is_some();
             ui.text.padding |= style.padding.is_some();
+            ui.style.opacity |= style.opacity.is_some();
+            observe_effects(&style.effects, &mut ui.style);
+            ui.style.modifier |= style.opacity.is_some() || style.effects.has_modifiers();
             scope_of(ui, scope).adaptive_text |= style
                 .color
-                .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }));
+                .is_some_and(|color| matches!(color, ColorValue::Adaptive { .. }))
+                || style
+                    .effects
+                    .shadow
+                    .is_some_and(|shadow| matches!(shadow.color, ColorValue::Adaptive { .. }));
         }
         Node::Spacer => ui.layout.spacer = true,
         Node::Divider { .. } => ui.layout.divider = true,
@@ -824,6 +841,7 @@ fn observe_style(style: &ViewStyle, facts: &mut StyleFacts) {
     facts.corner_radius |= style.corner_radius.is_some();
     facts.corner_radius |= style.border_color.is_some();
     facts.opacity |= style.opacity.is_some();
+    observe_effects(&style.effects, facts);
     if let Some(animation) = style.animation {
         facts.animation = true;
         match animation {
@@ -844,7 +862,23 @@ fn observe_style(style: &ViewStyle, facts: &mut StyleFacts) {
         || style.min_height.is_some()
         || style.max_height.is_some()
         || style.corner_radius.is_some()
-        || style.border_width.is_some();
+        || style.border_width.is_some()
+        || style.effects.blur.is_some()
+        || style.effects.shadow.is_some()
+        || style.effects.clip_rounded.is_some();
+}
+
+fn observe_effects(effects: &crate::ViewEffects, facts: &mut StyleFacts) {
+    facts.scale |= effects.scale.is_some();
+    facts.rotation |= effects.rotation.is_some();
+    facts.shadow |= effects.shadow.is_some();
+    facts.blur |= effects.blur.is_some();
+    facts.clip |= effects.clip_rounded.is_some();
+    facts.z_index |= effects.z_index.is_some();
+    facts.corner_radius |= effects.clip_rounded.is_some();
+    facts.color |= effects.shadow.is_some();
+    facts.dp |=
+        effects.shadow.is_some() || effects.blur.is_some() || effects.clip_rounded.is_some();
 }
 
 /// Expression observations: capability signals, permission signals, and

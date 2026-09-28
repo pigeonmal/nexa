@@ -111,16 +111,23 @@ fn dot_modifiers_match_parser_accepted_names() {
     assert_eq!(
         names,
         [
+            "blur",
             "bold",
+            "clip",
             "fontSize",
             "onEndReached",
             "onLongPress",
             "onPress",
             "onRefresh",
             "onScroll",
+            "opacity",
             "padding",
+            "rotation",
+            "scale",
             "sectionHeader",
-            "stickyHeader"
+            "shadow",
+            "stickyHeader",
+            "zIndex"
         ]
     );
 }

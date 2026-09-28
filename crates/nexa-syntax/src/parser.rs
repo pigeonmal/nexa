@@ -1453,6 +1453,19 @@ impl Parser {
             return Ok(None);
         };
 
+        if modifier == "shadow" {
+            let values =
+                self.chained_style_named_arguments(modifier, &["radius", "x", "y", "color"])?;
+            return Ok(Some((
+                argument.to_owned(),
+                Expr::Call("Shadow".to_owned(), Vec::new(), values, span),
+            )));
+        }
+        if modifier == "clip" {
+            let mut values = self.chained_style_named_arguments(modifier, &["shape"])?;
+            return Ok(Some((argument.to_owned(), values.remove(0))));
+        }
+
         self.expect(
             Kind::LParen,
             &format!("expected `(` after chained modifier `.{modifier}`"),
@@ -1469,6 +1482,59 @@ impl Parser {
             value
         };
         Ok(Some((argument.to_owned(), value)))
+    }
+
+    fn chained_style_named_arguments(
+        &mut self,
+        modifier: &str,
+        names: &[&str],
+    ) -> Result<Vec<Expr>, CompileError> {
+        self.expect(
+            Kind::LParen,
+            &format!("expected `(` after chained modifier `.{modifier}`"),
+        )?;
+        let mut values: Vec<Option<Expr>> = (0..names.len()).map(|_| None).collect();
+        while !self.check(&Kind::RParen) && !self.check(&Kind::Eof) {
+            let (name, span) = self.ident()?;
+            let Some(index) = names.iter().position(|candidate| *candidate == name) else {
+                return Err(CompileError::new(
+                    span,
+                    format!(
+                        "unknown `.{modifier}` argument `{name}`; expected {}",
+                        names.join(", ")
+                    ),
+                ));
+            };
+            if values[index].is_some() {
+                return Err(CompileError::new(
+                    span,
+                    format!("`.{modifier}` argument `{name}` is declared more than once"),
+                ));
+            }
+            self.expect(
+                Kind::Colon,
+                &format!("expected `:` after `.{modifier}` argument"),
+            )?;
+            values[index] = Some(self.expr()?);
+            if !self.take(&Kind::Comma) || self.check(&Kind::RParen) {
+                break;
+            }
+        }
+        self.expect(
+            Kind::RParen,
+            &format!("expected `)` after `.{modifier}` arguments"),
+        )?;
+        let mut ordered = Vec::with_capacity(names.len());
+        for (name, value) in names.iter().zip(values) {
+            let Some(value) = value else {
+                return Err(CompileError::new(
+                    self.peek().span,
+                    format!("`.{modifier}` requires `{name}`"),
+                ));
+            };
+            ordered.push(value);
+        }
+        Ok(ordered)
     }
 
     fn list_source_and_args(

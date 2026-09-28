@@ -3,7 +3,7 @@
   "title": "NexaDevIRSchema",
   "description": "Canonical schema definitions for Nexa dynamic Dev IR protocol, operations, and interpreter keys",
   "protocol_version": 8,
-  "dev_ir_format_version": 6,
+  "dev_ir_format_version": 7,
   "platforms": [
     "ios",
     "android"
