@@ -69,6 +69,7 @@ fn catalog_advertises_no_unsupported_parser_names() {
     assert!(catalog::component("ProgressBar").is_some());
     assert!(catalog::component("ProgressRing").is_some());
     assert!(catalog::component("Dialog").is_some());
+    assert!(catalog::component("SegmentedControl").is_some());
 }
 
 #[test]

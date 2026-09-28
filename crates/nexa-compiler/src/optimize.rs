@@ -754,6 +754,7 @@ fn collect_node_state_references(nodes: &[Node], used: &mut HashSet<String>) {
             }
             Node::Switch { state, .. }
             | Node::Slider { state, .. }
+            | Node::SegmentedControl { state, .. }
             | Node::BottomSheet { state, .. }
             | Node::Dialog { state, .. }
             | Node::AppBottomBar { state, .. } => {

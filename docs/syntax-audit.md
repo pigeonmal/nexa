@@ -184,6 +184,20 @@ Modifiers: none
 
 Reference: components.md#progressring
 
+### `SegmentedControl`
+
+Selects one string option from a compact segmented control
+
+Signature: `SegmentedControl(items, selected)`
+
+Required options: `items`, `selected`
+
+Children: none
+
+Modifiers: none
+
+Reference: components.md#segmentedcontrol
+
 ### `Slider`
 
 Adjusts a Float64 state value within a stepped range

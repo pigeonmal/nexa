@@ -157,6 +157,26 @@ pub(crate) fn render_progress_ring(progress: &nexa_ir::Expr, depth: usize, out: 
     );
 }
 
+pub(crate) fn render_segmented_control(
+    items: &nexa_ir::Expr,
+    state: &str,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    out.line_at(
+        depth,
+        format_args!("Picker(\"\", selection: ${}) {{", state_name(state)),
+    );
+    out.line_at(
+        depth + 1,
+        format_args!("ForEach({}, id: \\.self) {{ item in", expression(items)),
+    );
+    out.line_at(depth + 2, format_args!("Text(item).tag(item)"));
+    out.line_at(depth + 1, format_args!("}}"));
+    indent(out, depth);
+    out.push_str("}.pickerStyle(.segmented).labelsHidden()");
+}
+
 pub(crate) fn render_pressable(
     disabled: &nexa_ir::Expr,
     haptic: Option<HapticStyle>,

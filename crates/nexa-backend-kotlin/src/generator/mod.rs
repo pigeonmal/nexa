@@ -240,7 +240,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
     });
 
     units.write("app", |out| {
-            if features.uses_bottom_sheet {
+            if features.uses_bottom_sheet || features.uses_segmented_control {
                 out.push_str("@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)\n");
             }
             if features.app_uses_keyboard_interactive {

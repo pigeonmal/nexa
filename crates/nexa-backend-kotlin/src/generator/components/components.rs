@@ -95,6 +95,9 @@ pub(crate) fn render_node(
         } => controls::render_slider(state, *min, *max, *step, depth, out),
         Node::ProgressBar { progress } => controls::render_progress_bar(progress, depth, out),
         Node::ProgressRing { progress } => controls::render_progress_ring(progress, depth, out),
+        Node::SegmentedControl { items, state } => {
+            controls::render_segmented_control(items, state, depth, out)
+        }
         Node::Image {
             source,
             description,

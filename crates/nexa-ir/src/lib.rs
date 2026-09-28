@@ -567,6 +567,10 @@ pub enum Node {
     ProgressRing {
         progress: Expr,
     },
+    SegmentedControl {
+        items: Expr,
+        state: String,
+    },
     Image {
         source: ImageSource,
         description: String,

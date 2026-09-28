@@ -54,6 +54,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -572,6 +575,24 @@ internal fun NexaDevNode(
         "ProgressRing" -> {
             val progress = (store.evaluate(fields.opt("progress"), locals, scope) as? Number)?.toFloat() ?: 0f
             CircularProgressIndicator(progress = { progress.coerceIn(0f, 1f) })
+        }
+        "SegmentedControl" -> {
+            val state = fields.optString("state")
+            val selected = store.state(state, scope) as? String ?: ""
+            val options = (store.evaluate(fields.opt("items"), locals, scope) as? List<*>)
+                ?.filterIsInstance<String>()
+                ?: emptyList()
+            SingleChoiceSegmentedButtonRow {
+                options.forEachIndexed { index, item ->
+                    SegmentedButton(
+                        selected = selected == item,
+                        onClick = { store.setState(state, item, scope) },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                    ) {
+                        Text(item)
+                    }
+                }
+            }
         }
         "Image" -> {
             val source = fields.optJSONObject("source") ?: JSONObject()

@@ -755,6 +755,11 @@
         "android": "covered"
       },
       {
+        "name": "SegmentedControl",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "RefreshControl",
         "ios": "covered",
         "android": "covered"

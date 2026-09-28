@@ -29,6 +29,18 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(features.uses_switch, "androidx.compose.material3.Switch");
     imports.add(features.uses_slider, "androidx.compose.material3.Slider");
     imports.add(
+        features.uses_segmented_control,
+        "androidx.compose.material3.SegmentedButton",
+    );
+    imports.add(
+        features.uses_segmented_control,
+        "androidx.compose.material3.SegmentedButtonDefaults",
+    );
+    imports.add(
+        features.uses_segmented_control,
+        "androidx.compose.material3.SingleChoiceSegmentedButtonRow",
+    );
+    imports.add(
         features.uses_progress_bar,
         "androidx.compose.material3.LinearProgressIndicator",
     );
@@ -36,7 +48,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_progress_ring,
         "androidx.compose.material3.CircularProgressIndicator",
     );
-    imports.add(features.uses_button, "androidx.compose.material3.Text");
+    imports.add(
+        features.uses_button || features.uses_segmented_control,
+        "androidx.compose.material3.Text",
+    );
     imports.add(
         features.uses_tab_icon || features.uses_button_icon,
         "androidx.compose.material3.Icon",
@@ -173,6 +188,39 @@ pub(crate) fn render_progress_ring(progress: &Expr, depth: usize, out: &mut Sour
             expression(progress)
         ),
     );
+}
+
+pub(crate) fn render_segmented_control(
+    items: &Expr,
+    state: &str,
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let options = expression(items);
+    let selected = state_name(state);
+    out.line_at(depth, format_args!("SingleChoiceSegmentedButtonRow {{"));
+    out.line_at(depth + 1, format_args!("val options = {options}"));
+    out.line_at(
+        depth + 1,
+        format_args!("options.forEachIndexed {{ index, item ->"),
+    );
+    out.line_at(depth + 2, format_args!("SegmentedButton("));
+    out.line_at(depth + 3, format_args!("selected = {selected} == item,"));
+    out.line_at(
+        depth + 3,
+        format_args!("onClick = {{ {selected} = item }},"),
+    );
+    out.line_at(
+        depth + 3,
+        format_args!(
+            "shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),"
+        ),
+    );
+    out.line_at(depth + 2, format_args!(") {{"));
+    out.line_at(depth + 3, format_args!("Text(item)"));
+    out.line_at(depth + 2, format_args!("}}"));
+    out.line_at(depth + 1, format_args!("}}"));
+    out.line_at(depth, format_args!("}}"));
 }
 
 pub(crate) fn render_pressable(

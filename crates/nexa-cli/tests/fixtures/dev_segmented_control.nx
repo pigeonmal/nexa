@@ -1,0 +1,8 @@
+app SegmentedControlSmoke {
+    state filters: Array<String> = ["All", "Open", "Closed"]
+    state selectedFilter: String = "Open"
+
+    body {
+        SegmentedControl(items: filters, selected: selectedFilter)
+    }
+}

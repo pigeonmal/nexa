@@ -495,6 +495,25 @@ pub(super) fn lower_node(node: ast::Node, cx: &SemanticContext) -> Result<Node, 
                 Ok(Node::ProgressRing { progress })
             }
         }
+        ast::Node::ComponentInvocation(inv) if inv.name == "SegmentedControl" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let items = take_required_arg(&mut args, &inv.name, "items", span)?;
+            let selected = take_required_arg(&mut args, &inv.name, "selected", span)?;
+            let state = require_mutable_binding(
+                &selected,
+                &Type::String,
+                symbols,
+                span,
+                "SegmentedControl",
+            )?;
+            let items = lower_expr(
+                &items,
+                Some(&Type::Array(Box::new(Type::String))),
+                &cx.exprs(false),
+            )?;
+            Ok(Node::SegmentedControl { items, state })
+        }
         ast::Node::ComponentInvocation(inv) if inv.name == "Button" => {
             let span = inv.span;
             let mut positional = inv.positional;

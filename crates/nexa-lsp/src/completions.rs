@@ -115,6 +115,7 @@ mod tests {
         assert!(labels.contains(&"ProgressBar".to_string()));
         assert!(labels.contains(&"ProgressRing".to_string()));
         assert!(labels.contains(&"Dialog".to_string()));
+        assert!(labels.contains(&"SegmentedControl".to_string()));
         assert!(labels.contains(&"state".to_string()));
         assert!(labels.contains(&"Result".to_string()));
     }

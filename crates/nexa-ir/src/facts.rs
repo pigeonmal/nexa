@@ -153,6 +153,7 @@ pub struct UiFacts {
     pub slider_present: bool,
     pub progress_bar_present: bool,
     pub progress_ring_present: bool,
+    pub segmented_control_present: bool,
     pub pressable: PressableFacts,
     pub layout: LayoutFacts,
     pub style: StyleFacts,
@@ -662,6 +663,9 @@ fn observe_node(
         }
         Node::ProgressRing { .. } => {
             ui.progress_ring_present = true;
+        }
+        Node::SegmentedControl { .. } => {
+            ui.segmented_control_present = true;
         }
         Node::Image {
             source,

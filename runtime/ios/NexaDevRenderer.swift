@@ -542,6 +542,17 @@ struct NexaDevNodeList: View {
         case "ProgressRing":
             let progress = (store.evaluate(fields["progress"] ?? NSNull(), locals: locals, scope: scope) as? NSNumber)?.doubleValue ?? 0
             return AnyView(ProgressView(value: min(max(progress, 0), 1), total: 1).progressViewStyle(.circular))
+        case "SegmentedControl":
+            let name = fields["state"] as? String ?? ""
+            let items = store.evaluate(fields["items"] ?? NSNull(), locals: locals, scope: scope) as? [String] ?? []
+            return AnyView(Picker("", selection: Binding(
+                get: { store.value(name, scope: scope) as? String ?? "" },
+                set: { store.setValue(name, value: $0, scope: scope) }
+            )) {
+                ForEach(items, id: \.self) { item in
+                    Text(item).tag(item)
+                }
+            }.pickerStyle(.segmented).labelsHidden())
         case "Image":
             let source = fields["source"] as? [String: Any] ?? [:]
             let description = fields["description"] as? String ?? ""

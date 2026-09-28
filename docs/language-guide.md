@@ -108,6 +108,7 @@ Text styles can be chained after a component call. For example, `Text("Hi").font
 `Spacer()` consumes remaining space on a `Row` or `Column` axis. `Divider(color: "#808080", thickness: 1)` inserts a horizontal separator.
 `Slider(value: amount, min: 0.0, max: 1.0, step: 0.01)` binds a stepped native slider to mutable `Float64` state.
 `ProgressBar(progress: amount)` and `ProgressRing(progress: amount)` render normalized linear and circular progress controls.
+`SegmentedControl(items: filters, selected: selectedFilter)` binds a compact native selector to mutable `String` state.
 `Dialog(isPresented: show, title: "Confirm", message: "Continue?") { Button("OK") { show = false } }` presents a native alert tied to mutable Boolean state.
 
 ## Value-producing conditionals

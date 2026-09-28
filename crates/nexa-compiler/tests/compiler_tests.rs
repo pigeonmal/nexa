@@ -404,6 +404,44 @@ fn progress_controls_lower_float64_expressions() {
 }
 
 #[test]
+fn segmented_control_lowers_a_string_array_and_mutable_string_binding() {
+    let module = compile(
+        r#"
+        app Filters {
+            state filters: Array<String> = ["All", "Open", "Closed"]
+            state selectedFilter: String = "All"
+
+            body {
+                SegmentedControl(items: filters, selected: selectedFilter)
+            }
+        }
+        "#,
+    )
+    .expect("a string array and mutable string selection should compile");
+
+    assert!(matches!(
+        &module.body[0],
+        Node::SegmentedControl {
+            items: Expr::State(name, Type::Array(element)),
+            state,
+        } if name == "filters" && **element == Type::String && state == "selectedFilter"
+    ));
+
+    let invalid = compile(
+        r#"
+        app InvalidFilters {
+            let filters: Array<Int32> = [1, 2]
+            state selectedFilter: String = "All"
+            body {
+                SegmentedControl(items: filters, selected: selectedFilter)
+            }
+        }
+        "#,
+    );
+    assert!(invalid.is_err(), "segmented options must be Array<String>");
+}
+
+#[test]
 fn dialog_lowers_typed_text_and_actions_for_mutable_state() {
     let module = compile(
         r#"

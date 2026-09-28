@@ -222,6 +222,23 @@ app DownloadProgress {
 ```
 - **Properties**: `progress: Float64`.
 
+### `SegmentedControl`
+Compact single-choice control for a small set of distinct string options. `selected` is a mutable `String` state bound to the active option.
+
+```nexa
+app FilterTabs {
+    state filters: Array<String> = ["All", "Open", "Closed"]
+    state selectedFilter: String = "All"
+
+    body {
+        SegmentedControl(items: filters, selected: selectedFilter)
+        Text(selectedFilter)
+    }
+}
+```
+- **Properties**: `items: Array<String>`, `selected: String` (mutable state binding).
+- Option labels should be distinct; the selected value is the matching label.
+
 ---
 
 ### `Pressable`
