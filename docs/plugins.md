@@ -180,6 +180,25 @@ On Android the writer and reader live in the generated `dev.nexa.core` package,
 which also holds the application context, because a Kotlin plugin is generated
 into the plugin's own package and has no other way to reach either.
 
+## Plugin host metadata
+
+Platform declarations can request host configuration that the native
+implementation cannot add by itself. For example, background audio uses:
+
+```nexa
+ios {
+    backgroundModes: ["audio"]
+}
+android {
+    mediaPlaybackService: "dev.nexa.audio.AudioPlaybackService"
+}
+```
+
+The iOS mode is added to `UIBackgroundModes`. Android adds the foreground
+service permissions and declares the named Media3 service with its
+`MediaSessionService` intent action and `mediaPlayback` foreground type.
+Service names must be fully qualified Java or Kotlin class names.
+
 ---
 
 ## 3. High-Performance C++ Implementation

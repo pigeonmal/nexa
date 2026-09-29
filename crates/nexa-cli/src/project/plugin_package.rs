@@ -54,9 +54,11 @@ pub struct PluginArtifacts {
     pub android_maven_repositories: Vec<String>,
     pub ios_usage_descriptions: Vec<(String, String)>,
     pub ios_entitlements: Vec<(String, EntitlementValue)>,
+    pub ios_background_modes: Vec<String>,
     pub ios_linker_flags: Vec<String>,
     pub android_permissions: Vec<String>,
     pub android_picture_in_picture: bool,
+    pub android_media_playback_service: Option<String>,
 }
 
 impl PluginPackage {
@@ -99,9 +101,11 @@ impl PluginPackage {
                     (key.clone(), value)
                 })
                 .collect(),
+            ios_background_modes: decl.ios_background_modes.clone(),
             ios_linker_flags: decl.ios_linker_flags.clone(),
             android_permissions: decl.android_permissions.clone(),
             android_picture_in_picture: decl.android_picture_in_picture,
+            android_media_playback_service: decl.android_media_playback_service.clone(),
         };
         Self {
             namespace: decl.namespace.clone(),
@@ -186,9 +190,11 @@ mod tests {
             android_maven_repositories: Vec::new(),
             ios_usage_descriptions: Vec::new(),
             ios_entitlements: Vec::new(),
+            ios_background_modes: Vec::new(),
             ios_linker_flags: Vec::new(),
             android_permissions: Vec::new(),
             android_picture_in_picture: false,
+            android_media_playback_service: None,
         }
     }
 

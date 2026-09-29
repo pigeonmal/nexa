@@ -2362,9 +2362,11 @@ mod tests {
                 android_maven_repositories: vec![],
                 ios_usage_descriptions: vec![],
                 ios_entitlements: vec![],
+                ios_background_modes: vec![],
                 ios_linker_flags: vec![],
                 android_permissions: vec![],
                 android_picture_in_picture: false,
+                android_media_playback_service: None,
             },
         };
         fs::write(package.join("native.nxid"), "namespace demo {}").expect("idl written");
@@ -2410,9 +2412,11 @@ mod tests {
                 android_maven_repositories: vec![],
                 ios_usage_descriptions: vec![],
                 ios_entitlements: vec![],
+                ios_background_modes: vec![],
                 ios_linker_flags: vec![],
                 android_permissions: vec![],
                 android_picture_in_picture: false,
+                android_media_playback_service: None,
             },
         };
 

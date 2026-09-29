@@ -49,10 +49,13 @@ pub struct PluginDecl {
     pub android_maven_repositories: Vec<String>,
     pub ios_usage_descriptions: Vec<(String, String)>,
     pub ios_entitlements: Vec<(String, PluginEntitlementValue)>,
+    pub ios_background_modes: Vec<String>,
     pub ios_linker_flags: Vec<String>,
     pub android_permissions: Vec<String>,
     /// The generated Android activity opts into PiP for video playback plugins.
     pub android_picture_in_picture: bool,
+    /// Android MediaSessionService class contributed to the generated host.
+    pub android_media_playback_service: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

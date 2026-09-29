@@ -57,12 +57,16 @@ pub struct PlatformManifest {
     pub usage_descriptions: Vec<(String, String)>,
     /// iOS code-signing entitlements requested by this plugin.
     pub entitlements: Vec<(String, EntitlementValue)>,
+    /// iOS background modes required by this plugin.
+    pub background_modes: Vec<String>,
     /// Additional arguments passed to the iOS linker, each as one argument.
     pub linker_flags: Vec<String>,
     /// Android manifest permissions required by the plugin.
     pub permissions: Vec<String>,
     /// Whether an Android plugin needs the generated activity to support PiP.
     pub picture_in_picture: bool,
+    /// Fully qualified media playback service declared by this plugin.
+    pub media_playback_service: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -420,6 +424,10 @@ impl Parser {
                     platform.entitlements = self.parse_entitlements()?;
                     validate_ios_entitlements(&platform.entitlements)?;
                 }
+                Some("backgroundModes") if !android => {
+                    platform.background_modes = self.parse_string_array_field("backgroundModes")?;
+                    validate_ios_background_modes(&platform.background_modes)?;
+                }
                 Some("linkerFlags") if !android => {
                     platform.linker_flags = self.parse_string_array_field("linkerFlags")?;
                     validate_ios_linker_flags(&platform.linker_flags)?;
@@ -430,6 +438,10 @@ impl Parser {
                 }
                 Some("pictureInPicture") if android => {
                     platform.picture_in_picture = self.parse_bool_field("pictureInPicture")?;
+                }
+                Some("mediaPlaybackService") if android => {
+                    platform.media_playback_service =
+                        Some(self.parse_string_field("mediaPlaybackService")?);
                 }
                 Some(name) => return self.error(format!("unknown platform field `{name}`")),
                 None => return self.error("expected a platform field"),
@@ -706,8 +718,12 @@ impl Parser {
         validate_ios_frameworks(&manifest.ios.frameworks)?;
         validate_usage_descriptions(&manifest.ios.usage_descriptions)?;
         validate_ios_entitlements(&manifest.ios.entitlements)?;
+        validate_ios_background_modes(&manifest.ios.background_modes)?;
         validate_ios_linker_flags(&manifest.ios.linker_flags)?;
         validate_android_permissions(&manifest.android.permissions)?;
+        if let Some(service) = &manifest.android.media_playback_service {
+            validate_android_class_name(service, "Android media playback service")?;
+        }
         validate_native_artifacts(&manifest.ios.xcframeworks, "iOS XCFramework", "xcframework")?;
         validate_native_artifacts(&manifest.android.aars, "Android AAR", "aar")?;
         validate_unique_paths(&manifest.ios.resources, "iOS platform resource")?;
@@ -1125,6 +1141,39 @@ fn validate_ios_linker_flags(flags: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_ios_background_modes(modes: &[String]) -> Result<(), String> {
+    let mut seen = std::collections::HashSet::new();
+    for mode in modes {
+        if mode != "audio" {
+            return Err(format!(
+                "unsupported iOS background mode `{mode}`; currently supported mode is `audio`"
+            ));
+        }
+        if !seen.insert(mode) {
+            return Err(format!("iOS background mode `{mode}` is declared twice"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_android_class_name(name: &str, kind: &str) -> Result<(), String> {
+    let valid = name.split('.').count() > 1
+        && name.split('.').all(|part| {
+            let mut characters = part.chars();
+            characters
+                .next()
+                .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+                && characters
+                    .all(|character| character.is_ascii_alphanumeric() || character == '_')
+        });
+    if !valid {
+        return Err(format!(
+            "{kind} name `{name}` must be a fully qualified Java/Kotlin class name"
+        ));
+    }
+    Ok(())
+}
+
 fn validate_android_permissions(values: &[String]) -> Result<(), String> {
     let mut permissions = std::collections::HashSet::new();
     for permission in values {
@@ -1172,6 +1221,7 @@ mod tests {
                 }
                 ios {
                     minVersion: "17.0"
+                    backgroundModes: ["audio"]
                     sources: ["ios/Sources/**"]
                     frameworks: ["AVFoundation"]
                     xcframeworks: ["ios/Vendor.xcframework"]
@@ -1197,6 +1247,7 @@ mod tests {
                 android {
                     minSdk: 28
                     pictureInPicture: true
+                    mediaPlaybackService: "dev.example.audio.AudioPlaybackService"
                     sources: ["android/src/main/kotlin/**"]
                     dependencies: ["androidx.media3:media3-exoplayer:1.5.1"]
                     aars: ["android/libs/vendor.aar"]
@@ -1218,6 +1269,11 @@ mod tests {
         assert_eq!(manifest.native.as_deref(), Some("native.nxid"));
         assert_eq!(manifest.android.min_sdk, Some(28));
         assert!(manifest.android.picture_in_picture);
+        assert_eq!(
+            manifest.android.media_playback_service.as_deref(),
+            Some("dev.example.audio.AudioPlaybackService")
+        );
+        assert_eq!(manifest.ios.background_modes, vec!["audio"]);
         assert_eq!(manifest.ios.sources, vec!["ios/Sources/**"]);
         assert_eq!(manifest.ios.frameworks, vec!["AVFoundation"]);
         assert_eq!(manifest.ios.xcframeworks, vec!["ios/Vendor.xcframework"]);

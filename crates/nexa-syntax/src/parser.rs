@@ -803,9 +803,11 @@ impl Parser {
             android_maven_repositories: Vec::new(),
             ios_usage_descriptions: Vec::new(),
             ios_entitlements: Vec::new(),
+            ios_background_modes: Vec::new(),
             ios_linker_flags: Vec::new(),
             android_permissions: Vec::new(),
             android_picture_in_picture: false,
+            android_media_playback_service: None,
         })
     }
 

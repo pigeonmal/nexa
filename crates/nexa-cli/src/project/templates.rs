@@ -66,6 +66,19 @@ pub(super) fn ios_info_plist_with_dev_runtime(
             usage_descriptions.insert(key.clone(), message.clone());
         }
     }
+    let background_modes = plugins
+        .iter()
+        .flat_map(|plugin| plugin.artifacts.ios_background_modes.iter())
+        .collect::<std::collections::BTreeSet<_>>();
+    let background_modes = if background_modes.is_empty() {
+        String::new()
+    } else {
+        let modes = background_modes
+            .iter()
+            .map(|mode| format!("<string>{}</string>", xml_escape(mode)))
+            .collect::<String>();
+        format!("<key>UIBackgroundModes</key><array>{modes}</array>")
+    };
     let entries = usage_descriptions
         .iter()
         .map(|(key, description)| {
@@ -104,7 +117,7 @@ pub(super) fn ios_info_plist_with_dev_runtime(
         )
     };
     Ok(format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleExecutable</key><string>{app_name}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string><key>LSRequiresIPhoneOS</key><true/>{splash}{dev_network}{url_types}{entries}</dict></plist>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleExecutable</key><string>{app_name}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string><key>LSRequiresIPhoneOS</key><true/>{splash}{dev_network}{url_types}{background_modes}{entries}</dict></plist>\n",
         xml_escape(&config.display_name),
         xml_escape(&config.ios_bundle_identifier),
         xml_escape(&config.version),
@@ -1060,6 +1073,14 @@ pub(super) fn android_manifest(
             .iter()
             .flat_map(|plugin| plugin.artifacts.android_permissions.iter().cloned()),
     );
+    let media_playback_services = plugins
+        .iter()
+        .filter_map(|plugin| plugin.artifacts.android_media_playback_service.as_deref())
+        .collect::<std::collections::BTreeSet<_>>();
+    if !media_playback_services.is_empty() {
+        permissions.insert("android.permission.FOREGROUND_SERVICE".to_owned());
+        permissions.insert("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK".to_owned());
+    }
     let declared = permissions
         .iter()
         .map(|name| {
@@ -1108,8 +1129,17 @@ pub(super) fn android_manifest(
             )
         })
         .collect::<String>();
+    let media_playback_service_declarations = media_playback_services
+        .iter()
+        .map(|service| {
+            format!(
+                "        <service android:name=\"{}\" android:exported=\"true\" android:foregroundServiceType=\"mediaPlayback\"><intent-filter><action android:name=\"androidx.media3.session.MediaSessionService\" /></intent-filter></service>\n",
+                xml_escape(service)
+            )
+        })
+        .collect::<String>();
     format!(
-        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\"{picture_in_picture_attributes}>\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n{deep_link_filters}        </activity>\n    </application>\n</manifest>\n",
+        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\"{picture_in_picture_attributes}>\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n{deep_link_filters}        </activity>\n{media_playback_service_declarations}    </application>\n</manifest>\n",
         xml_escape(&config.display_name),
     )
 }

@@ -883,6 +883,26 @@ mod template_generation {
     }
 
     #[test]
+    fn audio_plugin_background_metadata_reaches_both_native_hosts() {
+        let config = ProjectConfig::from_defaults(&[], "Demo").expect("empty project config");
+        let mut audio = plugin("Audio");
+        audio.artifacts.ios_background_modes = vec!["audio".to_owned()];
+        audio.artifacts.android_media_playback_service =
+            Some("dev.nexa.audio.AudioPlaybackService".to_owned());
+
+        let plist = ios_info_plist_with_dev_runtime("Demo", &config, &[audio.clone()], false)
+            .expect("iOS audio metadata should generate");
+        assert!(plist.contains("<key>UIBackgroundModes</key><array><string>audio</string></array>"));
+
+        let manifest = android_manifest("Demo", "com.example.demo", false, &config, &[audio]);
+        assert!(manifest.contains("android.permission.FOREGROUND_SERVICE"));
+        assert!(manifest.contains("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"));
+        assert!(manifest.contains(
+            "<service android:name=\"dev.nexa.audio.AudioPlaybackService\" android:exported=\"true\" android:foregroundServiceType=\"mediaPlayback\"><intent-filter><action android:name=\"androidx.media3.session.MediaSessionService\" /></intent-filter></service>"
+        ));
+    }
+
+    #[test]
     fn every_configured_permission_maps_to_ios_and_android_manifests() {
         let home = nexa_testkit::TempDir::new("nexa-all-permissions");
         let path = home.path().join("config.nx");
