@@ -38,8 +38,9 @@ import org.json.JSONArray
 
 @Composable
 internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
-    val applicationContext = LocalContext.current.applicationContext
-    NexaRuntime.bind(applicationContext)
+    val currentContext = LocalContext.current
+    val applicationContext = currentContext.applicationContext
+    NexaRuntime.bind(currentContext)
     val store = remember(applicationContext) { NexaDevStateStore(applicationContext) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),

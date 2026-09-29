@@ -467,6 +467,9 @@ fn native_call(
         ("Path", path_name) => {
             format!("NexaPath.{path_name}()")
         }
+        ("Keyboard", "dismiss") => {
+            "UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)".to_owned()
+        }
         _ => format!(
             "{}Plugin.shared.{}({})",
             namespace,

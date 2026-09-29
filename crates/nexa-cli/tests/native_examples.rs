@@ -8,6 +8,7 @@ use nexa_testkit::{TestProject, Toolchain, example_path};
 
 const EXAMPLES: &[&str] = &[
     "counter",
+    "keyboard_ergonomics",
     "pressable_double_tap",
     "spring_animation",
     "showcase",
@@ -127,6 +128,38 @@ fn generated_ios_example_hosts_build_with_xcode_when_available() {
         String::from_utf8_lossy(&built.stdout),
         String::from_utf8_lossy(&built.stderr)
     );
+
+    let plugin_dev_project = temp.join("video-player-dev-ios");
+    nexa_cli::generate_dev_project(
+        &example_path("plugins/video-player-demo.nx"),
+        "ios",
+        &plugin_dev_project,
+        "NexaVideoPlayerDemo",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate iOS DevRuntime host with class, event, and component plugin APIs");
+    let sources = swift_sources(&plugin_dev_project.join("ios/NexaVideoPlayerDemo"));
+    let built = Command::new("xcrun")
+        .args([
+            "--sdk",
+            "iphonesimulator",
+            "swiftc",
+            "-typecheck",
+            "-sdk",
+            sdk,
+            "-target",
+            "arm64-apple-ios17.0-simulator",
+        ])
+        .args(&sources)
+        .output()
+        .expect("Swift compiler should start for the iOS plugin DevRuntime host");
+    assert!(
+        built.status.success(),
+        "iOS plugin DevRuntime host failed to type-check:\n{}\n{}",
+        String::from_utf8_lossy(&built.stdout),
+        String::from_utf8_lossy(&built.stderr)
+    );
 }
 
 #[test]
@@ -189,6 +222,28 @@ fn generated_android_example_hosts_build_with_gradle_when_available() {
     assert!(
         built.status.success(),
         "Android DevRuntime host failed to compile:\n{}\n{}",
+        String::from_utf8_lossy(&built.stdout),
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let plugin_dev_project = temp.join("video-player-dev-android");
+    nexa_cli::generate_dev_project(
+        &example_path("plugins/video-player-demo.nx"),
+        "android",
+        &plugin_dev_project,
+        "NexaVideoPlayerDemo",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Android DevRuntime host with class, event, and component plugin APIs");
+    let built = Command::new(gradle)
+        .args([":app:assembleDebug"])
+        .current_dir(plugin_dev_project.join("android"))
+        .output()
+        .expect("Gradle should start for the Android plugin DevRuntime host");
+    assert!(
+        built.status.success(),
+        "Android plugin DevRuntime host failed to compile:\n{}\n{}",
         String::from_utf8_lossy(&built.stdout),
         String::from_utf8_lossy(&built.stderr)
     );

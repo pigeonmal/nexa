@@ -280,6 +280,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             if features.uses_network_api
                 || features.uses_path_api
                 || features.uses_permissions
+                || features.facts.capabilities.uses_keyboard_api
                 || !module.plugins.is_empty()
             {
                 out.push_str("    NexaRuntime.bind(LocalContext.current)\n");
@@ -366,6 +367,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
     if features.uses_network_api
         || features.uses_path_api
         || features.uses_permissions
+        || features.facts.capabilities.uses_keyboard_api
         || !module.plugins.is_empty()
     {
         units.write("runtime", |out| {

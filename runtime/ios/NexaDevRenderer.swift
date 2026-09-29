@@ -509,7 +509,12 @@ struct NexaDevNodeList: View {
                     store.setValue(name, value: value, scope: scope)
                 }
             )
-            var input = AnyView(TextField(placeholder, text: binding, axis: fields["multiline"] as? Bool == true ? .vertical : .horizontal))
+            var input: AnyView
+            if fields["secure"] as? Bool == true {
+                input = AnyView(SecureField(placeholder, text: binding))
+            } else {
+                input = AnyView(TextField(placeholder, text: binding, axis: fields["multiline"] as? Bool == true ? .vertical : .horizontal))
+            }
             switch fields["keyboard"] as? String {
             case "Number": input = AnyView(input.keyboardType(.numberPad))
             case "Email": input = AnyView(input.keyboardType(.emailAddress))
@@ -524,14 +529,36 @@ struct NexaDevNodeList: View {
             default: .sentences
             }
             input = AnyView(input.textInputAutocapitalization(capitalization))
+            let autofill: UITextContentType? = switch fields["autofill"] as? String {
+            case "Username": .username
+            case "Password": .password
+            case "OneTimeCode": .oneTimeCode
+            default: nil
+            }
+            if let autofill {
+                input = AnyView(input.textContentType(autofill))
+            }
+            let returnKey: SubmitLabel? = switch fields["return_key"] as? String {
+            case "Done": .done
+            case "Search": .search
+            case "Send": .send
+            case "Next": .next
+            default: nil
+            }
+            if let returnKey {
+                input = AnyView(input.submitLabel(returnKey))
+            }
             if fields["autocorrect"] as? Bool == false || fields["capitalization"] as? String == "None" {
                 input = AnyView(input.autocorrectionDisabled())
             } else if fields["autocorrect"] as? Bool == true {
                 input = AnyView(input.autocorrectionDisabled(false))
             }
             input = AnyView(input.focused(focusedField, equals: identity))
-            if fields["secure"] as? Bool == true {
-                return AnyView(SecureField(placeholder, text: binding).focused(focusedField, equals: identity))
+            let submitActions = fields["actions"] as? [Any] ?? []
+            if !submitActions.isEmpty {
+                input = AnyView(input.onSubmit {
+                    store.perform(submitActions, scope: scope, locals: locals)
+                })
             }
             return input
         case "FastList":

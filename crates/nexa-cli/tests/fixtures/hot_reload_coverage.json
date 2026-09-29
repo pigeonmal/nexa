@@ -910,6 +910,45 @@
         "android": "covered"
       }
     ],
+    "AutofillType": [
+      {
+        "name": "Username",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Password",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "OneTimeCode",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "ReturnKeyType": [
+      {
+        "name": "Done",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Search",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Send",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Next",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
     "Capitalization": [
       {
         "name": "None",

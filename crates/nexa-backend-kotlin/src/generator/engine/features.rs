@@ -65,6 +65,7 @@ pub(crate) struct Features {
     pub(crate) uses_divider: bool,
     pub(crate) uses_text_input: bool,
     pub(crate) uses_text_input_submit: bool,
+    pub(crate) uses_text_input_autofill: bool,
     pub(crate) uses_focus: bool,
     pub(crate) uses_secure_text_input: bool,
     pub(crate) uses_capitalization: bool,
@@ -221,9 +222,10 @@ impl Features {
 
         let input = &ui.text_input;
         self.uses_text_input = input.present;
-        self.uses_text_input_submit = input.submit;
+        self.uses_text_input_submit = input.submit || input.return_key;
+        self.uses_text_input_autofill = input.autofill;
         self.uses_focus = input.focus;
-        self.uses_modifier |= input.focus;
+        self.uses_modifier |= input.focus || input.autofill;
         self.uses_secure_text_input = input.secure;
         self.uses_capitalization = input.capitalization;
 

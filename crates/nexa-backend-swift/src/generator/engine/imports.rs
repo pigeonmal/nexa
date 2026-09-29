@@ -35,6 +35,7 @@ pub(crate) fn render(features: &Features) -> String {
     crate::generator::api::network::imports(features, &mut imports);
     crate::generator::api::permissions::imports(features, &mut imports);
     crate::generator::api::time::imports(features, &mut imports);
+    imports.add(features.facts.capabilities.uses_keyboard_api, "UIKit");
     imports.render()
 }
 

@@ -265,6 +265,70 @@ fn development_runtime_generates_typed_bridges_for_declared_plugin_services() {
 }
 
 #[test]
+fn development_runtime_generates_video_plugin_class_event_and_component_bridges() {
+    let project = nexa_testkit::TestProject::new("nexa-dev-video-plugin-bridge");
+    let entry = nexa_testkit::example_path("plugins/video-player-demo.nx");
+    let output = project.join("build");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "VideoPlayerDemo",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Dev hosts with the configured native video plugin");
+
+    let ios_bridge =
+        fs::read_to_string(output.join("ios/VideoPlayerDemo/NexaDevPluginBridge.swift"))
+            .expect("read generated Swift plugin bridge");
+    let android_bridge_path = nexa_testkit::TestProject::collect_sources_in(
+        &output.join("android/app/src/main/java"),
+        "kt",
+    )
+    .into_iter()
+    .find(|path| {
+        path.file_name()
+            .is_some_and(|name| name == "NexaDevPluginBridge.kt")
+    })
+    .expect("generated Kotlin plugin bridge path");
+    let android_bridge =
+        fs::read_to_string(android_bridge_path).expect("read generated Kotlin plugin bridge");
+
+    for marker in [
+        "VideoPlayer()",
+        "nexaReceiver.prepare(nexaArg0)",
+        "nexaReceiver.volume = nexaValue",
+        "static func subscribeInstanceEvent",
+        "nexaReceiver.onEnded =",
+        "case (\"VideoPlayer\", \"VideoView\")",
+        "VideoView(player: nexaArg_player, controls: nexaArg_controls",
+        "events[\"onTapped\"]",
+    ] {
+        assert!(
+            ios_bridge.contains(marker),
+            "Swift Dev bridge is missing {marker}"
+        );
+    }
+    for marker in [
+        "VideoPlayer()",
+        "nexaReceiver.prepare(nexaArg0)",
+        "receiver.volume = nexaValue",
+        "fun subscribeInstanceEvent",
+        "receiver.onEnded =",
+        "\"VideoPlayer.VideoView\" ->",
+        "VideoView(player = nexaArg_player, controls = nexaArg_controls",
+        "events[\"onTapped\"]",
+    ] {
+        assert!(
+            android_bridge.contains(marker),
+            "Kotlin Dev bridge is missing {marker}"
+        );
+    }
+}
+
+#[test]
 fn android_cronet_config_selects_provider_and_cache_for_dev_and_aot_hosts() {
     let root = temporary_project();
     let entry = root.join("App.nx");
@@ -393,7 +457,8 @@ fn development_remote_images_use_the_release_coil_and_cronet_pipeline() {
     assert!(kotlin.contains("NexaPath.temporary(context)"));
     assert!(kotlin.contains("invokeNativeSync("));
     assert!(kotlin.contains("NexaPermissions.status(context, permission).name"));
-    assert!(kotlin.contains("NexaRuntime.bind(applicationContext)"));
+    assert!(kotlin.contains("val currentContext = LocalContext.current"));
+    assert!(kotlin.contains("NexaRuntime.bind(currentContext)"));
     assert!(kotlin.contains("NexaRuntime.bindPermissionLauncher(permissionLauncher)"));
 
     let generated_android =

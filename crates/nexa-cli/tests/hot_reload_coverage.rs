@@ -430,3 +430,57 @@ fn runtime_feature_gaps_have_explicit_dual_platform_status() {
         }
     }
 }
+
+#[test]
+fn keyboard_ergonomics_are_consumed_by_dev_runtime() {
+    let (root, _) = fixture();
+    let swift_renderer = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS renderer");
+    let kotlin_renderer = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android renderer");
+    let swift_native = fs::read_to_string(root.join("../../runtime/ios/NexaDevNativeApis.swift"))
+        .expect("read iOS native API adapter");
+    let kotlin_native = fs::read_to_string(root.join("../../runtime/android/NexaDevNativeApis.kt"))
+        .expect("read Android native API adapter");
+    let kotlin_core = nexa_codegen::value::kotlin_core_runtime_source();
+
+    for (platform, source, markers) in [
+        (
+            "iOS",
+            swift_renderer.as_str(),
+            [
+                "case \"Username\": .username",
+                "case \"Password\": .password",
+                "case \"OneTimeCode\": .oneTimeCode",
+                "case \"Search\": .search",
+                "case \"Send\": .send",
+                "case \"Next\": .next",
+                "store.perform(submitActions, scope: scope, locals: locals)",
+            ],
+        ),
+        (
+            "Android",
+            kotlin_renderer.as_str(),
+            [
+                "ContentType.Username",
+                "ContentType.Password",
+                "ContentType.SmsOtpCode",
+                "ImeAction.Search",
+                "ImeAction.Send",
+                "ImeAction.Next",
+                "store.perform(submitActions, scope, locals)",
+            ],
+        ),
+    ] {
+        for marker in markers {
+            assert!(
+                source.contains(marker),
+                "{platform} DevRuntime keyboard handling is missing {marker}"
+            );
+        }
+    }
+    assert!(swift_native.contains("namespace == \"Keyboard\", name == \"dismiss\""));
+    assert!(kotlin_native.contains("namespace == \"Keyboard\" && name == \"dismiss\""));
+    assert!(kotlin_core.contains("foregroundActivity"));
+    assert!(kotlin_core.contains("hideSoftInputFromWindow"));
+}

@@ -545,6 +545,8 @@ pub enum Node {
         keyboard: KeyboardType,
         secure: bool,
         multiline: bool,
+        autofill: Option<AutofillType>,
+        return_key: Option<ReturnKeyType>,
         autocorrect: Option<bool>,
         capitalization: Option<Capitalization>,
         focused: Option<String>,
@@ -996,6 +998,21 @@ pub enum KeyboardType {
     Email,
     Phone,
     Url,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum AutofillType {
+    Username,
+    Password,
+    OneTimeCode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ReturnKeyType {
+    Done,
+    Search,
+    Send,
+    Next,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

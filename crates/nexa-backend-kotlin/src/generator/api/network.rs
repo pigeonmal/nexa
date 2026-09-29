@@ -14,7 +14,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "android.content.Context",
     );
     imports.add(
-        features.uses_network_api || features.uses_path_api || features.uses_permissions,
+        features.uses_network_api
+            || features.uses_path_api
+            || features.uses_permissions
+            || features.facts.capabilities.uses_keyboard_api,
         "androidx.compose.ui.platform.LocalContext",
     );
     imports.add(features.uses_network_api, "android.net.Uri");

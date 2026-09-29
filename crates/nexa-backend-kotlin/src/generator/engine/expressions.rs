@@ -399,6 +399,7 @@ fn native_call(
         ("Path", path_name) => {
             format!("NexaPath.{path_name}(NexaRuntime.context())")
         }
+        ("Keyboard", "dismiss") => "dev.nexa.core.NexaRuntimeCore.dismissKeyboard()".to_owned(),
         _ => format!(
             "{}Plugin.instance.{}({})",
             namespace,
@@ -528,9 +529,7 @@ pub(crate) fn text_expression(expr: &Expr) -> String {
 #[cfg(test)]
 mod tests {
     use super::expression;
-    use nexa_ir::{
-        ArithmeticOp, CollectionUtilityKind, Expr, NumericType, TimeMethod, Type,
-    };
+    use nexa_ir::{ArithmeticOp, CollectionUtilityKind, Expr, NumericType, TimeMethod, Type};
 
     #[test]
     fn conditional_expressions_use_a_native_if_expression() {
@@ -541,7 +540,10 @@ mod tests {
             value_type: Type::String,
         };
 
-        assert_eq!(expression(&conditional), "(if (true) \"ready\" else \"waiting\")");
+        assert_eq!(
+            expression(&conditional),
+            "(if (true) \"ready\" else \"waiting\")"
+        );
     }
 
     #[test]

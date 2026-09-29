@@ -53,6 +53,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -87,6 +88,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -104,12 +106,14 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role as SemanticsRole
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import kotlin.math.roundToInt
@@ -484,7 +488,28 @@ internal fun NexaDevNode(
                 "Characters" -> KeyboardCapitalization.Characters
                 else -> KeyboardCapitalization.Sentences
             }
+            val autofill = fields.optString("autofill")
+            val submitActions = fields.optJSONArray("actions") ?: JSONArray()
+            val imeAction = when (fields.optString("return_key")) {
+                "Done" -> ImeAction.Done
+                "Search" -> ImeAction.Search
+                "Send" -> ImeAction.Send
+                "Next" -> ImeAction.Next
+                else -> if (submitActions.length() > 0) ImeAction.Done else ImeAction.Default
+            }
             val maxLength = fields.optInt("max_length", Int.MAX_VALUE).coerceAtLeast(0)
+            var fieldModifier = Modifier
+                .focusRequester(focusRequester)
+                .onFocusChanged { focusState ->
+                    if (focusState.isFocused) store.focusChanged(focusKey)
+                    else if (store.focusedFieldKey == focusKey) store.focusChanged(null)
+                }
+            fieldModifier = when (autofill) {
+                "Username" -> fieldModifier.semantics { contentType = ContentType.Username }
+                "Password" -> fieldModifier.semantics { contentType = ContentType.Password }
+                "OneTimeCode" -> fieldModifier.semantics { contentType = ContentType.SmsOtpCode }
+                else -> fieldModifier
+            }
             LaunchedEffect(store.moduleRevision, store.focusedFieldKey, focusKey) {
                 if (store.focusedFieldKey == focusKey) focusRequester.requestFocus()
             }
@@ -497,13 +522,27 @@ internal fun NexaDevNode(
                     keyboardType = keyboardType,
                     capitalization = capitalization,
                     autoCorrect = fields.optBoolean("autocorrect", true),
+                    imeAction = imeAction,
                 ),
-                modifier = Modifier
-                    .focusRequester(focusRequester)
-                    .onFocusChanged { focusState ->
-                        if (focusState.isFocused) store.focusChanged(focusKey)
-                        else if (store.focusedFieldKey == focusKey) store.focusChanged(null)
-                    },
+                keyboardActions = if (submitActions.length() == 0) {
+                    KeyboardActions()
+                } else {
+                    when (imeAction) {
+                        ImeAction.Search -> KeyboardActions(onSearch = {
+                            store.perform(submitActions, scope, locals)
+                        })
+                        ImeAction.Send -> KeyboardActions(onSend = {
+                            store.perform(submitActions, scope, locals)
+                        })
+                        ImeAction.Next -> KeyboardActions(onNext = {
+                            store.perform(submitActions, scope, locals)
+                        })
+                        else -> KeyboardActions(onDone = {
+                            store.perform(submitActions, scope, locals)
+                        })
+                    }
+                },
+                modifier = fieldModifier,
                 decorationBox = { innerTextField ->
                     Box {
                         if (value.isEmpty() && placeholder != null) {

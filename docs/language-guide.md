@@ -287,6 +287,10 @@ let elapsedNanoseconds = Time.elapsed(since: startedAt)
 
 `Time.iso8601` and `Time.iso8601ToMillis` are hand-implemented on both platforms with the same leap-year rules rather than a formatter, so a timestamp written on one target reads on the other. The layout is UTC and locale-independent, and the fractional part is optional when parsing. This is deliberately not a display format: there is no localized or timezone-aware date formatting, because its output would differ between devices and between platforms.
 
+## Keyboard
+
+`Keyboard.dismiss()` hides the software keyboard while leaving the focused input intact. Use `TextInput`'s `autofill` option to identify username, password, or one-time-code fields, and `returnKeyType` to choose Done, Search, Send, or Next. On Android the autofill hint is expressed through Compose semantics; on iOS it uses the native text content type.
+
 ## Logging
 
 `Log` writes messages to the native platform log, visible in Android Logcat and the iOS Console:

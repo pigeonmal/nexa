@@ -37,6 +37,10 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
         val pluginResult = NexaDevPluginBridge.invokeInstanceAsync(receiver, namespace, name, options, codecs, enumCases)
         if (pluginResult.first) return pluginResult.second
     }
+    if (namespace == "Keyboard" && name == "dismiss") {
+        dev.nexa.core.NexaRuntimeCore.dismissKeyboard()
+        return JSONObject.NULL
+    }
     fun stringOption(key: String, fallback: String = ""): String =
         options[key] as? String ?: (options[key] as? CharSequence)?.toString() ?: fallback
     fun numberOption(key: String, fallback: Double): Double =
@@ -153,6 +157,10 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
         }
     } catch (failure: NexaDevPluginFailure) {
         pendingPluginFailure = failure
+        return JSONObject.NULL
+    }
+    if (namespace == "Keyboard" && name == "dismiss") {
+        dev.nexa.core.NexaRuntimeCore.dismissKeyboard()
         return JSONObject.NULL
     }
     fun stringOption(key: String): String =

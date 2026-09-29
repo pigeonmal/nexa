@@ -243,6 +243,8 @@ pub struct TextInputFacts {
     pub focus: bool,
     pub secure: bool,
     pub capitalization: bool,
+    pub autofill: bool,
+    pub return_key: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -660,6 +662,8 @@ fn observe_node(
         Node::TextInput {
             secure,
             capitalization,
+            autofill,
+            return_key,
             focused,
             actions,
             ..
@@ -669,6 +673,8 @@ fn observe_node(
             ui.text_input.focus |= focused.is_some();
             ui.text_input.secure |= *secure;
             ui.text_input.capitalization |= capitalization.is_some();
+            ui.text_input.autofill |= autofill.is_some();
+            ui.text_input.return_key |= return_key.is_some();
             if let Some(name) = focused {
                 focus.insert(name.clone());
             }
@@ -934,6 +940,7 @@ fn observe_expr(
                 capabilities.uses_file_api = true;
                 capabilities.uses_file_async |= name != "exists";
             }
+            "Keyboard" => capabilities.uses_keyboard_api |= name == "dismiss",
             _ => {}
         }
     }
@@ -1274,6 +1281,8 @@ mod tests {
                 keyboard: crate::KeyboardType::Text,
                 secure: false,
                 multiline: false,
+                autofill: None,
+                return_key: None,
                 autocorrect: None,
                 capitalization: None,
                 focused: Some("query".to_owned()),

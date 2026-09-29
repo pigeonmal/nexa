@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 @MainActor
 extension NexaDevStateStore {
@@ -45,6 +46,15 @@ extension NexaDevStateStore {
                 }
                 return pluginResult.1
             }
+        }
+        if namespace == "Keyboard", name == "dismiss" {
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil,
+                from: nil,
+                for: nil
+            )
+            return NSNull()
         }
         func stringOption(_ key: String, _ fallback: String = "") -> String {
             options[key] as? String ?? fallback
@@ -211,6 +221,15 @@ extension NexaDevStateStore {
                 }
                 return pluginResult.1
             }
+        }
+        if namespace == "Keyboard", name == "dismiss" {
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil,
+                from: nil,
+                for: nil
+            )
+            return NSNull()
         }
         func stringOption(_ key: String) -> String { options[key] as? String ?? "" }
         switch namespace {

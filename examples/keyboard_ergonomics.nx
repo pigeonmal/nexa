@@ -1,0 +1,42 @@
+app KeyboardErgonomics {
+    state email: String = ""
+    state password: String = ""
+    state code: String = ""
+    state isEmailFocused: Bool = false
+
+    body {
+        Column {
+            TextInput(
+                value: email,
+                placeholder: "Email address",
+                keyboardType: Email,
+                autofill: Username,
+                returnKeyType: Next,
+                focused: isEmailFocused,
+            ) {
+                Log.info(message: "Email submitted")
+            }
+            TextInput(
+                value: password,
+                placeholder: "Password",
+                isSecure: true,
+                autofill: Password,
+                returnKeyType: Done,
+            ) {
+                Log.info(message: "Password submitted")
+            }
+            TextInput(
+                value: code,
+                placeholder: "Verification code",
+                keyboardType: Number,
+                autofill: OneTimeCode,
+                returnKeyType: Send,
+            ) {
+                Log.info(message: "Code submitted")
+            }
+            Button("Dismiss keyboard") {
+                Keyboard.dismiss()
+            }
+        }
+    }
+}

@@ -5,6 +5,7 @@ previous compiler output.
 
 ## Cache schema
 
+- `build-v109`: generates keyboard autofill and return-key semantics, plus `Keyboard.dismiss()` support in release apps and DevRuntime; advances the Dev IR format.
 - `build-v108`: adds optional-element array codecs to DevRuntime plugin adapters for methods, properties, events, component props, and component events.
 - `build-v107`: adds typed conditional view transitions to the source IR, SwiftUI and Compose output, and both DevRuntime renderers; advances the Dev IR and development protocol versions.
 - `build-v104`: adds Pressable double-tap actions to typed IR, both native backends, and both Dev renderers; advances the Dev IR format version.

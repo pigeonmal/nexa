@@ -262,14 +262,37 @@ const CORE_RUNTIME: &str = r#"/**
  */
 public object NexaRuntimeCore {
     @Volatile private var applicationContext: android.content.Context? = null
+    @Volatile private var foregroundActivity: java.lang.ref.WeakReference<android.app.Activity>? = null
 
     public fun bind(context: android.content.Context) {
         val application = context.applicationContext
         if (applicationContext !== application) applicationContext = application
+        var current: android.content.Context? = context
+        while (current != null) {
+            if (current is android.app.Activity) {
+                foregroundActivity = java.lang.ref.WeakReference(current)
+                break
+            }
+            val wrapper = current as? android.content.ContextWrapper ?: break
+            if (wrapper.baseContext === current) break
+            current = wrapper.baseContext
+        }
     }
 
     public fun context(): android.content.Context = requireNotNull(applicationContext) {
         "NexaRuntime.bind must run before a native API call"
+    }
+
+    public fun dismissKeyboard() {
+        val activity = foregroundActivity?.get() ?: return
+        activity.runOnUiThread {
+            val decorView = activity.window.decorView
+            val view = activity.currentFocus ?: decorView
+            val token = view.windowToken ?: decorView.windowToken ?: return@runOnUiThread
+            val manager = activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as? android.view.inputmethod.InputMethodManager ?: return@runOnUiThread
+            manager.hideSoftInputFromWindow(token, 0)
+        }
     }
 }
 "#;

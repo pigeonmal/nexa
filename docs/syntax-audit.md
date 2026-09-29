@@ -260,11 +260,11 @@ Reference: components.md#switch
 
 Text input control bound to mutable state
 
-Signature: `TextInput(value, placeholder, keyboard:, secure:, multiline:, autocorrect:, capitalization:, focused:, maxLength:, accessibilityLabel:, accessibilityHint:, accessibilityRole:)` with optional trailing `{ ... }` actions
+Signature: `TextInput(value, placeholder, keyboard:, keyboardType:, secure:, isSecure:, autofill:, returnKeyType:, multiline:, autocorrect:, capitalization:, focused:, maxLength:, accessibilityLabel:, accessibilityHint:, accessibilityRole:)` with optional trailing `{ ... }` actions
 
 Required options: `value`, `placeholder`
 
-Optional options: `keyboard`, `secure`, `multiline`, `autocorrect`, `capitalization`, `focused`, `maxLength`, `accessibilityLabel`, `accessibilityHint`, `accessibilityRole`
+Optional options: `keyboard`, `keyboardType`, `secure`, `isSecure`, `autofill`, `returnKeyType`, `multiline`, `autocorrect`, `capitalization`, `focused`, `maxLength`, `accessibilityLabel`, `accessibilityHint`, `accessibilityRole`
 
 Children: optional action block
 

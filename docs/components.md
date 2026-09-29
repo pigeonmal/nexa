@@ -169,8 +169,10 @@ app TextInputExample {
         TextInput(
             value: email,
             placeholder: "name@domain.com",
-            keyboard: Email,
-            secure: false,
+            keyboardType: Email,
+            autofill: Username,
+            returnKeyType: Done,
+            isSecure: false,
             multiline: false,
             autocorrect: false,
             capitalization: None,
@@ -182,7 +184,7 @@ app TextInputExample {
     }
 }
 ```
-- **Properties**: `value`, `placeholder`, `keyboard` (`Text`, `Number`, `Email`, `Phone`, `Url`), `secure`, `multiline`, `autocorrect`, `capitalization` (`None`, `Characters`, `Words`, `Sentences`), `focused`, and positive literal `maxLength`. The optional trailing action block handles submit for single-line fields.
+- **Properties**: `value`, `placeholder`, `keyboardType` (`Text`, `Number`, `Email`, `Phone`, `Url`; `keyboard` remains an alias), `isSecure` (`secure` remains an alias), `autofill` (`Username`, `Password`, `OneTimeCode`), `returnKeyType` (`Done`, `Search`, `Send`, `Next`), `multiline`, `autocorrect`, `capitalization` (`None`, `Characters`, `Words`, `Sentences`), `focused`, and positive literal `maxLength`. The optional trailing action block handles the selected return key for single-line fields. `Keyboard.dismiss()` hides the software keyboard.
 
 ---
 

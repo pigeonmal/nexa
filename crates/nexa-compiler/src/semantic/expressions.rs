@@ -1956,6 +1956,7 @@ fn lower_native_call(
             ],
         ),
         "File.delete" => (Type::Bool, true, vec![("path", Type::String, None)]),
+        "Keyboard.dismiss" => (Type::Void, false, Vec::new()),
         "Bytes.fromText" => (Type::Bytes, false, vec![("text", Type::String, None)]),
         "Bytes.fromArray" => (
             Type::Bytes,
@@ -2133,6 +2134,16 @@ fn native_plan(
         "File.delete" => Ok(Expr::FileDelete {
             path: Box::new(take("path")?),
         }),
+        "Keyboard.dismiss" => Ok(Expr::NativeCall {
+            receiver: None,
+            namespace: "Keyboard".to_owned(),
+            name: "dismiss".to_owned(),
+            arguments: Vec::new(),
+            codecs: Vec::new(),
+            return_type: Type::Void,
+            is_async: false,
+            is_throwing: false,
+        }),
         "Permissions.status" => Ok(Expr::PermissionOp {
             op: nexa_ir::PermissionOpKind::Status,
             permission: Box::new(take("permission")?),
@@ -2204,7 +2215,7 @@ fn native_plan(
 fn is_core_native_namespace(namespace: &str) -> bool {
     matches!(
         namespace,
-        "Network" | "Path" | "File" | "Permissions" | "Bytes" | "Time" | "Log"
+        "Network" | "Path" | "File" | "Permissions" | "Bytes" | "Time" | "Log" | "Keyboard"
     )
 }
 

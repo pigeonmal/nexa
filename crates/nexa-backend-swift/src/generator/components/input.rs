@@ -1,5 +1,5 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{Action, Capitalization, KeyboardType};
+use nexa_ir::{Action, AutofillType, Capitalization, KeyboardType, ReturnKeyType};
 
 use nexa_codegen::names::state_name;
 
@@ -14,6 +14,8 @@ pub(crate) fn render_text_input(
     keyboard: KeyboardType,
     secure: bool,
     multiline: bool,
+    autofill: Option<AutofillType>,
+    return_key: Option<ReturnKeyType>,
     autocorrect: Option<bool>,
     capitalization: Option<Capitalization>,
     focused: Option<&str>,
@@ -41,6 +43,20 @@ pub(crate) fn render_text_input(
         out.push_str(&format!(
             "\n{}.keyboardType({keyboard})",
             "    ".repeat(depth + 1)
+        ));
+    }
+    if let Some(autofill) = autofill {
+        out.push_str(&format!(
+            "\n{}.textContentType({})",
+            "    ".repeat(depth + 1),
+            swift_autofill(autofill)
+        ));
+    }
+    if let Some(return_key) = return_key {
+        out.push_str(&format!(
+            "\n{}.submitLabel({})",
+            "    ".repeat(depth + 1),
+            swift_return_key(return_key)
         ));
     }
     if let Some(capitalization) = capitalization {
@@ -106,5 +122,22 @@ pub(crate) fn swift_capitalization(capitalization: Capitalization) -> &'static s
         Capitalization::Sentences => ".sentences",
         Capitalization::Words => ".words",
         Capitalization::Characters => ".characters",
+    }
+}
+
+pub(crate) fn swift_autofill(autofill: AutofillType) -> &'static str {
+    match autofill {
+        AutofillType::Username => ".username",
+        AutofillType::Password => ".password",
+        AutofillType::OneTimeCode => ".oneTimeCode",
+    }
+}
+
+pub(crate) fn swift_return_key(return_key: ReturnKeyType) -> &'static str {
+    match return_key {
+        ReturnKeyType::Done => ".done",
+        ReturnKeyType::Search => ".search",
+        ReturnKeyType::Send => ".send",
+        ReturnKeyType::Next => ".next",
     }
 }

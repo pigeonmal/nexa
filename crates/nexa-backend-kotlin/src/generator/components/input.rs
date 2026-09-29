@@ -1,6 +1,6 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, Capitalization, KeyboardType};
+use nexa_ir::{Action, AutofillType, Capitalization, KeyboardType, ReturnKeyType};
 
 use crate::generator::{
     controls::render_actions,
@@ -56,6 +56,22 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.material3.TextField",
     );
     imports.add(features.uses_text_input, "androidx.compose.material3.Text");
+    imports.add(
+        features.uses_text_input_autofill || features.uses_focus,
+        "androidx.compose.ui.Modifier",
+    );
+    imports.add(
+        features.uses_text_input_autofill,
+        "androidx.compose.ui.autofill.ContentType",
+    );
+    imports.add(
+        features.uses_text_input_autofill,
+        "androidx.compose.ui.semantics.contentType",
+    );
+    imports.add(
+        features.uses_text_input_autofill,
+        "androidx.compose.ui.semantics.semantics",
+    );
 }
 
 pub(crate) fn render_text_input(
@@ -64,6 +80,8 @@ pub(crate) fn render_text_input(
     keyboard: KeyboardType,
     secure: bool,
     multiline: bool,
+    autofill: Option<AutofillType>,
+    return_key: Option<ReturnKeyType>,
     autocorrect: Option<bool>,
     capitalization: Option<Capitalization>,
     focused: Option<&str>,
@@ -89,20 +107,32 @@ pub(crate) fn render_text_input(
         depth + 1,
         format_args!("placeholder = {{ Text({}) }},", kotlin_string(placeholder)),
     );
-    if let Some(focused) = focused {
+    if focused.is_some() || autofill.is_some() {
         indent(out, depth + 1);
-        out.push_str("modifier = Modifier\n");
-        out.line_at(
-            depth + 2,
-            format_args!(".focusRequester({})", focus_requester_name(focused)),
-        );
-        out.line_at(
-            depth + 2,
-            format_args!(
-                ".onFocusChanged {{ {} = it.isFocused }},",
+        out.push_str("modifier = Modifier");
+        if let Some(focused) = focused {
+            out.push('\n');
+            indent(out, depth + 2);
+            out.push_str(&format!(
+                ".focusRequester({})",
+                focus_requester_name(focused)
+            ));
+            out.push('\n');
+            indent(out, depth + 2);
+            out.push_str(&format!(
+                ".onFocusChanged {{ {} = it.isFocused }}",
                 state_name(focused)
-            ),
-        );
+            ));
+        }
+        if let Some(autofill) = autofill {
+            out.push('\n');
+            indent(out, depth + 2);
+            out.push_str(&format!(
+                ".semantics {{ contentType = {} }}",
+                kotlin_autofill(autofill)
+            ));
+        }
+        out.push_str(",\n");
     }
     out.line_at(depth + 1, format_args!("singleLine = {},", !multiline));
     indent(out, depth + 1);
@@ -126,9 +156,13 @@ pub(crate) fn render_text_input(
             format_args!("autoCorrectEnabled = {autocorrect},"),
         );
     }
-    if !actions.is_empty() {
-        indent(out, depth + 2);
-        out.push_str("imeAction = ImeAction.Done,\n");
+    let effective_return_key =
+        return_key.or_else(|| (!actions.is_empty()).then_some(ReturnKeyType::Done));
+    if let Some(return_key) = effective_return_key {
+        out.line_at(
+            depth + 2,
+            format_args!("imeAction = {},", kotlin_return_key(return_key)),
+        );
     }
     indent(out, depth + 1);
     out.push_str("),");
@@ -138,11 +172,17 @@ pub(crate) fn render_text_input(
         out.push_str("visualTransformation = PasswordVisualTransformation(),");
     }
     if !actions.is_empty() {
+        let callback = match effective_return_key.unwrap_or(ReturnKeyType::Done) {
+            ReturnKeyType::Done => "onDone",
+            ReturnKeyType::Search => "onSearch",
+            ReturnKeyType::Send => "onSend",
+            ReturnKeyType::Next => "onNext",
+        };
         out.push('\n');
         indent(out, depth + 1);
         out.push_str("keyboardActions = KeyboardActions(\n");
         indent(out, depth + 2);
-        out.push_str("onDone = {\n");
+        out.push_str(&format!("{callback} = {{\n"));
         render_actions(actions, depth + 3, out);
         indent(out, depth + 2);
         out.push_str("},\n");
@@ -174,5 +214,22 @@ pub(crate) fn kotlin_capitalization(capitalization: Capitalization) -> &'static 
         Capitalization::Sentences => "NativeKeyboardCapitalization.Sentences",
         Capitalization::Words => "NativeKeyboardCapitalization.Words",
         Capitalization::Characters => "NativeKeyboardCapitalization.Characters",
+    }
+}
+
+pub(crate) fn kotlin_autofill(autofill: AutofillType) -> &'static str {
+    match autofill {
+        AutofillType::Username => "ContentType.Username",
+        AutofillType::Password => "ContentType.Password",
+        AutofillType::OneTimeCode => "ContentType.SmsOtpCode",
+    }
+}
+
+pub(crate) fn kotlin_return_key(return_key: ReturnKeyType) -> &'static str {
+    match return_key {
+        ReturnKeyType::Done => "ImeAction.Done",
+        ReturnKeyType::Search => "ImeAction.Search",
+        ReturnKeyType::Send => "ImeAction.Send",
+        ReturnKeyType::Next => "ImeAction.Next",
     }
 }

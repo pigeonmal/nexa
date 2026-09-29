@@ -16,6 +16,7 @@ pub struct Capabilities {
     pub uses_file_async: bool,
     pub uses_result: bool,
     pub uses_time: bool,
+    pub uses_keyboard_api: bool,
 }
 
 impl Capabilities {

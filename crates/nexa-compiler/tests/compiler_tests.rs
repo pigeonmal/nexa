@@ -1,7 +1,8 @@
 use std::{fs, path::Path};
 
 use nexa_ir::{
-    AccessibilityRole, Action, ArithmeticOp, Expr, MemberKind, Node, NumericType, Type,
+    AccessibilityRole, Action, ArithmeticOp, AutofillType, Expr, MemberKind, Node, NumericType,
+    ReturnKeyType, Type,
     walk::{walk_actions, walk_ir},
 };
 
@@ -80,6 +81,95 @@ fn arithmetic_lowers_with_numeric_types_and_folds_constants() {
         Expr::State(name, Type::Numeric(NumericType::Int32)) if name == "result"
     ));
     assert!(matches!(call.as_ref(), Expr::Call { name, .. } if name == "computed"));
+}
+
+#[test]
+fn text_input_keyboard_ergonomics_lower_to_typed_native_options() {
+    let module = compile(
+        r#"
+        app KeyboardErgonomics {
+            state email: String = ""
+            state password: String = ""
+            state focused: Bool = false
+
+            body {
+                TextInput(
+                    value: email,
+                    placeholder: "Email",
+                    keyboardType: Email,
+                    autofill: Username,
+                    returnKeyType: Next,
+                    focused: focused,
+                ) { }
+                TextInput(
+                    value: password,
+                    placeholder: "Password",
+                    isSecure: true,
+                    autofill: Password,
+                    returnKeyType: Done,
+                ) { }
+                Button("Dismiss") { Keyboard.dismiss() }
+            }
+        }
+        "#,
+    )
+    .expect("keyboard ergonomics should compile");
+
+    assert!(matches!(
+        &module.body[0],
+        Node::TextInput {
+            keyboard: nexa_ir::KeyboardType::Email,
+            autofill: Some(AutofillType::Username),
+            return_key: Some(ReturnKeyType::Next),
+            ..
+        }
+    ));
+    assert!(matches!(
+        &module.body[1],
+        Node::TextInput {
+            secure: true,
+            autofill: Some(AutofillType::Password),
+            return_key: Some(ReturnKeyType::Done),
+            ..
+        }
+    ));
+    assert!(matches!(
+        &module.body[2],
+        Node::Button { actions, .. }
+            if matches!(actions.as_slice(), [Action::Expression(Expr::NativeCall {
+                namespace,
+                name,
+                return_type: Type::Void,
+                is_async: false,
+                ..
+            })] if namespace == "Keyboard" && name == "dismiss")
+    ));
+    assert!(nexa_ir::capabilities::analyze(&module).uses_keyboard_api);
+}
+
+#[test]
+fn text_input_rejects_conflicting_legacy_and_canonical_option_names() {
+    let error = compile(
+        r#"
+        app InvalidKeyboardOptions {
+            state text: String = ""
+            body {
+                TextInput(
+                    value: text,
+                    placeholder: "Text",
+                    keyboard: Email,
+                    keyboardType: Number,
+                ) { }
+            }
+        }
+        "#,
+    )
+    .expect_err("two aliases for one keyboard option must not be ambiguous");
+    assert!(
+        error
+            .to_string()
+            .contains("both `keyboard` and `keyboardType`")
+    );
 }
 
 #[test]

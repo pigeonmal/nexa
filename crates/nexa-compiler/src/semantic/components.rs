@@ -3,11 +3,11 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::walk::any_node;
 use nexa_ir::{
-    AccessibilityRole, Action, BottomBarTab, Capitalization, CollectionMutation, DirectionConfig,
-    DirectionStyle, Expr, FastListRefresh, FontWeight, HapticStyle, ImageScale, ImageSource,
-    KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis, ListCommon, ListPlan,
-    NativeComponentEventHandler, Node, NumericType, ScreenId, SectionedListCommon, StatusBarConfig,
-    StatusBarStyle, TextStyle, Type, ViewTransition as IrViewTransition, WhenCase,
+    AccessibilityRole, Action, AutofillType, BottomBarTab, Capitalization, CollectionMutation,
+    DirectionConfig, DirectionStyle, Expr, FastListRefresh, FontWeight, HapticStyle, ImageScale,
+    ImageSource, KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis, ListCommon, ListPlan,
+    NativeComponentEventHandler, Node, NumericType, ReturnKeyType, ScreenId, SectionedListCommon,
+    StatusBarConfig, StatusBarStyle, TextStyle, Type, ViewTransition as IrViewTransition, WhenCase,
 };
 use nexa_syntax::{ast, catalog};
 
@@ -692,8 +692,26 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let mut args = inv.arguments;
             let value = take_required_arg(&mut args, &inv.name, "value", span)?;
             let placeholder = take_required_arg(&mut args, &inv.name, "placeholder", span)?;
-            let keyboard = args.remove("keyboard");
-            let secure = args.remove("secure");
+            let keyboard = match (args.remove("keyboard"), args.remove("keyboardType")) {
+                (Some(_), Some(_)) => {
+                    return Err(CompileError::new(
+                        span,
+                        "TextInput cannot specify both `keyboard` and `keyboardType`",
+                    ));
+                }
+                (legacy, canonical) => legacy.or(canonical),
+            };
+            let secure = match (args.remove("secure"), args.remove("isSecure")) {
+                (Some(_), Some(_)) => {
+                    return Err(CompileError::new(
+                        span,
+                        "TextInput cannot specify both `secure` and `isSecure`",
+                    ));
+                }
+                (legacy, canonical) => legacy.or(canonical),
+            };
+            let autofill = args.remove("autofill");
+            let return_key = args.remove("returnKeyType");
             let multiline = args.remove("multiline");
             let autocorrect = args.remove("autocorrect");
             let capitalization = args.remove("capitalization");
@@ -707,11 +725,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let placeholder = require_string_literal(&placeholder, "TextInput placeholder")?;
             let keyboard = match keyboard {
                 Some(ast::Expr::Name(name, _)) => match name.as_str() {
-                    "Text" => KeyboardType::Text,
-                    "Number" => KeyboardType::Number,
-                    "Email" => KeyboardType::Email,
-                    "Phone" => KeyboardType::Phone,
-                    "Url" => KeyboardType::Url,
+                    "Text" | "text" => KeyboardType::Text,
+                    "Number" | "number" => KeyboardType::Number,
+                    "Email" | "email" => KeyboardType::Email,
+                    "Phone" | "phone" => KeyboardType::Phone,
+                    "Url" | "url" => KeyboardType::Url,
                     _ => {
                         return Err(CompileError::new(
                             span,
@@ -728,6 +746,51 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     ));
                 }
                 None => KeyboardType::Text,
+            };
+            let autofill = match autofill {
+                Some(ast::Expr::Name(name, name_span)) => Some(match name.as_str() {
+                    "Username" | "username" => AutofillType::Username,
+                    "Password" | "password" => AutofillType::Password,
+                    "OneTimeCode" | "oneTimeCode" | "one_time_code" => AutofillType::OneTimeCode,
+                    _ => {
+                        return Err(CompileError::new(
+                            name_span,
+                            format!(
+                                "unknown autofill type `{name}`; expected Username, Password, or OneTimeCode"
+                            ),
+                        ));
+                    }
+                }),
+                Some(expr) => {
+                    return Err(CompileError::new(
+                        expr.span(),
+                        "autofill type must be a supported autofill name",
+                    ));
+                }
+                None => None,
+            };
+            let return_key = match return_key {
+                Some(ast::Expr::Name(name, name_span)) => Some(match name.as_str() {
+                    "Done" | "done" => ReturnKeyType::Done,
+                    "Search" | "search" => ReturnKeyType::Search,
+                    "Send" | "send" => ReturnKeyType::Send,
+                    "Next" | "next" => ReturnKeyType::Next,
+                    _ => {
+                        return Err(CompileError::new(
+                            name_span,
+                            format!(
+                                "unknown return key type `{name}`; expected Done, Search, Send, or Next"
+                            ),
+                        ));
+                    }
+                }),
+                Some(expr) => {
+                    return Err(CompileError::new(
+                        expr.span(),
+                        "returnKeyType must be a return key name",
+                    ));
+                }
+                None => None,
             };
             let secure = optional_bool(secure, false, "secure")?;
             let multiline = optional_bool(multiline, false, "multiline")?;
@@ -779,6 +842,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 keyboard,
                 secure,
                 multiline,
+                autofill,
+                return_key,
                 autocorrect,
                 capitalization,
                 focused,
