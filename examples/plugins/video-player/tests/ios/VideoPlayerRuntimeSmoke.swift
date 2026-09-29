@@ -29,7 +29,7 @@ public protocol VideoPlayerSpec {
     func dispose()
 }
 
-public struct VideoPlayer {}
+public typealias VideoPlayer = VideoPlayerImpl
 
 @MainActor
 private final class FakeVideoPlayerEngine: VideoPlayerEngine {
