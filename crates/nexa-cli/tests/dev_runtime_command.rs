@@ -1,4 +1,4 @@
-use std::{fs, path::Path, process::Command};
+use std::{collections::HashMap, fs, path::Path, process::Command};
 
 fn temporary_project() -> nexa_testkit::VacantDir {
     // `nexa create` refuses to scaffold into a directory that already exists,
@@ -265,9 +265,114 @@ fn development_runtime_generates_typed_bridges_for_declared_plugin_services() {
 }
 
 #[test]
+fn optional_generic_compound_values_generate_aot_and_dev_codecs() {
+    let project = nexa_testkit::TestProject::new("nexa-dev-optional-generic-codec");
+    project.write(
+        "plugins/codec-probe/native.nxid",
+        "service CodecProbe {\n    fn store<T>(value: T) -> Bool\n    fn load<T>(key: String) -> T?\n}\n",
+    );
+    project.write(
+        "plugins/codec-probe/plugin.config.nx",
+        "plugin { schema: 2 id: \"dev.nexa.codec-probe\" version: \"0.1.0\" sources { native: \"native.nxid\" } ios { sources: [\"ios/CodecProbeImpl.swift\"] } android { sources: [\"android/src/main/kotlin/dev/nexa/codeprobe/CodecProbeImpl.kt\"] } }\n",
+    );
+    project.write(
+        "plugins/codec-probe/ios/CodecProbeImpl.swift",
+        "import Foundation\n",
+    );
+    project.write(
+        "plugins/codec-probe/android/src/main/kotlin/dev/nexa/codeprobe/CodecProbeImpl.kt",
+        "package dev.nexa.codeprobe\n",
+    );
+    let plugin_path = project
+        .path()
+        .join("plugins/codec-probe")
+        .display()
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    project.write(
+        "nexa.config.nx",
+        format!(
+            "config {{ dependencies {{ CodecProbe {{ id: \"dev.nexa.codec-probe\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
+        ),
+    );
+    project.write(
+        "App.nx",
+        "plugin \"dev.nexa.codec-probe\" as CodecProbe\napp OptionalCodec { enum CodecError { Missing } state maybe: String? = null state values: Array<String?> = [\"one\", null] state outcome: Result<String?, CodecError> = Ok(if true { \"present\" } else { null }) body { Button(\"Save\") { CodecProbe.store<String?>(maybe)\n values = CodecProbe.load<Array<String?>>(\"values\") ?? []\n CodecProbe.store<Result<String?, CodecError>>(outcome)\n CodecProbe.load<Result<String?, CodecError>>(\"outcome\") } } }\n",
+    );
+
+    let entry = project.path().join("App.nx");
+    let output = project.path().join("build");
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "OptionalCodec",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate both Dev hosts for a nullable generic plugin argument");
+
+    let swift =
+        nexa_testkit::TestProject::collect_sources_in(&output.join("ios/OptionalCodec"), "swift")
+            .into_iter()
+            .map(|path| fs::read_to_string(path).expect("read generated Swift source"))
+            .collect::<Vec<_>>()
+            .join("\n");
+    let kotlin = nexa_testkit::TestProject::collect_sources_in(
+        &output.join("android/app/src/main/java"),
+        "kt",
+    )
+    .into_iter()
+    .map(|path| fs::read_to_string(path).expect("read generated Kotlin source"))
+    .collect::<Vec<_>>()
+    .join("\n");
+    let swift_bridge =
+        fs::read_to_string(output.join("ios/OptionalCodec/NexaDevPluginBridge.swift"))
+            .expect("read generated Swift Dev plugin bridge");
+    let kotlin_bridge_path = nexa_testkit::TestProject::collect_sources_in(
+        &output.join("android/app/src/main/java"),
+        "kt",
+    )
+    .into_iter()
+    .find(|path| {
+        path.file_name()
+            .is_some_and(|name| name == "NexaDevPluginBridge.kt")
+    })
+    .expect("find generated Kotlin Dev plugin bridge");
+    let kotlin_bridge =
+        fs::read_to_string(kotlin_bridge_path).expect("read generated Kotlin Dev plugin bridge");
+
+    assert!(swift.contains("func nexaWriteoptional_string(_ value: String?"));
+    assert!(swift.contains("nexaWriteoptional_string(item, into: writer)"));
+    assert!(swift.contains("func nexaReadoptional_string(_ reader: NexaValueReader) -> String??"));
+    assert!(
+        swift.contains(
+            "func nexaReadarray_optional_string(_ reader: NexaValueReader) -> [String?]?"
+        )
+    );
+    assert!(kotlin.contains("fun nexaWriteoptional_string(value: String?"));
+    assert!(kotlin.contains("nexaWriteoptional_string(item, writer)"));
+    assert!(kotlin.contains("sealed class NexaValueReadResult"));
+    assert!(kotlin.contains("fun nexaReadoptional_string(reader: dev.nexa.core.NexaValueReader): NexaValueReadResult<String?>"));
+    assert!(kotlin.contains(
+        "fun nexaReadarray_optional_string(reader: dev.nexa.core.NexaValueReader): List<String?>?"
+    ));
+    assert!(kotlin.contains("val payload = nexaDecoded_payload.value as String?"));
+    assert!(kotlin.contains("return NexaResult.Success(payload)"));
+    assert!(
+        swift.contains("guard let payload = nexaReadoptional_string(reader) else { return nil }")
+    );
+    assert!(swift.contains("return .success(payload)"));
+    assert!(swift_bridge.contains("NexaDevValueCodec.write(nexaItem0, type: nexaCodec0"));
+    assert!(kotlin_bridge.contains("NexaDevValueCodec.write(nexaItem0, nexaCodec0"));
+}
+
+#[test]
 fn development_runtime_generates_video_plugin_class_event_and_component_bridges() {
     let project = nexa_testkit::TestProject::new("nexa-dev-video-plugin-bridge");
-    let entry = nexa_testkit::example_path("plugins/video-player-demo.nx");
+    let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../plugins/video-player/tests/demo/app/App.nx");
     let output = project.join("build");
 
     nexa_cli::generate_dev_project(
@@ -326,6 +431,244 @@ fn development_runtime_generates_video_plugin_class_event_and_component_bridges(
             "Kotlin Dev bridge is missing {marker}"
         );
     }
+}
+
+#[test]
+fn hot_reload_can_add_a_module_and_use_a_preconfigured_plugin_after_host_build() {
+    let project = nexa_testkit::TestProject::new("nexa-dev-new-fast-math-module");
+    let plugin = nexa_testkit::example_path("plugins/fast-math")
+        .canonicalize()
+        .expect("resolve installed FastMath package");
+    let plugin_path = plugin
+        .display()
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    project.write(
+        "nexa.config.nx",
+        format!(
+            "config {{ dependencies {{ FastMath {{ id: \"dev.nexa.fast-math\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
+        ),
+    );
+    project.write(
+        "App.nx",
+        "app PluginBridge { body { Text(\"Before plugin use\") } }\n",
+    );
+
+    let entry = project.path().join("App.nx");
+    let output = project.path().join("build");
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "PluginBridge",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("build Dev host before the app uses its installed FastMath plugin");
+
+    let ios_bridge_path = output.join("ios/PluginBridge/NexaDevPluginBridge.swift");
+    let android_bridge_path =
+        output.join("android/app/src/main/java/com/nexa/pluginbridge/NexaDevPluginBridge.kt");
+    let ios_bridge = fs::read_to_string(&ios_bridge_path).expect("read prebuilt Swift bridge");
+    let android_bridge =
+        fs::read_to_string(&android_bridge_path).expect("read prebuilt Kotlin bridge");
+    assert!(
+        ios_bridge.contains("FastMathPlugin.shared.add(nexaArg0, nexaArg1)"),
+        "prebuilt iOS bridge lacks FastMath.add"
+    );
+    assert!(
+        android_bridge.contains("FastMathPlugin.instance.add(nexaArg0, nexaArg1)"),
+        "prebuilt Android bridge lacks FastMath.add"
+    );
+
+    let roots = HashMap::from([("dev.nexa.fast-math".to_owned(), plugin)]);
+    let mut compiler = nexa_compiler::IncrementalProjectCompiler::default();
+    compiler
+        .compile_file_with_warnings_for_targets_and_plugin_roots(
+            &entry,
+            &[nexa_compiler::Target::Swift, nexa_compiler::Target::Kotlin],
+            &roots,
+        )
+        .expect("compile initial app before adding its FastMath component");
+    assert_eq!(compiler.last_compile_stats().parsed_source_files, 1);
+
+    project.write(
+        "AddedMath.nx",
+        "component AddedMath() { state sum: Int32 = 0 body { Button(\"Compute\") { sum = FastMath.add(10, 20) } } }\n",
+    );
+    project.write(
+        "App.nx",
+        "plugin \"dev.nexa.fast-math\" as FastMath\nimport \"AddedMath.nx\"\napp PluginBridge { body { AddedMath() } }\n",
+    );
+
+    compiler
+        .compile_file_with_warnings_for_targets_and_plugin_roots(
+            &entry,
+            &[nexa_compiler::Target::Swift, nexa_compiler::Target::Kotlin],
+            &roots,
+        )
+        .expect("compile app after adding and importing its FastMath component");
+    assert_eq!(compiler.last_compile_stats().parsed_source_files, 2);
+    assert_eq!(compiler.last_compile_stats().reused_source_files, 0);
+    let compilations = compiler
+        .compile_file_with_warnings_for_targets_and_plugin_roots(
+            &entry,
+            &[nexa_compiler::Target::Swift, nexa_compiler::Target::Kotlin],
+            &roots,
+        )
+        .expect("recompile unchanged imported plugin component");
+    assert_eq!(compiler.last_compile_stats().parsed_source_files, 0);
+    assert_eq!(compiler.last_compile_stats().reused_source_files, 2);
+
+    for compilation in compilations {
+        let dev_module = nexa_dev_ir::lower(&compilation.module, "new-plugin-module");
+        let json = serde_json::to_string(&dev_module).expect("serialize reloaded Dev IR");
+        for marker in ["NativeCall", "AddedMath", "FastMath", "add"] {
+            assert!(json.contains(marker), "reloaded Dev IR lacks {marker}");
+        }
+    }
+
+    assert_eq!(
+        fs::read_to_string(&ios_bridge_path).expect("read retained Swift bridge"),
+        ios_bridge,
+        "hot reload must use the bridge already linked into the host"
+    );
+    assert_eq!(
+        fs::read_to_string(&android_bridge_path).expect("read retained Kotlin bridge"),
+        android_bridge,
+        "hot reload must use the bridge already linked into the host"
+    );
+}
+
+#[test]
+fn hot_reload_can_add_preconfigured_plugin_classes_events_properties_and_components() {
+    let project = nexa_testkit::TestProject::new("nexa-dev-new-video-plugin-module");
+    let plugin = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../plugins/video-player")
+        .canonicalize()
+        .expect("resolve installed video-player package");
+    let plugin_path = plugin
+        .display()
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    project.write(
+        "nexa.config.nx",
+        format!(
+            "config {{ dependencies {{ VideoPlayer {{ id: \"dev.nexa.video-player\", path: \"{plugin_path}\" }} }} permissions {{}} }}\n"
+        ),
+    );
+    project.write(
+        "App.nx",
+        "app VideoPluginBridge { body { Text(\"Before plugin use\") } }\n",
+    );
+
+    let entry = project.path().join("App.nx");
+    let output = project.path().join("build");
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "VideoPluginBridge",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("build Dev host before the app imports its configured native plugin");
+
+    let ios_bridge_path = output.join("ios/VideoPluginBridge/NexaDevPluginBridge.swift");
+    let android_bridge_path = nexa_testkit::TestProject::collect_sources_in(
+        &output.join("android/app/src/main/java"),
+        "kt",
+    )
+    .into_iter()
+    .find(|path| {
+        path.file_name()
+            .is_some_and(|name| name == "NexaDevPluginBridge.kt")
+    })
+    .expect("find generated Kotlin Dev plugin bridge");
+    let ios_bridge = fs::read_to_string(&ios_bridge_path).expect("read prebuilt Swift bridge");
+    let android_bridge =
+        fs::read_to_string(&android_bridge_path).expect("read prebuilt Kotlin bridge");
+    for marker in [
+        "receiver as? any VideoPlayerSpec",
+        "nexaReceiver.play()",
+        "nexaReceiver.seek(nexaArg0)",
+        "return (true, VideoPlayer())",
+        "property == \"volume\"",
+        "property == \"onEnded\"",
+        "case (\"VideoPlayer\", \"VideoView\"):",
+    ] {
+        assert!(
+            ios_bridge.contains(marker),
+            "prebuilt iOS bridge lacks {marker}"
+        );
+    }
+    for marker in [
+        "receiver is VideoPlayer",
+        "nexaReceiver.play()",
+        "nexaReceiver.seek(nexaArg0)",
+        "true to VideoPlayer()",
+        "property == \"volume\"",
+        "property == \"onEnded\"",
+        "\"VideoPlayer.VideoView\" ->",
+    ] {
+        assert!(
+            android_bridge.contains(marker),
+            "prebuilt Android bridge lacks {marker}"
+        );
+    }
+
+    let roots = HashMap::from([("dev.nexa.video-player".to_owned(), plugin)]);
+    let mut compiler = nexa_compiler::IncrementalProjectCompiler::default();
+    compiler
+        .compile_file_with_warnings_for_targets_and_plugin_roots(
+            &entry,
+            &[nexa_compiler::Target::Swift, nexa_compiler::Target::Kotlin],
+            &roots,
+        )
+        .expect("compile initial app before importing the plugin");
+
+    project.write(
+        "AddedPlayer.nx",
+        "plugin \"dev.nexa.video-player\" as VideoPlayer\ncomponent AddedPlayer(player: VideoPlayer.VideoPlayer) { body { VideoPlayer.VideoView(player: player) { Text(\"Loaded\") }.onTapped { player.volume = 0.5 } } }\n",
+    );
+    project.write(
+        "App.nx",
+        "import \"AddedPlayer.nx\"\napp VideoPluginBridge { let player = VideoPlayer() state ended = false body { OnAppear { player.ended { ended = true } } AddedPlayer(player: player) Button(\"Play\") { player.play() } if ended { Text(\"Ended\") } } }\n",
+    );
+
+    let compilations = compiler
+        .compile_file_with_warnings_for_targets_and_plugin_roots(
+            &entry,
+            &[nexa_compiler::Target::Swift, nexa_compiler::Target::Kotlin],
+            &roots,
+        )
+        .expect("compile the new module with plugin class, property, event, and component uses");
+    assert_eq!(compiler.last_compile_stats().parsed_source_files, 2);
+    for compilation in compilations {
+        let dev_module = nexa_dev_ir::lower(&compilation.module, "new-video-plugin-module");
+        let json = serde_json::to_string(&dev_module).expect("serialize reloaded Dev IR");
+        for marker in [
+            "NativeCall",
+            "NativeComponentCall",
+            "NativePropertyAssign",
+            "NativeEventSubscribe",
+        ] {
+            assert!(json.contains(marker), "reloaded Dev IR lacks {marker}");
+        }
+    }
+
+    assert_eq!(
+        fs::read_to_string(&ios_bridge_path).expect("read retained Swift bridge"),
+        ios_bridge,
+        "hot reload must use the bridge already linked into the host"
+    );
+    assert_eq!(
+        fs::read_to_string(&android_bridge_path).expect("read retained Kotlin bridge"),
+        android_bridge,
+        "hot reload must use the bridge already linked into the host"
+    );
 }
 
 #[test]
@@ -592,6 +935,192 @@ fn development_async_network_calls_use_release_native_adapters() {
     )
     .expect("read generated Android screen");
     assert!(android_screen.contains("import androidx.compose.ui.platform.LocalContext"));
+}
+
+#[test]
+fn development_runtime_handles_locale_currency_formatting_on_both_platforms() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    fs::write(
+        &entry,
+        r#"app CurrencyFormatting {
+            state price: String = Number.formatCurrency(amount: 1234.5, currencyCode: "EUR")
+            body { Text(price) }
+        }
+        "#,
+    )
+    .expect("write currency formatting app source");
+    let output = root.join("build");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "RuntimeSmoke",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate both Dev hosts");
+
+    let ios = read_ios_dev_runtime(&output);
+    assert!(ios.contains("nexaDevFormatCurrency"));
+    assert!(ios.contains("namespace == \"Number\", name == \"formatCurrency\""));
+    let android = read_android_dev_runtime(&output);
+    assert!(android.contains("nexaDevFormatCurrency"));
+    assert!(android.contains("namespace == \"Number\" && name == \"formatCurrency\""));
+}
+
+#[test]
+fn core_crypto_helpers_are_ready_for_hot_reload_on_both_platforms() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    fs::write(&entry, "app CryptoHotReload { body { Text(\"ready\") } }\n")
+        .expect("write app without crypto calls");
+    let output = root.join("build");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "CryptoHotReload",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Dev hosts before Crypto is used by app source");
+
+    let ios_crypto =
+        fs::read_to_string(output.join("ios/CryptoHotReload/NexaGenerated_crypto.swift"))
+            .expect("Dev host should include crypto helpers for future hot reloads");
+    assert!(ios_crypto.contains("func nexaCryptoSha256"));
+    assert!(ios_crypto.contains("func nexaCryptoHmacSha256"));
+    assert!(ios_crypto.contains("func nexaCryptoRandomBytes"));
+    let ios_runtime =
+        fs::read_to_string(output.join("ios/CryptoHotReload/NexaDevNativeApis.swift"))
+            .expect("read iOS native API dispatcher");
+    assert!(ios_runtime.contains("case \"sha256\": return nexaCryptoSha256"));
+    assert!(ios_runtime.contains("case \"randomBytes\": return nexaCryptoRandomBytes"));
+
+    let android_crypto = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_crypto.kt"),
+    )
+    .expect("Android Dev host should include crypto helpers for future hot reloads");
+    assert!(android_crypto.contains("internal fun nexaCryptoSha256"));
+    assert!(android_crypto.contains("internal fun nexaCryptoHmacSha256"));
+    assert!(android_crypto.contains("internal fun nexaCryptoRandomBytes"));
+    let android_runtime = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaDevNativeApis.kt"),
+    )
+    .expect("read Android native API dispatcher");
+    assert!(android_runtime.contains("\"sha256\" -> nexaCryptoSha256"));
+    assert!(android_runtime.contains("\"randomBytes\" -> nexaCryptoRandomBytes"));
+}
+
+#[test]
+fn core_json_codecs_are_ready_for_hot_reload_on_both_platforms() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    fs::write(&entry, "app JsonHotReload { body { Text(\"ready\") } }\n")
+        .expect("write app without JSON calls");
+    let output = root.join("build");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "JsonHotReload",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Dev hosts before Json is used by app source");
+
+    let ios_codecs = fs::read_to_string(output.join("ios/JsonHotReload/NexaDevValueCodec.swift"))
+        .expect("Dev host should contain JSON codecs for later hot reloads");
+    assert!(ios_codecs.contains("static func parseJSON("));
+    assert!(ios_codecs.contains("private static func decodeJSON("));
+    let ios_native = fs::read_to_string(output.join("ios/JsonHotReload/NexaDevNativeApis.swift"))
+        .expect("read iOS native API dispatcher");
+    assert!(ios_native.contains("NexaDevValueCodec.parseJSON("));
+    assert!(ios_native.contains("NexaDevValueCodec.stringifyJSON("));
+
+    let android_package = output.join("android/app/src/main/java/dev/nexa/runtimesmoke");
+    let android_codecs = fs::read_to_string(android_package.join("NexaDevValueCodec.kt"))
+        .expect("Dev host should contain JSON codecs for later hot reloads");
+    assert!(android_codecs.contains("fun parseJson("));
+    assert!(android_codecs.contains("private fun readJson("));
+    let android_native = fs::read_to_string(android_package.join("NexaDevNativeApis.kt"))
+        .expect("read Android native API dispatcher");
+    assert!(android_native.contains("NexaDevValueCodec.parseJson("));
+    assert!(android_native.contains("NexaDevValueCodec.stringifyJson("));
+}
+
+#[test]
+fn native_clipboard_calls_are_ready_for_hot_reload_on_both_platforms() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    fs::write(
+        &entry,
+        "app ClipboardHotReload { body { Text(\"ready\") } }\n",
+    )
+    .expect("write app without clipboard calls");
+    let output = root.join("build");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "RuntimeSmoke",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Dev hosts before Clipboard is used by app source");
+
+    let ios = read_ios_dev_runtime(&output);
+    assert!(ios.contains("if namespace == \"Clipboard\" {"));
+    assert!(ios.contains("case \"setText\":"));
+    assert!(ios.contains("UIPasteboard.general.hasStrings"));
+
+    let android = read_android_dev_runtime(&output);
+    assert!(android.contains("if (namespace == \"Clipboard\") {"));
+    assert!(android.contains("\"setText\" ->"));
+    assert!(android.contains("primaryClipDescription"));
+}
+
+#[test]
+fn native_haptics_calls_are_ready_for_hot_reload_on_both_platforms() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    fs::write(
+        &entry,
+        "app HapticsHotReload { body { Text(\"ready\") } }\n",
+    )
+    .expect("write app without haptics calls");
+    let output = root.join("build");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "RuntimeSmoke",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Dev hosts before Haptics is used by app source");
+
+    let ios = read_ios_dev_runtime(&output);
+    assert!(ios.contains("private func nexaDevPerformHaptics"));
+    assert!(ios.contains("if namespace == \"Haptics\""));
+    assert!(ios.contains("UIImpactFeedbackGenerator(style: style).impactOccurred()"));
+    assert!(ios.contains("UISelectionFeedbackGenerator().selectionChanged()"));
+
+    let android = read_android_dev_runtime(&output);
+    assert!(android.contains("private fun nexaDevPerformHaptics"));
+    assert!(android.contains("if (namespace == \"Haptics\")"));
+    assert!(android.contains("NexaRuntimeCore.performHapticFeedback(constant)"));
+    let core_runtime = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/core/NexaRuntimeCore.kt"),
+    )
+    .expect("Android Dev host should include its haptics runtime helper");
+    assert!(core_runtime.contains("performHapticFeedback(feedbackConstant: Int)"));
 }
 
 #[test]

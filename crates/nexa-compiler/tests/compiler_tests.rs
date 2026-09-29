@@ -148,6 +148,329 @@ fn text_input_keyboard_ergonomics_lower_to_typed_native_options() {
 }
 
 #[test]
+fn currency_formatting_lowers_to_a_typed_core_call() {
+    let module = compile(
+        r#"
+        app CurrencyFormatting {
+            state price: String = Number.formatCurrency(amount: 1234.5, currencyCode: "EUR")
+
+            body {
+                Text(price)
+            }
+        }
+        "#,
+    )
+    .expect("currency formatting should compile");
+
+    assert!(matches!(
+        &module.states[0].initial,
+        Expr::NativeCall {
+            namespace,
+            name,
+            arguments,
+            return_type: Type::String,
+            is_async: false,
+            ..
+        } if namespace == "Number"
+            && name == "formatCurrency"
+            && matches!(arguments.as_slice(), [
+                (amount_name, Expr::Number { ty: NumericType::Float64, .. }),
+                (currency_name, Expr::String(code)),
+            ] if amount_name == "amount" && currency_name == "currencyCode" && code == "EUR")
+    ));
+    assert!(nexa_ir::capabilities::analyze(&module).uses_number_formatting);
+}
+
+#[test]
+fn json_parse_and_stringify_lower_with_concrete_value_codecs() {
+    let module = compile(
+        r#"
+        struct UserProfile {
+            name: String,
+            age: Int32,
+        }
+
+        app JsonExample {
+            fn encode(profile: UserProfile) -> String {
+                return Json.stringify(value: profile)
+            }
+
+            fn decode(raw: String) -> Result<UserProfile, JsonError> {
+                return Json.parse<UserProfile>(raw: raw)
+            }
+
+            state encoded: String = encode(UserProfile("Ada", 37))
+            state status: String = ""
+
+            body {
+                Text(encoded)
+                Button("Decode") {
+                    status = Json.stringify(value: decode(encoded))
+                }
+            }
+        }
+        "#,
+    )
+    .expect("typed JSON calls should compile");
+
+    let encode = module
+        .functions
+        .iter()
+        .find(|function| function.name == "encode")
+        .expect("the encode function should remain reachable");
+    assert!(matches!(
+        &encode.body,
+        Expr::NativeCall {
+            namespace,
+            name,
+            codecs,
+            return_type: Type::String,
+            ..
+        } if namespace == "Json"
+            && name == "stringify"
+            && matches!(codecs.as_slice(), [codec]
+                if !codec.decodes && matches!(&codec.ty, Type::Struct { name, .. } if name == "UserProfile"))
+    ));
+
+    let decode = module
+        .functions
+        .iter()
+        .find(|function| function.name == "decode")
+        .expect("the decode function should remain reachable");
+    assert!(matches!(
+        &decode.body,
+        Expr::NativeCall {
+            namespace,
+            name,
+            codecs,
+            return_type: Type::Result(value, error),
+            ..
+        } if namespace == "Json"
+            && name == "parse"
+            && matches!(codecs.as_slice(), [codec]
+                if codec.decodes && matches!(&codec.ty, Type::Struct { name, .. } if name == "UserProfile"))
+            && matches!(value.as_ref(), Type::Struct { name, .. } if name == "UserProfile")
+            && matches!(error.as_ref(), Type::Enum(name) if name == "JsonError")
+    ));
+    assert!(
+        module
+            .enums
+            .iter()
+            .any(|declaration| declaration.name == "JsonError")
+    );
+    assert!(nexa_ir::capabilities::analyze(&module).uses_json_api);
+}
+
+#[test]
+fn json_rejects_non_string_map_keys_and_unknown_types() {
+    let non_string_keys = compile(
+        r#"
+        app InvalidJsonMap {
+            let values: Map<Int32, String> = [:]
+            let encoded: String = Json.stringify(value: values)
+            body { Text(encoded) }
+        }
+        "#,
+    )
+    .expect_err("JSON object maps must use string keys");
+    assert!(
+        non_string_keys
+            .to_string()
+            .contains("JSON maps require `String` keys")
+    );
+
+    let unknown_type = compile(
+        r#"
+        app InvalidJsonType {
+            let decoded: Result<MissingType, JsonError> = Json.parse<MissingType>(raw: "{}")
+            body { Text("invalid") }
+        }
+        "#,
+    )
+    .expect_err("JSON codecs need a declared concrete type");
+    assert!(
+        unknown_type.to_string().contains("MissingType"),
+        "{unknown_type}"
+    );
+}
+
+#[test]
+fn crypto_calls_lower_to_typed_core_calls() {
+    let module = compile(
+        r#"
+        app CryptoExample {
+            let sha256: String = Crypto.sha256(text: "nexa")
+            let sha512: String = Crypto.sha512(text: "nexa")
+            let signature: String = Crypto.hmacSha256(key: "secret", message: "payload")
+            let random: String = Crypto.randomBytes(count: 16)
+
+            body {
+                Text(sha256)
+            }
+        }
+        "#,
+    )
+    .expect("core cryptographic calls should compile");
+
+    let calls = module
+        .states
+        .iter()
+        .map(|state| &state.initial)
+        .collect::<Vec<_>>();
+    for (expression, (expected_name, expected_arguments)) in calls.iter().zip([
+        ("sha256", &["text"][..]),
+        ("sha512", &["text"][..]),
+        ("hmacSha256", &["key", "message"][..]),
+        ("randomBytes", &["count"][..]),
+    ]) {
+        assert!(matches!(
+            expression,
+            Expr::NativeCall {
+                namespace,
+                name: actual_name,
+                arguments,
+                return_type: Type::String,
+                is_async: false,
+                is_throwing: false,
+                ..
+            } if namespace == "Crypto"
+                && actual_name == expected_name
+                && arguments.iter().map(|(argument, _)| argument.as_str()).collect::<Vec<_>>() == expected_arguments
+        ));
+    }
+    assert!(nexa_ir::capabilities::analyze(&module).uses_crypto_api);
+}
+
+#[test]
+fn clipboard_calls_lower_to_typed_core_calls() {
+    let module = compile(
+        r#"
+        app ClipboardExample {
+            state source: String = "copied"
+            state pasted: String = ""
+
+            body {
+                Button("Copy") { Clipboard.setText(text: source) }
+                Button("Paste") { pasted = Clipboard.getText() ?? "" }
+                Button("Check") { pasted = if Clipboard.hasText() { "yes" } else { "no" } }
+            }
+        }
+        "#,
+    )
+    .expect("typed clipboard calls should compile");
+
+    let Node::Button { actions: copy, .. } = &module.body[0] else {
+        panic!("expected copy button");
+    };
+    assert!(matches!(
+        copy.as_slice(),
+        [Action::Expression(Expr::NativeCall {
+            namespace,
+            name,
+            arguments,
+            return_type: Type::Void,
+            is_async: false,
+            is_throwing: false,
+            ..
+        })] if namespace == "Clipboard"
+            && name == "setText"
+            && matches!(arguments.as_slice(), [(argument, Expr::State(source, Type::String))]
+                if argument == "text" && source == "source")
+    ));
+
+    let Node::Button { actions: paste, .. } = &module.body[1] else {
+        panic!("expected paste button");
+    };
+    assert!(matches!(
+        paste.as_slice(),
+        [Action::Assign { value, .. }]
+            if matches!(value, Expr::Coalesce(left, _)
+                if matches!(left.as_ref(), Expr::NativeCall {
+                    namespace,
+                    name,
+                    return_type: Type::Optional(inner),
+                    is_async: false,
+                    ..
+                } if namespace == "Clipboard" && name == "getText" && **inner == Type::String))
+    ));
+
+    let Node::Button { actions: check, .. } = &module.body[2] else {
+        panic!("expected check button");
+    };
+    assert!(matches!(
+        check.as_slice(),
+        [Action::Assign { value, .. }]
+            if matches!(value, Expr::Conditional { condition, .. }
+                if matches!(condition.as_ref(), Expr::NativeCall {
+                    namespace,
+                    name,
+                    return_type: Type::Bool,
+                    is_async: false,
+                    ..
+                } if namespace == "Clipboard" && name == "hasText"))
+    ));
+    assert!(nexa_ir::capabilities::analyze(&module).uses_clipboard_api);
+}
+
+#[test]
+fn haptics_calls_lower_to_validated_typed_core_calls() {
+    let module = compile(
+        r#"
+        app HapticsExample {
+            body {
+                Button("Tap") { Haptics.impact(style: Heavy) }
+                Button("Done") { Haptics.notification(kind: Success) }
+                Button("Select") { Haptics.selection() }
+            }
+        }
+        "#,
+    )
+    .expect("haptics calls should compile");
+
+    for (node, expected_name, expected_argument, expected_value) in [
+        (&module.body[0], "impact", "style", "Heavy"),
+        (&module.body[1], "notification", "kind", "Success"),
+        (&module.body[2], "selection", "", ""),
+    ] {
+        let Node::Button { actions, .. } = node else {
+            panic!("expected a button");
+        };
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::Expression(Expr::NativeCall {
+                namespace,
+                name,
+                arguments,
+                return_type: Type::Void,
+                is_async: false,
+                is_throwing: false,
+                ..
+            })] if namespace == "Haptics"
+                && name == expected_name
+                && arguments.is_empty() == expected_argument.is_empty()
+                && (expected_argument.is_empty()
+                    || matches!(arguments.as_slice(), [(argument, Expr::String(value))]
+                        if argument == expected_argument && value == expected_value))
+        ));
+    }
+    assert!(nexa_ir::capabilities::analyze(&module).uses_haptics_api);
+}
+
+#[test]
+fn haptics_reject_unknown_feedback_style() {
+    let error = compile(
+        r#"
+        app InvalidHaptics {
+            body { Button("Tap") { Haptics.impact(style: Soft) } }
+        }
+        "#,
+    )
+    .expect_err("unknown haptics feedback styles should fail type checking");
+
+    assert!(error.to_string().contains("Haptics.impact style must be"));
+}
+
+#[test]
 fn text_input_rejects_conflicting_legacy_and_canonical_option_names() {
     let error = compile(
         r#"
@@ -943,12 +1266,12 @@ fn nested_borrowed_components_keep_the_owner_instance_live() {
 
 #[test]
 fn plugin_package_calls_lower_to_typed_instances_and_qualified_components() {
-    let entry =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/plugins/video-player-demo.nx");
+    let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../plugins/video-player/tests/demo/app/App.nx");
 
     for target in [Target::Swift, Target::Kotlin] {
         let module = compile_file_with_warnings_for_target(&entry, target)
-            .expect("VideoPlayer example should lower for each target")
+            .expect("VideoPlayer plugin test app should lower for each target")
             .module;
 
         assert_eq!(module.plugins.len(), 1);

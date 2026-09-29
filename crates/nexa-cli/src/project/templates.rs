@@ -1139,7 +1139,7 @@ pub(super) fn android_manifest(
         })
         .collect::<String>();
     format!(
-        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\"{picture_in_picture_attributes}>\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n{deep_link_filters}        </activity>\n{media_playback_service_declarations}    </application>\n</manifest>\n",
+        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\" android:screenOrientation=\"fullUser\"{picture_in_picture_attributes}>\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n{deep_link_filters}        </activity>\n{media_playback_service_declarations}    </application>\n</manifest>\n",
         xml_escape(&config.display_name),
     )
 }

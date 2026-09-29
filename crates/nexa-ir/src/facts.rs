@@ -906,6 +906,15 @@ fn observe_expr(
     if matches!(expression, Expr::ResultOk { .. } | Expr::ResultErr { .. }) {
         capabilities.uses_result = true;
     }
+    if let Expr::NativeCall {
+        return_type,
+        codecs,
+        ..
+    } = expression
+    {
+        capabilities.uses_result |=
+            type_uses_result(return_type) || codecs.iter().any(|codec| type_uses_result(&codec.ty));
+    }
     // Validated core calls carry the same capability signal as their
     // `NativeCall` spelling; match both so lowering shapes cannot hide
     // platform API usage from capability analysis.
@@ -941,6 +950,12 @@ fn observe_expr(
                 capabilities.uses_file_async |= name != "exists";
             }
             "Keyboard" => capabilities.uses_keyboard_api |= name == "dismiss",
+            "Number" => capabilities.uses_number_formatting |= name == "formatCurrency",
+            "Json" => capabilities.uses_json_api = true,
+            "Crypto" => capabilities.uses_crypto_api = true,
+            "SecureStorage" => capabilities.uses_secure_storage_api = true,
+            "Clipboard" => capabilities.uses_clipboard_api = true,
+            "Haptics" => capabilities.uses_haptics_api = true,
             _ => {}
         }
     }
@@ -1143,6 +1158,8 @@ mod tests {
                     Action::Expression(call("Network", "fetch")),
                     Action::Expression(call("Path", "documents")),
                     Action::Expression(call("File", "readText")),
+                    Action::Expression(call("Number", "formatCurrency")),
+                    Action::Expression(call("SecureStorage", "get")),
                 ],
             }],
         }]);
@@ -1152,6 +1169,8 @@ mod tests {
         assert!(facts.capabilities.uses_path_api);
         assert!(facts.capabilities.uses_file_api);
         assert!(facts.capabilities.uses_file_async);
+        assert!(facts.capabilities.uses_number_formatting);
+        assert!(facts.capabilities.uses_secure_storage_api);
         assert!(facts.ui.layout.column);
         assert!(facts.ui.button.present);
     }

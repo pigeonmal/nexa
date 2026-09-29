@@ -37,6 +37,34 @@ pub fn codec_name(ty: &Type, direction: Direction) -> String {
     format!("{prefix}{}", mangled(ty, None))
 }
 
+/// Stable generated declaration names for type-directed JSON codecs.
+pub fn json_codec_name(ty: &Type) -> String {
+    format!("NexaJsonCodec{}", json_type_suffix(ty))
+}
+
+pub fn json_decode_name(ty: &Type) -> String {
+    format!("nexaJsonDecode_{}", json_type_suffix(ty))
+}
+
+pub fn json_encode_name(ty: &Type) -> String {
+    format!("nexaJsonEncode_{}", json_type_suffix(ty))
+}
+
+pub fn json_parse_name(ty: &Type) -> String {
+    format!("nexaJsonParse_{}", json_type_suffix(ty))
+}
+
+pub fn json_stringify_name(ty: &Type) -> String {
+    format!("nexaJsonStringify_{}", json_type_suffix(ty))
+}
+
+fn json_type_suffix(ty: &Type) -> String {
+    codec_name(ty, Direction::Read)
+        .strip_prefix("nexaRead")
+        .unwrap_or("unsupported")
+        .to_owned()
+}
+
 /// Numeric spellings used in generated codec names.
 pub fn numeric_mangled(numeric: NumericType) -> &'static str {
     match numeric {
@@ -93,6 +121,15 @@ fn mangled(ty: &Type, parent: Option<&str>) -> String {
             let prefix = mangled(second, Some(&prefix));
             mangled(third, Some(&prefix))
         }
+        Type::Optional(inner) => {
+            let prefix = own("optional");
+            mangled(inner, Some(&prefix))
+        }
+        Type::Result(value, error) => {
+            let prefix = own("result");
+            let prefix = mangled(value, Some(&prefix));
+            mangled(error, Some(&prefix))
+        }
         // Unreachable for a bound plugin value type: the compiler rejects
         // every other shape before code generation.
         other => own(&format!(
@@ -117,19 +154,60 @@ fn lowercased(name: &str) -> String {
 /// A codec is emitted because a call uses it, so a type nothing passes to a
 /// generic plugin method costs nothing.
 pub fn collect(module: &nexa_ir::Module) -> Vec<Codec> {
-    let mut collector = CodecCollector::default();
+    let mut collector = CodecCollector::new(CodecSource::Plugin);
     collector.module(module);
     collector.codecs
 }
 
-#[derive(Default)]
+/// Every value type passed to the core JSON API, with nested types before
+/// their containers. JSON helpers are generated separately from the binary
+/// codecs used by generic plugin calls.
+pub fn collect_json_types(module: &nexa_ir::Module) -> Vec<Type> {
+    let mut collector = CodecCollector::new(CodecSource::Json);
+    collector.module(module);
+    let mut types = Vec::with_capacity(collector.codecs.len());
+    for codec in collector.codecs {
+        if !types.contains(&codec.ty) {
+            types.push(codec.ty);
+        }
+    }
+    types
+}
+
+#[derive(Clone, Copy)]
+enum CodecSource {
+    Plugin,
+    Json,
+}
+
 struct CodecCollector {
+    source: CodecSource,
     codecs: Vec<Codec>,
+}
+
+impl CodecCollector {
+    fn new(source: CodecSource) -> Self {
+        Self {
+            source,
+            codecs: Vec::new(),
+        }
+    }
 }
 
 impl IrVisitor for CodecCollector {
     fn visit_expr(&mut self, expr: &nexa_ir::Expr) {
-        if let nexa_ir::Expr::NativeCall { codecs, .. } = expr {
+        if let nexa_ir::Expr::NativeCall {
+            namespace, codecs, ..
+        } = expr
+        {
+            let matches_source = match self.source {
+                CodecSource::Plugin => namespace != "Json",
+                CodecSource::Json => namespace == "Json",
+            };
+            if !matches_source {
+                nexa_ir::walk::walk_expr_children(expr, self);
+                return;
+            }
             for codec in codecs {
                 let direction = if codec.decodes {
                     Direction::Read
@@ -198,7 +276,9 @@ impl CodecCollector {
     /// collection's codec is always declared after the codecs it calls.
     fn add(&mut self, ty: &Type, direction: Direction) {
         match ty {
-            Type::Array(element) | Type::Set(element) => self.add(element, direction),
+            Type::Array(element) | Type::Set(element) | Type::Optional(element) => {
+                self.add(element, direction)
+            }
             Type::Map(key, value) => {
                 self.add(key, direction);
                 self.add(value, direction);
@@ -211,6 +291,10 @@ impl CodecCollector {
                 self.add(first, direction);
                 self.add(second, direction);
                 self.add(third, direction);
+            }
+            Type::Result(value, error) => {
+                self.add(value, direction);
+                self.add(error, direction);
             }
             Type::Struct { fields, .. } => {
                 for (_, field) in fields {
@@ -292,6 +376,15 @@ public object NexaRuntimeCore {
             val manager = activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
                 as? android.view.inputmethod.InputMethodManager ?: return@runOnUiThread
             manager.hideSoftInputFromWindow(token, 0)
+        }
+    }
+
+    public fun performHapticFeedback(feedbackConstant: Int) {
+        val activity = foregroundActivity?.get() ?: return
+        activity.runOnUiThread {
+            if (!activity.isFinishing && !activity.isDestroyed) {
+                activity.window.decorView.performHapticFeedback(feedbackConstant)
+            }
         }
     }
 }
@@ -582,6 +675,49 @@ mod tests {
         let codecs = collect(&module);
         assert_eq!(codecs.len(), 1);
         assert_eq!(codecs[0].direction, Direction::Read);
+    }
+
+    #[test]
+    fn result_codec_names_include_both_payload_types() {
+        let result = Type::Result(
+            Box::new(Type::Numeric(NumericType::Float64)),
+            Box::new(Type::Enum("StoreError".to_owned())),
+        );
+        assert_eq!(
+            codec_name(&result, Direction::Write),
+            "nexaWriteresult_float64_enum_storeerror"
+        );
+        assert_eq!(
+            codec_name(&result, Direction::Read),
+            "nexaReadresult_float64_enum_storeerror"
+        );
+    }
+
+    #[test]
+    fn optional_codec_names_are_stable_and_collect_the_wrapped_type_first() {
+        let optional = Type::Optional(Box::new(Type::String));
+        assert_eq!(
+            codec_name(&optional, Direction::Write),
+            "nexaWriteoptional_string"
+        );
+
+        let mut module = module_with_lifecycle_call();
+        let call = match &mut module.on_appear.as_mut().expect("lifecycle actions")[0] {
+            Action::Expression(expression) => expression,
+            _ => unreachable!("the fixture is an expression"),
+        };
+        if let Expr::NativeCall { codecs, .. } = call {
+            codecs.clear();
+            codecs.push(PluginCodec {
+                ty: optional,
+                decodes: false,
+            });
+        }
+        let names = collect(&module)
+            .iter()
+            .map(|codec| codec_name(&codec.ty, codec.direction))
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["nexaWritestring", "nexaWriteoptional_string"]);
     }
 
     /// A module with no generic call emits no codec at all.

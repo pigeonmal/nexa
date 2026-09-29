@@ -17,6 +17,7 @@ pub(super) fn run(args: Vec<String>) -> Result<(), String> {
     match args.first().map(String::as_str) {
         Some("create") => create(&args[1..]),
         Some("check") => check_project(&args[1..]),
+        Some("audit") => crate::audit::run(&args[1..]),
         Some("dev") => native_command("dev", &args[1..]),
         Some("test") => native_command("test", &args[1..]),
         Some("release") => native_command("release", &args[1..]),
@@ -109,14 +110,18 @@ fn check_project(args: &[String]) -> Result<(), String> {
     let mut platform_set = false;
     let mut deny_warnings = false;
     let mut locked = false;
+    let mut audit_enabled = false;
     for argument in args {
         match argument.as_str() {
             "--ios" => set_platform(&mut platform, &mut platform_set, "ios")?,
             "--android" => set_platform(&mut platform, &mut platform_set, "android")?,
             "--deny-warnings" => deny_warnings = true,
+            "--audit" => audit_enabled = true,
             "--locked" => locked = true,
             "--help" | "-h" => {
-                println!("Usage: nexa check [--ios | --android] [--deny-warnings] [--locked]");
+                println!(
+                    "Usage: nexa check [--ios | --android] [--deny-warnings] [--audit] [--locked]"
+                );
                 return Ok(());
             }
             option if option.starts_with('-') => return Err(format!("unknown option `{option}`")),
@@ -175,6 +180,9 @@ fn check_project(args: &[String]) -> Result<(), String> {
         return Err(format!("{} warning(s) treated as errors", warnings.len()));
     }
     println!("check passed ({platform})");
+    if audit_enabled {
+        crate::audit::run(&[entry.display().to_string(), "--target".to_owned(), platform])?;
+    }
     Ok(())
 }
 
@@ -1516,14 +1524,17 @@ fn ensure_success(status: ExitStatus, label: &str) -> Result<(), String> {
 
 fn print_help() {
     println!(
-        "Nexa — native iOS and Android apps from one .nx project\n\nUsage:\n  nexa create <ProjectName>\n  nexa check [--ios | --android] [--locked]\n  nexa dev [--ios | --android] [--locked]\n  nexa test [--ios | --android] [--locked]\n  nexa release [--ios | --android] [--locked]\n  nexa doctor\n  nexa plugin init | check | generate\n\nRun `nexa <command> --help` for command options."
+        "Nexa — native iOS and Android apps from one .nx project\n\nUsage:\n  nexa create <ProjectName>\n  nexa check [--ios | --android] [--audit] [--locked]\n  nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--out <path>]\n  nexa dev [--ios | --android] [--locked]\n  nexa test [--ios | --android] [--locked]\n  nexa release [--ios | --android] [--locked]\n  nexa doctor\n  nexa plugin init | check | generate\n\nRun `nexa <command> --help` for command options."
     );
 }
 
 fn print_command_help(command: &str) {
     match command {
         "create" => println!("Usage: nexa create <ProjectName> [--directory <path>]"),
-        "check" => println!("Usage: nexa check [--ios | --android] [--deny-warnings] [--locked]"),
+        "check" => {
+            println!("Usage: nexa check [--ios | --android] [--deny-warnings] [--audit] [--locked]")
+        }
+        "audit" => crate::audit::print_help(),
         "dev" => {
             println!(
                 "Usage: nexa dev [--ios | --android] [--arch <architecture>] [--once | --compile-only] [--flavor <name>] [--out <directory>] [--locked]\nWhile running: `r` hot reloads, `Shift+R` hot restarts, `b` rebuilds and relaunches, and `p` toggles the performance overlay."

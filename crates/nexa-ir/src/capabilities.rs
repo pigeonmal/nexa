@@ -16,7 +16,13 @@ pub struct Capabilities {
     pub uses_file_async: bool,
     pub uses_result: bool,
     pub uses_time: bool,
+    pub uses_number_formatting: bool,
+    pub uses_json_api: bool,
     pub uses_keyboard_api: bool,
+    pub uses_crypto_api: bool,
+    pub uses_secure_storage_api: bool,
+    pub uses_clipboard_api: bool,
+    pub uses_haptics_api: bool,
 }
 
 impl Capabilities {
@@ -90,6 +96,10 @@ mod tests {
                     Action::Expression(call("Network", "fetch")),
                     Action::Expression(call("Path", "documents")),
                     Action::Expression(call("File", "readText")),
+                    Action::Expression(call("Number", "formatCurrency")),
+                    Action::Expression(call("Crypto", "sha256")),
+                    Action::Expression(call("Clipboard", "hasText")),
+                    Action::Expression(call("Haptics", "selection")),
                 ],
             }],
         }]);
@@ -99,6 +109,10 @@ mod tests {
         assert!(capabilities.uses_path_api);
         assert!(capabilities.uses_file_api);
         assert!(capabilities.uses_file_async);
+        assert!(capabilities.uses_number_formatting);
+        assert!(capabilities.uses_crypto_api);
+        assert!(capabilities.uses_clipboard_api);
+        assert!(capabilities.uses_haptics_api);
     }
 
     #[test]
@@ -395,6 +409,37 @@ mod tests {
         ] {
             let mut module = blank_result_module();
             module.states.push(int_state("outcome", ty));
+            assert!(analyze(&module).uses_result);
+        }
+    }
+
+    #[test]
+    fn generic_plugin_result_return_and_codec_enable_result_capability() {
+        let result = Type::Result(
+            Box::new(Type::Numeric(crate::NumericType::Int32)),
+            Box::new(Type::Enum("StoreError".to_owned())),
+        );
+        for (return_type, codecs) in [
+            (Type::Optional(Box::new(result.clone())), Vec::new()),
+            (
+                Type::Bool,
+                vec![crate::PluginCodec {
+                    ty: result,
+                    decodes: false,
+                }],
+            ),
+        ] {
+            let mut module = blank_result_module();
+            module.on_appear = Some(vec![Action::Expression(Expr::NativeCall {
+                receiver: None,
+                namespace: "Store".to_owned(),
+                name: "getObject".to_owned(),
+                arguments: Vec::new(),
+                codecs,
+                return_type,
+                is_async: false,
+                is_throwing: false,
+            })]);
             assert!(analyze(&module).uses_result);
         }
     }

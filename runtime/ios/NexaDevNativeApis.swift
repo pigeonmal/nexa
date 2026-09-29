@@ -1,6 +1,41 @@
 import Foundation
 import UIKit
 
+private func nexaDevFormatCurrency(_ amount: Double, _ currencyCode: String) -> String {
+    let formatter = NumberFormatter()
+    formatter.locale = .current
+    let code = currencyCode.uppercased()
+    if Locale.commonISOCurrencyCodes.contains(code) {
+        formatter.currencyCode = code
+        formatter.numberStyle = .currency
+    } else {
+        formatter.numberStyle = .decimal
+    }
+    return formatter.string(from: NSNumber(value: amount)) ?? String(amount)
+}
+
+@MainActor
+private func nexaDevPerformHaptics(_ name: String, options: [String: Any]) {
+    switch name {
+    case "impact":
+        let style: UIImpactFeedbackGenerator.FeedbackStyle
+        switch options["style"] as? String {
+        case "Medium": style = .medium
+        case "Heavy": style = .heavy
+        default: style = .light
+        }
+        UIImpactFeedbackGenerator(style: style).impactOccurred()
+    case "notification":
+        let kind: UINotificationFeedbackGenerator.FeedbackType =
+            (options["kind"] as? String) == "Error" ? .error : .success
+        UINotificationFeedbackGenerator().notificationOccurred(kind)
+    case "selection":
+        UISelectionFeedbackGenerator().selectionChanged()
+    default:
+        break
+    }
+}
+
 @MainActor
 extension NexaDevStateStore {
     func invokeNativeAsync(
@@ -56,11 +91,43 @@ extension NexaDevStateStore {
             )
             return NSNull()
         }
+        if namespace == "Clipboard" {
+            switch name {
+            case "setText":
+                UIPasteboard.general.string = options["text"] as? String ?? ""
+                return NSNull()
+            case "getText": return (UIPasteboard.general.string as Any?) ?? NSNull()
+            case "hasText": return UIPasteboard.general.hasStrings
+            default:
+                throw NSError(
+                    domain: "NexaDevRuntime",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Unsupported clipboard call \\(name)"]
+                )
+            }
+        }
+        if namespace == "Haptics" {
+            nexaDevPerformHaptics(name, options: options)
+            return NSNull()
+        }
         func stringOption(_ key: String, _ fallback: String = "") -> String {
             options[key] as? String ?? fallback
         }
         func numberOption(_ key: String, _ fallback: Double) -> Double {
             (options[key] as? NSNumber)?.doubleValue ?? fallback
+        }
+        if namespace == "Number", name == "formatCurrency" {
+            return nexaDevFormatCurrency(numberOption("amount", 0), stringOption("currencyCode"))
+        }
+        if namespace == "Crypto" {
+            switch name {
+            case "sha256": return nexaCryptoSha256(stringOption("text"))
+            case "sha512": return nexaCryptoSha512(stringOption("text"))
+            case "hmacSha256":
+                return nexaCryptoHmacSha256(stringOption("key"), stringOption("message"))
+            case "randomBytes": return nexaCryptoRandomBytes(Int32(numberOption("count", 0)))
+            default: break
+            }
         }
         if namespace == "Path" {
             switch name {
@@ -92,6 +159,28 @@ extension NexaDevStateStore {
                     domain: "NexaDevRuntime",
                     code: 1,
                     userInfo: [NSLocalizedDescriptionKey: "Unsupported async native call \(namespace).\(name)"]
+                )
+            }
+        }
+        if namespace == "SecureStorage" {
+            switch name {
+            case "get":
+                let value = try await NexaSecureStorage.get(stringOption("key"))
+                return (value as Any?) ?? NSNull()
+            case "set":
+                try await NexaSecureStorage.set(stringOption("key"), stringOption("value"))
+                return NSNull()
+            case "delete":
+                try await NexaSecureStorage.delete(stringOption("key"))
+                return NSNull()
+            case "clear":
+                try await NexaSecureStorage.clear()
+                return NSNull()
+            default:
+                throw NSError(
+                    domain: "NexaDevRuntime",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Unsupported secure storage call \(name)"]
                 )
             }
         }
@@ -231,7 +320,55 @@ extension NexaDevStateStore {
             )
             return NSNull()
         }
+        if namespace == "Json", let codec = codecs.first {
+            switch name {
+            case "parse":
+                return NexaDevValueCodec.parseJSON(
+                    options["raw"] as? String ?? "",
+                    type: codec,
+                    enumCases: enumCases
+                )
+            case "stringify":
+                return NexaDevValueCodec.stringifyJSON(
+                    options["value"],
+                    type: codec,
+                    enumCases: enumCases
+                )
+            default:
+                return NSNull()
+            }
+        }
+        if namespace == "Clipboard" {
+            switch name {
+            case "setText":
+                UIPasteboard.general.string = options["text"] as? String ?? ""
+                return NSNull()
+            case "getText": return (UIPasteboard.general.string as Any?) ?? NSNull()
+            case "hasText": return UIPasteboard.general.hasStrings
+            default: return NSNull()
+            }
+        }
+        if namespace == "Haptics" {
+            nexaDevPerformHaptics(name, options: options)
+            return NSNull()
+        }
         func stringOption(_ key: String) -> String { options[key] as? String ?? "" }
+        if namespace == "Number", name == "formatCurrency" {
+            let amount = (options["amount"] as? NSNumber)?.doubleValue ?? 0
+            return nexaDevFormatCurrency(amount, stringOption("currencyCode"))
+        }
+        if namespace == "Crypto" {
+            switch name {
+            case "sha256": return nexaCryptoSha256(stringOption("text"))
+            case "sha512": return nexaCryptoSha512(stringOption("text"))
+            case "hmacSha256":
+                return nexaCryptoHmacSha256(stringOption("key"), stringOption("message"))
+            case "randomBytes":
+                let count = (options["count"] as? NSNumber)?.int32Value ?? 0
+                return nexaCryptoRandomBytes(count)
+            default: break
+            }
+        }
         switch namespace {
         case "Path":
             switch name {

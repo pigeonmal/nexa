@@ -5,7 +5,7 @@ mod api;
 mod components;
 mod engine;
 
-pub(super) use api::{network, permissions, time};
+pub(super) use api::{crypto, network, number, permissions, time};
 use components::components as component_renderer;
 pub(super) use components::{
     accessibility, bottom_bar, controls, custom_components, direction, images, input, keyboard,
@@ -70,6 +70,7 @@ fn generate_with_analysis_mode(
     // Value codecs live in the types file: app structs and enums are
     // file-private, and a codec for one has to construct and read it.
     let value_codecs = nexa_codegen::value::collect(module);
+    let json_types = nexa_codegen::value::collect_json_types(module);
     units.write("types", |out| {
         types::render_enums(module, out);
         structs::render(module, out);
@@ -82,6 +83,12 @@ fn generate_with_analysis_mode(
             value::render(&value_codecs, out);
         }
     });
+
+    if features.facts.capabilities.uses_json_api {
+        units.write("json", |out| {
+            api::json::render(&json_types, &module.enums, out);
+        });
+    }
 
     units.write("app", |out| {
         out.push_str(&format!(
@@ -223,6 +230,24 @@ fn generate_with_analysis_mode(
             time::render(out);
         });
     }
+    if features.facts.capabilities.uses_number_formatting {
+        units.write("number", |out| {
+            number::render(out);
+        });
+    }
+    if features.facts.capabilities.uses_crypto_api {
+        units.write("crypto", |out| {
+            crypto::render(out);
+        });
+    }
+    if features.facts.capabilities.uses_secure_storage_api {
+        units.write("secure-storage", |out| {
+            api::secure_storage::render(out);
+        });
+    }
+    if features.facts.capabilities.uses_clipboard_api {
+        units.write("clipboard", api::clipboard::render);
+    }
     units.write("functions", |out| {
         functions::render(module, out);
     });
@@ -254,6 +279,13 @@ pub(super) fn generate_for_dev_units(module: &Module) -> GeneratedSources {
     features.uses_path_api = true;
     features.uses_file_api = true;
     features.uses_file_async = true;
+    features.facts.capabilities.uses_crypto_api = true;
+    // JSON is interpreted by NexaDevValueCodec using type descriptors from
+    // every hot-reloaded module. Do not emit static JSON helpers for a module
+    // that does not declare JsonError or concrete JSON value codecs yet.
+    // SecureStorage calls can be added after the dev host is built, so the
+    // Keychain adapter must already be part of every development host.
+    features.facts.capabilities.uses_secure_storage_api = true;
     features.uses_permissions = true;
     features.uses_permission_request = true;
     features.dynamic_permission = true;
@@ -341,6 +373,62 @@ mod tests {
         assert!(
             generate(&module).contains("animation(.spring(response: 0.35, dampingFraction: 0.8))")
         );
+    }
+
+    #[test]
+    fn currency_formatting_emits_only_the_reachable_native_helper() {
+        let call = Expr::NativeCall {
+            receiver: None,
+            namespace: "Number".to_owned(),
+            name: "formatCurrency".to_owned(),
+            arguments: vec![
+                (
+                    "amount".to_owned(),
+                    Expr::Number {
+                        raw: "1234.5".to_owned(),
+                        ty: NumericType::Float64,
+                    },
+                ),
+                ("currencyCode".to_owned(), Expr::String("EUR".to_owned())),
+            ],
+            codecs: Vec::new(),
+            return_type: Type::String,
+            is_async: false,
+            is_throwing: false,
+        };
+        let module = Module {
+            app_name: "CurrencyFormatting".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: vec![State {
+                name: "price".to_owned(),
+                ty: Type::String,
+                initial: call,
+                mutable: true,
+            }],
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Text {
+                value: Expr::State("price".to_owned(), Type::String),
+                style: TextStyle::default(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+        assert!(swift.contains("nexaFormatCurrency(Double(1234.5), \"EUR\")"));
+        assert!(swift.contains("func nexaFormatCurrency"));
+        assert!(swift.contains("import Foundation\n"));
     }
 
     #[test]

@@ -900,7 +900,14 @@ impl Parser {
                         property.name, interface.name
                     ));
                 }
-                validate_type_ref(&property.ty, &property.name, &types, &interfaces, false, &[])?;
+                validate_type_ref(
+                    &property.ty,
+                    &property.name,
+                    &types,
+                    &interfaces,
+                    false,
+                    &[],
+                )?;
                 if let Some(default) = &property.default {
                     if interface.kind != InterfaceKind::NativeComponent {
                         return Err(format!(
@@ -1223,7 +1230,10 @@ fn validate_type_ref(
                 ty.name
             ));
         }
-    } else if type_parameters.iter().any(|parameter| parameter == &ty.name) {
+    } else if type_parameters
+        .iter()
+        .any(|parameter| parameter == &ty.name)
+    {
         if !ty.arguments.is_empty() {
             return Err(format!(
                 "{context} uses type parameter `{}` with unexpected type arguments",
@@ -1556,6 +1566,9 @@ mod type_parameter_tests {
         .expect("generic methods should parse");
         let methods = &idl.interfaces[0].methods;
         assert_eq!(methods[0].type_parameters, vec!["T".to_owned()]);
-        assert_eq!(methods[1].type_parameters, vec!["K".to_owned(), "V".to_owned()]);
+        assert_eq!(
+            methods[1].type_parameters,
+            vec!["K".to_owned(), "V".to_owned()]
+        );
     }
 }

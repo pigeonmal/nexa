@@ -369,6 +369,17 @@ fn native_call(
         .iter()
         .map(|(_, value)| expression_with_locals(value, locals))
         .collect::<Vec<_>>();
+    if namespace == "Json" {
+        let raw_or_value = rendered.first().map(String::as_str).unwrap_or("\"\"");
+        if let Some(codec) = codecs.first() {
+            let helper = if name == "parse" {
+                nexa_codegen::value::json_parse_name(&codec.ty)
+            } else {
+                nexa_codegen::value::json_stringify_name(&codec.ty)
+            };
+            return format!("{helper}({raw_or_value})");
+        }
+    }
     // Codec closures are appended positionally. Plugin implementations may
     // choose their own parameter names, and positional calls keep those source
     // names out of the generated app code.
@@ -396,6 +407,83 @@ fn native_call(
         );
     }
     match (namespace, name) {
+        ("Haptics", "impact") => {
+            let style = arguments
+                .iter()
+                .find(|(argument, _)| argument == "style")
+                .and_then(|(_, value)| match value {
+                    Expr::String(style) => Some(style.as_str()),
+                    _ => None,
+                });
+            let constant = match style {
+                Some("Medium") => "VIRTUAL_KEY",
+                Some("Heavy") => "LONG_PRESS",
+                _ => "KEYBOARD_TAP",
+            };
+            format!(
+                "dev.nexa.core.NexaRuntimeCore.performHapticFeedback(android.view.HapticFeedbackConstants.{constant})"
+            )
+        }
+        ("Haptics", "notification") => {
+            let kind = arguments
+                .iter()
+                .find(|(argument, _)| argument == "kind")
+                .and_then(|(_, value)| match value {
+                    Expr::String(kind) => Some(kind.as_str()),
+                    _ => None,
+                });
+            let constant = if kind == Some("Error") {
+                "REJECT"
+            } else {
+                "CONFIRM"
+            };
+            format!(
+                "dev.nexa.core.NexaRuntimeCore.performHapticFeedback(android.view.HapticFeedbackConstants.{constant})"
+            )
+        }
+        ("Haptics", "selection") => "dev.nexa.core.NexaRuntimeCore.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)".to_owned(),
+        ("Number", "formatCurrency") => format!(
+            "nexaFormatCurrency({}, {})",
+            rendered.first().map(String::as_str).unwrap_or("0.0"),
+            rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Crypto", "sha256") => format!(
+            "nexaCryptoSha256({})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Crypto", "sha512") => format!(
+            "nexaCryptoSha512({})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Crypto", "hmacSha256") => format!(
+            "nexaCryptoHmacSha256({}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Crypto", "randomBytes") => format!(
+            "nexaCryptoRandomBytes({})",
+            rendered.first().map(String::as_str).unwrap_or("0")
+        ),
+        ("SecureStorage", "get") => format!(
+            "NexaSecureStorage.get(NexaRuntime.context(), {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("SecureStorage", "set") => format!(
+            "NexaSecureStorage.set(NexaRuntime.context(), {}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("SecureStorage", "delete") => format!(
+            "NexaSecureStorage.delete(NexaRuntime.context(), {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("SecureStorage", "clear") => "NexaSecureStorage.clear(NexaRuntime.context())".to_owned(),
+        ("Clipboard", "setText") => format!(
+            "NexaClipboard.setText(NexaRuntime.context(), {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Clipboard", "getText") => "NexaClipboard.getText(NexaRuntime.context())".to_owned(),
+        ("Clipboard", "hasText") => "NexaClipboard.hasText(NexaRuntime.context())".to_owned(),
         ("Path", path_name) => {
             format!("NexaPath.{path_name}(NexaRuntime.context())")
         }
@@ -543,6 +631,75 @@ mod tests {
         assert_eq!(
             expression(&conditional),
             "(if (true) \"ready\" else \"waiting\")"
+        );
+    }
+
+    #[test]
+    fn clipboard_calls_use_direct_native_helpers() {
+        let call =
+            |name: &str, arguments: Vec<(String, Expr)>, return_type: Type| Expr::NativeCall {
+                receiver: None,
+                namespace: "Clipboard".to_owned(),
+                name: name.to_owned(),
+                arguments,
+                codecs: Vec::new(),
+                return_type,
+                is_async: false,
+                is_throwing: false,
+            };
+
+        assert_eq!(
+            expression(&call(
+                "setText",
+                vec![("text".to_owned(), Expr::String("copy".to_owned()))],
+                Type::Void,
+            )),
+            "NexaClipboard.setText(NexaRuntime.context(), \"copy\")"
+        );
+        assert_eq!(
+            expression(&call(
+                "getText",
+                Vec::new(),
+                Type::Optional(Box::new(Type::String)),
+            )),
+            "NexaClipboard.getText(NexaRuntime.context())"
+        );
+        assert_eq!(
+            expression(&call("hasText", Vec::new(), Type::Bool)),
+            "NexaClipboard.hasText(NexaRuntime.context())"
+        );
+    }
+
+    #[test]
+    fn haptics_calls_emit_view_feedback_constants() {
+        let call = |name: &str, arguments: Vec<(String, Expr)>| Expr::NativeCall {
+            receiver: None,
+            namespace: "Haptics".to_owned(),
+            name: name.to_owned(),
+            arguments,
+            codecs: Vec::new(),
+            return_type: Type::Void,
+            is_async: false,
+            is_throwing: false,
+        };
+
+        assert_eq!(
+            expression(&call(
+                "impact",
+                vec![("style".to_owned(), Expr::String("Heavy".to_owned()))],
+            )),
+            "dev.nexa.core.NexaRuntimeCore.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)"
+        );
+        assert_eq!(
+            expression(&call(
+                "notification",
+                vec![("kind".to_owned(), Expr::String("Error".to_owned()))],
+            )),
+            "dev.nexa.core.NexaRuntimeCore.performHapticFeedback(android.view.HapticFeedbackConstants.REJECT)"
+        );
+        assert_eq!(
+            expression(&call("selection", Vec::new())),
+            "dev.nexa.core.NexaRuntimeCore.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)"
         );
     }
 

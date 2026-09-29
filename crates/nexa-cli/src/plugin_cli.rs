@@ -15,7 +15,7 @@ use std::{
 };
 
 use nexa_codegen::plugin::{bindings, bindings_cpp, bridge_plan::BridgePlan};
-use nexa_plugin_idl::{manifest, PluginIdl};
+use nexa_plugin_idl::{PluginIdl, manifest};
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     match args.first().map(String::as_str) {
@@ -71,9 +71,12 @@ fn init(args: &[String]) -> Result<(), String> {
         cursor += 1;
     }
     let id = id.ok_or_else(usage)?;
-    let directory = out.ok_or_else(|| "`nexa plugin init` requires `--out <directory>`".to_owned())?;
+    let directory =
+        out.ok_or_else(|| "`nexa plugin init` requires `--out <directory>`".to_owned())?;
     if !matches!(kind.as_str(), "native" | "pure") {
-        return Err(format!("unsupported plugin kind `{kind}`; expected `native` or `pure`"));
+        return Err(format!(
+            "unsupported plugin kind `{kind}`; expected `native` or `pure`"
+        ));
     }
     let name = name.unwrap_or_else(|| {
         id.rsplit('.')
@@ -106,10 +109,12 @@ fn pascal_case(value: &str) -> Option<String> {
 }
 
 fn validate_identifier(name: &str) -> Result<(), String> {
-    if name.is_empty() || !name
-        .chars()
-        .next()
-        .is_some_and(|character| character.is_ascii_alphabetic()) {
+    if name.is_empty()
+        || !name
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_alphabetic())
+    {
         return Err("plugin type name must start with a letter".to_owned());
     }
     if !name
@@ -121,12 +126,7 @@ fn validate_identifier(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn scaffold(
-    directory: &Path,
-    id: &str,
-    name: &str,
-    kind: &str,
-) -> Result<(), String> {
+fn scaffold(directory: &Path, id: &str, name: &str, kind: &str) -> Result<(), String> {
     let files = if kind == "pure" {
         pure_template(id, name)
     } else {
@@ -154,8 +154,7 @@ fn write_deterministic(path: &Path, contents: &[u8]) -> Result<(), String> {
         ));
     }
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("{}: {error}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
     }
     fs::write(path, contents).map_err(|error| format!("{}: {error}", path.display()))
 }
@@ -256,11 +255,7 @@ fn check(args: &[String]) -> Result<(), String> {
     for note in native_typecheck_notes(&package)? {
         checked.push(note);
     }
-    println!(
-        "{}: {}",
-        package.root.display(),
-        checked.join("; ")
-    );
+    println!("{}: {}", package.root.display(), checked.join("; "));
     Ok(())
 }
 
@@ -316,8 +311,7 @@ fn generate(args: &[String]) -> Result<(), String> {
             ));
         }
     };
-    let directory = out
-        .ok_or("`nexa plugin generate` requires `--out <directory>`".to_owned())?;
+    let directory = out.ok_or("`nexa plugin generate` requires `--out <directory>`".to_owned())?;
     let source = positionals
         .first()
         .map(PathBuf::from)
@@ -350,8 +344,7 @@ fn generate(args: &[String]) -> Result<(), String> {
     };
     let path = directory.join(file);
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("{}: {error}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
     }
     fs::write(&path, contents.as_bytes())
         .map_err(|error| format!("{}: {error}", path.display()))?;
@@ -505,8 +498,7 @@ fn segments_match(pattern: &[&str], path: &[&str]) -> bool {
         Some(segment) => match path.first() {
             None => false,
             Some(candidate) => {
-                segment_matches(segment, candidate)
-                    && segments_match(&pattern[1..], &path[1..])
+                segment_matches(segment, candidate) && segments_match(&pattern[1..], &path[1..])
             }
         },
     }
@@ -646,7 +638,21 @@ fn typecheck_swift(package: &ResolvedPackage) -> Option<String> {
     let scratch = std::env::temp_dir().join(format!("nexa-plugin-swift-{}", std::process::id()));
     fs::create_dir_all(&scratch).ok()?;
     let contract = scratch.join("Contract.swift");
-    fs::write(&contract, render("swift", &contracts(package).ok()?.into_iter().find(|(label, _)| label == "swift")?.1, &package.manifest, &package.idl).ok()?).ok()?;
+    fs::write(
+        &contract,
+        render(
+            "swift",
+            &contracts(package)
+                .ok()?
+                .into_iter()
+                .find(|(label, _)| label == "swift")?
+                .1,
+            &package.manifest,
+            &package.idl,
+        )
+        .ok()?,
+    )
+    .ok()?;
     let mut command = Command::new("xcrun");
     command
         .arg("swiftc")
@@ -736,7 +742,10 @@ fn typecheck_kotlin(package: &ResolvedPackage) -> Option<String> {
 }
 
 fn sdk_path() -> Option<String> {
-    let output = Command::new("xcrun").args(["--sdk", "iphoneos", "--show-sdk-path"]).output().ok()?;
+    let output = Command::new("xcrun")
+        .args(["--sdk", "iphoneos", "--show-sdk-path"])
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }

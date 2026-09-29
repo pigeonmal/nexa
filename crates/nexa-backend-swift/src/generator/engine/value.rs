@@ -9,7 +9,8 @@
 //! The layout is fixed: a scalar is its little-endian bytes, a string or
 //! buffer is a `UInt32` byte length followed by its bytes, a collection is a
 //! `UInt32` element count followed by its elements, and a struct is its
-//! fields in declaration order. Sets and maps are written in a canonical
+//! fields in declaration order. Results have a one-byte case tag followed
+//! by the selected payload. Sets and maps are written in a canonical
 //! order - each element encoded, then sorted bytewise - so the same logical
 //! value always produces the same bytes, which is what lets a store written
 //! on one platform read back on the other.
@@ -305,6 +306,31 @@ fn write_statements(ty: &Type, expression: &str, writer: &str) -> Vec<String> {
             swift_write_method(*numeric)
         )],
         Type::Enum(_) => vec![format!("{writer}.writeInt32(Int32({expression}.rawValue))")],
+        Type::Result(value, error) => {
+            let value_codec = codec_name(value, Direction::Write);
+            let error_codec = codec_name(error, Direction::Write);
+            vec![
+                format!("switch {expression} {{"),
+                "case .success(let payload):".to_owned(),
+                format!("    {writer}.writeBool(true)"),
+                format!("    {value_codec}(payload, into: {writer})"),
+                "case .failure(let failure):".to_owned(),
+                format!("    {writer}.writeBool(false)"),
+                format!("    {error_codec}(failure, into: {writer})"),
+                "}".to_owned(),
+            ]
+        }
+        Type::Optional(inner) => {
+            let inner_codec = codec_name(inner, Direction::Write);
+            vec![
+                format!("if let nexaOptionalValue = {expression} {{"),
+                format!("    {writer}.writeBool(true)"),
+                format!("    {inner_codec}(nexaOptionalValue, into: {writer})"),
+                "} else {".to_owned(),
+                format!("    {writer}.writeBool(false)"),
+                "}".to_owned(),
+            ]
+        }
         Type::Struct { fields, .. } => {
             let mut lines = Vec::new();
             for (field, field_type) in fields {
@@ -423,12 +449,36 @@ fn read_statements(ty: &Type, reader: &str) -> Vec<String> {
         }
         Type::String => vec![format!("return {reader}.readString()")],
         Type::Bytes => vec![format!("return {reader}.readBuffer()")],
+        Type::Optional(inner) => vec![
+            format!("guard let present = {reader}.readBool() else {{ return nil }}"),
+            "guard present else { return .some(nil) }".to_owned(),
+            format!(
+                "guard let value = {} else {{ return nil }}",
+                read_expression(inner, reader)
+            ),
+            "return .some(value)".to_owned(),
+        ],
         Type::Enum(name) => {
             vec![
                 format!("guard let ordinal = {reader}.readInt32() else {{ return nil }}"),
                 format!("return {}(rawValue: Int(ordinal))", enum_name(name)),
             ]
         }
+        Type::Result(value, error) => vec![
+            format!("guard let isSuccess = {reader}.readBool() else {{ return nil }}"),
+            "if isSuccess {".to_owned(),
+            format!(
+                "    guard let payload = {}({reader}) else {{ return nil }}",
+                codec_name(value, Direction::Read)
+            ),
+            "    return .success(payload)".to_owned(),
+            "}".to_owned(),
+            format!(
+                "guard let failure = {}({reader}) else {{ return nil }}",
+                codec_name(error, Direction::Read)
+            ),
+            "return .failure(failure)".to_owned(),
+        ],
         Type::Struct { name, fields } => {
             let mut lines = Vec::new();
             for (index, (_, field_type)) in fields.iter().enumerate() {
@@ -552,9 +602,13 @@ fn read_expression(ty: &Type, reader: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use nexa_codegen::{
+        SourceWriter,
+        value::{Codec, Direction, codec_name},
+    };
     use nexa_ir::{NumericType, Type};
 
-    use super::{read_statements, write_statements};
+    use super::{read_statements, render, write_statements};
 
     #[test]
     fn pair_and_triple_codecs_write_and_read_members_in_order() {
@@ -579,5 +633,66 @@ mod tests {
         assert!(triple_write.contains("nexaWriteint32(value.1, into: writer)"));
         assert!(triple_write.contains("nexaWritebool(value.2, into: writer)"));
         assert!(triple_read.contains("return (field0, field1, field2)"));
+    }
+
+    #[test]
+    fn result_codec_tags_success_and_failure_payloads() {
+        let result = Type::Result(
+            Box::new(Type::Numeric(NumericType::Float64)),
+            Box::new(Type::Enum("StoreError".to_owned())),
+        );
+        let write = write_statements(&result, "value", "writer").join("\n");
+        let read = read_statements(&result, "reader").join("\n");
+
+        assert!(write.contains("case .success(let payload):"));
+        assert!(write.contains("writer.writeBool(true)"));
+        assert!(write.contains("case .failure(let failure):"));
+        assert!(write.contains("writer.writeBool(false)"));
+        assert!(read.contains("return .success(payload)"));
+        assert!(read.contains("return .failure(failure)"));
+    }
+
+    #[test]
+    fn optional_writer_emits_a_presence_tag_before_its_value() {
+        let optional = Type::Optional(Box::new(Type::String));
+        let write = write_statements(&optional, "value", "writer").join("\n");
+
+        assert!(write.contains("if let nexaOptionalValue = value"));
+        assert!(write.contains("writer.writeBool(true)"));
+        assert!(write.contains("nexaWritestring(nexaOptionalValue, into: writer)"));
+        assert!(write.contains("writer.writeBool(false)"));
+    }
+
+    #[test]
+    fn optional_compound_reads_preserve_a_present_null_value() {
+        let optional = Type::Optional(Box::new(Type::String));
+        let read = read_statements(&optional, "reader").join("\n");
+
+        assert!(read.contains("guard present else { return .some(nil) }"));
+        assert!(read.contains("return .some(value)"));
+        assert!(read.contains("else { return nil }"));
+
+        let array = Type::Array(Box::new(optional.clone()));
+        let codecs = [
+            Codec {
+                ty: optional.clone(),
+                direction: Direction::Read,
+            },
+            Codec {
+                ty: array,
+                direction: Direction::Read,
+            },
+        ];
+        let mut output = SourceWriter::new();
+        render(&codecs, &mut output);
+        let generated = output.as_str();
+        assert!(generated.contains(&format!(
+            "func {}(_ reader: NexaValueReader) -> String??",
+            codec_name(&optional, Direction::Read)
+        )));
+        assert!(generated.contains(&format!(
+            "func {}(_ reader: NexaValueReader) -> [String?]?",
+            codec_name(&codecs[1].ty, Direction::Read)
+        )));
     }
 }

@@ -1,0 +1,25 @@
+app ClipboardDemo {
+    state source: String = "Copied from Nexa"
+    state pasted: String = ""
+    state clipboardStatus: String = "Clipboard is empty"
+
+    body {
+        Column(spacing: 12) {
+            Text("Clipboard")
+            TextInput(value: source, placeholder: "Text to copy")
+
+            Button("Copy") {
+                Clipboard.setText(text: source)
+                clipboardStatus = if Clipboard.hasText() { "Text copied" } else { "Clipboard is empty" }
+            }
+
+            Button("Paste") {
+                pasted = Clipboard.getText() ?? ""
+                clipboardStatus = if Clipboard.hasText() { "Text available" } else { "Clipboard is empty" }
+            }
+
+            Text(clipboardStatus)
+            Text(pasted)
+        }
+    }
+}

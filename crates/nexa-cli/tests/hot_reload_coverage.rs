@@ -38,10 +38,10 @@ fn public_enums(source: &str) -> BTreeSet<String> {
 /// Returns the documented Dev boundary for IR cases the interpreter cannot execute.
 fn dev_boundary(enum_name: &str, variant_name: &str) -> Option<&'static str> {
     match (enum_name, variant_name) {
-        // Plugin calls use generated direct adapters for scalar values,
-        // generic codecs, and recursively composed values. Unsupported IDL
-        // shapes such as Result-as-value still require a narrower contract,
-        // so the complete IR case remains partial.
+        // Plugin calls use generated direct adapters for supported scalar,
+        // generic, and recursively composed values. Nullable values inside a
+        // compound read have presence tags; a nullable value as the complete
+        // generic result still collides with Kotlin's decode-failure marker.
         ("Type", "Plugin") => Some("partial"),
         // Plugin property, event, and visual-component adapters share the
         // supported value subset above; this inventory records that boundary
@@ -284,6 +284,40 @@ fn typed_plugin_failures_reach_sync_and_async_catch_arms() {
     }
     assert!(swift_native.contains("pendingPluginFailure = failure"));
     assert!(kotlin_native.contains("pendingPluginFailure = failure"));
+}
+
+#[test]
+fn generic_plugin_result_values_have_both_runtime_codecs() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevValueCodec.swift"))
+        .expect("read iOS generic value codec");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevValueCodec.kt"))
+        .expect("read Android generic value codec");
+
+    assert!(swift.contains("case \"Result\":"));
+    assert!(swift.contains("writer.writeBool(true)"));
+    assert!(swift.contains("return [\"Ok\": success]"));
+    assert!(swift.contains("return [\"Err\": failure]"));
+    assert!(kotlin.contains("\"Result\" -> {"));
+    assert!(kotlin.contains("writer.writeBool(true)"));
+    assert!(kotlin.contains("mapOf(\"Ok\" to success)"));
+    assert!(kotlin.contains("mapOf(\"Err\" to failure)"));
+}
+
+#[test]
+fn optional_generic_plugin_arguments_have_both_runtime_writers() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevValueCodec.swift"))
+        .expect("read iOS generic value codec");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevValueCodec.kt"))
+        .expect("read Android generic value codec");
+
+    assert!(swift.contains("if kind == \"Optional\""));
+    assert!(swift.contains("writer.writeBool(false)"));
+    assert!(swift.contains("static func box(_ raw: Any?) -> NexaDevHashableValue?"));
+    assert!(kotlin.contains("if (kind == \"Optional\")"));
+    assert!(kotlin.contains("writer.writeBool(present)"));
+    assert!(kotlin.contains("raw != JSONObject.NULL"));
 }
 
 #[test]

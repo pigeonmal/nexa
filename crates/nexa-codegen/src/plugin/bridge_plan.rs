@@ -324,7 +324,10 @@ fn check_target_structure(plan: &BridgePlan, target: Target) -> Result<(), Strin
     // A method type parameter is bound per call site and carried by a value
     // codec the host compiler generates, so the C++ surface - the pure
     // contract and both host adapters - has no spelling for it.
-    if matches!(target, Target::Contract | Target::SwiftCpp | Target::Android) {
+    if matches!(
+        target,
+        Target::Contract | Target::SwiftCpp | Target::Android
+    ) {
         for interface in &plan.interfaces {
             for method in &interface.methods {
                 if !method.type_parameters.is_empty() {
@@ -490,8 +493,12 @@ impl<'a> Resolver<'a> {
 
     fn method(&self, method: &Method) -> Result<BridgeMethod, String> {
         let scope = &method.type_parameters;
-        let return_type =
-            self.resolve(&method.return_type, &method.name, Position::MethodReturn, scope)?;
+        let return_type = self.resolve(
+            &method.return_type,
+            &method.name,
+            Position::MethodReturn,
+            scope,
+        )?;
         if matches!(return_type, BridgeType::Result { .. }) && method.throws.is_some() {
             return Err(format!(
                 "method `{}` cannot combine `Result` with `throws`; declare one error type",

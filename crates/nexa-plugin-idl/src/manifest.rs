@@ -863,12 +863,14 @@ fn validate_swift_package(package: &SwiftPackage) -> Result<(), String> {
         SwiftPackageRequirement::From(from) => {
             validate_numeric_version(from, "Swift package `from`", 3, 3)?
         }
-        SwiftPackageRequirement::Branch(branch) => validate_requirement_name(
-            branch,
-            "Swift package `branch`",
-        )?,
+        SwiftPackageRequirement::Branch(branch) => {
+            validate_requirement_name(branch, "Swift package `branch`")?
+        }
         SwiftPackageRequirement::Revision(revision) => {
-            if revision.len() != 40 || !revision.chars().all(|character| character.is_ascii_hexdigit())
+            if revision.len() != 40
+                || !revision
+                    .chars()
+                    .all(|character| character.is_ascii_hexdigit())
             {
                 return Err(
                     "Swift package `revision` must be a full 40-character commit hash".to_owned(),
@@ -1043,7 +1045,8 @@ fn validate_requirement_name(value: &str, field: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_relative_path(path: &str) -> Result<(), String> {    let path = Path::new(path);
+fn validate_relative_path(path: &str) -> Result<(), String> {
+    let path = Path::new(path);
     if path.is_absolute()
         || path
             .components()
@@ -1163,8 +1166,7 @@ fn validate_android_class_name(name: &str, kind: &str) -> Result<(), String> {
             characters
                 .next()
                 .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-                && characters
-                    .all(|character| character.is_ascii_alphanumeric() || character == '_')
+                && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
         });
     if !valid {
         return Err(format!(

@@ -1,0 +1,23 @@
+app HapticsExample {
+    body {
+        Column(spacing: 12) {
+            Text("Haptics")
+
+            Button("Light impact") {
+                Haptics.impact(style: Light)
+            }
+
+            Button("Heavy impact") {
+                Haptics.impact(style: Heavy)
+            }
+
+            Button("Success") {
+                Haptics.notification(kind: Success)
+            }
+
+            Button("Selection") {
+                Haptics.selection()
+            }
+        }
+    }
+}

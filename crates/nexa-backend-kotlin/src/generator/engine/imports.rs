@@ -41,7 +41,9 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     let mut imports = ImportSet::default();
     imports.add(true, "androidx.compose.runtime.Composable");
     imports.add(
-        context.uses_plugins,
+        context.uses_plugins
+            || context.features.facts.capabilities.uses_clipboard_api
+            || context.features.facts.capabilities.uses_haptics_api,
         "androidx.compose.ui.platform.LocalContext",
     );
 
@@ -65,6 +67,8 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     crate::generator::components::refresh::imports(context.features, &mut imports);
     crate::generator::components::sheets::imports(context.features, &mut imports);
     crate::generator::api::network::imports(context.features, &mut imports);
+    crate::generator::api::json::imports(context.features, &mut imports);
+    crate::generator::api::clipboard::imports(context.features, &mut imports);
     crate::generator::api::permissions::imports(context.features, &mut imports);
     crate::generator::engine::state::imports(context.features, &mut imports);
     crate::generator::engine::expressions::imports(context.features, &mut imports);
@@ -110,6 +114,28 @@ mod tests {
         assert!(imports.contains("import androidx.compose.runtime.mutableStateOf\n"));
         assert!(imports.contains("import androidx.compose.runtime.remember\n"));
         assert!(!imports.contains("import androidx.compose.material3.SegmentedButton\n"));
+    }
+
+    #[test]
+    fn clipboard_imports_are_gated_to_clipboard_usage() {
+        let mut features = Features::default();
+        features.facts.capabilities.uses_clipboard_api = true;
+        let imports = render_features(&features);
+
+        assert!(imports.contains("import android.content.ClipboardManager\n"));
+        assert!(imports.contains("import androidx.compose.ui.platform.LocalContext\n"));
+        assert!(!render_features(&Features::default()).contains("ClipboardManager"));
+    }
+
+    #[test]
+    fn haptics_imports_context_only_for_native_activity_binding() {
+        let mut features = Features::default();
+        features.facts.capabilities.uses_haptics_api = true;
+        let imports = render_features(&features);
+
+        assert!(imports.contains("import androidx.compose.ui.platform.LocalContext\n"));
+        assert!(!imports.contains("ClipboardManager"));
+        assert!(!render_features(&Features::default()).contains("LocalContext"));
     }
 
     #[test]

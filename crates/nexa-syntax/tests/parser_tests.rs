@@ -184,6 +184,44 @@ fn parses_qualified_service_calls_in_action_blocks() {
 }
 
 #[test]
+fn parses_generic_qualified_service_calls_in_action_blocks() {
+    let app = nexa_syntax::parse(
+        r#"app Demo {
+            body {
+                Button("Store") {
+                    Storage.write<Array<String?>>(values)
+                }
+            }
+        }"#,
+    )
+    .expect("generic qualified service calls should parse");
+    let Node::ComponentInvocation(invocation) = &app.body[0] else {
+        panic!("expected a button node");
+    };
+    let ChildBody::Actions(actions) = &invocation.children else {
+        panic!("expected button actions");
+    };
+    assert!(
+        matches!(
+            &actions[0],
+            Stmt::Expression {
+                expression: Expr::QualifiedCall {
+                    namespace,
+                    name,
+                    type_arguments,
+                    ..
+                },
+                ..
+            } if namespace == "Storage"
+                && name == "write"
+                && type_arguments.len() == 1
+        ),
+        "unexpected generic qualified call AST: {:#?}",
+        actions[0]
+    );
+}
+
+#[test]
 fn parses_instance_event_handlers_with_and_without_payload_bindings() {
     let app = nexa_syntax::parse(
         r#"app Demo {

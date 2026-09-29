@@ -3,6 +3,35 @@ package __NEXA_PACKAGE__
 import org.json.JSONArray
 import org.json.JSONObject
 
+private fun nexaDevPerformHaptics(name: String, options: Map<String, Any>) {
+    val constant = when (name) {
+        "impact" -> when (options["style"] as? String) {
+            "Medium" -> android.view.HapticFeedbackConstants.VIRTUAL_KEY
+            "Heavy" -> android.view.HapticFeedbackConstants.LONG_PRESS
+            else -> android.view.HapticFeedbackConstants.KEYBOARD_TAP
+        }
+        "notification" -> when (options["kind"] as? String) {
+            "Error" -> android.view.HapticFeedbackConstants.REJECT
+            else -> android.view.HapticFeedbackConstants.CONFIRM
+        }
+        "selection" -> android.view.HapticFeedbackConstants.KEYBOARD_TAP
+        else -> return
+    }
+    dev.nexa.core.NexaRuntimeCore.performHapticFeedback(constant)
+}
+
+private fun nexaDevFormatCurrency(amount: Double, currencyCode: String): String {
+    val locale = java.util.Locale.getDefault()
+    val currency = try {
+        java.util.Currency.getInstance(currencyCode.uppercase(java.util.Locale.ROOT))
+    } catch (_: IllegalArgumentException) {
+        return java.text.NumberFormat.getNumberInstance(locale).format(amount)
+    }
+    val formatter = java.text.NumberFormat.getCurrencyInstance(locale)
+    formatter.currency = currency
+    return formatter.format(amount)
+}
+
 internal fun NexaDevStateStore.nativeCall(namespace: String, name: String, arguments: JSONArray): JSONObject =
     JSONObject().put("NativeCall", JSONObject()
         .put("namespace", namespace)
@@ -41,10 +70,46 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
         dev.nexa.core.NexaRuntimeCore.dismissKeyboard()
         return JSONObject.NULL
     }
+    if (namespace == "Haptics") {
+        nexaDevPerformHaptics(name, options)
+        return JSONObject.NULL
+    }
+    if (namespace == "Clipboard") {
+        val manager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+            as android.content.ClipboardManager
+        return when (name) {
+            "setText" -> {
+                manager.setPrimaryClip(android.content.ClipData.newPlainText(null, (options["text"] as? String).orEmpty()))
+                JSONObject.NULL
+            }
+            "getText" -> {
+                val item = manager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)
+                item?.coerceToText(context)?.toString() ?: JSONObject.NULL
+            }
+            "hasText" -> {
+                val description = manager.primaryClipDescription
+                description?.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN) == true ||
+                    description?.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_HTML) == true
+            }
+            else -> error("Unsupported clipboard call $name")
+        }
+    }
     fun stringOption(key: String, fallback: String = ""): String =
         options[key] as? String ?: (options[key] as? CharSequence)?.toString() ?: fallback
     fun numberOption(key: String, fallback: Double): Double =
         (options[key] as? Number)?.toDouble() ?: fallback
+    if (namespace == "Number" && name == "formatCurrency") {
+        return nexaDevFormatCurrency(numberOption("amount", 0.0), stringOption("currencyCode"))
+    }
+    if (namespace == "Crypto") {
+        return when (name) {
+            "sha256" -> nexaCryptoSha256(stringOption("text"))
+            "sha512" -> nexaCryptoSha512(stringOption("text"))
+            "hmacSha256" -> nexaCryptoHmacSha256(stringOption("key"), stringOption("message"))
+            "randomBytes" -> nexaCryptoRandomBytes(numberOption("count", 0.0).toInt())
+            else -> error("Unsupported native call $namespace.$name")
+        }
+    }
     if (namespace == "Path") {
         return when (name) {
             "documents" -> NexaPath.documents(context)
@@ -64,6 +129,24 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
             "writeText" -> NexaFile.writeText(stringOption("contents"), stringOption("path"))
             "delete" -> NexaFile.delete(stringOption("path"))
             else -> error("Unsupported async native call $namespace.$name")
+        }
+    }
+    if (namespace == "SecureStorage") {
+        return when (name) {
+            "get" -> NexaSecureStorage.get(context, stringOption("key")) ?: JSONObject.NULL
+            "set" -> {
+                NexaSecureStorage.set(context, stringOption("key"), stringOption("value"))
+                JSONObject.NULL
+            }
+            "delete" -> {
+                NexaSecureStorage.delete(context, stringOption("key"))
+                JSONObject.NULL
+            }
+            "clear" -> {
+                NexaSecureStorage.clear(context)
+                JSONObject.NULL
+            }
+            else -> error("Unsupported secure storage call $name")
         }
     }
     if (namespace == "Permissions") {
@@ -163,8 +246,61 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
         dev.nexa.core.NexaRuntimeCore.dismissKeyboard()
         return JSONObject.NULL
     }
+    if (namespace == "Haptics") {
+        nexaDevPerformHaptics(name, options)
+        return JSONObject.NULL
+    }
+    if (namespace == "Json") {
+        val codec = codecs.firstOrNull() ?: error("Missing JSON codec for Json.$name")
+        return when (name) {
+            "parse" -> NexaDevValueCodec.parseJson(
+                raw = options["raw"] as? String ?: "",
+                type = codec,
+                enumCases = enumCases,
+            )
+            "stringify" -> NexaDevValueCodec.stringifyJson(
+                raw = options["value"],
+                type = codec,
+                enumCases = enumCases,
+            )
+            else -> error("Unsupported JSON call $name")
+        }
+    }
+    if (namespace == "Clipboard") {
+        val manager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+            as android.content.ClipboardManager
+        return when (name) {
+            "setText" -> {
+                manager.setPrimaryClip(android.content.ClipData.newPlainText(null, (options["text"] as? String).orEmpty()))
+                JSONObject.NULL
+            }
+            "getText" -> {
+                val item = manager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)
+                item?.coerceToText(context)?.toString() ?: JSONObject.NULL
+            }
+            "hasText" -> {
+                val description = manager.primaryClipDescription
+                description?.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN) == true ||
+                    description?.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_HTML) == true
+            }
+            else -> error("Unsupported clipboard call $name")
+        }
+    }
     fun stringOption(key: String): String =
         options[key] as? String ?: (options[key] as? CharSequence)?.toString() ?: ""
+    if (namespace == "Number" && name == "formatCurrency") {
+        val amount = (options["amount"] as? Number)?.toDouble() ?: 0.0
+        return nexaDevFormatCurrency(amount, stringOption("currencyCode"))
+    }
+    if (namespace == "Crypto") {
+        return when (name) {
+            "sha256" -> nexaCryptoSha256(stringOption("text"))
+            "sha512" -> nexaCryptoSha512(stringOption("text"))
+            "hmacSha256" -> nexaCryptoHmacSha256(stringOption("key"), stringOption("message"))
+            "randomBytes" -> nexaCryptoRandomBytes((options["count"] as? Number)?.toInt() ?: 0)
+            else -> error("Unsupported native call $namespace.$name")
+        }
+    }
     return when (namespace) {
         "Path" -> when (name) {
             "documents" -> NexaPath.documents(context)

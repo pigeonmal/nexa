@@ -4,15 +4,13 @@
 //! `--release-sizes` opts into isolated Release builds and measures the actual
 //! APK or iOS app bundle when the relevant toolchain is installed.
 
-use std::{fs, path::PathBuf};
+use std::{collections::BTreeSet, fs, path::PathBuf};
 
 use nexa_backend_kotlin::KotlinBackend;
 use nexa_backend_swift::SwiftBackend;
 use nexa_codegen::Backend;
-use nexa_compiler::{Target, compile_file_with_warnings_for_target};
+use nexa_compiler::{Target, compile_file_with_warnings_for_targets_and_plugin_roots};
 use nexa_ir::{Module, capabilities::Capabilities};
-
-use crate::deduplicate_warnings;
 
 mod native;
 
@@ -24,6 +22,10 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     let mut cursor = 0;
     while cursor < args.len() {
         match args[cursor].as_str() {
+            "--help" | "-h" => {
+                print_help();
+                return Ok(());
+            }
             "--target" | "-t" => {
                 cursor += 1;
                 target = args
@@ -57,15 +59,31 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         _ => vec![("ios", Target::Swift), ("android", Target::Kotlin)],
     };
 
+    let project_root = input
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let config_path = project_root.join("nexa.config.nx");
+    let dependencies = crate::config::load_plugin_dependencies(&config_path)?;
+    let resolved = crate::dependencies::resolve(project_root, &dependencies)?;
+    let compile_targets = targets
+        .iter()
+        .map(|(_, target)| *target)
+        .collect::<Vec<_>>();
+    let compilations = compile_file_with_warnings_for_targets_and_plugin_roots(
+        &input,
+        &compile_targets,
+        &resolved.plugin_roots,
+    )
+    .map_err(|error| error.to_string())?;
+
     let mut report = String::from("{\n  \"format\": 2,\n  \"tool\": \"nexa audit\",\n");
     report.push_str(&format!(
         "  \"entry\": \"{}\",\n  \"targets\": [\n",
         json_escape(&input.display().to_string())
     ));
     let mut all_warnings = Vec::new();
-    for (index, (name, compile_target)) in targets.iter().enumerate() {
-        let compilation = compile_file_with_warnings_for_target(&input, *compile_target)
-            .map_err(|error| error.to_string())?;
+    for (index, ((name, _), compilation)) in targets.iter().zip(compilations).enumerate() {
         all_warnings.extend(compilation.warnings.clone());
         let module = compilation.module;
         let capabilities = nexa_ir::capabilities::analyze(&module);
@@ -82,7 +100,10 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         ));
     }
     report.push_str("\n  ],\n  \"warnings\": [");
-    let warnings = deduplicate_warnings(all_warnings);
+    let warnings = all_warnings
+        .iter()
+        .map(ToString::to_string)
+        .collect::<BTreeSet<_>>();
     for (index, warning) in warnings.iter().enumerate() {
         if index != 0 {
             report.push_str(", ");
@@ -102,7 +123,10 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     report.push_str("\n}\n");
 
     if let Some(path) = output {
-        if let Some(parent) = path.parent() {
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
             fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
         }
         fs::write(&path, &report).map_err(|error| format!("{}: {error}", path.display()))?;
@@ -111,6 +135,13 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         print!("{report}");
     }
     Ok(())
+}
+
+pub(super) fn print_help() {
+    println!(
+        "Usage: nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--out <path>]"
+    );
+    println!("Reports generated native capabilities and optional release package sizes.");
 }
 
 fn generated_source_and_dependencies(target: &str, module: &Module) -> (String, Vec<String>) {
@@ -166,13 +197,14 @@ fn target_report(
     dependencies: &[String],
 ) -> String {
     let mut output = format!(
-        "    {{\n      \"target\": \"{target}\",\n      \"app\": \"{}\",\n      \"generatedSourceBytes\": {generated_bytes},\n      \"capabilities\": {{\n        \"remoteImage\": {},\n        \"network\": {},\n        \"path\": {},\n        \"file\": {},\n        \"fileAsync\": {}\n      }},\n      \"dependencies\": [",
+        "    {{\n      \"target\": \"{target}\",\n      \"app\": \"{}\",\n      \"generatedSourceBytes\": {generated_bytes},\n      \"capabilities\": {{\n        \"remoteImage\": {},\n        \"network\": {},\n        \"path\": {},\n        \"file\": {},\n        \"fileAsync\": {},\n        \"secureStorage\": {}\n      }},\n      \"dependencies\": [",
         json_escape(&module.app_name),
         capabilities.uses_remote_image,
         capabilities.uses_network_api,
         capabilities.uses_path_api,
         capabilities.uses_file_api,
         capabilities.uses_file_async,
+        capabilities.uses_secure_storage_api,
     );
     for (index, dependency) in dependencies.iter().enumerate() {
         if index != 0 {

@@ -438,6 +438,19 @@ fn native_call(
         .iter()
         .map(|(_, value)| expression_with_locals(value, locals))
         .collect::<Vec<_>>();
+    if namespace == "Json" {
+        let raw_or_value = rendered.first().map(String::as_str).unwrap_or("\"\"");
+        if let Some(codec) = codecs.first() {
+            let codec_name = nexa_codegen::value::json_codec_name(&codec.ty);
+            return match name {
+                "parse" => format!("nexaJsonParse({raw_or_value}, using: {codec_name}.self)"),
+                "stringify" => {
+                    format!("nexaJsonStringify({raw_or_value}, using: {codec_name}.self)")
+                }
+                _ => format!("nexaInvalidJsonCall_{name}()"),
+            };
+        }
+    }
     // A generic plugin call carries its value codecs as trailing closures, so
     // the bound type never appears as a string in the generated code.
     for codec in codecs {
@@ -464,6 +477,75 @@ fn native_call(
         );
     }
     match (namespace, name) {
+        ("Haptics", "impact") => {
+            let style = arguments
+                .iter()
+                .find(|(argument, _)| argument == "style")
+                .and_then(|(_, value)| match value {
+                    Expr::String(style) => Some(style.as_str()),
+                    _ => None,
+                });
+            let style = match style {
+                Some("Medium") => "medium",
+                Some("Heavy") => "heavy",
+                _ => "light",
+            };
+            format!("UIImpactFeedbackGenerator(style: .{style}).impactOccurred()")
+        }
+        ("Haptics", "notification") => {
+            let kind = arguments
+                .iter()
+                .find(|(argument, _)| argument == "kind")
+                .and_then(|(_, value)| match value {
+                    Expr::String(kind) => Some(kind.as_str()),
+                    _ => None,
+                });
+            let kind = if kind == Some("Error") { "error" } else { "success" };
+            format!("UINotificationFeedbackGenerator().notificationOccurred(.{kind})")
+        }
+        ("Haptics", "selection") => "UISelectionFeedbackGenerator().selectionChanged()".to_owned(),
+        ("Number", "formatCurrency") => format!(
+            "nexaFormatCurrency({}, {})",
+            rendered.first().map(String::as_str).unwrap_or("0.0"),
+            rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Crypto", "sha256") => format!(
+            "nexaCryptoSha256({})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Crypto", "sha512") => format!(
+            "nexaCryptoSha512({})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Crypto", "hmacSha256") => format!(
+            "nexaCryptoHmacSha256({}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Crypto", "randomBytes") => format!(
+            "nexaCryptoRandomBytes({})",
+            rendered.first().map(String::as_str).unwrap_or("0")
+        ),
+        ("SecureStorage", "get") => format!(
+            "NexaSecureStorage.get({})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("SecureStorage", "set") => format!(
+            "NexaSecureStorage.set({}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("SecureStorage", "delete") => format!(
+            "NexaSecureStorage.delete({})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("SecureStorage", "clear") => "NexaSecureStorage.clear()".to_owned(),
+        ("Clipboard", "setText") => format!(
+            "NexaClipboard.setText({})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Clipboard", "getText") => "NexaClipboard.getText()".to_owned(),
+        ("Clipboard", "hasText") => "NexaClipboard.hasText()".to_owned(),
         ("Path", path_name) => {
             format!("NexaPath.{path_name}()")
         }
@@ -582,6 +664,75 @@ mod tests {
         };
 
         assert_eq!(expression(&conditional), "(true ? \"ready\" : \"waiting\")");
+    }
+
+    #[test]
+    fn clipboard_calls_use_direct_native_helpers() {
+        let call =
+            |name: &str, arguments: Vec<(String, Expr)>, return_type: Type| Expr::NativeCall {
+                receiver: None,
+                namespace: "Clipboard".to_owned(),
+                name: name.to_owned(),
+                arguments,
+                codecs: Vec::new(),
+                return_type,
+                is_async: false,
+                is_throwing: false,
+            };
+
+        assert_eq!(
+            expression(&call(
+                "setText",
+                vec![("text".to_owned(), Expr::String("copy".to_owned()))],
+                Type::Void,
+            )),
+            "NexaClipboard.setText(\"copy\")"
+        );
+        assert_eq!(
+            expression(&call(
+                "getText",
+                Vec::new(),
+                Type::Optional(Box::new(Type::String)),
+            )),
+            "NexaClipboard.getText()"
+        );
+        assert_eq!(
+            expression(&call("hasText", Vec::new(), Type::Bool)),
+            "NexaClipboard.hasText()"
+        );
+    }
+
+    #[test]
+    fn haptics_calls_emit_direct_uikit_feedback_generators() {
+        let call = |name: &str, arguments: Vec<(String, Expr)>| Expr::NativeCall {
+            receiver: None,
+            namespace: "Haptics".to_owned(),
+            name: name.to_owned(),
+            arguments,
+            codecs: Vec::new(),
+            return_type: Type::Void,
+            is_async: false,
+            is_throwing: false,
+        };
+
+        assert_eq!(
+            expression(&call(
+                "impact",
+                vec![("style".to_owned(), Expr::String("Heavy".to_owned()))],
+            )),
+            "UIImpactFeedbackGenerator(style: .heavy).impactOccurred()"
+        );
+        assert_eq!(
+            expression(&call(
+                "notification",
+                vec![("kind".to_owned(), Expr::String("Error".to_owned()))],
+            )),
+            "UINotificationFeedbackGenerator().notificationOccurred(.error)"
+        );
+        assert_eq!(
+            expression(&call("selection", Vec::new())),
+            "UISelectionFeedbackGenerator().selectionChanged()"
+        );
     }
 
     #[test]

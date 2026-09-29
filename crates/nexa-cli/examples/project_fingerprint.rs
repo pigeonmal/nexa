@@ -31,10 +31,13 @@ const FIXTURES: [(&str, &str); 7] = [
     ("showcase.nx", "ComponentShowcase"),
     ("todo_app.nx", "TodoApp"),
     ("virtual_list.nx", "VirtualListApp"),
-    ("plugins/video-player-demo.nx", "NexaPluginBuildTest"),
     (
-        "plugins/video-player-route-sharing.nx",
-        "NexaPluginBuildTest",
+        "../plugins/video-player/tests/demo/app/App.nx",
+        "VideoPlayerDemo",
+    ),
+    (
+        "../plugins/video-player/tests/demo/RouteSharing.nx",
+        "VideoPlayerRouteSharing",
     ),
 ];
 

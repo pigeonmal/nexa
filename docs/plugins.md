@@ -7,7 +7,7 @@ Nexa's typed native plugin system allows developers to integrate platform SDKs, 
 ## App plugin dependencies
 
 Declare a local plugin package in `nexa.config.nx`, then reference its package
-ID from the `.nx` entry file:
+ID from any `.nx` file imported by the app:
 
 ```nexa
 config {
@@ -20,6 +20,13 @@ config {
 ```nexa
 plugin "dev.example.fast-math" as FastMath
 ```
+
+Plugin declarations are collected across the app's imported source graph, so
+components can declare and use their own configured plugins. In `nexa dev`, a
+plugin already listed in `nexa.config.nx` can be imported from a newly added
+`.nx` module and used by hot reload without relinking the native host. Adding a
+new dependency or changing its native contract or implementation still needs a
+host rebuild.
 
 Git dependencies must use a full commit hash. `package` selects a plugin
 subdirectory within the pinned repository, so multiple packages can share one

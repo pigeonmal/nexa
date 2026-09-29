@@ -42,11 +42,23 @@ pub fn lower_with_warnings(
     let themes = lower_theme(app.theme.as_ref())?;
     let enum_declarations = lower_enum_declarations(&app.enums)?;
     let (struct_declarations, struct_types) = lower_struct_declarations(&app.structs)?;
-    let enum_symbols = enum_symbols(&enum_declarations);
-    let enum_names = enum_declarations
+    let mut enum_symbols = enum_symbols(&enum_declarations);
+    let mut enum_names = enum_declarations
         .iter()
         .map(|declaration| declaration.name.as_str())
         .collect::<std::collections::HashSet<_>>();
+    enum_names.insert("JsonError");
+    for case in [
+        "invalidJson",
+        "typeMismatch",
+        "missingField",
+        "invalidValue",
+    ] {
+        enum_symbols.insert(
+            format!("JsonError.{case}"),
+            (Type::Enum("JsonError".to_owned()), false),
+        );
+    }
     let owned_enum_names = enum_names
         .iter()
         .map(|name| (*name).to_owned())
@@ -473,6 +485,17 @@ pub fn lower_with_warnings(
         on_inactive,
         on_background,
     };
+    if module_uses_json_error(&module) {
+        module.enums.push(nexa_ir::EnumDecl {
+            name: "JsonError".to_owned(),
+            cases: vec![
+                "invalidJson".to_owned(),
+                "typeMismatch".to_owned(),
+                "missingField".to_owned(),
+                "invalidValue".to_owned(),
+            ],
+        });
+    }
     validate_module_callback_disposal(&module, &function_signatures)?;
     crate::optimize::optimize(&mut module);
     Ok((module, warnings))
@@ -893,6 +916,167 @@ fn is_disposable_native_type(ty: &Type, functions: &FunctionSignatures) -> bool 
         })
 }
 
+fn module_uses_json_error(module: &Module) -> bool {
+    fn type_uses_json_error(ty: &Type) -> bool {
+        match ty {
+            Type::Enum(name) => name == "JsonError",
+            Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) => {
+                type_uses_json_error(inner)
+            }
+            Type::Map(key, value) | Type::Pair(key, value) | Type::Result(key, value) => {
+                type_uses_json_error(key) || type_uses_json_error(value)
+            }
+            Type::Triple(first, second, third) => {
+                type_uses_json_error(first)
+                    || type_uses_json_error(second)
+                    || type_uses_json_error(third)
+            }
+            Type::Struct { fields, .. } => fields
+                .iter()
+                .any(|(_, field_type)| type_uses_json_error(field_type)),
+            Type::Void
+            | Type::String
+            | Type::Bytes
+            | Type::Bool
+            | Type::Numeric(_)
+            | Type::TypeParam(_)
+            | Type::Plugin { .. }
+            | Type::NetworkResponse => false,
+        }
+    }
+
+    let has_declared_type = module
+        .structs
+        .iter()
+        .flat_map(|declaration| declaration.fields.iter())
+        .any(|field| type_uses_json_error(&field.ty))
+        || module
+            .states
+            .iter()
+            .any(|state| type_uses_json_error(&state.ty))
+        || module.screens.iter().any(|screen| {
+            screen
+                .states
+                .iter()
+                .any(|state| type_uses_json_error(&state.ty))
+                || screen
+                    .parameters
+                    .iter()
+                    .any(|parameter| type_uses_json_error(&parameter.ty))
+        })
+        || module.components.iter().any(|component| {
+            component
+                .states
+                .iter()
+                .any(|state| type_uses_json_error(&state.ty))
+                || component
+                    .parameters
+                    .iter()
+                    .any(|parameter| type_uses_json_error(&parameter.ty))
+        })
+        || module.functions.iter().any(|function| {
+            type_uses_json_error(&function.return_type)
+                || function
+                    .parameters
+                    .iter()
+                    .any(|parameter| type_uses_json_error(&parameter.ty))
+                || function
+                    .locals
+                    .iter()
+                    .any(|local| type_uses_json_error(&local.ty))
+        });
+    if has_declared_type {
+        return true;
+    }
+
+    fn expression_uses_json_error(expression: &nexa_ir::Expr, found: &mut bool) {
+        nexa_ir::walk::walk_expression(expression, &mut |expression| match expression {
+            nexa_ir::Expr::EnumValue { enum_name, .. } if enum_name == "JsonError" => {
+                *found = true;
+            }
+            nexa_ir::Expr::NativeCall {
+                namespace,
+                name: _,
+                return_type,
+                codecs,
+                ..
+            } => {
+                *found |= namespace == "Json";
+                *found |= type_uses_json_error(return_type)
+                    || codecs.iter().any(|codec| type_uses_json_error(&codec.ty));
+            }
+            nexa_ir::Expr::Call { return_type, .. } => {
+                *found |= type_uses_json_error(return_type);
+            }
+            _ => {}
+        });
+    }
+
+    let mut found = false;
+    {
+        let mut visit_node = |_: &Node| {};
+        let mut visit_expression =
+            |expression: &nexa_ir::Expr| expression_uses_json_error(expression, &mut found);
+        nexa_ir::walk::walk_ir(&module.body, &mut visit_node, &mut visit_expression);
+    }
+    for state in &module.states {
+        expression_uses_json_error(&state.initial, &mut found);
+    }
+    for function in &module.functions {
+        for local in &function.locals {
+            expression_uses_json_error(&local.initial, &mut found);
+        }
+        expression_uses_json_error(&function.body, &mut found);
+    }
+    for screen in &module.screens {
+        {
+            let mut visit_node = |_: &Node| {};
+            let mut visit_expression =
+                |expression: &nexa_ir::Expr| expression_uses_json_error(expression, &mut found);
+            nexa_ir::walk::walk_ir(&screen.body, &mut visit_node, &mut visit_expression);
+        }
+        for state in &screen.states {
+            expression_uses_json_error(&state.initial, &mut found);
+        }
+    }
+    for component in &module.components {
+        {
+            let mut visit_node = |_: &Node| {};
+            let mut visit_expression =
+                |expression: &nexa_ir::Expr| expression_uses_json_error(expression, &mut found);
+            nexa_ir::walk::walk_ir(&component.body, &mut visit_node, &mut visit_expression);
+        }
+        for state in &component.states {
+            expression_uses_json_error(&state.initial, &mut found);
+        }
+    }
+    for actions in [
+        &module.on_appear,
+        &module.on_disappear,
+        &module.on_active,
+        &module.on_inactive,
+        &module.on_background,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        nexa_ir::walk::walk_actions(actions, &mut |expression| {
+            expression_uses_json_error(expression, &mut found)
+        });
+    }
+    for screen in &module.screens {
+        for actions in [&screen.on_appear, &screen.on_disappear]
+            .into_iter()
+            .flatten()
+        {
+            nexa_ir::walk::walk_actions(actions, &mut |expression| {
+                expression_uses_json_error(expression, &mut found)
+            });
+        }
+    }
+    found
+}
+
 fn lower_enum_declarations(
     declarations: &[ast::EnumDecl],
 ) -> Result<Vec<nexa_ir::EnumDecl>, CompileError> {
@@ -922,6 +1106,7 @@ fn lower_enum_declarations(
                 | "PermissionStatus"
                 | "Theme"
                 | "Layout"
+                | "JsonError"
         ) {
             return Err(CompileError::new(
                 declaration.span,
@@ -975,6 +1160,7 @@ fn lower_struct_declarations(
                     | "Permission"
                     | "PermissionStatus"
                     | "Theme"
+                    | "JsonError"
                     | "Layout"
             ) {
                 return Err(CompileError::new(
@@ -1269,7 +1455,7 @@ fn validate_type_names(
 }
 
 fn is_builtin_enum_name(name: &str) -> bool {
-    matches!(name, "Permission" | "PermissionStatus")
+    matches!(name, "Permission" | "PermissionStatus" | "JsonError")
 }
 
 fn lower_functions(

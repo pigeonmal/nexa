@@ -2033,10 +2033,7 @@ impl Parser {
                     self.tokens.get(self.cursor + 1).map(|token| &token.kind),
                     Some(Kind::Ident(_))
                 )
-                && matches!(
-                    self.tokens.get(self.cursor + 2).map(|token| &token.kind),
-                    Some(Kind::LParen)
-                )
+                && self.qualified_call_ahead()
             {
                 self.cursor -= 1;
                 let expression = self.expr()?;
@@ -2528,10 +2525,7 @@ impl Parser {
                         self.tokens.get(self.cursor + 1).map(|token| &token.kind),
                         Some(Kind::Ident(_))
                     )
-                    && matches!(
-                        self.tokens.get(self.cursor + 2).map(|token| &token.kind),
-                        Some(Kind::LParen)
-                    )
+                    && self.qualified_call_ahead()
                 {
                     self.advance();
                     let (name, name_span) = self.ident()?;
@@ -2962,6 +2956,41 @@ impl Parser {
             named_arguments,
             span,
         })
+    }
+
+    /// A namespace call may have explicit generic arguments between its
+    /// member name and opening parenthesis. Balance the type-argument brackets
+    /// here so `<` comparison expressions still fall through to normal member
+    /// parsing unless the complete generic list is followed by `(`.
+    fn qualified_call_ahead(&self) -> bool {
+        let mut index = self.cursor + 2;
+        match self.tokens.get(index).map(|token| &token.kind) {
+            Some(Kind::LParen) => return true,
+            Some(Kind::Less) => {}
+            _ => return false,
+        }
+
+        let mut depth = 0usize;
+        while let Some(token) = self.tokens.get(index) {
+            match &token.kind {
+                Kind::Less => depth += 1,
+                Kind::Greater => {
+                    let Some(next_depth) = depth.checked_sub(1) else {
+                        return false;
+                    };
+                    depth = next_depth;
+                    if depth == 0 {
+                        return matches!(
+                            self.tokens.get(index + 1).map(|token| &token.kind),
+                            Some(Kind::LParen)
+                        );
+                    }
+                }
+                _ => {}
+            }
+            index += 1;
+        }
+        false
     }
 
     fn if_node(&mut self) -> Result<Node, CompileError> {

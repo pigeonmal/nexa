@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::{
     ArithmeticOp as IrArithmeticOp, BinaryOp, CollectionTransform, CollectionUtilityKind, Expr,
-    InterpolatedPart, MemberKind, NumericType, TuplePosition, Type,
+    InterpolatedPart, MemberKind, NumericType, PluginCodec, TuplePosition, Type,
 };
 use nexa_plugin_idl::TypeRef;
 use nexa_syntax::ast;
@@ -736,12 +736,7 @@ pub(super) fn lower_expr(
             let value_type = expected
                 .cloned()
                 .or_else(|| {
-                    conditional_value_type(
-                        then_value,
-                        else_value,
-                        ctx.symbols,
-                        ctx.functions,
-                    )
+                    conditional_value_type(then_value, else_value, ctx.symbols, ctx.functions)
                 })
                 .ok_or_else(|| {
                     CompileError::new(
@@ -1921,6 +1916,18 @@ fn lower_native_call(
             awaited,
         );
     }
+    if namespace == "Json" {
+        return lower_json_call(
+            name,
+            type_arguments,
+            arguments,
+            named_arguments,
+            span,
+            expected,
+            ctx,
+            awaited,
+        );
+    }
     if !arguments.is_empty() {
         return Err(CompileError::new(
             span,
@@ -2004,6 +2011,48 @@ fn lower_native_call(
             false,
             vec![("text", Type::String, None)],
         ),
+        "Number.formatCurrency" => (
+            Type::String,
+            false,
+            vec![
+                ("amount", Type::Numeric(NumericType::Float64), None),
+                ("currencyCode", Type::String, None),
+            ],
+        ),
+        "Crypto.sha256" | "Crypto.sha512" => {
+            (Type::String, false, vec![("text", Type::String, None)])
+        }
+        "Crypto.hmacSha256" => (
+            Type::String,
+            false,
+            vec![("key", Type::String, None), ("message", Type::String, None)],
+        ),
+        "Crypto.randomBytes" => (
+            Type::String,
+            false,
+            vec![("count", Type::Numeric(NumericType::Int32), None)],
+        ),
+        "SecureStorage.get" => (
+            Type::Optional(Box::new(Type::String)),
+            true,
+            // Secure storage operations can fail because the OS denies access,
+            // the device is locked, or the protected data cannot be decoded.
+            // Keep failures explicit so callers can recover with `try`.
+            vec![("key", Type::String, None)],
+        ),
+        "SecureStorage.set" => (
+            Type::Void,
+            true,
+            vec![("key", Type::String, None), ("value", Type::String, None)],
+        ),
+        "SecureStorage.delete" => (Type::Void, true, vec![("key", Type::String, None)]),
+        "SecureStorage.clear" => (Type::Void, true, Vec::new()),
+        "Clipboard.setText" => (Type::Void, false, vec![("text", Type::String, None)]),
+        "Clipboard.getText" => (Type::Optional(Box::new(Type::String)), false, Vec::new()),
+        "Clipboard.hasText" => (Type::Bool, false, Vec::new()),
+        "Haptics.impact" => (Type::Void, false, vec![("style", Type::String, None)]),
+        "Haptics.notification" => (Type::Void, false, vec![("kind", Type::String, None)]),
+        "Haptics.selection" => (Type::Void, false, Vec::new()),
         "Log.info" | "Log.warning" | "Log.error" => {
             (Type::Void, false, vec![("message", Type::String, None)])
         }
@@ -2055,10 +2104,32 @@ fn lower_native_call(
                     format!("`{qualified_name}` requires `{argument_name}`"),
                 )
             })?;
-        lowered.push((
-            argument_name.to_owned(),
-            lower_expr(argument, Some(&argument_type), ctx)?,
-        ));
+        let lowered_argument = match (qualified_name.as_str(), argument_name, argument) {
+            ("Haptics.impact", "style", ast::Expr::Name(name, _))
+                if matches!(name.as_str(), "Light" | "Medium" | "Heavy") =>
+            {
+                Expr::String(name.clone())
+            }
+            ("Haptics.notification", "kind", ast::Expr::Name(name, _))
+                if matches!(name.as_str(), "Success" | "Error") =>
+            {
+                Expr::String(name.clone())
+            }
+            ("Haptics.impact", "style", value) => {
+                return Err(CompileError::new(
+                    value.span(),
+                    "Haptics.impact style must be `Light`, `Medium`, or `Heavy`",
+                ));
+            }
+            ("Haptics.notification", "kind", value) => {
+                return Err(CompileError::new(
+                    value.span(),
+                    "Haptics.notification kind must be `Success` or `Error`",
+                ));
+            }
+            _ => lower_expr(argument, Some(&argument_type), ctx)?,
+        };
+        lowered.push((argument_name.to_owned(), lowered_argument));
     }
     native_plan(&qualified_name, lowered, span)
 }
@@ -2197,6 +2268,128 @@ fn native_plan(
             return_type: Type::Optional(Box::new(Type::Numeric(NumericType::Int64))),
             is_async: false,
         }),
+        "Number.formatCurrency" => Ok(Expr::NativeCall {
+            receiver: None,
+            namespace: "Number".to_owned(),
+            name: "formatCurrency".to_owned(),
+            arguments: vec![
+                ("amount".to_owned(), take("amount")?),
+                ("currencyCode".to_owned(), take("currencyCode")?),
+            ],
+            codecs: Vec::new(),
+            return_type: Type::String,
+            is_async: false,
+            is_throwing: false,
+        }),
+        "Crypto.sha256" | "Crypto.sha512" | "Crypto.hmacSha256" | "Crypto.randomBytes" => {
+            let Some((namespace, name)) = qualified_name.split_once('.') else {
+                return Err(CompileError::new(span, "invalid built-in crypto API"));
+            };
+            let argument_names: &[&str] = match name {
+                "sha256" | "sha512" => &["text"],
+                "hmacSha256" => &["key", "message"],
+                _ => &["count"],
+            };
+            let arguments = argument_names
+                .iter()
+                .map(|argument| Ok(((*argument).to_owned(), take(argument)?)))
+                .collect::<Result<Vec<_>, CompileError>>()?;
+            Ok(Expr::NativeCall {
+                receiver: None,
+                namespace: namespace.to_owned(),
+                name: name.to_owned(),
+                arguments,
+                codecs: Vec::new(),
+                return_type: Type::String,
+                is_async: false,
+                is_throwing: false,
+            })
+        }
+        "SecureStorage.get"
+        | "SecureStorage.set"
+        | "SecureStorage.delete"
+        | "SecureStorage.clear" => {
+            let Some((namespace, name)) = qualified_name.split_once('.') else {
+                return Err(CompileError::new(
+                    span,
+                    "invalid built-in secure storage API",
+                ));
+            };
+            let arguments = match name {
+                "get" | "delete" => vec![("key".to_owned(), take("key")?)],
+                "set" => vec![
+                    ("key".to_owned(), take("key")?),
+                    ("value".to_owned(), take("value")?),
+                ],
+                _ => Vec::new(),
+            };
+            Ok(Expr::NativeCall {
+                receiver: None,
+                namespace: namespace.to_owned(),
+                name: name.to_owned(),
+                arguments,
+                codecs: Vec::new(),
+                return_type: if name == "get" {
+                    Type::Optional(Box::new(Type::String))
+                } else {
+                    Type::Void
+                },
+                is_async: true,
+                is_throwing: true,
+            })
+        }
+        "Clipboard.setText" | "Clipboard.getText" | "Clipboard.hasText" => {
+            let Some((namespace, name)) = qualified_name.split_once('.') else {
+                return Err(CompileError::new(span, "invalid clipboard API"));
+            };
+            let arguments = if name == "setText" {
+                vec![("text".to_owned(), take("text")?)]
+            } else {
+                Vec::new()
+            };
+            Ok(Expr::NativeCall {
+                receiver: None,
+                namespace: namespace.to_owned(),
+                name: name.to_owned(),
+                arguments,
+                codecs: Vec::new(),
+                return_type: match name {
+                    "getText" => Type::Optional(Box::new(Type::String)),
+                    "hasText" => Type::Bool,
+                    _ => Type::Void,
+                },
+                is_async: false,
+                is_throwing: false,
+            })
+        }
+        "Haptics.impact" | "Haptics.notification" | "Haptics.selection" => {
+            let name = match qualified_name {
+                "Haptics.impact" => "impact",
+                "Haptics.notification" => "notification",
+                "Haptics.selection" => "selection",
+                _ => {
+                    return Err(CompileError::new(
+                        span,
+                        format!("unknown native API `{qualified_name}`"),
+                    ));
+                }
+            };
+            let arguments = match qualified_name {
+                "Haptics.impact" => vec![("style".to_owned(), take("style")?)],
+                "Haptics.notification" => vec![("kind".to_owned(), take("kind")?)],
+                _ => Vec::new(),
+            };
+            Ok(Expr::NativeCall {
+                receiver: None,
+                namespace: "Haptics".to_owned(),
+                name: name.to_owned(),
+                arguments,
+                codecs: Vec::new(),
+                return_type: Type::Void,
+                is_async: false,
+                is_throwing: false,
+            })
+        }
         "Log.info" | "Log.warning" | "Log.error" => Ok(Expr::LogCall {
             method: match qualified_name {
                 "Log.info" => nexa_ir::LogMethod::Info,
@@ -2215,8 +2408,242 @@ fn native_plan(
 fn is_core_native_namespace(namespace: &str) -> bool {
     matches!(
         namespace,
-        "Network" | "Path" | "File" | "Permissions" | "Bytes" | "Time" | "Log" | "Keyboard"
+        "Network"
+            | "Path"
+            | "File"
+            | "Permissions"
+            | "Bytes"
+            | "Time"
+            | "Log"
+            | "Keyboard"
+            | "Number"
+            | "Json"
+            | "Crypto"
+            | "SecureStorage"
+            | "Clipboard"
+            | "Haptics"
     )
+}
+
+fn lower_json_call(
+    name: &str,
+    type_arguments: &[ast::TypeSyntax],
+    arguments: &[ast::Expr],
+    named_arguments: &BTreeMap<String, ast::Expr>,
+    span: Span,
+    expected: Option<&Type>,
+    ctx: &ExprContext<'_>,
+    awaited: bool,
+) -> Result<Expr, CompileError> {
+    if awaited {
+        return Err(CompileError::new(
+            span,
+            format!("native call `Json.{name}` is not async and cannot be awaited"),
+        ));
+    }
+    if !arguments.is_empty() {
+        return Err(CompileError::new(
+            span,
+            "built-in native API calls require named arguments",
+        ));
+    }
+    match name {
+        "parse" => {
+            let raw_type = Type::String;
+            let expected_value = match expected {
+                Some(Type::Result(value, error)) if matches!(error.as_ref(), Type::Enum(error_name) if error_name == "JsonError") => {
+                    Some(value.as_ref().clone())
+                }
+                Some(other) => {
+                    return Err(CompileError::new(
+                        span,
+                        format!(
+                            "`Json.parse` returns `Result<T, JsonError>`, found expected {}",
+                            type_name(other)
+                        ),
+                    ));
+                }
+                None => None,
+            };
+            if type_arguments.len() > 1 {
+                return Err(CompileError::new(
+                    span,
+                    "`Json.parse` accepts one type argument, for example `Json.parse<User>(raw: text)`",
+                ));
+            }
+            let explicit_value = type_arguments
+                .first()
+                .map(parse_type)
+                .transpose()?
+                .map(|ty| resolve_struct_type(&ty, ctx.structs));
+            let value_type = match (explicit_value, expected_value) {
+                (Some(explicit), Some(expected)) if explicit != expected => {
+                    return Err(CompileError::new(
+                        span,
+                        format!(
+                            "`Json.parse` type argument is {}, but the expected result contains {}",
+                            type_name(&explicit),
+                            type_name(&expected)
+                        ),
+                    ));
+                }
+                (Some(explicit), _) => explicit,
+                (None, Some(expected)) => expected,
+                (None, None) => {
+                    return Err(CompileError::new(
+                        span,
+                        "`Json.parse` needs a result type; write `Json.parse<User>(raw: text)` or annotate the result as `Result<User, JsonError>`",
+                    ));
+                }
+            };
+            validate_json_value_type(&value_type, ctx.enums, span)?;
+            let return_type = Type::Result(
+                Box::new(value_type.clone()),
+                Box::new(Type::Enum("JsonError".to_owned())),
+            );
+            require_expected(expected, &return_type, span)?;
+            let raw = named_arguments.get("raw").ok_or_else(|| {
+                CompileError::new(span, "`Json.parse` requires the `raw` argument")
+            })?;
+            if named_arguments.keys().any(|key| key != "raw") {
+                return Err(CompileError::new(
+                    span,
+                    "`Json.parse` accepts only the `raw` argument",
+                ));
+            }
+            let lowered = lower_expr(raw, Some(&raw_type), ctx)?;
+            Ok(Expr::NativeCall {
+                receiver: None,
+                namespace: "Json".to_owned(),
+                name: "parse".to_owned(),
+                arguments: vec![("raw".to_owned(), lowered)],
+                codecs: vec![PluginCodec {
+                    ty: value_type,
+                    decodes: true,
+                }],
+                return_type,
+                is_async: false,
+                is_throwing: false,
+            })
+        }
+        "stringify" => {
+            if type_arguments.len() > 1 {
+                return Err(CompileError::new(
+                    span,
+                    "`Json.stringify` accepts at most one type argument",
+                ));
+            }
+            let value = named_arguments.get("value").ok_or_else(|| {
+                CompileError::new(span, "`Json.stringify` requires the `value` argument")
+            })?;
+            if named_arguments.keys().any(|key| key != "value") {
+                return Err(CompileError::new(
+                    span,
+                    "`Json.stringify` accepts only the `value` argument",
+                ));
+            }
+            let inferred = infer_expr_type(value, ctx.symbols, ctx.functions)
+                .map(|ty| resolve_struct_type(&ty, ctx.structs));
+            let explicit = type_arguments
+                .first()
+                .map(parse_type)
+                .transpose()?
+                .map(|ty| resolve_struct_type(&ty, ctx.structs));
+            let value_type = match (explicit, inferred) {
+                (Some(explicit), Some(inferred)) if explicit != inferred => {
+                    return Err(CompileError::new(
+                        span,
+                        format!(
+                            "`Json.stringify` type argument is {}, but the value has type {}",
+                            type_name(&explicit),
+                            type_name(&inferred)
+                        ),
+                    ));
+                }
+                (Some(explicit), _) => explicit,
+                (None, Some(inferred)) => inferred,
+                (None, None) => {
+                    return Err(CompileError::new(
+                        span,
+                        "cannot infer the JSON value type; add a type argument such as `Json.stringify<User>(value: user)`",
+                    ));
+                }
+            };
+            validate_json_value_type(&value_type, ctx.enums, span)?;
+            let lowered = lower_expr(value, Some(&value_type), ctx)?;
+            Ok(Expr::NativeCall {
+                receiver: None,
+                namespace: "Json".to_owned(),
+                name: "stringify".to_owned(),
+                arguments: vec![("value".to_owned(), lowered)],
+                codecs: vec![PluginCodec {
+                    ty: value_type,
+                    decodes: false,
+                }],
+                return_type: Type::String,
+                is_async: false,
+                is_throwing: false,
+            })
+        }
+        _ => Err(CompileError::new(
+            span,
+            format!("unknown native API `Json.{name}`"),
+        )),
+    }
+}
+
+fn validate_json_value_type(
+    ty: &Type,
+    enum_names: &HashSet<String>,
+    span: Span,
+) -> Result<(), CompileError> {
+    let unsupported = |message: &str| CompileError::new(span, message);
+    match ty {
+        Type::String | Type::Bytes | Type::Bool | Type::Numeric(_) => Ok(()),
+        Type::Enum(name) if enum_names.contains(name) => Ok(()),
+        Type::Enum(name) => Err(CompileError::new(
+            span,
+            format!("unknown JSON enum type `{name}`"),
+        )),
+        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) => {
+            validate_json_value_type(inner, enum_names, span)
+        }
+        Type::Map(key, value) if matches!(key.as_ref(), Type::String) => {
+            validate_json_value_type(value, enum_names, span)
+        }
+        Type::Map(_, _) => Err(unsupported(
+            "JSON maps require `String` keys because JSON object keys are strings",
+        )),
+        Type::Pair(first, second) => {
+            validate_json_value_type(first, enum_names, span)?;
+            validate_json_value_type(second, enum_names, span)
+        }
+        Type::Result(success, failure) => {
+            if !matches!(failure.as_ref(), Type::Enum(_)) {
+                return Err(unsupported("JSON Result values require an enum error type"));
+            }
+            validate_json_value_type(success, enum_names, span)?;
+            validate_json_value_type(failure, enum_names, span)
+        }
+        Type::Triple(first, second, third) => {
+            validate_json_value_type(first, enum_names, span)?;
+            validate_json_value_type(second, enum_names, span)?;
+            validate_json_value_type(third, enum_names, span)
+        }
+        Type::Struct { fields, .. } => fields
+            .iter()
+            .try_for_each(|(_, field)| validate_json_value_type(field, enum_names, span)),
+        Type::Void => Err(unsupported("`Void` is not a JSON value type")),
+        Type::TypeParam(_) => Err(unsupported(
+            "JSON codecs require a concrete value type at compile time",
+        )),
+        Type::Plugin { .. } => Err(unsupported(
+            "native class instances cannot be represented as JSON values",
+        )),
+        Type::NetworkResponse => Err(unsupported(
+            "`NetworkResponse` cannot be represented directly as a JSON value; decode its body string instead",
+        )),
+    }
 }
 
 fn lower_plugin_call(
@@ -2803,6 +3230,10 @@ pub(super) fn infer_expr_type(
             | ("File", "readText") => Some(Type::String),
             ("Bytes", "fromText") | ("Bytes", "fromArray") => Some(Type::Bytes),
             ("Bytes", "count") => Some(Type::Numeric(NumericType::Int32)),
+            ("Clipboard", "getText") => Some(Type::Optional(Box::new(Type::String))),
+            ("Clipboard", "hasText") => Some(Type::Bool),
+            ("Clipboard", "setText") => Some(Type::Void),
+            ("Haptics", "impact" | "notification" | "selection") => Some(Type::Void),
             ("Time", "now") | ("Time", "monotonic") => Some(Type::Numeric(NumericType::Int64)),
             ("Time", "sleep") => Some(Type::Void),
             ("Time", "iso8601") => Some(Type::String),

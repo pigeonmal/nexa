@@ -1,0 +1,22 @@
+struct UserProfile {
+    name: String,
+    age: Int32,
+}
+
+app JsonExample {
+    fn parseAndEncode(raw: String) -> String {
+        let profile: Result<UserProfile, JsonError> = Json.parse<UserProfile>(raw: raw)
+        return Json.stringify(value: profile)
+    }
+
+    state raw: String = Json.stringify(value: UserProfile("Ada", 37))
+    state status: String = "Not parsed yet"
+
+    body {
+        Text(raw)
+        Text(status)
+        Button("Validate JSON") {
+            status = parseAndEncode(raw)
+        }
+    }
+}

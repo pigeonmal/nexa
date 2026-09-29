@@ -8,6 +8,10 @@ use nexa_testkit::{TestProject, Toolchain, example_path};
 
 const EXAMPLES: &[&str] = &[
     "counter",
+    "crypto",
+    "clipboard",
+    "haptics",
+    "currency_formatting",
     "keyboard_ergonomics",
     "pressable_double_tap",
     "spring_animation",
@@ -131,7 +135,8 @@ fn generated_ios_example_hosts_build_with_xcode_when_available() {
 
     let plugin_dev_project = temp.join("video-player-dev-ios");
     nexa_cli::generate_dev_project(
-        &example_path("plugins/video-player-demo.nx"),
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../plugins/video-player/tests/demo/app/App.nx"),
         "ios",
         &plugin_dev_project,
         "NexaVideoPlayerDemo",
@@ -160,6 +165,38 @@ fn generated_ios_example_hosts_build_with_xcode_when_available() {
         String::from_utf8_lossy(&built.stdout),
         String::from_utf8_lossy(&built.stderr)
     );
+}
+
+#[test]
+fn haptics_example_generates_native_calls_and_android_activity_binding() {
+    let temp = TestProject::new("nexa-haptics-codegen");
+    let ios = generate_example(&temp, "haptics", "ios");
+    let swift = swift_sources(&ios.join("ios/NexaHaptics"))
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Swift source"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(swift.contains("import UIKit"));
+    assert!(swift.contains("UIImpactFeedbackGenerator(style: .light).impactOccurred()"));
+    assert!(swift.contains("UINotificationFeedbackGenerator().notificationOccurred(.success)"));
+    assert!(swift.contains("UISelectionFeedbackGenerator().selectionChanged()"));
+
+    let android = generate_example(&temp, "haptics", "android");
+    let kotlin = kotlin_sources(&android.join("android/app/src/main/java"))
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Kotlin source"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(kotlin.contains("import androidx.compose.ui.platform.LocalContext"));
+    assert!(kotlin.contains("NexaRuntime.bind(LocalContext.current)"));
+    assert!(kotlin.contains(
+        "NexaRuntimeCore.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)"
+    ));
+    let core_runtime = fs::read_to_string(
+        android.join("android/app/src/main/java/dev/nexa/core/NexaRuntimeCore.kt"),
+    )
+    .expect("read generated Android core runtime");
+    assert!(core_runtime.contains("performHapticFeedback(feedbackConstant: Int)"));
 }
 
 #[test]
@@ -228,7 +265,8 @@ fn generated_android_example_hosts_build_with_gradle_when_available() {
 
     let plugin_dev_project = temp.join("video-player-dev-android");
     nexa_cli::generate_dev_project(
-        &example_path("plugins/video-player-demo.nx"),
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../plugins/video-player/tests/demo/app/App.nx"),
         "android",
         &plugin_dev_project,
         "NexaVideoPlayerDemo",
@@ -266,6 +304,27 @@ fn swift_sources(root: &Path) -> Vec<String> {
     collect_swift_sources(root, &mut sources);
     sources.sort();
     sources
+}
+
+fn kotlin_sources(root: &Path) -> Vec<String> {
+    let mut sources = Vec::new();
+    collect_kotlin_sources(root, &mut sources);
+    sources.sort();
+    sources
+}
+
+fn collect_kotlin_sources(root: &Path, sources: &mut Vec<String>) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_kotlin_sources(&path, sources);
+        } else if path.extension().is_some_and(|extension| extension == "kt") {
+            sources.push(path.to_string_lossy().into_owned());
+        }
+    }
 }
 
 fn collect_swift_sources(root: &Path, sources: &mut Vec<String>) {

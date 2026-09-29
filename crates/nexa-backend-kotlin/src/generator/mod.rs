@@ -6,7 +6,7 @@ mod components;
 mod engine;
 
 use crate::generator::engine::types::kotlin_type;
-pub(super) use api::{network, permissions};
+pub(super) use api::{network, number, permissions};
 use components::components as component_renderer;
 pub(super) use components::{
     accessibility, assets, bottom_bar, controls, custom_components, dialogs, images, input,
@@ -25,7 +25,8 @@ fn project_features_from_analysis(
         uses_remote_image: features.uses_remote_image,
         uses_coroutines: features.uses_network_transport()
             || features.uses_file_async
-            || features.uses_permission_request,
+            || features.uses_permission_request
+            || features.facts.capabilities.uses_secure_storage_api,
         uses_permission_request: features.uses_permission_request,
         uses_navigation: !module.screens.is_empty(),
         uses_compose_animation: features.uses_conditional_transition,
@@ -80,6 +81,13 @@ pub(super) fn generate_for_dev_units_with_project_features(
     features.uses_path_api = true;
     features.uses_file_api = true;
     features.uses_file_async = true;
+    features.facts.capabilities.uses_crypto_api = true;
+    // JSON is interpreted by NexaDevValueCodec using type descriptors from
+    // every hot-reloaded module. Do not emit static JSON helpers for a module
+    // that does not declare NexaJsonError or concrete JSON value codecs yet.
+    // SecureStorage calls can be added after the dev host is built, so the
+    // Android Keystore adapter must already be part of every development host.
+    features.facts.capabilities.uses_secure_storage_api = true;
     features.uses_permissions = true;
     features.uses_permission_request = true;
     features.dynamic_permission = true;
@@ -195,10 +203,11 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             || module.on_background.is_some(),
     });
     let value_codecs = nexa_codegen::value::collect(module);
+    let json_types = nexa_codegen::value::collect_json_types(module);
     let mut units = SourceUnits::new("kt");
     units.set_imports(&imports);
     units.write("types", |out| {
-        if features.uses_result {
+        if features.uses_result || features.facts.capabilities.uses_json_api {
             out.push_str(
                 r#"public sealed class NexaResult<out T, out E> {
             public data class Success<out T>(val value: T) : NexaResult<T, Nothing>()
@@ -245,6 +254,12 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
         }
     });
 
+    if features.facts.capabilities.uses_json_api {
+        units.write("json", |out| {
+            api::json::render(&json_types, &module.enums, out);
+        });
+    }
+
     units.write("app", |out| {
             if features.uses_picker {
                 controls::render_picker_helper(out);
@@ -281,6 +296,8 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                 || features.uses_path_api
                 || features.uses_permissions
                 || features.facts.capabilities.uses_keyboard_api
+                || features.facts.capabilities.uses_clipboard_api
+                || features.facts.capabilities.uses_haptics_api
                 || !module.plugins.is_empty()
             {
                 out.push_str("    NexaRuntime.bind(LocalContext.current)\n");
@@ -368,6 +385,9 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
         || features.uses_path_api
         || features.uses_permissions
         || features.facts.capabilities.uses_keyboard_api
+        || features.facts.capabilities.uses_haptics_api
+        || features.facts.capabilities.uses_secure_storage_api
+        || features.facts.capabilities.uses_clipboard_api
         || !module.plugins.is_empty()
     {
         units.write("runtime", |out| {
@@ -385,6 +405,14 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                 features.uses_file_async,
             );
         });
+    }
+    if features.facts.capabilities.uses_secure_storage_api {
+        units.write("secure-storage", |out| {
+            api::secure_storage::render(out);
+        });
+    }
+    if features.facts.capabilities.uses_clipboard_api {
+        units.write("clipboard", api::clipboard::render);
     }
     if features.uses_asset
         || features.uses_tab_icon
@@ -409,6 +437,16 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
     if features.facts.capabilities.uses_time {
         units.write("time", |out| {
             api::time::render(out);
+        });
+    }
+    if features.facts.capabilities.uses_number_formatting {
+        units.write("number", |out| {
+            number::render(out);
+        });
+    }
+    if features.facts.capabilities.uses_crypto_api {
+        units.write("crypto", |out| {
+            api::crypto::render(out);
         });
     }
     units.write("functions", |out| {
@@ -464,6 +502,62 @@ mod tests {
 
         let kotlin = generate(&module);
         assert!(kotlin.contains("spring(dampingRatio = 0.8f, stiffness = 816.32654f)"));
+    }
+
+    #[test]
+    fn currency_formatting_emits_only_the_reachable_native_helper() {
+        let call = Expr::NativeCall {
+            receiver: None,
+            namespace: "Number".to_owned(),
+            name: "formatCurrency".to_owned(),
+            arguments: vec![
+                (
+                    "amount".to_owned(),
+                    Expr::Number {
+                        raw: "1234.5".to_owned(),
+                        ty: NumericType::Float64,
+                    },
+                ),
+                ("currencyCode".to_owned(), Expr::String("EUR".to_owned())),
+            ],
+            codecs: Vec::new(),
+            return_type: Type::String,
+            is_async: false,
+            is_throwing: false,
+        };
+        let module = Module {
+            app_name: "CurrencyFormatting".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: vec![State {
+                name: "price".to_owned(),
+                ty: Type::String,
+                initial: call,
+                mutable: true,
+            }],
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Text {
+                value: Expr::State("price".to_owned(), Type::String),
+                style: TextStyle::default(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        assert!(kotlin.contains("nexaFormatCurrency(1234.5, \"EUR\")"));
+        assert!(kotlin.contains("internal fun nexaFormatCurrency"));
+        assert!(kotlin.contains("java.text.NumberFormat.getCurrencyInstance(locale)"));
     }
 
     #[test]

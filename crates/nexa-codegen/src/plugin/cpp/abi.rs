@@ -831,9 +831,7 @@ fn cpp_type_base(ty: &BridgeType) -> String {
             cpp_type(success),
             cpp_identifier(failure)
         ),
-        BridgeType::Named { name, .. } | BridgeType::TypeParameter(name) => {
-            cpp_identifier(name)
-        }
+        BridgeType::Named { name, .. } | BridgeType::TypeParameter(name) => cpp_identifier(name),
         BridgeType::Optional(inner) => cpp_type_base(inner),
     }
 }

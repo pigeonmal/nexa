@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nexa Swift Expert"
+  short_description: "Audit generated iOS SwiftUI and Swift plugin code"
+  default_prompt: "Audit the generated Swift for this Nexa project and report concrete correctness, lifecycle, concurrency, and performance issues."

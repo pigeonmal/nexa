@@ -1,11 +1,12 @@
 use std::{
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
 
 use nexa_ir::Permission;
 use nexa_plugin_idl::{ConfigOption, Literal, PluginIdl, TypeRef};
-use nexa_syntax::ast::{ConfigValue, PluginDependencyConfig};
+use nexa_syntax::ast::{ConfigValue, PluginDecl, PluginDependencyConfig};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) enum AndroidCronetProvider {
@@ -658,39 +659,34 @@ pub(super) fn load_plugin_definitions(
     entry: &Path,
     plugin_roots: &std::collections::HashMap<String, PathBuf>,
 ) -> Result<Vec<PluginDefinition>, String> {
-    let source = fs::read_to_string(entry)
-        .map_err(|error| format!("cannot read entry {}: {error}", entry.display()))?;
-    let program = nexa_syntax::parse_program(&source)
-        .map_err(|error| format!("{}: {error}", entry.display()))?;
     let base = entry.parent().unwrap_or_else(|| Path::new("."));
-    let mut definitions = Vec::with_capacity(program.plugins.len());
-    for plugin in program.plugins {
+    let declarations = collect_plugin_declarations(entry, plugin_roots)?;
+    let mut definitions = Vec::with_capacity(declarations.len());
+    let mut declared_contracts = HashMap::<String, PathBuf>::new();
+    for (plugin, source_file) in declarations {
+        let source_base = source_file.parent().unwrap_or_else(|| Path::new("."));
         let declared_path = plugin_roots
             .get(&plugin.path)
             .cloned()
-            .unwrap_or_else(|| base.join(&plugin.path));
-        if declared_path.is_dir()
-            && nexa_plugin_idl::manifest::parse_file(&declared_path.join("plugin.config.nx"))
-                .map(|manifest| manifest.nexa.is_some())
-                .unwrap_or(false)
-        {
-            continue;
-        }
+            .unwrap_or_else(|| source_base.join(&plugin.path));
         let idl_path = if declared_path.is_dir() {
             let manifest_path = declared_path.join("plugin.config.nx");
             let manifest =
                 nexa_plugin_idl::manifest::parse_file(&manifest_path).map_err(|error| {
                     format!(
                         "{}:{}:{}: {error}",
-                        entry.display(),
+                        source_file.display(),
                         plugin.span.line,
                         plugin.span.column
                     )
                 })?;
+            if manifest.nexa.is_some() && manifest.native.is_none() {
+                continue;
+            }
             let native = manifest.native.ok_or_else(|| {
                 format!(
                     "{}:{}:{}: plugin manifest does not declare `sources.native`",
-                    entry.display(),
+                    source_file.display(),
                     plugin.span.line,
                     plugin.span.column
                 )
@@ -702,7 +698,7 @@ pub(super) fn load_plugin_definitions(
         let idl_path = fs::canonicalize(&idl_path).map_err(|error| {
             format!(
                 "{}:{}:{}: cannot resolve plugin IDL `{}`: {error}",
-                entry.display(),
+                source_file.display(),
                 plugin.span.line,
                 plugin.span.column,
                 plugin.path
@@ -711,29 +707,120 @@ pub(super) fn load_plugin_definitions(
         let idl = nexa_plugin_idl::parse_file(&idl_path).map_err(|error| {
             format!(
                 "{}:{}:{}: {error}",
-                entry.display(),
+                source_file.display(),
                 plugin.span.line,
                 plugin.span.column
             )
         })?;
-        if definitions
-            .iter()
-            .any(|definition: &PluginDefinition| definition.namespace == plugin.namespace)
-        {
-            return Err(format!(
-                "{}:{}:{}: plugin namespace `{}` is declared more than once",
-                entry.display(),
-                plugin.span.line,
-                plugin.span.column,
-                plugin.namespace
-            ));
+        if let Some(previous_path) = declared_contracts.get(&plugin.namespace) {
+            if previous_path != &idl_path {
+                return Err(format!(
+                    "{}:{}:{}: plugin namespace `{}` refers to more than one package",
+                    source_file.display(),
+                    plugin.span.line,
+                    plugin.span.column,
+                    plugin.namespace
+                ));
+            }
+            continue;
         }
+        declared_contracts.insert(plugin.namespace.clone(), idl_path);
         definitions.push(PluginDefinition {
             namespace: plugin.namespace,
             idl,
         });
     }
+
+    // Dependencies in nexa.config.nx are compiled into Dev hosts up front so
+    // source added by a later hot reload can import them. Load their contracts
+    // here as well, using the dependency alias as the prelinked Dev namespace.
+    let config_path = base.join("nexa.config.nx");
+    for dependency in load_plugin_dependencies(&config_path)? {
+        if definitions
+            .iter()
+            .any(|definition| definition.namespace == dependency.alias)
+        {
+            continue;
+        }
+        let Some(package_root) = plugin_roots.get(&dependency.package_id) else {
+            return Err(format!(
+                "{}: configured plugin `{}` was not resolved to a package root",
+                config_path.display(),
+                dependency.alias
+            ));
+        };
+        let manifest_path = package_root.join("plugin.config.nx");
+        let manifest = nexa_plugin_idl::manifest::parse_file(&manifest_path)?;
+        let Some(native) = manifest.native else {
+            continue;
+        };
+        let idl_path = fs::canonicalize(package_root.join(native)).map_err(|error| {
+            format!(
+                "{}: cannot resolve native plugin contract: {error}",
+                manifest_path.display()
+            )
+        })?;
+        let idl = nexa_plugin_idl::parse_file(&idl_path)?;
+        definitions.push(PluginDefinition {
+            namespace: dependency.alias,
+            idl,
+        });
+    }
     Ok(definitions)
+}
+
+fn collect_plugin_declarations(
+    entry: &Path,
+    plugin_roots: &HashMap<String, PathBuf>,
+) -> Result<Vec<(PluginDecl, PathBuf)>, String> {
+    fn visit(
+        path: &Path,
+        plugin_roots: &HashMap<String, PathBuf>,
+        visited: &mut HashSet<PathBuf>,
+        declarations: &mut Vec<(PluginDecl, PathBuf)>,
+    ) -> Result<(), String> {
+        let canonical = fs::canonicalize(path)
+            .map_err(|error| format!("cannot resolve source {}: {error}", path.display()))?;
+        if !visited.insert(canonical.clone()) {
+            return Ok(());
+        }
+        let source = fs::read_to_string(&canonical)
+            .map_err(|error| format!("cannot read source {}: {error}", canonical.display()))?;
+        let program = nexa_syntax::parse_program(&source)
+            .map_err(|error| format!("{}: {error}", canonical.display()))?;
+        let base = canonical.parent().unwrap_or_else(|| Path::new("."));
+        let plugins = program.plugins;
+        declarations.extend(
+            plugins
+                .iter()
+                .cloned()
+                .map(|plugin| (plugin, canonical.clone())),
+        );
+        for import in program.imports {
+            visit(&base.join(import.path), plugin_roots, visited, declarations)?;
+        }
+
+        // A plugin's bundled Nexa source is outside the app's ordinary import
+        // list. Traverse it here too, matching the compiler's project loader.
+        for plugin in plugins {
+            let root = plugin_roots
+                .get(&plugin.path)
+                .cloned()
+                .unwrap_or_else(|| base.join(&plugin.path));
+            if !root.is_dir() {
+                continue;
+            }
+            let manifest = nexa_plugin_idl::manifest::parse_file(&root.join("plugin.config.nx"))?;
+            if let Some(source) = manifest.nexa {
+                visit(&root.join(source), plugin_roots, visited, declarations)?;
+            }
+        }
+        Ok(())
+    }
+
+    let mut declarations = Vec::new();
+    visit(entry, plugin_roots, &mut HashSet::new(), &mut declarations)?;
+    Ok(declarations)
 }
 
 pub(super) fn render_template(plugin_definitions: &[PluginDefinition]) -> String {

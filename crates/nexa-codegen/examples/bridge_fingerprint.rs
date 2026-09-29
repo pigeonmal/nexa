@@ -221,7 +221,7 @@ fn main() {
         ),
         (
             "video-player",
-            include_str!("../../../examples/plugins/video-player/native.nxid"),
+            include_str!("../../../plugins/video-player/native.nxid"),
             "dev.example.video-player",
         ),
         (

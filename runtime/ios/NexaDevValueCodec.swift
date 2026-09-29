@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// Hashable wrapper for values stored in DevRuntime sets and generic maps.
 /// AOT values remain their generated concrete types; this only bridges the
@@ -42,11 +43,27 @@ struct NexaDevHashableValue: Hashable {
 /// descriptor is serialized from the already type-checked IR; dispatch stays
 /// explicit and does not use runtime reflection.
 enum NexaDevValueCodec {
+    private enum JsonFailure: Error {
+        case invalidJson
+        case typeMismatch
+        case missingField
+        case invalidValue
+
+        var caseName: String {
+            switch self {
+            case .invalidJson: return "invalidJson"
+            case .typeMismatch: return "typeMismatch"
+            case .missingField: return "missingField"
+            case .invalidValue: return "invalidValue"
+            }
+        }
+    }
+
     /// Wraps interpreter values in a concrete, copyable type so Swift does not
     /// have to reabstract an `(Any, Writer)` closure to a plugin's generic
     /// codec closure. That reabstraction currently crashes Swift 6.4 SILGen.
     static func box(_ raw: Any?) -> NexaDevHashableValue? {
-        guard let raw, !(raw is NSNull) else { return nil }
+        guard let raw else { return nil }
         return NexaDevHashableValue(raw)
     }
 
@@ -80,6 +97,19 @@ enum NexaDevValueCodec {
             }
         }
         return decoded
+    }
+
+    /// Decodes an optional nested value without confusing a valid `nil` with
+    /// a failed child decoder. The outer optional represents decode failure;
+    /// the inner optional is the value carried by the plugin contract.
+    static func transformOptional<Element>(
+        _ raw: Any?,
+        decode: (Any) -> Element?
+    ) -> Element?? {
+        guard let raw else { return nil }
+        if raw is NSNull { return .some(nil) }
+        guard let value = decode(raw) else { return nil }
+        return .some(value)
     }
 
     static func transformPair<First, Second>(
@@ -137,6 +167,24 @@ enum NexaDevValueCodec {
         return decoded
     }
 
+    static func transformOptionalSet<Element: Hashable>(
+        _ raw: Any?,
+        decode: (Any) -> Element?
+    ) -> Set<Element?>? {
+        guard let values = asSet(raw) else { return nil }
+        var decoded = Set<Element?>()
+        decoded.reserveCapacity(values.count)
+        for value in values {
+            if value.value is NSNull {
+                decoded.insert(nil)
+            } else {
+                guard let element = decode(value.value) else { return nil }
+                decoded.insert(element)
+            }
+        }
+        return decoded
+    }
+
     static func transformMap<Key: Hashable, Value>(
         _ raw: Any?,
         decodeKey: (Any) -> Key?,
@@ -149,7 +197,7 @@ enum NexaDevValueCodec {
             guard let key = decodeKey(key.base), let value = decodeValue(value) else {
                 return nil
             }
-            decoded[key] = value
+            decoded.updateValue(value, forKey: key)
         }
         return decoded
     }
@@ -171,13 +219,23 @@ enum NexaDevValueCodec {
     }
 
     static func write(
-        _ raw: Any,
+        _ raw: Any?,
         type: Any,
         into writer: NexaValueWriter,
         enumCases: [String: [String]]
     ) -> Bool {
-        let value = (raw as? NexaDevHashableValue)?.value ?? raw
         guard let (kind, payload) = typeTag(type) else { return false }
+        let value = (raw as? NexaDevHashableValue)?.value ?? raw
+        if kind == "Optional" {
+            guard let wrappedType = payload else { return false }
+            guard let value, !(value is NSNull) else {
+                writer.writeBool(false)
+                return true
+            }
+            writer.writeBool(true)
+            return write(value, type: wrappedType, into: writer, enumCases: enumCases)
+        }
+        guard let value else { return false }
         switch kind {
         case "Bool":
             guard let number = value as? NSNumber else { return false }
@@ -209,6 +267,19 @@ enum NexaDevValueCodec {
                   let ordinal = enumCases[name]?.firstIndex(of: caseName)
             else { return false }
             writer.writeInt32(Int32(ordinal))
+        case "Result":
+            guard let types = payload as? [Any], types.count == 2,
+                  let values = value as? [String: Any]
+            else { return false }
+            if let success = values["Ok"] {
+                writer.writeBool(true)
+                return write(success, type: types[0], into: writer, enumCases: enumCases)
+            }
+            if let failure = values["Err"] {
+                writer.writeBool(false)
+                return write(failure, type: types[1], into: writer, enumCases: enumCases)
+            }
+            return false
         case "Struct":
             guard let fields = (payload as? [String: Any])?["fields"] as? [[Any]],
                   let values = value as? [String: Any]
@@ -290,6 +361,10 @@ enum NexaDevValueCodec {
     ) -> Any? {
         guard let (kind, payload) = typeTag(type) else { return nil }
         switch kind {
+        case "Optional":
+            guard let wrappedType = payload, let present = reader.readBool() else { return nil }
+            guard present else { return NSNull() }
+            return read(type: wrappedType, from: reader, enumCases: enumCases)
         case "Bool": return reader.readBool()
         case "String": return reader.readString()
         case "Bytes": return reader.readBuffer()?.base64EncodedString()
@@ -314,6 +389,16 @@ enum NexaDevValueCodec {
                   let cases = enumCases[name], cases.indices.contains(Int(ordinal))
             else { return nil }
             return cases[Int(ordinal)]
+        case "Result":
+            guard let types = payload as? [Any], types.count == 2,
+                  let isSuccess = reader.readBool()
+            else { return nil }
+            if isSuccess {
+                guard let success = read(type: types[0], from: reader, enumCases: enumCases) else { return nil }
+                return ["Ok": success]
+            }
+            guard let failure = read(type: types[1], from: reader, enumCases: enumCases) else { return nil }
+            return ["Err": failure]
         case "Struct":
             guard let fields = (payload as? [String: Any])?["fields"] as? [[Any]] else { return nil }
             var values: [String: Any] = [:]
@@ -364,6 +449,283 @@ enum NexaDevValueCodec {
         default:
             return nil
         }
+    }
+
+    static func parseJSON(
+        _ raw: String,
+        type: Any?,
+        enumCases: [String: [String]]
+    ) -> [String: Any] {
+        do {
+            let data = Data(raw.utf8)
+            let object = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+            return ["Ok": try decodeJSON(object, type: type, enumCases: enumCases)]
+        } catch let failure as JsonFailure {
+            return ["Err": failure.caseName]
+        } catch {
+            return ["Err": JsonFailure.invalidJson.caseName]
+        }
+    }
+
+    static func stringifyJSON(
+        _ raw: Any?,
+        type: Any?,
+        enumCases: [String: [String]]
+    ) -> String {
+        do {
+            let value = try encodeJSON(raw, type: type, enumCases: enumCases)
+            let data = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys])
+            return String(data: data, encoding: .utf8) ?? "null"
+        } catch {
+            return "null"
+        }
+    }
+
+    private static func decodeJSON(
+        _ raw: Any,
+        type: Any?,
+        enumCases: [String: [String]]
+    ) throws -> Any {
+        guard let (kind, payload) = typeTag(type as Any) else { throw JsonFailure.invalidValue }
+        if kind == "Optional" {
+            if raw is NSNull { return NSNull() }
+            return try decodeJSON(raw, type: payload, enumCases: enumCases)
+        }
+        if raw is NSNull { throw JsonFailure.typeMismatch }
+        switch kind {
+        case "String":
+            guard let value = raw as? String else { throw JsonFailure.typeMismatch }
+            return value
+        case "Bool":
+            guard let value = raw as? NSNumber, CFGetTypeID(value) == CFBooleanGetTypeID() else {
+                throw JsonFailure.typeMismatch
+            }
+            return value.boolValue
+        case "Bytes":
+            guard let encoded = raw as? String else { throw JsonFailure.typeMismatch }
+            guard let data = Data(base64Encoded: encoded) else { throw JsonFailure.invalidValue }
+            return data.base64EncodedString()
+        case "Numeric":
+            guard let numeric = payload as? String else { throw JsonFailure.invalidValue }
+            if let text = raw as? String {
+                switch (numeric, text) {
+                case ("Float32", "Infinity"): return Float.infinity
+                case ("Float32", "-Infinity"): return -Float.infinity
+                case ("Float32", "NaN"): return Float.nan
+                case ("Float64", "Infinity"): return Double.infinity
+                case ("Float64", "-Infinity"): return -Double.infinity
+                case ("Float64", "NaN"): return Double.nan
+                default: throw JsonFailure.typeMismatch
+                }
+            }
+            guard let value = raw as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID() else {
+                throw JsonFailure.typeMismatch
+            }
+            let text = value.stringValue
+            switch numeric {
+            case "Int8": guard let parsed = Int8(text) else { throw JsonFailure.invalidValue }; return parsed
+            case "Int16": guard let parsed = Int16(text) else { throw JsonFailure.invalidValue }; return parsed
+            case "Int32": guard let parsed = Int32(text) else { throw JsonFailure.invalidValue }; return parsed
+            case "Int64": guard let parsed = Int64(text) else { throw JsonFailure.invalidValue }; return parsed
+            case "UInt8": guard let parsed = UInt8(text) else { throw JsonFailure.invalidValue }; return parsed
+            case "UInt16": guard let parsed = UInt16(text) else { throw JsonFailure.invalidValue }; return parsed
+            case "UInt32": guard let parsed = UInt32(text) else { throw JsonFailure.invalidValue }; return parsed
+            case "UInt64": guard let parsed = UInt64(text) else { throw JsonFailure.invalidValue }; return parsed
+            case "Float32": return value.floatValue
+            case "Float64": return value.doubleValue
+            default: throw JsonFailure.invalidValue
+            }
+        case "Enum":
+            guard let name = payload as? String, let value = raw as? String else {
+                throw JsonFailure.typeMismatch
+            }
+            guard enumCases[name]?.contains(value) == true else { throw JsonFailure.invalidValue }
+            return value
+        case "Array", "Set":
+            guard let values = raw as? [Any] else { throw JsonFailure.typeMismatch }
+            let decoded = try values.map { try decodeJSON($0, type: payload, enumCases: enumCases) }
+            return kind == "Set" ? Set(decoded.map(NexaDevHashableValue.init)) as Any : decoded
+        case "Map":
+            guard let types = payload as? [Any], types.count == 2,
+                  typeTag(types[0])?.0 == "String",
+                  let values = raw as? [String: Any]
+            else { throw JsonFailure.typeMismatch }
+            var decoded: [String: Any] = [:]
+            decoded.reserveCapacity(values.count)
+            for (key, value) in values {
+                decoded[key] = try decodeJSON(value, type: types[1], enumCases: enumCases)
+            }
+            return decoded
+        case "Pair", "Triple":
+            guard let types = payload as? [Any], let values = raw as? [Any] else {
+                throw JsonFailure.typeMismatch
+            }
+            let expectedCount = kind == "Pair" ? 2 : 3
+            guard types.count == expectedCount, values.count == expectedCount else {
+                throw JsonFailure.invalidValue
+            }
+            return try values.enumerated().map { index, value in
+                try decodeJSON(value, type: types[index], enumCases: enumCases)
+            }
+        case "Result":
+            guard let types = payload as? [Any], types.count == 2,
+                  let values = raw as? [String: Any], values.count == 1
+            else { throw JsonFailure.invalidValue }
+            if let success = values["success"] {
+                return ["Ok": try decodeJSON(success, type: types[0], enumCases: enumCases)]
+            }
+            if let failure = values["failure"] {
+                return ["Err": try decodeJSON(failure, type: types[1], enumCases: enumCases)]
+            }
+            throw JsonFailure.invalidValue
+        case "Struct":
+            guard let descriptor = payload as? [String: Any],
+                  let fields = descriptor["fields"] as? [[Any]],
+                  let values = raw as? [String: Any]
+            else { throw JsonFailure.typeMismatch }
+            var decoded: [String: Any] = [:]
+            decoded.reserveCapacity(fields.count)
+            for field in fields {
+                guard field.count == 2, let name = field[0] as? String else {
+                    throw JsonFailure.invalidValue
+                }
+                guard let value = values[name] else {
+                    if typeTag(field[1])?.0 == "Optional" {
+                        decoded[name] = NSNull()
+                        continue
+                    }
+                    throw JsonFailure.missingField
+                }
+                decoded[name] = try decodeJSON(value, type: field[1], enumCases: enumCases)
+            }
+            return decoded
+        default:
+            throw JsonFailure.invalidValue
+        }
+    }
+
+    private static func encodeJSON(
+        _ raw: Any?,
+        type: Any?,
+        enumCases: [String: [String]]
+    ) throws -> Any {
+        guard let (kind, payload) = typeTag(type as Any) else { throw JsonFailure.invalidValue }
+        if kind == "Optional" {
+            guard let raw, !(raw is NSNull) else { return NSNull() }
+            return try encodeJSON(raw, type: payload, enumCases: enumCases)
+        }
+        guard let raw, !(raw is NSNull) else { throw JsonFailure.invalidValue }
+        switch kind {
+        case "String":
+            guard let value = raw as? String else { throw JsonFailure.invalidValue }
+            return value
+        case "Bool":
+            guard let value = raw as? NSNumber, CFGetTypeID(value) == CFBooleanGetTypeID() else {
+                throw JsonFailure.invalidValue
+            }
+            return value
+        case "Bytes":
+            guard let value = raw as? String, let data = Data(base64Encoded: value) else {
+                throw JsonFailure.invalidValue
+            }
+            return data.base64EncodedString()
+        case "Numeric":
+            guard let numeric = payload as? String, let value = numberValue(raw) else {
+                throw JsonFailure.invalidValue
+            }
+            switch numeric {
+            case "Int8": guard let value = Int8(value.stringValue) else { throw JsonFailure.invalidValue }; return value
+            case "Int16": guard let value = Int16(value.stringValue) else { throw JsonFailure.invalidValue }; return value
+            case "Int32": guard let value = Int32(value.stringValue) else { throw JsonFailure.invalidValue }; return value
+            case "Int64": guard let value = Int64(value.stringValue) else { throw JsonFailure.invalidValue }; return value
+            case "UInt8": guard let value = UInt8(value.stringValue) else { throw JsonFailure.invalidValue }; return value
+            case "UInt16": guard let value = UInt16(value.stringValue) else { throw JsonFailure.invalidValue }; return value
+            case "UInt32": guard let value = UInt32(value.stringValue) else { throw JsonFailure.invalidValue }; return value
+            case "UInt64": guard let value = UInt64(value.stringValue) else { throw JsonFailure.invalidValue }; return value
+            case "Float32":
+                let number = value.floatValue
+                return number.isFinite ? number as Any : (number.isNaN ? "NaN" : (number.sign == .minus ? "-Infinity" : "Infinity")) as Any
+            case "Float64":
+                let number = value.doubleValue
+                return number.isFinite ? number as Any : (number.isNaN ? "NaN" : (number.sign == .minus ? "-Infinity" : "Infinity")) as Any
+            default: throw JsonFailure.invalidValue
+            }
+        case "Enum":
+            guard let name = payload as? String, let value = raw as? String,
+                  enumCases[name]?.contains(value) == true
+            else { throw JsonFailure.invalidValue }
+            return value
+        case "Array":
+            guard let values = raw as? [Any] else { throw JsonFailure.invalidValue }
+            return try values.map { try encodeJSON($0, type: payload, enumCases: enumCases) }
+        case "Set":
+            guard let values = asSet(raw) else { throw JsonFailure.invalidValue }
+            let encoded = try values.map { try encodeJSON($0.value, type: payload, enumCases: enumCases) }
+            let keyed = try encoded.map { ($0, try jsonText($0)) }
+            return keyed.sorted { $0.1 < $1.1 }.map(\.0)
+        case "Map":
+            guard let types = payload as? [Any], types.count == 2,
+                  typeTag(types[0])?.0 == "String",
+                  let values = raw as? [String: Any]
+            else { throw JsonFailure.invalidValue }
+            var encoded: [String: Any] = [:]
+            encoded.reserveCapacity(values.count)
+            for (key, value) in values {
+                encoded[key] = try encodeJSON(value, type: types[1], enumCases: enumCases)
+            }
+            return encoded
+        case "Pair", "Triple":
+            guard let types = payload as? [Any], let values = raw as? [Any] else {
+                throw JsonFailure.invalidValue
+            }
+            let expectedCount = kind == "Pair" ? 2 : 3
+            guard types.count == expectedCount, values.count == expectedCount else {
+                throw JsonFailure.invalidValue
+            }
+            return try values.enumerated().map { index, value in
+                try encodeJSON(value, type: types[index], enumCases: enumCases)
+            }
+        case "Result":
+            guard let types = payload as? [Any], types.count == 2,
+                  let values = raw as? [String: Any]
+            else { throw JsonFailure.invalidValue }
+            if let success = values["Ok"] {
+                return ["success": try encodeJSON(success, type: types[0], enumCases: enumCases)]
+            }
+            if let failure = values["Err"] {
+                return ["failure": try encodeJSON(failure, type: types[1], enumCases: enumCases)]
+            }
+            throw JsonFailure.invalidValue
+        case "Struct":
+            guard let descriptor = payload as? [String: Any],
+                  let fields = descriptor["fields"] as? [[Any]],
+                  let values = raw as? [String: Any]
+            else { throw JsonFailure.invalidValue }
+            var encoded: [String: Any] = [:]
+            encoded.reserveCapacity(fields.count)
+            for field in fields {
+                guard field.count == 2, let name = field[0] as? String else {
+                    throw JsonFailure.invalidValue
+                }
+                let type = field[1]
+                guard let value = values[name] else {
+                    if typeTag(type)?.0 == "Optional" {
+                        encoded[name] = NSNull()
+                        continue
+                    }
+                    throw JsonFailure.invalidValue
+                }
+                encoded[name] = try encodeJSON(value, type: type, enumCases: enumCases)
+            }
+            return encoded
+        default:
+            throw JsonFailure.invalidValue
+        }
+    }
+
+    private static func jsonText(_ value: Any) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "null"
     }
 
     private static func typeTag(_ raw: Any) -> (String, Any?)? {

@@ -4,7 +4,7 @@ use std::{
     process::Command,
 };
 
-use nexa_testkit::{TestProject, Toolchain, example_path};
+use nexa_testkit::{TestProject, Toolchain};
 
 /// A temporary project whose directory is owned for as long as it is bound.
 struct TempProject(TestProject);
@@ -16,7 +16,8 @@ impl TempProject {
 
     fn generate(&self, target: &str) -> PathBuf {
         let output = self.0.join("Generated");
-        let entry = example_path("plugins/video-player-demo.nx");
+        let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../plugins/video-player/tests/demo/app/App.nx");
         nexa_cli::generate_project(&entry, target, &output, "NexaPluginBuildTest")
             .expect("Nexa project generation should succeed");
         output
@@ -1064,7 +1065,7 @@ fn video_player_ios_instances_run_independently_in_a_headless_swift_smoke_test()
         return;
     }
 
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/plugins/video-player");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/video-player");
     let implementation = root.join("ios/Sources/VideoPlayerImpl.swift");
     let smoke_test = root.join("tests/ios/VideoPlayerRuntimeSmoke.swift");
     let temp = TempProject::new("ios-video-runtime");
@@ -1137,7 +1138,7 @@ fn generated_video_plugin_builds_for_android_when_gradle_and_sdk_are_available()
     let temp = TempProject::new("android");
     let project = temp.generate("android");
     let video_player_test = Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../examples/plugins/video-player/android/src/test/kotlin/dev/nexa/videoplayer/VideoPlayerImplTest.kt",
+        "../../plugins/video-player/android/src/test/kotlin/dev/nexa/videoplayer/VideoPlayerImplTest.kt",
     );
     let generated_test_dir = project.join("android/app/src/test/java/dev/nexa/videoplayer");
     fs::create_dir_all(&generated_test_dir)

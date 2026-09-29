@@ -59,6 +59,14 @@ pub(crate) struct DevSessionConfig {
 }
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
+    run_with_summary(args, true)
+}
+
+pub(crate) fn run_quiet(args: &[String]) -> Result<(), String> {
+    run_with_summary(args, false)
+}
+
+fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> {
     let mut input = None;
     let mut output = None;
     let mut name = None;
@@ -254,7 +262,9 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
             if deny_warnings && !warnings.is_empty() {
                 return Err(format!("{} warning(s) treated as errors", warnings.len()));
             }
-            println!("generated {} (cache hit)", output.display());
+            if print_summary {
+                println!("generated {} (cache hit)", output.display());
+            }
             return Ok(());
         }
     }
@@ -275,16 +285,20 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         .iter()
         .copied()
         .zip(compilations)
-        .map(|(target, compilation)| {
+        .map(|(target, compilation)| -> Result<_, String> {
             warnings.extend(compilation.warnings);
             let packages = if dev_session.is_some() {
-                plugin_package::packages_for_dev(&compilation.plugins)
+                plugin_package::packages_for_dev_with_dependencies(
+                    &compilation.plugins,
+                    &dependencies,
+                    plugin_roots,
+                )?
             } else {
                 plugin_package::packages_for_module(&compilation.plugins, &compilation.module)
             };
-            (target, compilation.module, packages)
+            Ok((target, compilation.module, packages))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, String>>()?;
     let warnings = deduplicate_warnings(warnings);
     report_warnings(&warnings, deny_warnings)?;
 
@@ -381,11 +395,13 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     if let Err(error) = cache::store_warnings(&input, &cache_key, &warning_text) {
         eprintln!("warning: could not update project cache: {error}");
     }
-    println!(
-        "generated {} ({})",
-        output.display(),
-        generated_targets.join(", ")
-    );
+    if print_summary {
+        println!(
+            "generated {} ({})",
+            output.display(),
+            generated_targets.join(", ")
+        );
+    }
     Ok(())
 }
 
@@ -1502,7 +1518,7 @@ mod tests {
     #[test]
     fn video_player_demo_generates_two_direct_native_instances_on_both_targets() {
         let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/plugins/video-player-demo.nx");
+            .join("../../plugins/video-player/tests/demo/app/App.nx");
         let compilations =
             compile_file_with_warnings_for_targets(&entry, &[Target::Swift, Target::Kotlin])
                 .expect("the plugin example should compile for both native targets");
@@ -1599,10 +1615,10 @@ mod tests {
     #[test]
     fn app_owned_native_resources_are_shared_across_route_lifetimes() {
         let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/plugins/video-player-route-sharing.nx");
+            .join("../../plugins/video-player/tests/demo/RouteSharing.nx");
         let compilations =
             compile_file_with_warnings_for_targets(&entry, &[Target::Swift, Target::Kotlin])
-                .expect("route-sharing example should compile for both native targets");
+                .expect("route-sharing plugin test app should compile for both native targets");
 
         let swift = SwiftBackend.generate(&compilations[0].module);
         assert_eq!(

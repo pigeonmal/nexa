@@ -883,6 +883,15 @@ mod template_generation {
     }
 
     #[test]
+    fn android_launcher_uses_the_user_orientation_policy_at_startup() {
+        let config = ProjectConfig::from_defaults(&[], "Demo").expect("empty project config");
+        let manifest = android_manifest("Demo", "com.example.demo", false, &config, &[]);
+
+        assert!(manifest.contains("android:screenOrientation=\"fullUser\""));
+        assert!(!manifest.contains("android:screenOrientation=\"portrait\""));
+    }
+
+    #[test]
     fn audio_plugin_background_metadata_reaches_both_native_hosts() {
         let config = ProjectConfig::from_defaults(&[], "Demo").expect("empty project config");
         let mut audio = plugin("Audio");
@@ -892,7 +901,9 @@ mod template_generation {
 
         let plist = ios_info_plist_with_dev_runtime("Demo", &config, &[audio.clone()], false)
             .expect("iOS audio metadata should generate");
-        assert!(plist.contains("<key>UIBackgroundModes</key><array><string>audio</string></array>"));
+        assert!(
+            plist.contains("<key>UIBackgroundModes</key><array><string>audio</string></array>")
+        );
 
         let manifest = android_manifest("Demo", "com.example.demo", false, &config, &[audio]);
         assert!(manifest.contains("android.permission.FOREGROUND_SERVICE"));

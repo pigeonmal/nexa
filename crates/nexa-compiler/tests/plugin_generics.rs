@@ -37,6 +37,7 @@ fn storage_contract() -> String {
        init(id: String)\n\
        fn setObject<T>(key: String, value: T) -> Bool\n\
        fn getObject<T>(key: String) -> T?\n\
+       fn getString(key: String) -> String?\n\
        fn setMap<K, V>(key: String, values: Map<K, V>) -> Bool\n\
        fn getMap<K, V>(key: String) -> Map<K, V>?\n\
        fn dispose()\n\
@@ -259,16 +260,122 @@ fn an_unknown_value_type_is_reported() {
 }
 
 #[test]
-fn a_result_value_type_is_reported() {
+fn a_result_with_an_enum_error_binds_generic_plugin_methods() {
+    let module = compile_with_plugin(
+        "nexa-generic-result",
+        &storage_contract(),
+        "plugin \"store\" as Store\n\
+         app Demo {\n    enum StoreError { Missing }\n    let store = Store.Store(\"id\")\n    state saved: Result<Float64, StoreError> = Ok(1.0)\n    body { Button(\"Save\") { store.setObject(\"result\", saved)\n store.getObject<Result<Float64, StoreError>>(\"result\") } }\n}\n",
+    )
+    .expect("a Result with an enum failure should be a storable plugin value");
+
+    let calls = native_calls(&module);
+    assert!(
+        calls.iter().any(|(name, codecs)| name == "setObject"
+            && codecs
+                .iter()
+                .any(|codec| matches!(&codec.ty, Type::Result(_, _)) && !codec.decodes)),
+        "the setter should carry a Result writer codec: {calls:?}"
+    );
+    assert!(
+        calls.iter().any(|(name, codecs)| name == "getObject"
+            && codecs
+                .iter()
+                .any(|codec| matches!(&codec.ty, Type::Result(_, _)) && codec.decodes)),
+        "the getter should carry a Result reader codec: {calls:?}"
+    );
+}
+
+#[test]
+fn optional_generic_plugin_arguments_bind_writer_codecs() {
+    let module = compile_with_plugin(
+        "nexa-generic-optional-writer",
+        &storage_contract(),
+        "plugin \"store\" as Store\n\
+         app Demo {\n    let store = Store.Store(\"id\")\n    state maybe: String? = null\n    state values: Array<String?> = [\"one\", null]\n    body { Button(\"Save\") { store.setObject<String?>(\"maybe\", maybe)\n store.setObject<Array<String?>>(\"values\", values) } }\n}\n",
+    )
+    .expect("optional generic values should be writable by a plugin codec");
+
+    let codecs = native_calls(&module)
+        .into_iter()
+        .filter(|(name, _)| name == "setObject")
+        .flat_map(|(_, codecs)| codecs)
+        .collect::<Vec<_>>();
+    assert!(
+        codecs
+            .iter()
+            .any(|codec| matches!(&codec.ty, Type::Optional(inner) if matches!(inner.as_ref(), Type::String)) && !codec.decodes),
+        "a nullable generic argument should carry an optional writer codec: {codecs:?}"
+    );
+    assert!(
+        codecs.iter().any(|codec| matches!(
+            &codec.ty,
+            Type::Array(inner) if matches!(inner.as_ref(), Type::Optional(value) if matches!(value.as_ref(), Type::String))
+        ) && !codec.decodes),
+        "collections of nullable generic values should carry a writer codec: {codecs:?}"
+    );
+}
+
+#[test]
+fn a_string_getter_uses_its_typed_method_without_a_generic_codec() {
+    let module = compile_with_plugin(
+        "nexa-typed-string-reader",
+        &storage_contract(),
+        "plugin \"store\" as Store\n\
+         app Demo {\n    let store = Store.Store(\"id\")\n    body { Text(store.getString(\"maybe\") ?? \"missing\") }\n}\n",
+    )
+    .expect("string reads should use the typed native method");
+
+    let calls = native_calls(&module);
+    let (_, codecs) = calls
+        .iter()
+        .find(|(name, _)| name == "getString")
+        .expect("the app should call getString");
+    assert!(
+        codecs.is_empty(),
+        "getString should not carry a generic codec"
+    );
+}
+
+#[test]
+fn optional_values_inside_compound_generic_reads_bind_read_codecs() {
+    let module = compile_with_plugin(
+        "nexa-generic-optional-compound-reader",
+        &storage_contract(),
+        "plugin \"store\" as Store\n\
+         app Demo {\n    let store = Store.Store(\"id\")\n    state values: Array<String?> = [\"one\", null]\n    body { Button(\"Read\") { values = store.getObject<Array<String?>>(\"values\") ?? [] } }\n}\n",
+    )
+    .expect("nullable elements should be readable inside a non-null compound value");
+
+    let calls = native_calls(&module);
+    assert!(
+        calls.iter().any(|(name, codecs)| {
+            name == "getObject"
+                && codecs.iter().any(|codec| {
+                    codec.decodes
+                        && matches!(
+                            &codec.ty,
+                            Type::Array(element)
+                                if matches!(element.as_ref(), Type::Optional(value)
+                                    if matches!(value.as_ref(), Type::String))
+                        )
+                })
+        }),
+        "the getter should carry a decoder for nullable compound elements: {calls:?}"
+    );
+}
+
+#[test]
+fn a_result_plugin_value_requires_an_enum_error_type() {
     let error = compile_with_plugin(
-        "nexa-generic-non-value",
+        "nexa-generic-result-error",
         &storage_contract(),
         "plugin \"store\" as Store\n\
          app Demo {\n    let store = Store.Store(\"id\")\n    body { Button(\"Read\") { store.getObject<Result<Float64, String>>(\"k\") } }\n}\n",
     )
-    .expect_err("a Result is not a storable plugin value type");
+    .expect_err("Swift Result failures must be enums that conform to Error");
     assert!(
-        error.contains("must be a scalar, `Bytes`, an enum, a struct"),
+        error.contains("must use an enum error type"),
         "unexpected diagnostic: {error}"
     );
 }

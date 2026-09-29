@@ -1,0 +1,15 @@
+app CryptoExample {
+    let sha256: String = Crypto.sha256(text: "nexa")
+    let sha512: String = Crypto.sha512(text: "nexa")
+    let signature: String = Crypto.hmacSha256(key: "secret", message: "payload")
+    let nonce: String = Crypto.randomBytes(count: 16)
+
+    body {
+        Column(spacing: 12) {
+            Text(sha256)
+            Text(sha512)
+            Text(signature)
+            Text(nonce)
+        }
+    }
+}

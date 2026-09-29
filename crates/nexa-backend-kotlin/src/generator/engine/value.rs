@@ -8,7 +8,8 @@
 //! The layout is fixed: a scalar is its little-endian bytes, a string or
 //! buffer is a `UInt32` byte length followed by its bytes, a collection is a
 //! `UInt32` element count followed by its elements, and a struct is its
-//! fields in declaration order. Sets and maps are written in a canonical
+//! fields in declaration order. Results have a one-byte case tag followed
+//! by the selected payload. Sets and maps are written in a canonical
 //! order - each element encoded, then sorted bytewise - so the same logical
 //! value always produces the same bytes, which is what lets a store written
 //! on one platform read back on the other.
@@ -31,6 +32,14 @@ use super::types::kotlin_type;
 pub(crate) fn render(codecs: &[Codec], out: &mut SourceWriter) {
     if codecs.is_empty() {
         return;
+    }
+    if codecs
+        .iter()
+        .any(|codec| codec.direction == Direction::Read && matches!(&codec.ty, Type::Optional(_)))
+    {
+        out.push_str(
+            "private sealed class NexaValueReadResult<out T> {\n    data class Value<out T>(val value: T) : NexaValueReadResult<T>()\n    object Invalid : NexaValueReadResult<Nothing>()\n}\n\n",
+        );
     }
     for codec in codecs {
         match codec.direction {
@@ -88,10 +97,16 @@ fn write_function(ty: &Type, out: &mut SourceWriter) {
 
 fn read_function(ty: &Type, out: &mut SourceWriter) {
     let name = codec_name(ty, Direction::Read);
+    let uses_nullable_result = matches!(ty, Type::Optional(_));
+    let visibility = if uses_nullable_result { "private " } else { "" };
+    let result_type = if uses_nullable_result {
+        format!("NexaValueReadResult<{}>", kotlin_type(ty))
+    } else {
+        format!("{}?", kotlin_type(ty))
+    };
     out.push_str(&format!(
-        "fun {name}(reader: {}): {}? {{\n",
+        "{visibility}fun {name}(reader: {}): {result_type} {{\n",
         core_type("NexaValueReader"),
-        kotlin_type(ty)
     ));
     for line in read_statements(ty, "reader") {
         out.push_str("    ");
@@ -110,6 +125,35 @@ fn write_statements(ty: &Type, expression: &str, writer: &str) -> Vec<String> {
             vec![format!("{writer}.{}({expression})", write_method(*numeric))]
         }
         Type::Enum(_) => vec![format!("{writer}.writeInt32({expression}.ordinal)")],
+        Type::Result(value_type, error_type) => {
+            let value_codec = codec_name(value_type, Direction::Write);
+            let error_codec = codec_name(error_type, Direction::Write);
+            let value_type = kotlin_type(value_type);
+            let error_type = kotlin_type(error_type);
+            vec![
+                format!("when ({expression}) {{"),
+                "    is NexaResult.Success<*> -> {".to_owned(),
+                format!("        {writer}.writeBool(true)"),
+                format!("        val payload = ({expression}.value as {value_type})"),
+                format!("        {value_codec}(payload, {writer})"),
+                "    }".to_owned(),
+                "    is NexaResult.Failure<*> -> {".to_owned(),
+                format!("        {writer}.writeBool(false)"),
+                format!("        val failure = ({expression}.error as {error_type})"),
+                format!("        {error_codec}(failure, {writer})"),
+                "    }".to_owned(),
+                "}".to_owned(),
+            ]
+        }
+        Type::Optional(inner) => {
+            let inner_codec = codec_name(inner, Direction::Write);
+            vec![
+                format!("{writer}.writeBool({expression} != null)"),
+                format!(
+                    "{expression}?.let {{ nexaOptionalValue -> {inner_codec}(nexaOptionalValue, {writer}) }}"
+                ),
+            ]
+        }
         Type::Struct { fields, .. } => {
             let mut lines = Vec::new();
             for (field, field_type) in fields {
@@ -211,10 +255,28 @@ fn field_read_statements(ty: &Type, index: usize, reader: &str) -> Vec<String> {
                 enum_name(name)
             ),
         ],
-        _ => vec![format!(
-            "val field{index} = {} ?: return null",
-            read_expression(ty, reader)
-        )],
+        _ => read_binding_statements(ty, reader, &format!("field{index}"), ""),
+    }
+}
+
+/// Binds one nested value, keeping an optional value separate from a failed
+/// decode. Kotlin otherwise flattens both cases to the same nullable value.
+fn read_binding_statements(ty: &Type, reader: &str, binding: &str, indent: &str) -> Vec<String> {
+    let expression = read_expression(ty, reader);
+    if matches!(ty, Type::Optional(_)) {
+        let decoded = format!("nexaDecoded_{binding}");
+        vec![
+            format!("{indent}val {decoded} = {expression}"),
+            format!("{indent}if ({decoded} !is NexaValueReadResult.Value<*>) return null"),
+            format!(
+                "{indent}val {binding} = {decoded}.value as {}",
+                kotlin_type(ty)
+            ),
+        ]
+    } else {
+        vec![format!(
+            "{indent}val {binding} = {expression} ?: return null"
+        )]
     }
 }
 
@@ -225,10 +287,36 @@ fn read_statements(ty: &Type, reader: &str) -> Vec<String> {
         }
         Type::String => vec![format!("return {reader}.readString()")],
         Type::Bytes => vec![format!("return {reader}.readBuffer()")],
+        Type::Optional(inner) => {
+            let inner = read_expression(inner, reader);
+            vec![
+                format!("val present = {reader}.readBool() ?: return NexaValueReadResult.Invalid"),
+                "if (!present) return NexaValueReadResult.Value(null)".to_owned(),
+                format!("val value = {inner} ?: return NexaValueReadResult.Invalid"),
+                "return NexaValueReadResult.Value(value)".to_owned(),
+            ]
+        }
         Type::Enum(name) => vec![format!(
             "return {}.entries.getOrNull({reader}.readInt32() ?: return null)",
             enum_name(name)
         )],
+        Type::Result(value_type, error_type) => {
+            let mut lines = vec![
+                format!("val isSuccess = {reader}.readBool() ?: return null"),
+                "if (isSuccess) {".to_owned(),
+            ];
+            lines.extend(read_binding_statements(
+                value_type, reader, "payload", "    ",
+            ));
+            lines.push("    return NexaResult.Success(payload)".to_owned());
+            lines.push("}".to_owned());
+            lines.push(format!(
+                "val failure = {}({reader}) ?: return null",
+                codec_name(error_type, Direction::Read)
+            ));
+            lines.push("return NexaResult.Failure(failure)".to_owned());
+            lines
+        }
         Type::Struct { name, fields } => {
             let mut lines = Vec::new();
             for (index, (_, field_type)) in fields.iter().enumerate() {
@@ -242,7 +330,6 @@ fn read_statements(ty: &Type, reader: &str) -> Vec<String> {
             lines
         }
         Type::Array(element) | Type::Set(element) => {
-            let element_codec = codec_name(element, Direction::Read);
             let mut lines = vec![
                 format!("val count = {reader}.readCount() ?: return null"),
                 "if (count < 0) {".to_owned(),
@@ -250,9 +337,10 @@ fn read_statements(ty: &Type, reader: &str) -> Vec<String> {
                 "}".to_owned(),
                 format!("val values = ArrayList<{}>(count)", kotlin_type(element)),
                 "repeat(count) {".to_owned(),
-                format!("    values.add({element_codec}({reader}) ?: return null)"),
-                "}".to_owned(),
             ];
+            lines.extend(read_binding_statements(element, reader, "element", "    "));
+            lines.push("    values.add(element)".to_owned());
+            lines.push("}".to_owned());
             if matches!(ty, Type::Set(_)) {
                 lines.push("return values.toSet()".to_owned());
             } else {
@@ -262,8 +350,7 @@ fn read_statements(ty: &Type, reader: &str) -> Vec<String> {
         }
         Type::Map(key, value_type) => {
             let key_codec = codec_name(key, Direction::Read);
-            let value_codec = codec_name(value_type, Direction::Read);
-            vec![
+            let mut lines = vec![
                 format!("val count = {reader}.readCount() ?: return null"),
                 "if (count < 0) {".to_owned(),
                 "    return null".to_owned(),
@@ -275,38 +362,33 @@ fn read_statements(ty: &Type, reader: &str) -> Vec<String> {
                 ),
                 "repeat(count) {".to_owned(),
                 format!("    val entryKey = {key_codec}({reader}) ?: return null"),
-                format!("    val entryValue = {value_codec}({reader}) ?: return null"),
-                "    values[entryKey] = entryValue".to_owned(),
-                "}".to_owned(),
-                "return values".to_owned(),
-            ]
+            ];
+            lines.extend(read_binding_statements(
+                value_type,
+                reader,
+                "entryValue",
+                "    ",
+            ));
+            lines.push("    values[entryKey] = entryValue".to_owned());
+            lines.push("}".to_owned());
+            lines.push("return values".to_owned());
+            lines
         }
-        Type::Pair(first, second) => vec![
-            format!(
-                "val field0 = {}({reader}) ?: return null",
-                codec_name(first, Direction::Read)
-            ),
-            format!(
-                "val field1 = {}({reader}) ?: return null",
-                codec_name(second, Direction::Read)
-            ),
-            "return Pair(field0, field1)".to_owned(),
-        ],
-        Type::Triple(first, second, third) => vec![
-            format!(
-                "val field0 = {}({reader}) ?: return null",
-                codec_name(first, Direction::Read)
-            ),
-            format!(
-                "val field1 = {}({reader}) ?: return null",
-                codec_name(second, Direction::Read)
-            ),
-            format!(
-                "val field2 = {}({reader}) ?: return null",
-                codec_name(third, Direction::Read)
-            ),
-            "return Triple(field0, field1, field2)".to_owned(),
-        ],
+        Type::Pair(first, second) => {
+            let mut lines = Vec::new();
+            lines.extend(read_binding_statements(first, reader, "field0", ""));
+            lines.extend(read_binding_statements(second, reader, "field1", ""));
+            lines.push("return Pair(field0, field1)".to_owned());
+            lines
+        }
+        Type::Triple(first, second, third) => {
+            let mut lines = Vec::new();
+            lines.extend(read_binding_statements(first, reader, "field0", ""));
+            lines.extend(read_binding_statements(second, reader, "field1", ""));
+            lines.extend(read_binding_statements(third, reader, "field2", ""));
+            lines.push("return Triple(field0, field1, field2)".to_owned());
+            lines
+        }
         other => vec![format!("// unsupported codec type {other:?}")],
     }
 }
@@ -323,7 +405,7 @@ fn scalar_read_method(ty: &Type) -> String {
 
 fn read_expression(ty: &Type, reader: &str) -> String {
     match ty {
-        Type::Bool | Type::Numeric(_) | Type::String | Type::Bytes | Type::Enum(_) => {
+        Type::Bool | Type::Numeric(_) | Type::String | Type::Bytes => {
             format!("{reader}.{}()", scalar_read_method(ty))
         }
         other => format!("{}({reader})", codec_name(other, Direction::Read)),
@@ -332,9 +414,13 @@ fn read_expression(ty: &Type, reader: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use nexa_codegen::{
+        SourceWriter,
+        value::{Codec, Direction, codec_name},
+    };
     use nexa_ir::{NumericType, Type};
 
-    use super::{read_statements, write_statements};
+    use super::{read_statements, render, write_statements};
 
     #[test]
     fn pair_and_triple_codecs_write_and_read_members_in_order() {
@@ -359,5 +445,83 @@ mod tests {
         assert!(triple_write.contains("nexaWriteint32(value.second, writer)"));
         assert!(triple_write.contains("nexaWritebool(value.third, writer)"));
         assert!(triple_read.contains("return Triple(field0, field1, field2)"));
+    }
+
+    #[test]
+    fn result_codec_tags_success_and_failure_payloads() {
+        let result = Type::Result(
+            Box::new(Type::Numeric(NumericType::Float64)),
+            Box::new(Type::Enum("StoreError".to_owned())),
+        );
+        let write = write_statements(&result, "value", "writer").join("\n");
+        let read = read_statements(&result, "reader").join("\n");
+
+        assert!(write.contains("is NexaResult.Success<*>"));
+        assert!(write.contains("writer.writeBool(true)"));
+        assert!(write.contains("is NexaResult.Failure<*>"));
+        assert!(write.contains("writer.writeBool(false)"));
+        assert!(read.contains("return NexaResult.Success(payload)"));
+        assert!(read.contains("return NexaResult.Failure(failure)"));
+    }
+
+    #[test]
+    fn optional_writer_emits_a_presence_tag_before_its_value() {
+        let optional = Type::Optional(Box::new(Type::String));
+        let write = write_statements(&optional, "value", "writer").join("\n");
+
+        assert!(write.contains("writer.writeBool(value != null)"));
+        assert!(write.contains(
+            "value?.let { nexaOptionalValue -> nexaWritestring(nexaOptionalValue, writer) }"
+        ));
+    }
+
+    #[test]
+    fn optional_compound_reads_keep_null_values_separate_from_decode_failure() {
+        let optional = Type::Optional(Box::new(Type::String));
+        let optional_read = read_statements(&optional, "reader").join("\n");
+        assert!(optional_read.contains("return NexaValueReadResult.Value(null)"));
+        assert!(optional_read.contains("return NexaValueReadResult.Invalid"));
+
+        let array = Type::Array(Box::new(optional));
+        let array_read = read_statements(&array, "reader").join("\n");
+        assert!(array_read.contains("is NexaValueReadResult.Value<*>"));
+        assert!(array_read.contains("values.add(element)"));
+
+        let array = Type::Array(Box::new(Type::Optional(Box::new(Type::String))));
+        let optional = match &array {
+            Type::Array(element) => element.as_ref().clone(),
+            _ => unreachable!(),
+        };
+        let codecs = [
+            Codec {
+                ty: optional.clone(),
+                direction: Direction::Read,
+            },
+            Codec {
+                ty: array,
+                direction: Direction::Read,
+            },
+        ];
+        let mut output = SourceWriter::new();
+        render(&codecs, &mut output);
+        let generated = output.as_str();
+        assert!(generated.contains("private sealed class NexaValueReadResult"));
+        assert!(generated.contains(&format!(
+            "private fun {}(reader: dev.nexa.core.NexaValueReader): NexaValueReadResult<String?>",
+            codec_name(&optional, Direction::Read)
+        )));
+        assert!(generated.contains(&format!(
+            "fun {}(reader: dev.nexa.core.NexaValueReader): List<String?>?",
+            codec_name(&codecs[1].ty, Direction::Read)
+        )));
+
+        let result = Type::Result(
+            Box::new(Type::Optional(Box::new(Type::String))),
+            Box::new(Type::Enum("StoreError".to_owned())),
+        );
+        let result_read = read_statements(&result, "reader").join("\n");
+        assert!(result_read.contains("val nexaDecoded_payload = nexaReadoptional_string(reader)"));
+        assert!(result_read.contains("val payload = nexaDecoded_payload.value as String?"));
+        assert!(result_read.contains("return NexaResult.Success(payload)"));
     }
 }

@@ -92,7 +92,7 @@ pub(super) fn resolve(
     let mut parameters = Vec::with_capacity(signature.parameters.len());
     for (name, declared) in &signature.parameters {
         let bound = substitute(declared, &bindings);
-        require_storable(&bound, name, registries, span)?;
+        require_encodable(&bound, name, registries, span)?;
         parameters.push((name.clone(), bound));
     }
     let return_type = substitute(&signature.return_type, &bindings);
@@ -238,15 +238,29 @@ fn substitute(ty: &Type, bindings: &[(String, Type)]) -> Type {
     }
 }
 
-/// A bound type must be a value a generated codec can carry: a scalar, a
-/// byte buffer, an enum, a value struct, or a collection of those. Optionals
-/// are rejected because a missing value is a `null` in the contract, not a
-/// distinct value in the store.
+/// A bound type used by a read codec must be a value a generated codec can
+/// carry: a scalar, byte buffer, enum, value struct, result with an enum error,
+/// or collection of those. A nullable value may appear inside a compound value
+/// because its presence bit distinguishes `null` from a malformed payload.
+/// A nullable generic read argument remains unsupported: its nested optional
+/// result cannot be represented separately from Kotlin's decode-failure null.
 fn require_storable(
     ty: &Type,
     context: &str,
     registries: TypeRegistries<'_>,
     span: Span,
+) -> Result<(), CompileError> {
+    require_storable_shape(ty, context, registries, span, false)
+}
+
+/// Validates one value position. `allow_optional` is set for compound members,
+/// whose codec carries a presence bit independently of its parent decoder.
+fn require_storable_shape(
+    ty: &Type,
+    context: &str,
+    registries: TypeRegistries<'_>,
+    span: Span,
+    allow_optional: bool,
 ) -> Result<(), CompileError> {
     let TypeRegistries { structs, enums } = registries;
     match ty {
@@ -269,7 +283,13 @@ fn require_storable(
                 ));
             }
             for (field, field_type) in fields {
-                require_storable(field_type, &format!("`{name}.{field}`"), registries, span)?;
+                require_storable_shape(
+                    field_type,
+                    &format!("`{name}.{field}`"),
+                    registries,
+                    span,
+                    true,
+                )?;
             }
             Ok(())
         }
@@ -277,37 +297,132 @@ fn require_storable(
             if matches!(ty, Type::Set(_)) {
                 require_hashable_key(element, span, "Set elements")?;
             }
-            require_storable(element, context, registries, span)
+            require_storable_shape(element, context, registries, span, true)
         }
         Type::Map(key, value) => {
             require_hashable_key(key, span, "Map keys")?;
-            require_storable(value, context, registries, span)
+            require_storable_shape(value, context, registries, span, true)
         }
         Type::Pair(first, second) => {
-            require_storable(first, context, registries, span)?;
-            require_storable(second, context, registries, span)
+            require_storable_shape(first, context, registries, span, true)?;
+            require_storable_shape(second, context, registries, span, true)
         }
         Type::Triple(first, second, third) => {
-            require_storable(first, context, registries, span)?;
-            require_storable(second, context, registries, span)?;
-            require_storable(third, context, registries, span)
+            require_storable_shape(first, context, registries, span, true)?;
+            require_storable_shape(second, context, registries, span, true)?;
+            require_storable_shape(third, context, registries, span, true)
+        }
+        Type::Result(value, error) => {
+            require_storable_shape(value, context, registries, span, true)?;
+            match error.as_ref() {
+                Type::Enum(name) if enums.contains(name.as_str()) => Ok(()),
+                Type::Enum(name) => Err(CompileError::new(
+                    span,
+                    format!("unknown enum type `{name}` in plugin value type for {context}"),
+                )),
+                _ => Err(CompileError::new(
+                    span,
+                    format!(
+                        "plugin `Result` value type for {context} must use an enum error type; found {}",
+                        type_name(error)
+                    ),
+                )),
+            }
+        }
+        Type::Optional(inner) if allow_optional => {
+            require_storable_shape(inner, context, registries, span, false)
         }
         Type::Optional(_) => Err(CompileError::new(
             span,
             format!(
-                "plugin value type for {context} must not be optional; use a missing key to mean `null`"
+                "plugin value type for {context} must not be optional at the top level because Kotlin uses `null` for reader decode failure"
             ),
         )),
-        Type::Void
-        | Type::TypeParam(_)
-        | Type::Result(..)
-        | Type::Plugin { .. }
-        | Type::NetworkResponse => Err(CompileError::new(
+        Type::Void | Type::TypeParam(_) | Type::Plugin { .. } | Type::NetworkResponse => {
+            Err(CompileError::new(
+                span,
+                format!(
+                    "plugin value type for {context} must be a scalar, `Bytes`, an enum, a struct, a `Result` with an enum error, a pair, a triple, or a collection of those; found {}",
+                    type_name(ty)
+                ),
+            ))
+        }
+    }
+}
+
+/// A parameter codec only writes values, so its type can include optionals.
+/// The codec uses a presence byte before the wrapped value, preserving `null`
+/// across generic plugin writes on both native targets.
+fn require_encodable(
+    ty: &Type,
+    context: &str,
+    registries: TypeRegistries<'_>,
+    span: Span,
+) -> Result<(), CompileError> {
+    match ty {
+        Type::Optional(inner) => require_encodable(inner, context, registries, span),
+        Type::Array(inner) | Type::Set(inner) => {
+            if matches!(ty, Type::Set(_)) {
+                require_hashable_key(inner, span, "Set elements")?;
+            }
+            require_encodable(inner, context, registries, span)
+        }
+        Type::Map(key, value) => {
+            require_hashable_key(key, span, "Map keys")?;
+            require_encodable(value, context, registries, span)
+        }
+        Type::Pair(first, second) => {
+            require_encodable(first, context, registries, span)?;
+            require_encodable(second, context, registries, span)
+        }
+        Type::Triple(first, second, third) => {
+            require_encodable(first, context, registries, span)?;
+            require_encodable(second, context, registries, span)?;
+            require_encodable(third, context, registries, span)
+        }
+        Type::Result(value, error) => {
+            require_encodable(value, context, registries, span)?;
+            match error.as_ref() {
+                Type::Enum(name) if registries.enums.contains(name.as_str()) => Ok(()),
+                Type::Enum(name) => Err(CompileError::new(
+                    span,
+                    format!("unknown enum type `{name}` in plugin value type for {context}"),
+                )),
+                _ => Err(CompileError::new(
+                    span,
+                    format!(
+                        "plugin `Result` value type for {context} must use an enum error type; found {}",
+                        type_name(error)
+                    ),
+                )),
+            }
+        }
+        Type::Struct { name, fields } => {
+            if !registries.structs.contains_key(name) {
+                return Err(CompileError::new(
+                    span,
+                    format!("unknown struct type `{name}` in plugin value type for {context}"),
+                ));
+            }
+            for (field, field_type) in fields {
+                require_encodable(field_type, &format!("`{name}.{field}`"), registries, span)?;
+            }
+            Ok(())
+        }
+        Type::String | Type::Bytes | Type::Bool | Type::Numeric(_) => Ok(()),
+        Type::Enum(name) if registries.enums.contains(name.as_str()) => Ok(()),
+        Type::Enum(name) => Err(CompileError::new(
             span,
-            format!(
-                "plugin value type for {context} must be a scalar, `Bytes`, an enum, a struct, a pair, a triple, or a collection of those; found {}",
-                type_name(ty)
-            ),
+            format!("unknown enum type `{name}` in plugin value type for {context}"),
         )),
+        Type::Void | Type::TypeParam(_) | Type::Plugin { .. } | Type::NetworkResponse => {
+            Err(CompileError::new(
+                span,
+                format!(
+                    "plugin value type for {context} must be a scalar, `Bytes`, an enum, a struct, a `Result` with an enum error, a pair, a triple, or a collection of those; found {}",
+                    type_name(ty)
+                ),
+            ))
+        }
     }
 }

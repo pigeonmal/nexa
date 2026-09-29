@@ -33,9 +33,18 @@ pub(crate) fn render(features: &Features) -> String {
     crate::generator::components::list_runtime::imports(features, &mut imports);
     crate::generator::components::links::imports(features, &mut imports);
     crate::generator::api::network::imports(features, &mut imports);
+    crate::generator::api::json::imports(features, &mut imports);
+    crate::generator::api::number::imports(features, &mut imports);
+    crate::generator::api::crypto::imports(features, &mut imports);
+    crate::generator::api::clipboard::imports(features, &mut imports);
     crate::generator::api::permissions::imports(features, &mut imports);
+    crate::generator::api::secure_storage::imports(features, &mut imports);
     crate::generator::api::time::imports(features, &mut imports);
-    imports.add(features.facts.capabilities.uses_keyboard_api, "UIKit");
+    imports.add(
+        features.facts.capabilities.uses_keyboard_api
+            || features.facts.capabilities.uses_haptics_api,
+        "UIKit",
+    );
     imports.render()
 }
 
@@ -54,10 +63,12 @@ mod tests {
         let mut features = Features::default();
         features.uses_haptic = true;
         features.uses_fast_list = true;
+        features.facts.capabilities.uses_clipboard_api = true;
         let imports = render(&features);
 
         assert_eq!(imports.matches("import UIKit\n").count(), 1);
         assert!(imports.contains("import SwiftUI\n"));
+        assert!(!render(&Features::default()).contains("import UIKit\n"));
     }
 
     #[test]
@@ -75,5 +86,15 @@ mod tests {
         assert!(network_imports.contains("import Foundation\n"));
         assert!(network_imports.contains("import CryptoKit\n"));
         assert!(!network_imports.contains("import ImageIO\n"));
+    }
+
+    #[test]
+    fn crypto_imports_are_gated_to_modules_that_use_crypto() {
+        let mut features = Features::default();
+        features.facts.capabilities.uses_crypto_api = true;
+        let imports = render(&features);
+
+        assert!(imports.contains("import CryptoKit\n"));
+        assert!(imports.contains("import Security\n"));
     }
 }

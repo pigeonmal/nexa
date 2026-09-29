@@ -5,6 +5,17 @@ previous compiler output.
 
 ## Cache schema
 
+- `build-v120`: decodes nullable generic Android plugin collection inputs before dispatch.
+- `build-v119`: makes Android launcher orientation follow the user's current orientation policy at startup.
+- `build-v118`: adds typed Haptics calls to both native backends and DevRuntime dispatch.
+- `build-v117`: fixes recursive Kotlin DevRuntime decoding for optional generic plugin arguments.
+- `build-v116`: adds the typed iOS and Android system text clipboard API and DevRuntime dispatch.
+- `build-v115`: emits Swift and Kotlin read codecs for optional values nested inside compound generic plugin values; Kotlin tracks decode failure separately from a valid null value.
+- `build-v114`: includes the SecureStorage native adapters in every DevRuntime host so the API remains available after hot reload.
+- `build-v113`: adds typed core cryptographic helpers to both native backends and DevRuntime.
+- `build-v112`: supports optional generic plugin input codecs and parses explicit type arguments on qualified service calls.
+- `build-v111`: adds locale-aware `Number.formatCurrency` to the iOS and Android AOT backends and DevRuntime.
+- `build-v110`: adds cross-platform generic plugin codecs for `Result` values with enum failures, including hot-reload value adapters.
 - `build-v109`: generates keyboard autofill and return-key semantics, plus `Keyboard.dismiss()` support in release apps and DevRuntime; advances the Dev IR format.
 - `build-v108`: adds optional-element array codecs to DevRuntime plugin adapters for methods, properties, events, component props, and component events.
 - `build-v107`: adds typed conditional view transitions to the source IR, SwiftUI and Compose output, and both DevRuntime renderers; advances the Dev IR and development protocol versions.

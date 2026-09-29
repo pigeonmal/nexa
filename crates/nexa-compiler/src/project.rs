@@ -8,7 +8,7 @@ use nexa_diagnostics::{CompileError, Span};
 use nexa_plugin_idl::{
     manifest::parse_file as parse_plugin_manifest, parse_file as parse_plugin_idl,
 };
-use nexa_syntax::ast::{App, ComponentDecl, ImportDecl, StructDecl};
+use nexa_syntax::ast::{App, ComponentDecl, ImportDecl, PluginDecl, StructDecl};
 
 use crate::{Target, semantic};
 
@@ -116,13 +116,14 @@ impl IncrementalProjectCompiler {
         self.parsed_sources
             .retain(|path, _| loaded_paths.contains(path));
 
-        let app = loaded.app.ok_or_else(|| {
+        let mut app = loaded.app.ok_or_else(|| {
             CompileError::new(
                 file_level_span(),
                 "entry file is missing an `app` declaration",
             )
             .with_file(entry_path.display().to_string())
         })?;
+        app.plugins = loaded.plugins;
         targets
             .iter()
             .map(|&target| {
@@ -186,6 +187,7 @@ struct LoadedProject {
     components: Vec<ComponentDecl>,
     structs: Vec<StructDecl>,
     functions: Vec<nexa_syntax::ast::FunctionDecl>,
+    plugins: Vec<PluginDecl>,
 }
 
 fn load_file(
@@ -225,14 +227,6 @@ fn load_file(
     let mut program = compiler.parse_source(&canonical_path, source)?;
 
     if !program.plugins.is_empty() {
-        if !is_entry {
-            let plugin = &program.plugins[0];
-            return Err(CompileError::new(
-                plugin.span,
-                "plugin declarations are only allowed in the entry file",
-            )
-            .with_file(canonical_path.display().to_string()));
-        }
         for plugin in &mut program.plugins {
             let declared_path = plugin_roots.get(&plugin.path).cloned().unwrap_or_else(|| {
                 canonical_path
@@ -385,8 +379,25 @@ fn load_file(
             })?);
             plugin.path = idl_path.display().to_string();
         }
-        if let Some(app) = program.app.as_mut() {
-            app.plugins = program.plugins.clone();
+        for plugin in program.plugins.drain(..) {
+            if let Some(previous) = loaded
+                .plugins
+                .iter()
+                .find(|previous| previous.namespace == plugin.namespace)
+            {
+                if previous.path != plugin.path {
+                    return Err(CompileError::new(
+                        plugin.span,
+                        format!(
+                            "plugin namespace `{}` refers to more than one package",
+                            plugin.namespace
+                        ),
+                    )
+                    .with_file(canonical_path.display().to_string()));
+                }
+                continue;
+            }
+            loaded.plugins.push(plugin);
         }
     }
 

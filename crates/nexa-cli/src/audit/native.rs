@@ -3,7 +3,6 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     process::{Command, Output},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 const AUDIT_APP_NAME: &str = "NexaAudit";
@@ -51,23 +50,16 @@ pub(super) fn measure_release_sizes(
         (false, true) => "android",
         (false, false) => unreachable!("checked for available targets"),
     };
-    let generation = env::current_exe()
-        .map_err(|error| format!("could not locate Nexa executable: {error}"))
-        .and_then(|executable| {
-            Command::new(executable)
-                .arg("generate")
-                .arg(input)
-                .args(["--target", generate_target, "--out"])
-                .arg(&generated_root)
-                .args(["--name", AUDIT_APP_NAME])
-                .output()
-                .map_err(|error| format!("could not start temporary project generation: {error}"))
-        });
-    let generation_error = match generation {
-        Ok(output) if output.status.success() => None,
-        Ok(output) => Some(command_failure("temporary project generation", &output)),
-        Err(error) => Some(error),
-    };
+    let generation_args = [
+        input.display().to_string(),
+        "--target".to_owned(),
+        generate_target.to_owned(),
+        "--out".to_owned(),
+        generated_root.display().to_string(),
+        "--name".to_owned(),
+        AUDIT_APP_NAME.to_owned(),
+    ];
+    let generation_error = crate::project::run_quiet(&generation_args).err();
 
     if let Some(reason) = generation_error {
         ios.fail_if_available(reason.clone());
@@ -436,6 +428,7 @@ struct AndroidResult {
     reason: Option<String>,
     toolchain: Option<AndroidToolchain>,
     apk_bytes: Option<u64>,
+    aab_bytes: Option<u64>,
     apk_entries: Option<usize>,
     dex_compressed: Option<u64>,
     dex_uncompressed: Option<u64>,
@@ -474,6 +467,7 @@ impl AndroidResult {
             reason,
             toolchain: None,
             apk_bytes: None,
+            aab_bytes: None,
             apk_entries: None,
             dex_compressed: None,
             dex_uncompressed: None,
@@ -507,6 +501,7 @@ impl AndroidResult {
             .arg("--project-dir")
             .arg(&project)
             .arg(":app:assembleRelease")
+            .arg(":app:bundleRelease")
             .env("ANDROID_HOME", &toolchain.sdk)
             .env("ANDROID_SDK_ROOT", &toolchain.sdk)
             .output();
@@ -556,9 +551,34 @@ impl AndroidResult {
                 return;
             }
         };
+        let aab_directory = project.join("app/build/outputs/bundle/release");
+        let aab = match find_release_aab(&aab_directory) {
+            Ok(Some(path)) => path,
+            Ok(None) => {
+                self.status = "failed";
+                self.reason = Some("Android Release build produced no AAB".to_owned());
+                return;
+            }
+            Err(error) => {
+                self.status = "failed";
+                self.reason = Some(format!("could not locate Android Release AAB: {error}"));
+                return;
+            }
+        };
+        let aab_bytes = match fs::metadata(&aab) {
+            Ok(metadata) => metadata.len(),
+            Err(error) => {
+                self.status = "failed";
+                self.reason = Some(format!(
+                    "could not inspect Android Release AAB size: {error}"
+                ));
+                return;
+            }
+        };
         let app_dir = project.join("app/build/outputs/mapping/release");
         self.status = "measured";
         self.apk_bytes = Some(apk_bytes);
+        self.aab_bytes = Some(aab_bytes);
         self.apk_entries = Some(stats.entry_count);
         self.dex_compressed = Some(stats.dex.compressed);
         self.dex_uncompressed = Some(stats.dex.uncompressed);
@@ -586,12 +606,13 @@ impl AndroidResult {
                 format!(", \"gradleVersion\": {}", quote(&toolchain.gradle_version))
             });
         format!(
-            "{{\"status\": {}, \"reason\": {}, \"configuration\": \"Release\"{version}, \"minificationEnabled\": {}, \"resourceShrinkingEnabled\": {}, \"apkBytes\": {}, \"apkEntryCount\": {}, \"dexCompressedBytes\": {}, \"dexUncompressedBytes\": {}, \"resourcesCompressedBytes\": {}, \"resourcesUncompressedBytes\": {}, \"assetsCompressedBytes\": {}, \"assetsUncompressedBytes\": {}, \"nativeLibrariesCompressedBytes\": {}, \"nativeLibrariesUncompressedBytes\": {}, \"otherCompressedBytes\": {}, \"r8MappingBytes\": {}, \"r8UsageReportBytes\": {}, \"resourceShrinkerReportBytes\": {}}}",
+            "{{\"status\": {}, \"reason\": {}, \"configuration\": \"Release\"{version}, \"minificationEnabled\": {}, \"resourceShrinkingEnabled\": {}, \"apkBytes\": {}, \"aabBytes\": {}, \"apkEntryCount\": {}, \"dexCompressedBytes\": {}, \"dexUncompressedBytes\": {}, \"resourcesCompressedBytes\": {}, \"resourcesUncompressedBytes\": {}, \"assetsCompressedBytes\": {}, \"assetsUncompressedBytes\": {}, \"nativeLibrariesCompressedBytes\": {}, \"nativeLibrariesUncompressedBytes\": {}, \"otherCompressedBytes\": {}, \"r8MappingBytes\": {}, \"r8UsageReportBytes\": {}, \"resourceShrinkerReportBytes\": {}}}",
             quote(self.status),
             optional_string(self.reason.as_deref()),
             optional_bool(self.minification_enabled),
             optional_bool(self.resource_shrinking_enabled),
             optional_number(self.apk_bytes),
+            optional_number(self.aab_bytes),
             optional_usize(self.apk_entries),
             optional_number(self.dex_compressed),
             optional_number(self.dex_uncompressed),
@@ -610,7 +631,19 @@ impl AndroidResult {
 }
 
 fn find_release_apk(directory: &Path) -> std::io::Result<Option<PathBuf>> {
-    let mut apks = Vec::new();
+    find_release_artifact(directory, "apk", "app-release.apk")
+}
+
+fn find_release_aab(directory: &Path) -> std::io::Result<Option<PathBuf>> {
+    find_release_artifact(directory, "aab", "app-release.aab")
+}
+
+fn find_release_artifact(
+    directory: &Path,
+    extension: &str,
+    preferred_name: &str,
+) -> std::io::Result<Option<PathBuf>> {
+    let mut artifacts = Vec::new();
     if !directory.is_dir() {
         return Ok(None);
     }
@@ -622,20 +655,17 @@ fn find_release_apk(directory: &Path) -> std::io::Result<Option<PathBuf>> {
             let metadata = fs::symlink_metadata(&path)?;
             if metadata.is_dir() {
                 pending.push(path);
-            } else if metadata.is_file() && path.extension().is_some_and(|ext| ext == "apk") {
-                apks.push(path);
+            } else if metadata.is_file() && path.extension().is_some_and(|ext| ext == extension) {
+                artifacts.push(path);
             }
         }
     }
-    apks.sort();
-    Ok(apks
+    artifacts.sort();
+    Ok(artifacts
         .iter()
-        .find(|path| {
-            path.file_name()
-                .is_some_and(|name| name == "app-release.apk")
-        })
+        .find(|path| path.file_name().is_some_and(|name| name == preferred_name))
         .cloned()
-        .or_else(|| apks.into_iter().next()))
+        .or_else(|| artifacts.into_iter().next()))
 }
 
 #[derive(Default, Clone, Copy)]
@@ -831,12 +861,10 @@ fn optional_bool(value: Option<bool>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{apk_inventory, directory_bytes, parse_version_key};
-    use std::{
-        fs,
-        path::PathBuf,
-        time::{SystemTime, UNIX_EPOCH},
+    use super::{
+        apk_inventory, directory_bytes, find_release_aab, find_release_apk, parse_version_key,
     };
+    use std::fs;
 
     /// A temporary directory owned for as long as it is bound.
     struct TempDirectory(nexa_testkit::TempDir);
@@ -882,6 +910,22 @@ mod tests {
         assert_eq!(inventory.native.uncompressed, 20);
         assert_eq!(inventory.other.compressed, 6);
         assert_eq!(inventory.other.uncompressed, 24);
+    }
+
+    #[test]
+    fn release_artifact_discovery_finds_apks_and_app_bundles() {
+        let temp = TempDirectory::new();
+        let apk_directory = temp.0.join("outputs/apk/release");
+        let aab_directory = temp.0.join("outputs/bundle/release");
+        fs::create_dir_all(&apk_directory).expect("APK output directory should be created");
+        fs::create_dir_all(&aab_directory).expect("AAB output directory should be created");
+        let apk = apk_directory.join("app-release.apk");
+        let aab = aab_directory.join("app-release.aab");
+        fs::write(&apk, [0; 7]).expect("release APK should be written");
+        fs::write(&aab, [0; 11]).expect("release AAB should be written");
+
+        assert_eq!(find_release_apk(&apk_directory).unwrap(), Some(apk));
+        assert_eq!(find_release_aab(&aab_directory).unwrap(), Some(aab));
     }
 
     fn minimal_apk() -> Vec<u8> {

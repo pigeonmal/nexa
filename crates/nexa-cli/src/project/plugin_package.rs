@@ -6,7 +6,11 @@
 //! lives here, built from the manifest-resolved [`nexa_syntax::ast::PluginDecl`]
 //! records the compiler hands over alongside each compilation.
 
-use std::collections::HashSet;
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::{Path, PathBuf},
+};
 
 use nexa_plugin_idl::manifest::{EntitlementValue, SwiftPackage};
 
@@ -113,6 +117,63 @@ impl PluginPackage {
             artifacts,
         }
     }
+
+    /// Build a native package from a configured dependency before its first
+    /// source import. Dev hosts need this metadata so later hot reloads can
+    /// import the already-configured plugin without relinking the host.
+    pub fn from_package_root(namespace: &str, root: &Path) -> Result<Option<Self>, String> {
+        let manifest_path = root.join("plugin.config.nx");
+        let manifest = nexa_plugin_idl::manifest::parse_file(&manifest_path)?;
+        let Some(native) = manifest.native else {
+            return Ok(None);
+        };
+        let idl_path = fs::canonicalize(root.join(native)).map_err(|error| {
+            format!(
+                "{}: cannot resolve native plugin contract: {error}",
+                manifest_path.display()
+            )
+        })?;
+        let absolute_paths = |paths: &[String]| {
+            paths
+                .iter()
+                .map(|path| root.join(path).display().to_string())
+                .collect::<Vec<_>>()
+        };
+        let artifacts = PluginArtifacts {
+            ios_sources: absolute_paths(&manifest.ios.sources),
+            android_sources: absolute_paths(&manifest.android.sources),
+            cpp_sources: absolute_paths(&manifest.cpp.sources),
+            cpp_headers: absolute_paths(&manifest.cpp.headers),
+            cpp_standard: manifest.cpp.standard,
+            ios_min_version: manifest.ios.min_version,
+            android_min_sdk: manifest.android.min_sdk,
+            ios_frameworks: manifest.ios.frameworks,
+            ios_xcframeworks: absolute_paths(&manifest.ios.xcframeworks),
+            ios_resources: absolute_paths(&manifest.ios.resources),
+            ios_privacy_manifest: manifest
+                .ios
+                .privacy_manifest
+                .map(|path| root.join(path).display().to_string()),
+            swift_packages: manifest.ios.swift_packages,
+            maven_dependencies: manifest.android.maven_dependencies,
+            android_aars: absolute_paths(&manifest.android.aars),
+            android_resources: absolute_paths(&manifest.android.resources),
+            android_proguard_rules: absolute_paths(&manifest.android.proguard_rules),
+            android_maven_repositories: manifest.android.repositories,
+            ios_usage_descriptions: manifest.ios.usage_descriptions,
+            ios_entitlements: manifest.ios.entitlements,
+            ios_background_modes: manifest.ios.background_modes,
+            ios_linker_flags: manifest.ios.linker_flags,
+            android_permissions: manifest.android.permissions,
+            android_picture_in_picture: manifest.android.picture_in_picture,
+            android_media_playback_service: manifest.android.media_playback_service,
+        };
+        Ok(Some(Self {
+            namespace: namespace.to_owned(),
+            idl_path: idl_path.display().to_string(),
+            artifacts,
+        }))
+    }
 }
 
 /// Build generation packages from resolved declarations: non-pure plugins
@@ -156,6 +217,35 @@ pub fn packages_for_dev(declarations: &[nexa_syntax::ast::PluginDecl]) -> Vec<Pl
         .filter(|declaration| !declaration.pure)
         .map(PluginPackage::from_decl)
         .collect()
+}
+
+/// Include configured native dependencies in the debug host before source
+/// code references them, while avoiding duplicate copies for plugins already
+/// declared by the entry module.
+pub fn packages_for_dev_with_dependencies(
+    declarations: &[nexa_syntax::ast::PluginDecl],
+    dependencies: &[nexa_syntax::ast::PluginDependencyConfig],
+    plugin_roots: &HashMap<String, PathBuf>,
+) -> Result<Vec<PluginPackage>, String> {
+    let mut packages = packages_for_dev(declarations);
+    for dependency in dependencies {
+        let root = plugin_roots.get(&dependency.package_id).ok_or_else(|| {
+            format!(
+                "configured plugin `{}` was not resolved to a package root",
+                dependency.alias
+            )
+        })?;
+        let Some(package) = PluginPackage::from_package_root(&dependency.alias, root)? else {
+            continue;
+        };
+        if !packages
+            .iter()
+            .any(|existing| existing.idl_path == package.idl_path)
+        {
+            packages.push(package);
+        }
+    }
+    Ok(packages)
 }
 
 #[cfg(test)]
