@@ -56,6 +56,7 @@ pub struct PluginArtifacts {
     pub ios_entitlements: Vec<(String, EntitlementValue)>,
     pub ios_linker_flags: Vec<String>,
     pub android_permissions: Vec<String>,
+    pub android_picture_in_picture: bool,
 }
 
 impl PluginPackage {
@@ -100,6 +101,7 @@ impl PluginPackage {
                 .collect(),
             ios_linker_flags: decl.ios_linker_flags.clone(),
             android_permissions: decl.android_permissions.clone(),
+            android_picture_in_picture: decl.android_picture_in_picture,
         };
         Self {
             namespace: decl.namespace.clone(),
@@ -186,6 +188,7 @@ mod tests {
             ios_entitlements: Vec::new(),
             ios_linker_flags: Vec::new(),
             android_permissions: Vec::new(),
+            android_picture_in_picture: false,
         }
     }
 
@@ -220,9 +223,12 @@ mod tests {
 
     #[test]
     fn from_decl_carries_identity_and_artifacts() {
-        let package = PluginPackage::from_decl(&declaration("Video", false));
+        let mut declaration = declaration("Video", false);
+        declaration.android_picture_in_picture = true;
+        let package = PluginPackage::from_decl(&declaration);
         assert_eq!(package.namespace, "Video");
         assert_eq!(package.idl_path, "/Video/native.nxid");
+        assert!(package.artifacts.android_picture_in_picture);
         assert_eq!(package.artifacts.ios_sources, vec!["/Video/ios"]);
         assert_eq!(package.artifacts.cpp_sources, vec!["/Video/cpp/**"]);
         assert_eq!(package.artifacts.cpp_standard, Some(20));

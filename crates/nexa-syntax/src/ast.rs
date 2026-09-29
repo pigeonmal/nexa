@@ -51,6 +51,8 @@ pub struct PluginDecl {
     pub ios_entitlements: Vec<(String, PluginEntitlementValue)>,
     pub ios_linker_flags: Vec<String>,
     pub android_permissions: Vec<String>,
+    /// The generated Android activity opts into PiP for video playback plugins.
+    pub android_picture_in_picture: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

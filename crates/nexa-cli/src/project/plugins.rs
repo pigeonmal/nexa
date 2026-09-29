@@ -2364,6 +2364,7 @@ mod tests {
                 ios_entitlements: vec![],
                 ios_linker_flags: vec![],
                 android_permissions: vec![],
+                android_picture_in_picture: false,
             },
         };
         fs::write(package.join("native.nxid"), "namespace demo {}").expect("idl written");
@@ -2411,6 +2412,7 @@ mod tests {
                 ios_entitlements: vec![],
                 ios_linker_flags: vec![],
                 android_permissions: vec![],
+                android_picture_in_picture: false,
             },
         };
 

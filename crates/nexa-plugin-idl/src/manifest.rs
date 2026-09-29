@@ -61,6 +61,8 @@ pub struct PlatformManifest {
     pub linker_flags: Vec<String>,
     /// Android manifest permissions required by the plugin.
     pub permissions: Vec<String>,
+    /// Whether an Android plugin needs the generated activity to support PiP.
+    pub picture_in_picture: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -426,6 +428,9 @@ impl Parser {
                     platform.permissions = self.parse_string_array_field("permissions")?;
                     validate_android_permissions(&platform.permissions)?;
                 }
+                Some("pictureInPicture") if android => {
+                    platform.picture_in_picture = self.parse_bool_field("pictureInPicture")?;
+                }
                 Some(name) => return self.error(format!("unknown platform field `{name}`")),
                 None => return self.error("expected a platform field"),
             }
@@ -614,6 +619,19 @@ impl Parser {
         self.expect_number()?
             .parse()
             .map_err(|_| self.error_value(format!("{name} must be a 16-bit integer")))
+    }
+
+    fn parse_bool_field(&mut self, name: &str) -> Result<bool, String> {
+        self.expect_identifier(name)?;
+        self.expect(TokenKind::Colon, "`:`")?;
+        match self.tokens.get(self.cursor).map(|token| &token.kind) {
+            Some(TokenKind::Identifier(value)) if value == "true" || value == "false" => {
+                let result = value == "true";
+                self.cursor += 1;
+                Ok(result)
+            }
+            _ => self.error("expected a boolean (`true` or `false`)"),
+        }
     }
 
     fn parse_u32_field(&mut self, name: &str) -> Result<u32, String> {
@@ -1178,6 +1196,7 @@ mod tests {
                 }
                 android {
                     minSdk: 28
+                    pictureInPicture: true
                     sources: ["android/src/main/kotlin/**"]
                     dependencies: ["androidx.media3:media3-exoplayer:1.5.1"]
                     aars: ["android/libs/vendor.aar"]
@@ -1198,6 +1217,7 @@ mod tests {
         .expect("manifest should parse");
         assert_eq!(manifest.native.as_deref(), Some("native.nxid"));
         assert_eq!(manifest.android.min_sdk, Some(28));
+        assert!(manifest.android.picture_in_picture);
         assert_eq!(manifest.ios.sources, vec!["ios/Sources/**"]);
         assert_eq!(manifest.ios.frameworks, vec!["AVFoundation"]);
         assert_eq!(manifest.ios.xcframeworks, vec!["ios/Vendor.xcframework"]);

@@ -3542,6 +3542,7 @@ mod tests {
             ios_entitlements: Vec::new(),
             ios_linker_flags: Vec::new(),
             android_permissions: Vec::new(),
+            android_picture_in_picture: false,
         };
 
         let error = match collect_plugin_signatures(&[plugin]) {

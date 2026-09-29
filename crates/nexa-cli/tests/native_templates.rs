@@ -868,6 +868,21 @@ mod template_generation {
     }
 
     #[test]
+    fn plugin_picture_in_picture_metadata_reaches_only_opted_in_hosts() {
+        let config = ProjectConfig::from_defaults(&[], "Demo").expect("empty project config");
+        let without_video = android_manifest("Demo", "com.example.demo", false, &config, &[]);
+        assert!(!without_video.contains("android:supportsPictureInPicture"));
+
+        let mut video = plugin("Video");
+        video.artifacts.android_picture_in_picture = true;
+        let with_video = android_manifest("Demo", "com.example.demo", false, &config, &[video]);
+        assert!(with_video.contains("android:supportsPictureInPicture=\"true\""));
+        assert!(with_video.contains(
+            "android:configChanges=\"screenSize|smallestScreenSize|screenLayout|orientation\""
+        ));
+    }
+
+    #[test]
     fn every_configured_permission_maps_to_ios_and_android_manifests() {
         let home = nexa_testkit::TempDir::new("nexa-all-permissions");
         let path = home.path().join("config.nx");

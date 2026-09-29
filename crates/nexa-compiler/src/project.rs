@@ -307,6 +307,7 @@ fn load_file(
                     .collect();
                 plugin.ios_linker_flags = manifest.ios.linker_flags.clone();
                 plugin.android_permissions = manifest.android.permissions.clone();
+                plugin.android_picture_in_picture = manifest.android.picture_in_picture;
                 plugin.assets_path = manifest
                     .assets
                     .first()
