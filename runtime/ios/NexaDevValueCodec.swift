@@ -64,6 +64,24 @@ enum NexaDevValueCodec {
         return decoded
     }
 
+    static func transformOptionalArray<Element>(
+        _ raw: Any?,
+        decode: (Any) -> Element?
+    ) -> [Element?]? {
+        guard let values = raw as? [Any] else { return nil }
+        var decoded: [Element?] = []
+        decoded.reserveCapacity(values.count)
+        for value in values {
+            if value is NSNull {
+                decoded.append(nil)
+            } else {
+                guard let element = decode(value) else { return nil }
+                decoded.append(element)
+            }
+        }
+        return decoded
+    }
+
     static func transformPair<First, Second>(
         _ raw: Any?,
         decodeFirst: (Any) -> First?,

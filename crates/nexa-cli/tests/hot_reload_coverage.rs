@@ -253,6 +253,91 @@ fn async_member_access_handles_tuple_positions_and_collection_size() {
 }
 
 #[test]
+fn typed_plugin_failures_reach_sync_and_async_catch_arms() {
+    let (root, _) = fixture();
+    let swift_actions = fs::read_to_string(root.join("../../runtime/ios/NexaDevActions.swift"))
+        .expect("read iOS action evaluator");
+    let kotlin_actions = fs::read_to_string(root.join("../../runtime/android/NexaDevActions.kt"))
+        .expect("read Android action evaluator");
+    let swift_native = fs::read_to_string(root.join("../../runtime/ios/NexaDevNativeApis.swift"))
+        .expect("read iOS native adapters");
+    let kotlin_native = fs::read_to_string(root.join("../../runtime/android/NexaDevNativeApis.kt"))
+        .expect("read Android native adapters");
+
+    for (platform, source) in [
+        ("iOS", swift_actions.as_str()),
+        ("Android", kotlin_actions.as_str()),
+    ] {
+        for marker in [
+            "performPluginFailureCatch(",
+            "performPluginFailureCatchAsync(",
+            "failure.namespace",
+            "failure.errorType",
+            "failure.variant",
+            "failure.payload[property]",
+        ] {
+            assert!(
+                source.contains(marker),
+                "{platform} DevRuntime typed error routing is missing {marker}"
+            );
+        }
+    }
+    assert!(swift_native.contains("pendingPluginFailure = failure"));
+    assert!(kotlin_native.contains("pendingPluginFailure = failure"));
+}
+
+#[test]
+fn async_expression_evaluator_recurses_through_nested_values() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS state evaluator");
+    let swift_async = swift
+        .split_once("func evaluateAsync(")
+        .expect("iOS async evaluator")
+        .1;
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android state evaluator");
+    let kotlin_async = kotlin
+        .split_once("suspend fun evaluateAsync(")
+        .expect("Android async evaluator")
+        .1;
+
+    for (platform, source, markers) in [
+        (
+            "iOS",
+            swift_async,
+            [
+                "case \"ResultOk\", \"ResultErr\":",
+                "try await evaluateAsync(fields[key]",
+                "case \"Array\", \"Set\":",
+                "case \"Map\":",
+                "case \"Conditional\":",
+                "if op == \"And\"",
+            ],
+        ),
+        (
+            "Android",
+            kotlin_async,
+            [
+                "\"ResultOk\", \"ResultErr\" ->",
+                "evaluateAsync(fields.opt(key)",
+                "\"Array\", \"Set\" ->",
+                "\"Map\" ->",
+                "\"Conditional\" ->",
+                "if (op == \"And\"",
+            ],
+        ),
+    ] {
+        for marker in markers {
+            assert!(
+                source.contains(marker),
+                "{platform} async expression evaluator is missing {marker}"
+            );
+        }
+    }
+}
+
+#[test]
 fn pressable_double_tap_actions_are_consumed_by_both_dev_renderers() {
     let (root, _) = fixture();
     let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))

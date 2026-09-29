@@ -40,6 +40,19 @@ internal object NexaDevValueCodec {
         return decoded
     }
 
+    fun <Element> transformOptionalArray(raw: Any?, decode: (Any) -> Element?): List<Element?>? {
+        val values = raw as? List<*> ?: return null
+        val decoded = ArrayList<Element?>(values.size)
+        for (value in values) {
+            if (value == null || value == JSONObject.NULL) {
+                decoded += null
+            } else {
+                decoded += decode(value) ?: return null
+            }
+        }
+        return decoded
+    }
+
     fun <First, Second> transformPair(
         raw: Any?,
         decodeFirst: (Any) -> First?,

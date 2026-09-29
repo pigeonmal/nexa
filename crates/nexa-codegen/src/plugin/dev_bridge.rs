@@ -781,10 +781,7 @@ fn supported_runtime_value_type(plan: &BridgePlan, ty: &BridgeType) -> bool {
             kind: BridgeNamedKind::Struct,
         } => supported_struct_value(plan, name, 0),
         BridgeType::Optional(inner) => supported_runtime_value_type(plan, inner),
-        BridgeType::Array(inner) => {
-            !matches!(inner.as_ref(), BridgeType::Optional(_))
-                && supported_static_collection_element(plan, inner, 0)
-        }
+        BridgeType::Array(inner) => supported_array_element(plan, inner, 0),
         BridgeType::Set(inner) => supported_hashable_collection_element(plan, inner),
         BridgeType::Map(key, value) => {
             supported_map_key(key) && supported_static_collection_element(plan, value, 0)
@@ -816,7 +813,7 @@ fn supported_static_collection_element(plan: &BridgePlan, ty: &BridgeType, depth
             name,
             kind: BridgeNamedKind::Struct,
         } => supported_struct_value(plan, name, depth + 1),
-        BridgeType::Array(inner) => supported_static_collection_element(plan, inner, depth + 1),
+        BridgeType::Array(inner) => supported_array_element(plan, inner, depth + 1),
         BridgeType::Set(inner) => supported_hashable_collection_element(plan, inner),
         BridgeType::Map(key, value) => {
             supported_map_key(key) && supported_static_collection_element(plan, value, depth + 1)
@@ -831,6 +828,16 @@ fn supported_static_collection_element(plan: &BridgePlan, ty: &BridgeType, depth
                 && supported_static_collection_element(plan, third, depth + 1)
         }
         _ => false,
+    }
+}
+
+fn supported_array_element(plan: &BridgePlan, ty: &BridgeType, depth: usize) -> bool {
+    if depth >= 64 {
+        return false;
+    }
+    match ty {
+        BridgeType::Optional(inner) => supported_runtime_value_type(plan, inner),
+        other => supported_static_collection_element(plan, other, depth + 1),
     }
 }
 
@@ -1040,10 +1047,17 @@ fn swift_decode_value(ty: &BridgeType, raw: &str, namespace: &str, depth: usize)
         } => format!("Self.{}({raw})", swift_struct_decoder(namespace, name)),
         BridgeType::Array(inner) => {
             let item = format!("nexaDevArrayItem{depth}");
-            let decoded = swift_decode_value(inner, &item, namespace, depth + 1)?;
-            format!(
-                "({raw} as? [Any]).flatMap({{ values in let decoded = values.compactMap({{ {item} in {decoded} }}); return decoded.count == values.count ? decoded : nil }})"
-            )
+            if let BridgeType::Optional(optional_inner) = inner.as_ref() {
+                let decoded = swift_decode_value(optional_inner, &item, namespace, depth + 1)?;
+                format!(
+                    "NexaDevValueCodec.transformOptionalArray({raw}, decode: {{ {item} in {decoded} }})"
+                )
+            } else {
+                let decoded = swift_decode_value(inner, &item, namespace, depth + 1)?;
+                format!(
+                    "({raw} as? [Any]).flatMap({{ values in let decoded = values.compactMap({{ {item} in {decoded} }}); return decoded.count == values.count ? decoded : nil }})"
+                )
+            }
         }
         BridgeType::Set(inner) => {
             let item = format!("nexaDevSetItem{depth}");
@@ -1193,10 +1207,15 @@ fn kotlin_decode_value(
         ),
         BridgeType::Array(inner) => {
             let item = format!("nexaDevArrayItem{depth}");
-            let decoded = kotlin_decode_value(inner, &item, namespace, depth + 1)?;
-            format!(
-                "({raw} as? List<*>)?.let {{ values -> val decoded = values.mapNotNull {{ {item} -> {decoded} }}; decoded.takeIf {{ it.size == values.size }} }}"
-            )
+            if let BridgeType::Optional(optional_inner) = inner.as_ref() {
+                let decoded = kotlin_decode_value(optional_inner, &item, namespace, depth + 1)?;
+                format!("NexaDevValueCodec.transformOptionalArray({raw}) {{ {item} -> {decoded} }}")
+            } else {
+                let decoded = kotlin_decode_value(inner, &item, namespace, depth + 1)?;
+                format!(
+                    "({raw} as? List<*>)?.let {{ values -> val decoded = values.mapNotNull {{ {item} -> {decoded} }}; decoded.takeIf {{ it.size == values.size }} }}"
+                )
+            }
         }
         BridgeType::Set(inner) => {
             let item = format!("nexaDevSetItem{depth}");
@@ -1998,10 +2017,7 @@ fn supported_value_type(plan: &BridgePlan, ty: &BridgeType) -> bool {
     match ty {
         BridgeType::Scalar(scalar) => *scalar != BridgeScalar::Void && supported_scalar(*scalar),
         BridgeType::Optional(inner) => supported_runtime_value_type(plan, inner),
-        BridgeType::Array(inner) => {
-            !matches!(inner.as_ref(), BridgeType::Optional(_))
-                && supported_static_collection_element(plan, inner, 0)
-        }
+        BridgeType::Array(inner) => supported_array_element(plan, inner, 0),
         BridgeType::Set(inner) => supported_hashable_collection_element(plan, inner),
         BridgeType::Map(key, value) => {
             supported_map_key(key) && supported_static_collection_element(plan, value, 0)
@@ -2491,7 +2507,9 @@ fn render_kotlin_dynamic_argument(
     ));
     match ty {
         BridgeType::TypeParameter(_) => {
-            out.push_str(&format!("{indent}val nexaArg{index}: {shape} = nexaRaw{index}\n"));
+            out.push_str(&format!(
+                "{indent}val nexaArg{index}: {shape} = nexaRaw{index}\n"
+            ));
         }
         BridgeType::Optional(inner) => {
             let inner_shape = kotlin_dynamic_type(inner).unwrap_or_else(|| "Any".to_owned());
@@ -2508,10 +2526,12 @@ fn render_kotlin_dynamic_argument(
                 kotlin_escape(error)
             ));
         }
-        BridgeType::Set(_) => out.push_str(&format!(
+        BridgeType::Set(_) => {
+            out.push_str(&format!(
             "{indent}val nexaArg{index} = NexaDevValueCodec.asSet(nexaRaw{index}) ?: error(\"{}\")\n",
             kotlin_escape(error)
-        )),
+            ));
+        }
         BridgeType::Map(key, _) if super::bridge_plan::contains_type_parameter(key) => {
             out.push_str(&format!(
                 "{indent}val nexaArg{index} = NexaDevValueCodec.asMap(nexaRaw{index}) ?: error(\"{}\")\n",
@@ -2839,6 +2859,30 @@ mod tests {
         )]
     }
 
+    fn optional_array_store() -> Vec<(String, PluginIdl)> {
+        vec![(
+            "Storage".to_owned(),
+            nexa_plugin_idl::parse(
+                r#"
+                struct OptionalLabels {
+                    values: Array<String?>
+                }
+                native class OptionalStore {
+                    init()
+                    property values: Array<String?>
+                    fn replace(values: Array<String?>) -> Array<String?>
+                    event changed(values: Array<String?>)
+                }
+                native component OptionalBadge {
+                    prop labels: OptionalLabels
+                    event selected(values: Array<String?>)
+                }
+                "#,
+            )
+            .expect("parse array of optional plugin values"),
+        )]
+    }
+
     fn compound_errors() -> Vec<(String, PluginIdl)> {
         vec![(
             "Storage".to_owned(),
@@ -2855,6 +2899,7 @@ mod tests {
                 }
                 native class Session {
                     init()
+                    async fn reload() throws StoreError
                     async fn refresh() throws StoreError
                 }
                 "#,
@@ -3004,10 +3049,35 @@ mod tests {
     }
 
     #[test]
+    fn optional_array_values_are_encoded_and_decoded_in_dev_runtime() {
+        let contracts = optional_array_store();
+        let swift = swift(&contracts).expect("render Swift Dev bridge");
+        assert!(swift.contains("NexaDevValueCodec.transformOptionalArray(options[\"values\"]"));
+        assert!(swift.contains("NexaDevValueCodec.transformOptionalArray(values[\"values\"]"));
+        assert!(swift.contains("nexaReceiver.values = nexaValue"));
+        assert!(swift.contains("nexaEvent0.map {"));
+        assert!(swift.contains("case (\"Storage\", \"OptionalBadge\")"));
+        assert!(swift.contains("OptionalBadge(labels: nexaArg_labels"));
+        assert!(swift.contains("events[\"onSelected\"].map { handler in"));
+
+        let kotlin = kotlin(&contracts).expect("render Kotlin Dev bridge");
+        assert!(kotlin.contains("NexaDevValueCodec.transformOptionalArray(options[\"values\"]"));
+        assert!(kotlin.contains("decodeStorageOptionalLabelsFromValue"));
+        assert!(kotlin.contains("receiver.values = nexaValue"));
+        assert!(kotlin.contains("nexaEvent0.map {"));
+        assert!(kotlin.contains("\"Storage.OptionalBadge\" -> {"));
+        assert!(kotlin.contains("OptionalBadge(labels = nexaArg_labels"));
+        assert!(kotlin.contains("events[\"onSelected\"]?.invoke"));
+    }
+
+    #[test]
     fn plugin_methods_route_compound_typed_errors_in_both_dev_bridges() {
         let contracts = compound_errors();
         let swift = swift(&contracts).expect("render Swift Dev bridge");
         assert!(swift.contains("nexaReceiver.refresh()"));
+        assert!(swift.contains("try await nexaReceiver.reload()"));
+        assert!(swift.contains("try await nexaReceiver.refresh()"));
+        assert!(swift.contains("throw Self.nexaDevFailureStorageStoreError(error)"));
         assert!(swift.contains("try await StoragePlugin.shared.open()"));
         assert!(swift.contains("\"snapshot\": [\"values\": nexaPayload0.values.map"));
         assert!(swift.contains("\"ids\": nexaPayload1.map"));
@@ -3017,6 +3087,8 @@ mod tests {
 
         let kotlin = kotlin(&contracts).expect("render Kotlin Dev bridge");
         assert!(kotlin.contains("nexaReceiver.refresh()"));
+        assert!(kotlin.contains("nexaReceiver.reload()"));
+        assert!(kotlin.contains("throw nexaDevFailureStorageStoreError(error)"));
         assert!(kotlin.contains("StoragePlugin.instance.open()"));
         assert!(
             kotlin
