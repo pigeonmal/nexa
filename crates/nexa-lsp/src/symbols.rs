@@ -48,7 +48,20 @@ pub fn get_document_symbols(source: &str) -> Vec<DocumentSymbol> {
         });
     }
 
-    // 4. App declaration and its contents
+    // 4. Standalone screens exported by source modules
+    for screen in &program.screens {
+        let range = span_to_range(&screen.span, source);
+        symbols.push(DocumentSymbol {
+            name: screen.name.clone(),
+            detail: Some("screen".to_string()),
+            kind: SymbolKind::Class,
+            range,
+            selection_range: range,
+            children: None,
+        });
+    }
+
+    // 5. App declaration and its contents
     if let Some(app) = &program.app {
         let mut app_children = Vec::new();
 

@@ -130,6 +130,7 @@ impl IncrementalProjectCompiler {
                 let mut app = app.clone();
                 app.components = loaded.components.clone();
                 app.structs = loaded.structs.clone();
+                app.screens.extend(loaded.screens.clone());
                 app.functions.extend(loaded.functions.clone());
                 let plugins = app.plugins.clone();
                 let (module, mut warnings) = semantic::lower_with_warnings(app, target)
@@ -187,6 +188,7 @@ struct LoadedProject {
     components: Vec<ComponentDecl>,
     structs: Vec<StructDecl>,
     functions: Vec<nexa_syntax::ast::FunctionDecl>,
+    screens: Vec<nexa_syntax::ast::ScreenDecl>,
     plugins: Vec<PluginDecl>,
 }
 
@@ -428,14 +430,22 @@ fn load_file(
             structure
         }));
     loaded.functions.extend(program.functions);
+    loaded
+        .screens
+        .extend(program.screens.into_iter().map(|mut screen| {
+            screen.source_file = Some(source_file.clone());
+            screen
+        }));
 
-    if let Some(app) = program.app {
+    if let Some(mut app) = program.app {
+        for screen in &mut app.screens {
+            screen.source_file = Some(source_file.clone());
+        }
         if !is_entry {
-            return Err(CompileError::new(
-                app.span,
-                "an imported file can declare components, but not an `app`",
-            )
-            .with_file(source_file));
+            return Err(
+                CompileError::new(app.span, "an imported file cannot declare an `app`")
+                    .with_file(source_file),
+            );
         }
         if loaded.app.replace(app).is_some() {
             return Err(CompileError::new(

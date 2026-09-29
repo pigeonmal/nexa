@@ -34,6 +34,13 @@ mod styles;
 mod themes;
 mod warnings;
 
+fn with_screen_source(error: CompileError, source_file: Option<&str>) -> CompileError {
+    match source_file {
+        Some(file) => error.with_file(file),
+        None => error,
+    }
+}
+
 pub fn lower_with_warnings(
     mut app: ast::App,
     target: Target,
@@ -279,6 +286,13 @@ pub fn lower_with_warnings(
         .collect::<HashSet<_>>();
     let mut screens = Vec::with_capacity(app.screens.len());
     for (index, screen) in app.screens.into_iter().enumerate() {
+        let screen_source_file = screen.source_file.as_deref();
+        macro_rules! screen_try {
+            ($result:expr) => {
+                $result.map_err(|error| with_screen_source(error, screen_source_file))?
+            };
+        }
+
         let mut screen_symbols = symbols.clone();
         let mut screen_native_aliases = native_aliases.clone();
         let screen_signature = screen_signatures
@@ -289,12 +303,15 @@ pub fn lower_with_warnings(
                 || all_state_names.contains(&parameter.name)
                 || function_signatures.contains_key(&parameter.name)
             {
-                return Err(CompileError::new(
-                    screen.span,
-                    format!(
-                        "screen parameter `{}` conflicts with an app binding or function",
-                        parameter.name
+                return Err(with_screen_source(
+                    CompileError::new(
+                        screen.span,
+                        format!(
+                            "screen parameter `{}` conflicts with an app binding or function",
+                            parameter.name
+                        ),
                     ),
+                    screen_source_file,
                 ));
             }
             screen_symbols.insert(parameter.name.clone(), (parameter.ty.clone(), false));
@@ -304,30 +321,36 @@ pub fn lower_with_warnings(
             if screen_symbols.contains_key(&declaration.name)
                 || !all_state_names.insert(declaration.name.clone())
             {
-                return Err(CompileError::new(
-                    declaration.span,
-                    format!(
-                        "screen state `{}` conflicts with another app or screen state",
-                        declaration.name
+                return Err(with_screen_source(
+                    CompileError::new(
+                        declaration.span,
+                        format!(
+                            "screen state `{}` conflicts with another app or screen state",
+                            declaration.name
+                        ),
                     ),
+                    screen_source_file,
                 ));
             }
             if function_signatures.contains_key(&declaration.name) {
-                return Err(CompileError::new(
-                    declaration.span,
-                    format!(
-                        "screen state `{}` is already declared as a function",
-                        declaration.name
+                return Err(with_screen_source(
+                    CompileError::new(
+                        declaration.span,
+                        format!(
+                            "screen state `{}` is already declared as a function",
+                            declaration.name
+                        ),
                     ),
+                    screen_source_file,
                 ));
             }
-            let ty = resolve_declaration_type(
+            let ty = screen_try!(resolve_declaration_type(
                 &declaration,
                 &screen_symbols,
                 &function_signatures,
                 &struct_types,
-            )?;
-            let initial = lower_expr(
+            ));
+            let initial = screen_try!(lower_expr(
                 &declaration.initial,
                 Some(&ty),
                 &ExprContext::with_types(
@@ -337,11 +360,14 @@ pub fn lower_with_warnings(
                     &struct_types,
                     &owned_enum_names,
                 ),
-            )?;
+            ));
             if declaration.mutable && references_state(&declaration.initial) {
-                return Err(CompileError::new(
-                    declaration.initial.span(),
-                    "mutable screen state initializers cannot refer to other state values yet",
+                return Err(with_screen_source(
+                    CompileError::new(
+                        declaration.initial.span(),
+                        "mutable screen state initializers cannot refer to other state values yet",
+                    ),
+                    screen_source_file,
                 ));
             }
             record_native_alias(&declaration.name, &ty, &initial, &mut screen_native_aliases);
@@ -365,32 +391,43 @@ pub fn lower_with_warnings(
             target,
         )
         .with_navigation(false, true);
-        let screen_body = lower_nodes(screen.body, &cx)?;
-        let (status_bar, screen_body) = extract_status_bar(screen_body, screen.span, "screen")?;
+        let screen_body = screen_try!(lower_nodes(screen.body, &cx));
+        let (status_bar, screen_body) =
+            screen_try!(extract_status_bar(screen_body, screen.span, "screen"));
         if screen_body.iter().any(contains_content) {
-            return Err(CompileError::new(
-                screen.span,
-                "Content() is only available inside a custom component declaration",
+            return Err(with_screen_source(
+                CompileError::new(
+                    screen.span,
+                    "Content() is only available inside a custom component declaration",
+                ),
+                screen_source_file,
             ));
         }
         if screen_body.iter().any(contains_direction) {
-            return Err(CompileError::new(
-                app.span,
-                "Direction is only allowed at the app body's top level",
+            return Err(with_screen_source(
+                CompileError::new(
+                    app.span,
+                    "Direction is only allowed at the app body's top level",
+                ),
+                screen_source_file,
             ));
         }
         if screen_body.iter().any(contains_on_active)
             || screen_body.iter().any(contains_on_inactive)
             || screen_body.iter().any(contains_on_background)
         {
-            return Err(CompileError::new(
-                screen.span,
-                "app lifecycle events are only allowed at the app body's top level",
+            return Err(with_screen_source(
+                CompileError::new(
+                    screen.span,
+                    "app lifecycle events are only allowed at the app body's top level",
+                ),
+                screen_source_file,
             ));
         }
         let (on_appear, on_appear_async, screen_body) =
-            extract_on_appear(screen_body, screen.span, "screen")?;
-        let (on_disappear, screen_body) = extract_on_disappear(screen_body, screen.span, "screen")?;
+            screen_try!(extract_on_appear(screen_body, screen.span, "screen"));
+        let (on_disappear, screen_body) =
+            screen_try!(extract_on_disappear(screen_body, screen.span, "screen"));
         let screen_name = screen.name;
         screens.push(Screen {
             id: ScreenId(index),

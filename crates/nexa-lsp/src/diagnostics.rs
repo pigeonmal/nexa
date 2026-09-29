@@ -37,8 +37,19 @@ pub fn check_source(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     // 1. Syntax analysis
-    if let Err(err) = nexa_syntax::parse_program(source) {
-        diagnostics.push(compile_error_to_diagnostic(&err, source));
+    let program = match nexa_syntax::parse_program(source) {
+        Ok(program) => program,
+        Err(err) => {
+            diagnostics.push(compile_error_to_diagnostic(&err, source));
+            return diagnostics;
+        }
+    };
+
+    // Standalone source modules need their importing app's symbol tables for
+    // semantic analysis. The CLI compiles the full source graph; this
+    // single-document LSP check can still report syntax errors without
+    // incorrectly reporting that a module is missing an app declaration.
+    if program.app.is_none() || !program.imports.is_empty() {
         return diagnostics;
     }
 
@@ -127,5 +138,11 @@ mod tests {
         let range = diagnostics[0].range;
         assert_eq!((range.start.line, range.start.character), (2, 8));
         assert_eq!((range.end.line, range.end.character), (2, 9));
+    }
+
+    #[test]
+    fn imported_screen_modules_do_not_report_a_missing_app() {
+        let diagnostics = check_source("screen Home { Text(\"Home\") }\n");
+        assert!(diagnostics.is_empty());
     }
 }

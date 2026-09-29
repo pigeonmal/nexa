@@ -10,6 +10,34 @@ use nexa_compiler::{Target, compile, compile_file_with_warnings_for_target};
 use nexa_testkit::TestProject;
 
 #[test]
+fn in_memory_compile_merges_top_level_screens_into_the_app() {
+    let module = compile(
+        r#"
+        screen Home {
+            Text("Home")
+        }
+
+        app ModularNavigation {
+            body {
+                NavigationStack(root: Home)
+            }
+        }
+        "#,
+    )
+    .expect("top-level screen should be available to the app");
+
+    assert_eq!(module.screens.len(), 1);
+    assert_eq!(module.screens[0].name, "Home");
+    assert!(matches!(
+        module.body.first(),
+        Some(Node::NavigationStack {
+            root: nexa_ir::ScreenId(0),
+            ..
+        })
+    ));
+}
+
+#[test]
 fn arithmetic_lowers_with_numeric_types_and_folds_constants() {
     let module = compile(
         r#"

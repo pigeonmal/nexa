@@ -100,6 +100,8 @@ pub struct Program {
     pub components: Vec<ComponentDecl>,
     pub structs: Vec<StructDecl>,
     pub functions: Vec<FunctionDecl>,
+    /// Named screens declared in a standalone source module.
+    pub screens: Vec<ScreenDecl>,
     pub app: Option<App>,
 }
 
@@ -277,6 +279,7 @@ pub struct ScreenDecl {
     pub states: Vec<StateDecl>,
     pub body: Vec<Node>,
     pub span: Span,
+    pub source_file: Option<String>,
 }
 
 #[derive(Clone, Debug)]

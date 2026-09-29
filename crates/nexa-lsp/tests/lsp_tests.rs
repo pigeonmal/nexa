@@ -261,6 +261,10 @@ fn lsp_completion_response_matches_the_catalog() {
 fn lsp_extracts_document_symbols_hierarchy() {
     let mut server = LspServer::new();
     let source = r#"
+screen SharedScreen {
+    Text("Shared")
+}
+
 component TodoRow(title: String) {
     body { Text(title) }
 }
@@ -282,7 +286,7 @@ app TodoApp {
     }
 
     body {
-        Text("Done")
+        NavigationStack(root: SharedScreen)
     }
 }
 "#;
@@ -346,6 +350,7 @@ app TodoApp {
     collect_names(symbols, &mut symbol_names);
 
     assert!(symbol_names.contains(&"TodoApp"));
+    assert!(symbol_names.contains(&"SharedScreen"));
     assert!(symbol_names.contains(&"TodoRow"));
     assert!(symbol_names.contains(&"Item"));
     assert!(symbol_names.contains(&"Priority"));

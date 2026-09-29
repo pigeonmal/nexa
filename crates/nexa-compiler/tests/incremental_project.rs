@@ -89,3 +89,67 @@ fn removed_imports_are_pruned_from_incremental_source_cache() {
         }
     );
 }
+
+#[test]
+fn imported_screen_modules_join_the_app_navigation_graph() {
+    let project = TestProject::new("nexa-imported-screens");
+    let entry = project.join("App.nx");
+    project.write(
+        "App.nx",
+        "import \"screens/Home.nx\"\nimport \"screens/Details.nx\"\napp Demo { body { NavigationStack(root: Home) } }\n",
+    );
+    project.write(
+        "screens/Home.nx",
+        "screen Home { Column { Text(\"Home\") NavigationLink(destination: Details) { Text(\"Open details\") } } }\n",
+    );
+    project.write(
+        "screens/Details.nx",
+        "screen Details { state visits: Int32 = 0 Text(visits) }\n",
+    );
+
+    let module = nexa_compiler::compile_file_for_target(&entry, Target::Swift)
+        .expect("compile app with imported screens");
+
+    assert_eq!(
+        module
+            .screens
+            .iter()
+            .map(|screen| screen.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Home", "Details"]
+    );
+    assert!(matches!(
+        module.screens[0].body.first(),
+        Some(nexa_ir::Node::Layout { children, .. })
+            if children.iter().any(|node| matches!(
+                node,
+                nexa_ir::Node::NavigationLink {
+                    destination: nexa_ir::ScreenId(1),
+                    ..
+                }
+            ))
+    ));
+}
+
+#[test]
+fn imported_screen_diagnostics_keep_their_source_file() {
+    let project = TestProject::new("nexa-imported-screen-diagnostics");
+    let entry = project.join("App.nx");
+    project.write(
+        "App.nx",
+        "import \"screens/Home.nx\"\napp Demo { body { NavigationStack(root: Home) } }\n",
+    );
+    project.write("screens/Home.nx", "screen Home { Text(missingValue) }\n");
+
+    let error = nexa_compiler::compile_file_for_target(&entry, Target::Swift)
+        .expect_err("unknown screen value should fail semantic analysis");
+
+    assert!(
+        error
+            .file
+            .as_deref()
+            .is_some_and(|file| file.ends_with("screens/Home.nx")),
+        "unexpected diagnostic source: {:?}",
+        error.file
+    );
+}

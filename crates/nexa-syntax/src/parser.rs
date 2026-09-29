@@ -24,6 +24,7 @@ pub fn parse(tokens: Vec<Token>) -> Result<App, CompileError> {
     app.components = program.components;
     app.structs = program.structs;
     app.functions.extend(program.functions);
+    app.screens.extend(program.screens);
     app.plugins = program.plugins;
     Ok(app)
 }
@@ -659,6 +660,7 @@ impl Parser {
         let mut components = Vec::new();
         let mut structs = Vec::new();
         let mut functions = Vec::new();
+        let mut screens = Vec::new();
         let mut app = None;
         while !self.check(&Kind::Eof) {
             if self.word_is("import") {
@@ -675,6 +677,8 @@ impl Parser {
                 functions.push(self.function_decl(true)?);
             } else if self.word_is("fn") {
                 functions.push(self.function_decl(false)?);
+            } else if self.word_is("screen") {
+                screens.push(self.screen_decl()?);
             } else if self.word_is("app") {
                 if app.is_some() {
                     return self.error_here("a source file can only declare one `app`");
@@ -682,7 +686,7 @@ impl Parser {
                 app = Some(self.app_decl()?);
             } else {
                 return self.error_here(
-                    "expected an `import`, `plugin`, `struct`, `component`, `fn`, `async fn`, or `app` declaration",
+                    "expected an `import`, `plugin`, `struct`, `component`, `fn`, `async fn`, `screen`, or `app` declaration",
                 );
             }
         }
@@ -692,6 +696,7 @@ impl Parser {
             components,
             structs,
             functions,
+            screens,
             app,
         })
     }
@@ -1019,6 +1024,7 @@ impl Parser {
             states,
             body,
             span,
+            source_file: None,
         })
     }
 

@@ -45,6 +45,79 @@ app NavigationDemo {
 }
 ```
 
+Screens can also live in their own `.nx` files. A standalone file exports a
+top-level `screen`; import that file from the app entry file and use the screen
+name with the same `NavigationStack` and `NavigationLink` syntax. Imported
+screens share the app's state and functions, while their own state remains local
+to that screen:
+
+```nexa
+// App.nx
+import "screens/Home.nx"
+import "screens/Details.nx"
+
+app ModularNavigation {
+    state visits: Int32 = 0
+
+    body {
+        NavigationStack(root: Home)
+    }
+}
+```
+
+```nexa
+// screens/Home.nx
+screen Home {
+    Column {
+        Text("Home")
+        NavigationLink(destination: Details) {
+            Text("Open details")
+        }
+    }
+}
+```
+
+```nexa
+// screens/Details.nx
+screen Details {
+    state localCount: Int32 = 0
+
+    Column {
+        Text(visits)
+        Text(localCount)
+    }
+}
+```
+
+For tab layouts, put each tab's content in an imported `component` and call it
+inside the existing `Tab` block. This keeps the tab bar definition in the app
+entry file and each tab's view in a separate source file:
+
+```nexa
+// App.nx
+import "tabs/HomeTab.nx"
+import "tabs/ProfileTab.nx"
+
+app ModularTabs {
+    state currentTab: Int32 = 0
+
+    body {
+        AppBottomBar(selected: currentTab) {
+            Tab(index: 0, label: "Home", icon: "house") {
+                HomeTab()
+            }
+            Tab(index: 1, label: "Profile", icon: "person") {
+                ProfileTab()
+            }
+        }
+    }
+}
+```
+
+Each tab module declares a normal component, for example
+`component HomeTab() { body { Column { Text("Home") } } }`. Imported modules
+can contain screens, components, structs, functions, and plugin declarations.
+
 - **`NavigationStack(root: ScreenName)`**: The top-level container hosting screens (maps to SwiftUI `NavigationStack` on iOS and `NavHost` on Android).
 - **`NavigationLink(destination: ScreenName, when: condition)`**: Navigates onto the stack with platform push transitions and swipe-to-back gestures.
 - **`NavigationBack(label: "...")`**: Programmatic or custom back button.
