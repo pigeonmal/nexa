@@ -55,7 +55,7 @@ app VideoPlayerDemo {
         }
         Column {
             PlayerSurface(player: player1, title: "First player")
-            VideoPlayer.VideoView(player: player2, controls: false) {
+            VideoPlayer.VideoView(player: player2, controls: false, softwareDecodingEnabled: false) {
                 Text("Second player")
             }.onTapped {
                 secondTapped = true
