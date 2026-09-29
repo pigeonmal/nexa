@@ -5,6 +5,7 @@ previous compiler output.
 
 ## Cache schema
 
+- `build-v121`: adds statically generated JSON codecs to AOT apps and typed JSON dispatch/codecs to both DevRuntime hosts.
 - `build-v120`: decodes nullable generic Android plugin collection inputs before dispatch.
 - `build-v119`: makes Android launcher orientation follow the user's current orientation policy at startup.
 - `build-v118`: adds typed Haptics calls to both native backends and DevRuntime dispatch.
