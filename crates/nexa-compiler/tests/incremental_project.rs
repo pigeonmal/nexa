@@ -132,6 +132,91 @@ fn imported_screen_modules_join_the_app_navigation_graph() {
 }
 
 #[test]
+fn hot_reload_can_add_imported_screens_and_tab_components() {
+    let project = TestProject::new("nexa-hot-reload-modular-screens-tabs");
+    let entry = project.join("App.nx");
+    project.write("App.nx", "app Demo { body { Text(\"Initial\") } }\n");
+    let mut compiler = IncrementalProjectCompiler::default();
+    let targets = [Target::Swift, Target::Kotlin];
+    let plugins = HashMap::new();
+
+    compiler
+        .compile_file_with_warnings_for_targets_and_plugin_roots(&entry, &targets, &plugins)
+        .expect("compile initial app before adding modular sources");
+    assert_eq!(compiler.last_compile_stats().parsed_source_files, 1);
+
+    project.write(
+        "App.nx",
+        "import \"screens/Home.nx\"\nimport \"screens/Details.nx\"\nimport \"tabs/HomeTab.nx\"\nimport \"tabs/ProfileTab.nx\"\napp Demo { state selectedTab: Int32 = 0 state visits: Int32 = 0 body { NavigationStack(root: Home) } }\n",
+    );
+    project.write(
+        "screens/Home.nx",
+        "screen Home { Column { AppBottomBar(selected: selectedTab) { Tab(index: 0, label: \"Home\") { HomeTab() } Tab(index: 1, label: \"Profile\") { ProfileTab() } } NavigationLink(destination: Details) { Text(\"Open details\") } } }\n",
+    );
+    project.write(
+        "screens/Details.nx",
+        "screen Details { Column { Text(\"Visits\") Text(visits) } }\n",
+    );
+    project.write(
+        "tabs/HomeTab.nx",
+        "component HomeTab() { body { Text(\"Home tab from another file\") } }\n",
+    );
+    project.write(
+        "tabs/ProfileTab.nx",
+        "component ProfileTab() { body { Text(\"Profile tab from another file\") } }\n",
+    );
+
+    let compilations = compiler
+        .compile_file_with_warnings_for_targets_and_plugin_roots(&entry, &targets, &plugins)
+        .expect("hot reload app after adding imported screen and tab files");
+    assert_eq!(compiler.last_compile_stats().parsed_source_files, 5);
+    assert_eq!(compiler.last_compile_stats().reused_source_files, 0);
+    assert_eq!(compilations.len(), 2);
+
+    for compilation in compilations {
+        let module = compilation.module;
+        assert_eq!(
+            module
+                .screens
+                .iter()
+                .map(|screen| screen.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Home", "Details"]
+        );
+        assert_eq!(
+            module
+                .components
+                .iter()
+                .map(|component| component.name.as_str())
+                .collect::<Vec<_>>(),
+            ["HomeTab", "ProfileTab"]
+        );
+        assert!(nexa_ir::walk::any_node(
+            &module.screens[0].body,
+            |node| matches!(
+                node,
+                nexa_ir::Node::AppBottomBar { tabs, .. }
+                    if tabs.iter().flat_map(|tab| &tab.children).any(|child| matches!(
+                        child,
+                        nexa_ir::Node::ComponentCall { name, .. }
+                            if name == "HomeTab" || name == "ProfileTab"
+                    ))
+            )
+        ));
+        assert!(nexa_ir::walk::any_node(
+            &module.screens[0].body,
+            |node| matches!(
+                node,
+                nexa_ir::Node::NavigationLink {
+                    destination: nexa_ir::ScreenId(1),
+                    ..
+                }
+            )
+        ));
+    }
+}
+
+#[test]
 fn imported_screen_diagnostics_keep_their_source_file() {
     let project = TestProject::new("nexa-imported-screen-diagnostics");
     let entry = project.join("App.nx");
