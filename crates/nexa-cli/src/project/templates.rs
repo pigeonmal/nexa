@@ -1251,7 +1251,7 @@ pub(super) fn android_app_gradle_with_dev_runtime(
     }
     if dev_runtime || features.uses_navigation {
         dependencies
-            .push_str("    implementation(\"androidx.navigation:navigation-compose:2.10.1\")\n");
+            .push_str("    implementation(\"androidx.navigation:navigation-compose:2.9.8\")\n");
     }
     if dev_runtime || features.uses_lifecycle_events {
         dependencies.push_str(

@@ -136,6 +136,9 @@ fn android_dev_runtime_preloads_compose_and_platform_dependencies() {
             "dev dependency {dependency} should be preloaded"
         );
     }
+    assert!(
+        dependencies.contains("implementation(\"androidx.navigation:navigation-compose:2.9.8\")")
+    );
     assert!(!dependencies.contains("org.chromium.net:cronet-embedded"));
 }
 
