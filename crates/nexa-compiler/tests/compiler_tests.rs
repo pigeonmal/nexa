@@ -112,6 +112,52 @@ fn arithmetic_lowers_with_numeric_types_and_folds_constants() {
 }
 
 #[test]
+fn awaited_numeric_calls_lower_inside_arithmetic_expressions() {
+    let module = compile(
+        r#"
+        app NestedAwait {
+            async fn first() -> Int32 {
+                return 20
+            }
+
+            async fn second() -> Int32 {
+                return 22
+            }
+
+            state total: Int32 = 0
+
+            body {
+                OnAppear async {
+                    total = (await first()) + (await second())
+                }
+                Text(total)
+            }
+        }
+        "#,
+    )
+    .expect("awaited async results should retain their value type in arithmetic");
+
+    let Some(
+        [
+            Action::Assign {
+                value: Expr::Add(left, right, NumericType::Int32),
+                ..
+            },
+        ],
+    ) = module.on_appear.as_deref()
+    else {
+        panic!("expected one typed arithmetic assignment in OnAppear async");
+    };
+    for (expression, expected_name) in [(left, "first"), (right, "second")] {
+        assert!(matches!(
+            expression.as_ref(),
+            Expr::Await(call)
+                if matches!(call.as_ref(), Expr::Call { name, is_async: true, .. } if name == expected_name)
+        ));
+    }
+}
+
+#[test]
 fn text_input_keyboard_ergonomics_lower_to_typed_native_options() {
     let module = compile(
         r#"

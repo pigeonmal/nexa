@@ -21,7 +21,18 @@ app DevRuntimeProbe {
         failed,
     }
 
+    async fn asyncFirst() -> Int32 {
+        return 20
+    }
+
+    async fn asyncSecond() -> Int32 {
+        return 22
+    }
+
     let probe = DevProbe.Probe()
+    state asyncSum: Int32 = 0
+    state asyncValues: Array<Int32> = []
+    state asyncConditional: Int32 = 0
     state genericScalar: Int32 = 0
     state optionalInput: Array<String?> = ["one", null]
     state optionalValues: Array<String?> = []
@@ -46,6 +57,19 @@ app DevRuntimeProbe {
 
     body {
         OnAppear async {
+            asyncSum = (await asyncFirst()) + (await asyncSecond())
+            asyncValues = [await asyncFirst(), await asyncSecond()]
+            asyncConditional = if await asyncFirst() == 20 { await asyncSecond() } else { 0 }
+            if asyncSum == 42
+                && asyncValues.count == 2
+                && asyncValues[0] == 20
+                && asyncValues[1] == 22
+                && asyncConditional == 22 {
+                Log.info(message: "DEVRT_ASYNC_NESTED_EXPRESSION_PASS")
+            } else {
+                Log.error(message: "DEVRT_ASYNC_NESTED_EXPRESSION_FAIL")
+            }
+
             if DevProbe.increment(41) == 42 {
                 Log.info(message: "DEVRT_SERVICE_SYNC_PASS")
             }

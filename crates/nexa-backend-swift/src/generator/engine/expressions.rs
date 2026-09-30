@@ -316,12 +316,12 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         }
         Expr::Await(value) => {
             if value.is_throwing_call() {
-                format!("try await {}", render(value))
+                format!("(try await {})", render(value))
             } else {
-                format!("await {}", render(value))
+                format!("(await {})", render(value))
             }
         }
-        Expr::TryAwait(value) => format!("try await {}", render(value)),
+        Expr::TryAwait(value) => format!("(try await {})", render(value)),
         Expr::Add(left, right, ty) => {
             let operator = if matches!(ty, NumericType::Float32 | NumericType::Float64) {
                 "+"
@@ -765,7 +765,7 @@ mod tests {
 
         assert_eq!(
             expression(&Expr::TryAwait(Box::new(call))),
-            "try await NexaNetwork.upload(url: \"https://example.com\", file: \"receipt.pdf\", fields: [:])"
+            "(try await NexaNetwork.upload(url: \"https://example.com\", file: \"receipt.pdf\", fields: [:]))"
         );
     }
 
@@ -922,6 +922,29 @@ mod tests {
     }
 
     #[test]
+    fn awaited_values_are_parenthesized_inside_binary_expressions() {
+        let awaited = |name: &str| {
+            Expr::Await(Box::new(Expr::Call {
+                name: name.to_owned(),
+                arguments: Vec::new(),
+                return_type: Type::Numeric(NumericType::Int32),
+                is_async: true,
+                is_constructor: false,
+            }))
+        };
+        let sum = Expr::Add(
+            Box::new(awaited("first")),
+            Box::new(awaited("second")),
+            NumericType::Int32,
+        );
+
+        assert_eq!(
+            expression(&sum),
+            "((await nexa_fn_first()) &+ (await nexa_fn_second()))"
+        );
+    }
+
+    #[test]
     fn string_concatenation_uses_the_native_operator() {
         let concat = Expr::Concat(
             Box::new(Expr::String("Nexa".to_owned())),
@@ -944,7 +967,7 @@ mod tests {
             is_throwing: true,
         }));
 
-        assert_eq!(expression(&value), "try await CameraPlugin.shared.stop()");
+        assert_eq!(expression(&value), "(try await CameraPlugin.shared.stop())");
     }
 
     #[test]
@@ -960,17 +983,20 @@ mod tests {
 
         assert_eq!(
             expression(&read),
-            "try await NexaFile.readText(\"notes.txt\")"
+            "(try await NexaFile.readText(\"notes.txt\"))"
         );
         assert_eq!(
             expression(&write),
-            "try await NexaFile.writeText(\"saved\", to: \"notes.txt\")"
+            "(try await NexaFile.writeText(\"saved\", to: \"notes.txt\"))"
         );
         assert_eq!(
             expression(&delete),
-            "try await NexaFile.delete(\"notes.txt\")"
+            "(try await NexaFile.delete(\"notes.txt\"))"
         );
-        assert_eq!(expression(&exists), "await NexaFile.exists(\"notes.txt\")");
+        assert_eq!(
+            expression(&exists),
+            "(await NexaFile.exists(\"notes.txt\"))"
+        );
     }
 
     #[test]
@@ -1006,7 +1032,7 @@ mod tests {
                 return_type: Type::Void,
                 is_async: true,
             }))),
-            "try await Task.sleep(nanoseconds: 5 &* 1_000_000)"
+            "(try await Task.sleep(nanoseconds: 5 &* 1_000_000))"
         );
         assert_eq!(
             expression(&Expr::TimeCall {
@@ -1052,7 +1078,7 @@ mod tests {
 
         assert_eq!(
             expression(&Expr::Await(Box::new(call))),
-            "await nexa_player.prepare(\"clip.mp4\")"
+            "(await nexa_player.prepare(\"clip.mp4\"))"
         );
     }
 }

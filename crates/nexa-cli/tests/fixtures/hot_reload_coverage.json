@@ -1532,8 +1532,11 @@
       ]
     },
     "async_expression_evaluation": {
-      "ios": "partial",
-      "android": "partial"
+      "ios": "covered",
+      "android": "covered",
+      "semantic_probe_markers": [
+        "DEVRT_ASYNC_NESTED_EXPRESSION_PASS"
+      ]
     },
     "typed_plugin_error_catches": {
       "ios": "covered",

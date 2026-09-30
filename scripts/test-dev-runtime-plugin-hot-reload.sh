@@ -114,6 +114,7 @@ dev_pid=$!
 
 wait_for_marker "$dev_log" "Nexa $target_name dev runtime connected."
 for marker in \
+  DEVRT_ASYNC_NESTED_EXPRESSION_PASS \
   DEVRT_SERVICE_SYNC_PASS \
   DEVRT_SERVICE_TYPED_ERROR_PASS \
   DEVRT_NATIVE_EVENT_PASS \
@@ -147,6 +148,7 @@ wait_for_marker "$dev_log" "Nexa source reloaded in the running app."
 wait_for_marker "$native_log" DEVRT_IMPORTED_COMPONENT_PASS
 
 for marker in \
+  DEVRT_ASYNC_NESTED_EXPRESSION_FAIL \
   DEVRT_SERVICE_TYPED_ERROR_FAIL \
   DEVRT_SERVICE_TYPED_ERROR_WRONG_CASE \
   DEVRT_GENERIC_RESULT_FAIL \

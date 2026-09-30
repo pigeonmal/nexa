@@ -391,6 +391,47 @@ fn async_expression_evaluator_recurses_through_nested_values() {
 }
 
 #[test]
+fn async_expression_coverage_requires_log_only_semantic_device_evidence() {
+    let (root, fixture) = fixture();
+    let feature = &fixture["runtime_features"]["async_expression_evaluation"];
+    let script =
+        fs::read_to_string(root.join("../../scripts/test-dev-runtime-plugin-hot-reload.sh"))
+            .expect("read log-only DevRuntime probe");
+    let app = fs::read_to_string(root.join("tests/fixtures/dev_runtime_plugin_probe_app/App.nx"))
+        .expect("read initial probe app");
+    let template = fs::read_to_string(
+        root.join("tests/fixtures/dev_runtime_plugin_probe_app/App.after.template"),
+    )
+    .expect("read hot-reload probe app");
+
+    for platform in ["ios", "android"] {
+        assert_eq!(
+            feature[platform].as_str(),
+            Some("covered"),
+            "async expression evaluation lacks {platform} device evidence"
+        );
+    }
+    for marker in feature["semantic_probe_markers"]
+        .as_array()
+        .expect("async expression semantic markers")
+    {
+        let marker = marker.as_str().expect("string semantic marker");
+        assert!(
+            script.contains(marker),
+            "device probe does not wait for {marker}"
+        );
+        assert!(app.contains(marker), "initial app does not emit {marker}");
+        assert!(
+            template.contains(marker),
+            "hot-reload app does not emit {marker}"
+        );
+    }
+    assert!(script.contains("DEVRT_ASYNC_NESTED_EXPRESSION_FAIL"));
+    assert!(app.contains("DEVRT_ASYNC_NESTED_EXPRESSION_FAIL"));
+    assert!(template.contains("DEVRT_ASYNC_NESTED_EXPRESSION_FAIL"));
+}
+
+#[test]
 fn pressable_double_tap_actions_are_consumed_by_both_dev_renderers() {
     let (root, _) = fixture();
     let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))

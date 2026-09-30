@@ -760,7 +760,7 @@ mod tests {
 
         render_actions(&actions, 0, &mut output);
 
-        assert!(output.contains("do {\n    try await CameraPlugin.shared.capture()"));
+        assert!(output.contains("do {\n    (try await CameraPlugin.shared.capture())"));
         assert!(output.contains("} catch {\n    nexa_failed = true\n}"));
         assert!(!output.contains("try?"));
     }

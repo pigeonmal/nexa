@@ -4052,6 +4052,7 @@ pub(super) fn lowered_type(expr: &Expr) -> Option<Type> {
         Expr::Call { return_type, .. }
         | Expr::NativeCall { return_type, .. }
         | Expr::TimeCall { return_type, .. } => Some(return_type.clone()),
+        Expr::Await(value) | Expr::TryAwait(value) => lowered_type(value),
         Expr::State(_, ty) => Some(ty.clone()),
         Expr::Null(ty) => Some(ty.clone()),
         Expr::Member { field_type, .. } => Some(field_type.clone()),
