@@ -158,6 +158,7 @@ fn lower_native_component_event(
         &empty_structs,
         &empty_enums,
         Target::Swift,
+        false,
     )
     .with_navigation(false, false);
     lower_node(native_component_event_node(property, parameters), &cx)
@@ -824,6 +825,7 @@ fn native_component_content_blocks_must_match_the_declared_slot() {
         &empty_structs,
         &empty_enums,
         Target::Swift,
+        false,
     )
     .with_navigation(false, false);
     let error = lower_node(
@@ -856,6 +858,7 @@ fn native_component_content_blocks_must_match_the_declared_slot() {
         &empty_structs,
         &empty_enums,
         Target::Swift,
+        false,
     )
     .with_navigation(false, false);
     let error = lower_node(node, &default_cx)

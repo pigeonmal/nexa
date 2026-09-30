@@ -64,6 +64,22 @@ pub fn compile_file_with_warnings_for_targets_and_plugin_roots(
     )
 }
 
+/// Compiles source for the hot-reload interpreter. This accepts nullable
+/// generic plugin reads because DevRuntime carries decode validity separately
+/// from nullable values in its plugin codec results.
+pub fn compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots(
+    path: impl AsRef<Path>,
+    targets: &[Target],
+    plugin_roots: &HashMap<String, PathBuf>,
+) -> Result<Vec<crate::Compilation>, CompileError> {
+    IncrementalProjectCompiler::default()
+        .compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots(
+            path,
+            targets,
+            plugin_roots,
+        )
+}
+
 /// Reuses parsed source files across builds in a long-lived development
 /// session. Semantic analysis still runs for the assembled project so changes
 /// to shared declarations are checked against every dependent declaration.
@@ -98,6 +114,38 @@ impl IncrementalProjectCompiler {
         path: impl AsRef<Path>,
         targets: &[Target],
         plugin_roots: &HashMap<String, PathBuf>,
+    ) -> Result<Vec<crate::Compilation>, CompileError> {
+        self.compile_file_with_warnings_for_targets_and_plugin_roots_in_mode(
+            path,
+            targets,
+            plugin_roots,
+            false,
+        )
+    }
+
+    /// Compiles source for hot reload, enabling type shapes interpreted by
+    /// DevRuntime that AOT Kotlin cannot represent without additional runtime
+    /// wrappers.
+    pub fn compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots(
+        &mut self,
+        path: impl AsRef<Path>,
+        targets: &[Target],
+        plugin_roots: &HashMap<String, PathBuf>,
+    ) -> Result<Vec<crate::Compilation>, CompileError> {
+        self.compile_file_with_warnings_for_targets_and_plugin_roots_in_mode(
+            path,
+            targets,
+            plugin_roots,
+            true,
+        )
+    }
+
+    fn compile_file_with_warnings_for_targets_and_plugin_roots_in_mode(
+        &mut self,
+        path: impl AsRef<Path>,
+        targets: &[Target],
+        plugin_roots: &HashMap<String, PathBuf>,
+        dev_runtime: bool,
     ) -> Result<Vec<crate::Compilation>, CompileError> {
         self.last_stats = ProjectCompileStats::default();
         let entry_path = path.as_ref();
@@ -147,8 +195,13 @@ impl IncrementalProjectCompiler {
                     .cloned()
                     .collect();
                 let plugins = app.plugins.clone();
-                let (module, mut warnings, tests) = semantic::lower_with_warnings(app, target)
-                    .map_err(|error| error.with_file(entry_path.display().to_string()))?;
+                let lowered = if dev_runtime {
+                    semantic::lower_with_warnings_for_dev_runtime(app, target)
+                } else {
+                    semantic::lower_with_warnings(app, target)
+                };
+                let (module, mut warnings, tests) =
+                    lowered.map_err(|error| error.with_file(entry_path.display().to_string()))?;
                 for warning in &mut warnings {
                     if warning.file.is_none() {
                         warning.file = Some(entry_path.display().to_string());

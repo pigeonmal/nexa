@@ -49,6 +49,24 @@ public class ProbeImpl : ProbeSpec {
         decode1: (dev.nexa.core.NexaValueReader) -> dev.nexa.core.NexaValueReadResult<T>,
     ): T? = value
 
+    override fun <T> readNullable(
+        key: String,
+        decode0: (dev.nexa.core.NexaValueReader) -> dev.nexa.core.NexaValueReadResult<T>,
+    ): T? {
+        check(key.isNotEmpty())
+        val writer = dev.nexa.core.NexaValueWriter()
+        writer.writeBool(false)
+        val decoded = decode0(dev.nexa.core.NexaValueReader(writer.toByteArray()))
+        return when (decoded) {
+            is dev.nexa.core.NexaValueReadResult.Value<*> -> {
+                @Suppress("UNCHECKED_CAST")
+                decoded.value as T?
+            }
+            dev.nexa.core.NexaValueReadResult.Invalid ->
+                error("nullable generic codec rejected a valid null value")
+        }
+    }
+
     override suspend fun fail(): ProbeValue {
         throw ProbeError.rejected(value, "runtime-probe")
     }

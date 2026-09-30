@@ -42,6 +42,7 @@ pub(super) struct ComponentLoweringContext<'a> {
     pub(super) enum_symbols: &'a HashMap<String, (Type, bool)>,
     pub(super) external_signatures: &'a ComponentSignatures,
     pub(super) target: Target,
+    pub(super) allow_nullable_generic_plugin_reads: bool,
 }
 
 pub(super) fn retain_reachable(
@@ -213,6 +214,7 @@ fn lower_component(
         enums,
         enum_symbols,
         target,
+        allow_nullable_generic_plugin_reads,
         ..
     } = context;
     let source_file = declaration.source_file.clone();
@@ -254,7 +256,8 @@ fn lower_component(
         let initial = lower_expr(
             &state.initial,
             Some(&ty),
-            &ExprContext::with_types(&symbols, functions, false, structs, enums),
+            &ExprContext::with_types(&symbols, functions, false, structs, enums)
+                .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
         )?;
         if state.mutable && references_state(&state.initial) {
             return Err(CompileError::new(
@@ -282,6 +285,7 @@ fn lower_component(
         structs,
         enums,
         target,
+        allow_nullable_generic_plugin_reads,
     )
     .with_navigation(false, false);
     let body = lower_nodes(declaration.body, &cx)?;
@@ -716,6 +720,7 @@ mod tests {
                 enum_symbols: &HashMap::new(),
                 external_signatures: &HashMap::new(),
                 target: Target::Swift,
+                allow_nullable_generic_plugin_reads: false,
             },
         );
         let Err(error) = result else {

@@ -132,7 +132,7 @@ graph TD
 - [x] Require a native rebuild when the host changes, including adding a plugin dependency or changing native plugin sources, plugin contracts, permissions, or platform minimums.
 - [x] Verify DevRuntime plugin methods, supported values, property writes, event subscriptions, and visual components with semantic log assertions on Android Emulator and iOS Simulator. Coverage includes class construction/methods, service sync/async dispatch, scalar/optional/collection/tuple/bytes/enum/struct/Result codecs, compound property writes, typed error payloads, and a newly created imported component.
 - [x] Add DevRuntime bridge adapters for plugin properties, method results, events, and components using `Set<Bytes>`; Kotlin byte arrays use content-based set semantics, verified from simulator/emulator logs.
-- [ ] Support Android DevRuntime generic plugin reads with nullable type arguments.
+- [x] Support Android DevRuntime generic plugin reads with nullable type arguments using tagged read results; verify valid null decoding with semantic logs on Android Emulator and iOS Simulator.
 - [x] Verify awaited results nested in arithmetic, array literals/indexing, conditional branches, and short-circuit Boolean expressions with semantic log assertions on iOS Simulator and Android Emulator.
 
 #### 2.4 Accessibility

@@ -277,11 +277,19 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         ProjectTarget::Android => &[Target::Kotlin],
         ProjectTarget::All => &[Target::Swift, Target::Kotlin],
     };
-    let compilations = nexa_compiler::compile_file_with_warnings_for_targets_and_plugin_roots(
-        &input,
-        targets,
-        plugin_roots,
-    )
+    let compilations = if dev_session.is_some() {
+        nexa_compiler::compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots(
+            &input,
+            targets,
+            plugin_roots,
+        )
+    } else {
+        nexa_compiler::compile_file_with_warnings_for_targets_and_plugin_roots(
+            &input,
+            targets,
+            plugin_roots,
+        )
+    }
     .map_err(|error| error.to_string())?;
     if execute_tests {
         let Some(compilation) = compilations.first() else {
@@ -450,7 +458,7 @@ pub(crate) fn compile_dev_modules_with_compiler(
     let dependencies = config::load_plugin_dependencies(&config_path)?;
     let resolved = crate::dependencies::resolve(project_root, &dependencies)?;
     let compilations = compiler
-        .compile_file_with_warnings_for_targets_and_plugin_roots(
+        .compile_dev_runtime_file_with_warnings_for_targets_and_plugin_roots(
             entry,
             targets,
             &resolved.plugin_roots,

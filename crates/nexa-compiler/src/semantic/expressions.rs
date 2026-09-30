@@ -1658,7 +1658,8 @@ fn lower_collection_transform(
     let lowered_body = lower_expr(
         body,
         body_expected.as_ref().or(inferred_body_type.as_ref()),
-        &ExprContext::new(&scoped_symbols, ctx.functions, false),
+        &ExprContext::new(&scoped_symbols, ctx.functions, false)
+            .with_nullable_generic_plugin_reads(ctx.allow_nullable_generic_plugin_reads),
     )?;
     let Some(body_type) = inferred_body_type else {
         return Err(CompileError::new(
@@ -2932,6 +2933,7 @@ fn lower_plugin_call(
         TypeRegistries {
             structs: ctx.structs,
             enums: ctx.enums,
+            allow_nullable_generic_plugin_reads: ctx.allow_nullable_generic_plugin_reads,
         },
         span,
     )?;
@@ -3090,6 +3092,7 @@ fn lower_plugin_method_call(
         TypeRegistries {
             structs: ctx.structs,
             enums: ctx.enums,
+            allow_nullable_generic_plugin_reads: ctx.allow_nullable_generic_plugin_reads,
         },
         span,
     )?;

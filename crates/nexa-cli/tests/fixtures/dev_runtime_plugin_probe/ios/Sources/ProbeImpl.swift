@@ -61,6 +61,16 @@ public final class ProbeImpl: ProbeSpec {
         value
     }
 
+    public func readNullable<T>(_ key: String, _ decode: (NexaValueReader) -> T?) -> T? {
+        precondition(!key.isEmpty)
+        let writer = NexaValueWriter()
+        writer.writeBool(false)
+        guard let value = decode(NexaValueReader(writer.data)) else {
+            fatalError("nullable generic codec rejected a valid null value")
+        }
+        return value
+    }
+
     public func fail() async throws(ProbeError) -> ProbeValue {
         throw .rejected(value: value, reason: "runtime-probe")
     }

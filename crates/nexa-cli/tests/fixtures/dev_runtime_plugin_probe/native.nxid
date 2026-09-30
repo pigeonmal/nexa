@@ -24,6 +24,7 @@ native class Probe {
     fn echo<T>(value: T) -> T
     fn hasValue<T>(value: T?) -> Bool
     fn echoOptional<T>(value: T?) -> T?
+    fn readNullable<T>(key: String) -> T?
     async fn fail() -> ProbeValue throws ProbeError
 
     event changed(value: ProbeValue)

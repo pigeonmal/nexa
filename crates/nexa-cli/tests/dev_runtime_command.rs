@@ -298,7 +298,7 @@ fn optional_generic_compound_values_generate_aot_and_dev_codecs() {
     );
     project.write(
         "App.nx",
-        "plugin \"dev.nexa.codec-probe\" as CodecProbe\napp OptionalCodec { enum CodecError { Missing } state maybe: String? = null state values: Array<String?> = [\"one\", null] state outcome: Result<String?, CodecError> = Ok(if true { \"present\" } else { null }) body { Button(\"Save\") { CodecProbe.store<String?>(maybe)\n values = CodecProbe.load<Array<String?>>(\"values\") ?? []\n CodecProbe.store<Result<String?, CodecError>>(outcome)\n CodecProbe.load<Result<String?, CodecError>>(\"outcome\") } } }\n",
+        "plugin \"dev.nexa.codec-probe\" as CodecProbe\napp OptionalCodec { enum CodecError { Missing } state maybe: String? = null state values: Array<String?> = [\"one\", null] state outcome: Result<String?, CodecError> = Ok(if true { \"present\" } else { null }) body { Button(\"Save\") { CodecProbe.store<String?>(maybe)\n CodecProbe.load<String?>(\"nullable\")\n values = CodecProbe.load<Array<String?>>(\"values\") ?? []\n CodecProbe.store<Result<String?, CodecError>>(outcome)\n CodecProbe.load<Result<String?, CodecError>>(\"outcome\") } } }\n",
     );
 
     let entry = project.path().join("App.nx");

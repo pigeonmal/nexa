@@ -106,9 +106,13 @@ pub(super) fn resolve(
         }
     }
     if mentions_type_parameter(&signature.return_type) {
-        let value_type = match &return_type {
-            Type::Optional(inner) => inner.as_ref(),
-            other => other,
+        // Remove only the optional layer declared by the plugin method. A
+        // generic `-> T` bound as `T = String?` has no outer missing-value
+        // layer to remove; the previous substituted-shape check lost that
+        // distinction.
+        let value_type = match (&signature.return_type, &return_type) {
+            (Type::Optional(_), Type::Optional(inner)) => inner.as_ref(),
+            _ => &return_type,
         };
         require_storable(value_type, "return value", registries, span)?;
         codecs.push(PluginCodec {
@@ -242,15 +246,21 @@ fn substitute(ty: &Type, bindings: &[(String, Type)]) -> Type {
 /// carry: a scalar, byte buffer, enum, value struct, result with an enum error,
 /// or collection of those. A nullable value may appear inside a compound value
 /// because its presence bit distinguishes `null` from a malformed payload.
-/// A nullable generic read argument remains unsupported: its nested optional
-/// result cannot be represented separately from Kotlin's decode-failure null.
+/// DevRuntime generic reads use a tagged result for this distinction at the
+/// top level as well.
 fn require_storable(
     ty: &Type,
     context: &str,
     registries: TypeRegistries<'_>,
     span: Span,
 ) -> Result<(), CompileError> {
-    require_storable_shape(ty, context, registries, span, false)
+    require_storable_shape(
+        ty,
+        context,
+        registries,
+        span,
+        registries.allow_nullable_generic_plugin_reads,
+    )
 }
 
 /// Validates one value position. `allow_optional` is set for compound members,
@@ -262,7 +272,7 @@ fn require_storable_shape(
     span: Span,
     allow_optional: bool,
 ) -> Result<(), CompileError> {
-    let TypeRegistries { structs, enums } = registries;
+    let TypeRegistries { structs, enums, .. } = registries;
     match ty {
         Type::String | Type::Bytes | Type::Bool | Type::Numeric(_) => Ok(()),
         Type::Enum(name) => {

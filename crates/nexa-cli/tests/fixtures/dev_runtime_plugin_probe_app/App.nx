@@ -127,6 +127,9 @@ app DevRuntimeProbe {
             if !probe.hasValue<String>(null) && genericOptionalOutput == null {
                 Log.info(message: "DEVRT_GENERIC_OPTIONAL_NULL_PASS")
             }
+            probe.echo<String?>(null)
+            probe.readNullable<String?>("nullable")
+            Log.info(message: "DEVRT_GENERIC_NULLABLE_READ_PASS")
             genericSetOutput = probe.echo<Set<Int32>>(genericSetInput)
             if genericSetOutput.count == 2 {
                 Log.info(message: "DEVRT_GENERIC_SET_PASS")

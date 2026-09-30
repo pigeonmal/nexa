@@ -36,6 +36,9 @@ pub(super) struct ExprContext<'a> {
     /// enum it names exists.
     pub(super) enums: &'a HashSet<String>,
     pub(super) allow_await: bool,
+    /// DevRuntime can represent generic nullable reads with a tagged result
+    /// that keeps valid nulls separate from reader failures.
+    pub(super) allow_nullable_generic_plugin_reads: bool,
 }
 
 impl<'a> ExprContext<'a> {
@@ -66,7 +69,13 @@ impl<'a> ExprContext<'a> {
             structs,
             enums,
             allow_await,
+            allow_nullable_generic_plugin_reads: false,
         }
+    }
+
+    pub(super) fn with_nullable_generic_plugin_reads(mut self, allow: bool) -> Self {
+        self.allow_nullable_generic_plugin_reads = allow;
+        self
     }
 }
 
@@ -77,6 +86,7 @@ impl<'a> ExprContext<'a> {
 pub(super) struct TypeRegistries<'a> {
     pub structs: &'a StructTypes,
     pub enums: &'a HashSet<String>,
+    pub allow_nullable_generic_plugin_reads: bool,
 }
 
 impl Default for TypeRegistries<'_> {
@@ -84,7 +94,20 @@ impl Default for TypeRegistries<'_> {
         Self {
             structs: empty_struct_types(),
             enums: empty_enum_names(),
+            allow_nullable_generic_plugin_reads: false,
         }
+    }
+}
+
+impl<'a> TypeRegistries<'a> {
+    pub(super) fn expr_context(
+        self,
+        symbols: &'a HashMap<String, (Type, bool)>,
+        functions: &'a FunctionSignatures,
+        allow_await: bool,
+    ) -> ExprContext<'a> {
+        ExprContext::with_types(symbols, functions, allow_await, self.structs, self.enums)
+            .with_nullable_generic_plugin_reads(self.allow_nullable_generic_plugin_reads)
     }
 }
 
@@ -116,6 +139,7 @@ pub(super) struct SemanticContext<'a> {
     /// Every declared enum name, for the same reason.
     pub(super) enums: &'a HashSet<String>,
     pub(super) target: Target,
+    pub(super) allow_nullable_generic_plugin_reads: bool,
 }
 
 impl<'a> SemanticContext<'a> {
@@ -130,6 +154,7 @@ impl<'a> SemanticContext<'a> {
         structs: &'a StructTypes,
         enums: &'a HashSet<String>,
         target: Target,
+        allow_nullable_generic_plugin_reads: bool,
     ) -> Self {
         Self {
             symbols,
@@ -143,6 +168,7 @@ impl<'a> SemanticContext<'a> {
             allow_navigation_stack: true,
             allow_navigation_back: false,
             target,
+            allow_nullable_generic_plugin_reads,
         }
     }
 
@@ -165,6 +191,7 @@ impl<'a> SemanticContext<'a> {
             allow_navigation_stack: self.allow_navigation_stack,
             allow_navigation_back: self.allow_navigation_back,
             target: self.target,
+            allow_nullable_generic_plugin_reads: self.allow_nullable_generic_plugin_reads,
         }
     }
 
@@ -184,6 +211,15 @@ impl<'a> SemanticContext<'a> {
             structs: self.structs,
             enums: self.enums,
             allow_await,
+            allow_nullable_generic_plugin_reads: self.allow_nullable_generic_plugin_reads,
+        }
+    }
+
+    pub(super) fn type_registries(&self) -> TypeRegistries<'a> {
+        TypeRegistries {
+            structs: self.structs,
+            enums: self.enums,
+            allow_nullable_generic_plugin_reads: self.allow_nullable_generic_plugin_reads,
         }
     }
 }

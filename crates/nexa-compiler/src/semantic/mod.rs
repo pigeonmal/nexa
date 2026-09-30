@@ -43,8 +43,23 @@ fn with_screen_source(error: CompileError, source_file: Option<&str>) -> Compile
 }
 
 pub fn lower_with_warnings(
+    app: ast::App,
+    target: Target,
+) -> Result<(Module, Vec<CompileWarning>, crate::testing::TestSuite), CompileError> {
+    lower_with_warnings_in_mode(app, target, false)
+}
+
+pub(super) fn lower_with_warnings_for_dev_runtime(
+    app: ast::App,
+    target: Target,
+) -> Result<(Module, Vec<CompileWarning>, crate::testing::TestSuite), CompileError> {
+    lower_with_warnings_in_mode(app, target, true)
+}
+
+fn lower_with_warnings_in_mode(
     mut app: ast::App,
     target: Target,
+    allow_nullable_generic_plugin_reads: bool,
 ) -> Result<(Module, Vec<CompileWarning>, crate::testing::TestSuite), CompileError> {
     let warnings = warnings::analyze(&app, target);
     let themes = lower_theme(app.theme.as_ref())?;
@@ -228,6 +243,7 @@ pub fn lower_with_warnings(
             enum_symbols: &enum_symbols,
             external_signatures: &native_component_signatures,
             target,
+            allow_nullable_generic_plugin_reads,
         },
     )?;
 
@@ -243,6 +259,7 @@ pub fn lower_with_warnings(
         &struct_types,
         &owned_enum_names,
         &enum_symbols,
+        allow_nullable_generic_plugin_reads,
     )?;
     tests::bind_test_functions(&mut test_suite, &functions);
 
@@ -274,6 +291,7 @@ pub fn lower_with_warnings(
                 TypeRegistries {
                     structs: &struct_types,
                     enums: &owned_enum_names,
+                    allow_nullable_generic_plugin_reads,
                 },
             )?;
             Ok(BackgroundTask {
@@ -312,7 +330,8 @@ pub fn lower_with_warnings(
                 false,
                 &struct_types,
                 &owned_enum_names,
-            ),
+            )
+            .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
         )?;
         if declaration.mutable && references_state(&declaration.initial) {
             return Err(CompileError::new(
@@ -408,7 +427,8 @@ pub fn lower_with_warnings(
                     false,
                     &struct_types,
                     &owned_enum_names,
-                ),
+                )
+                .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
             ));
             if declaration.mutable && references_state(&declaration.initial) {
                 return Err(with_screen_source(
@@ -438,6 +458,7 @@ pub fn lower_with_warnings(
             &struct_types,
             &owned_enum_names,
             target,
+            allow_nullable_generic_plugin_reads,
         )
         .with_navigation(false, true);
         let screen_body = screen_try!(lower_nodes(screen.body, &cx));
@@ -504,6 +525,7 @@ pub fn lower_with_warnings(
         &struct_types,
         &owned_enum_names,
         target,
+        allow_nullable_generic_plugin_reads,
     )
     .with_navigation(true, false);
     let body = lower_nodes(app.body, &cx)?;
@@ -1569,6 +1591,7 @@ fn lower_functions(
     structs: &StructTypes,
     enums: &HashSet<String>,
     enum_symbols: &HashMap<String, (Type, bool)>,
+    allow_nullable_generic_plugin_reads: bool,
 ) -> Result<Vec<Function>, CompileError> {
     declarations
         .into_iter()
@@ -1634,6 +1657,9 @@ fn lower_functions(
                                 signature.is_async,
                                 structs,
                                 enums,
+                            )
+                            .with_nullable_generic_plugin_reads(
+                                allow_nullable_generic_plugin_reads,
                             ),
                         )?;
                         symbols.insert(name.clone(), (local_type.clone(), false));
@@ -1687,7 +1713,8 @@ fn lower_functions(
             let body = lower_expr(
                 &value,
                 Some(&signature.return_type),
-                &ExprContext::with_types(&symbols, signatures, signature.is_async, structs, enums),
+                &ExprContext::with_types(&symbols, signatures, signature.is_async, structs, enums)
+                    .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
             )?;
             Ok(Function {
                 name: declaration.name,
