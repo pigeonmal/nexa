@@ -1,0 +1,13 @@
+component ProbePanel(player: DevProbe.Probe) {
+    body {
+        Column(spacing: 8) {
+            DevProbe.ProbeCard(value: player.value)
+                .onSelected { selected ->
+                    if selected.score > 0 {
+                        Log.info(message: "DEVRT_IMPORTED_COMPONENT_PASS")
+                    }
+                }
+            Text("Imported plugin component")
+        }
+    }
+}

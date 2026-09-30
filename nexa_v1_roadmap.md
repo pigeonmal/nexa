@@ -136,7 +136,7 @@ graph TD
 - [x] Detect edits and newly created or imported `.nx` modules, compile them to DevRuntime IR, and update the running app without copying `.nx` files into its native bundle.
 - [x] Prelink configured plugin packages into the DevRuntime host. Existing plugin methods, typed errors, property writes, event subscriptions, and native component adapters can be used by reloaded modules for bridge-supported types.
 - [x] Require a native rebuild when the host changes, including adding a plugin dependency or changing native plugin sources, plugin contracts, permissions, or platform minimums.
-- [ ] Close the remaining partial DevRuntime coverage for plugin values, native component calls, property assignment, and event subscription. Replace structural dispatch checks with behavioral parity cases for the supported IDL shapes before marking this area complete.
+- [ ] Close the remaining partial DevRuntime coverage for plugin values, native component calls, property assignment, and event subscription. The log-only device probe in `scripts/test-dev-runtime-plugin-hot-reload.sh` now exercises class construction/methods, scalar and optional-array generic codecs, compound property writes, typed error payloads, class/component events, and a newly created imported component on both platforms. Expand its cases to the remaining supported IDL shapes and unsupported boundaries, then replace structural dispatch checks before marking this area complete.
 
 #### 2.4 Accesibility
 
@@ -353,3 +353,4 @@ cargo test -p nexa-testkit -- --ignored
 ### End-to-End Application Builds
 
 - Verify that all 8 apps (To-Do, E-Commerce, Chat, Weather, Spotify, Netflix, Fitness, TikTok) compile, generate valid Xcode and Gradle projects, and run smoothly at 60/120 FPS on iOS Simulators and Android Emulators.
+- Run `scripts/test-dev-runtime-plugin-hot-reload.sh ios` and `scripts/test-dev-runtime-plugin-hot-reload.sh android` with a booted simulator/emulator to verify the prelinked plugin call path and late-created imported `.nx` component through native logs, without screenshots.

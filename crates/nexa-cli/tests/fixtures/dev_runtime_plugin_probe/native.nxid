@@ -1,0 +1,29 @@
+struct ProbeValue {
+    label: String
+    score: Int32
+}
+
+error ProbeError {
+    rejected(value: ProbeValue, reason: String)
+}
+
+native class Probe {
+    init()
+
+    property value: ProbeValue
+
+    fn updated() -> ProbeValue
+    fn replace(value: ProbeValue)
+    fn emit()
+    fn echo<T>(value: T) -> T
+    async fn fail() -> ProbeValue throws ProbeError
+
+    event changed(value: ProbeValue)
+
+    fn dispose()
+}
+
+native component ProbeCard {
+    prop value: ProbeValue
+    event selected(value: ProbeValue)
+}

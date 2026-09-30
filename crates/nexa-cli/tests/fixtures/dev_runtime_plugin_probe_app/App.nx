@@ -1,0 +1,56 @@
+plugin "dev.nexa.runtime-probe" as DevProbe
+
+app DevRuntimeProbe {
+    let probe = DevProbe.Probe()
+    state genericScalar: Int32 = 0
+    state optionalInput: Array<String?> = ["one", null]
+    state optionalValues: Array<String?> = []
+
+    body {
+        OnAppear async {
+            probe.changed { value ->
+                if value.score == 42 {
+                    Log.info(message: "DEVRT_NATIVE_EVENT_PASS")
+                }
+            }
+            probe.replace(probe.updated())
+            probe.value = probe.updated()
+            probe.emit()
+            if probe.value.score == 42 {
+                Log.info(message: "DEVRT_PROPERTY_WRITE_READ_PASS")
+            }
+            genericScalar = probe.echo<Int32>(42)
+            if genericScalar == 42 {
+                Log.info(message: "DEVRT_GENERIC_SCALAR_PASS")
+            }
+            optionalValues = probe.echo<Array<String?>>(optionalInput)
+            if optionalValues.count == 2 {
+                Log.info(message: "DEVRT_GENERIC_OPTIONAL_ARRAY_PASS")
+            }
+
+            try {
+                await probe.fail()
+                Log.error(message: "DEVRT_TYPED_ERROR_FAIL")
+            } catch {
+                case DevProbe.ProbeError.rejected(value, reason) {
+                    if value.score == 42 && reason == "runtime-probe" {
+                        Log.info(message: "DEVRT_TYPED_ERROR_PASS")
+                    }
+                }
+                else {
+                    Log.error(message: "DEVRT_TYPED_ERROR_WRONG_CASE")
+                }
+            }
+        }
+
+        Column(spacing: 8) {
+            DevProbe.ProbeCard(value: probe.value)
+                .onSelected { value ->
+                    if value.score > 0 {
+                        Log.info(message: "DEVRT_BASE_COMPONENT_PASS")
+                    }
+                }
+            Text("DevRuntime plugin probe")
+        }
+    }
+}

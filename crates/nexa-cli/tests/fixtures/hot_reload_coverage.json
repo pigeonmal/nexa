@@ -1500,6 +1500,10 @@
     "deep_link_routing": {
       "ios": "covered",
       "android": "covered"
+    },
+    "new_imported_plugin_component_hot_reload": {
+      "ios": "covered",
+      "android": "covered"
     }
   },
   "runtime_features": {
