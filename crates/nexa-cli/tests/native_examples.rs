@@ -141,6 +141,93 @@ fn multipart_upload_generates_native_streaming_calls() {
     }
 }
 
+#[test]
+fn imported_websocket_screen_generates_a_hot_reloadable_plugin_bridge() {
+    let temp = TestProject::new("nexa-websocket-imported-screen-dev");
+    let entry =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/websocket/tests/demo/app/App.nx");
+    let ios = temp.join("websocket-dev-ios");
+    nexa_cli::generate_dev_project(
+        &entry,
+        "ios",
+        &ios,
+        "NexaWebSocketDemo",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("iOS DevRuntime host should include the plugin used by imported Chat.nx");
+
+    let swift = swift_sources(&ios.join("ios/NexaWebSocketDemo"))
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated iOS DevRuntime source"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(swift.contains("name == \"connect\""));
+    assert!(swift.contains("property == \"onMessageReceived\""));
+    assert!(swift.contains("nexaDevFailureWebSocketWebSocketError"));
+    assert!(!ios.join("ios/NexaWebSocketDemo/Chat.nx").exists());
+
+    if let Some(sdk) = Toolchain::ios_simulator_sdk_path() {
+        let built = Command::new("xcrun")
+            .args([
+                "--sdk",
+                "iphonesimulator",
+                "swiftc",
+                "-typecheck",
+                "-sdk",
+                sdk,
+                "-target",
+                "arm64-apple-ios16.0-simulator",
+            ])
+            .args(swift_sources(&ios.join("ios/NexaWebSocketDemo")))
+            .output()
+            .expect("Swift compiler should start for the WebSocket DevRuntime host");
+        assert!(
+            built.status.success(),
+            "iOS WebSocket DevRuntime host failed to type-check:\n{}\n{}",
+            String::from_utf8_lossy(&built.stdout),
+            String::from_utf8_lossy(&built.stderr)
+        );
+    }
+
+    let android = temp.join("websocket-dev-android");
+    nexa_cli::generate_dev_project(
+        &entry,
+        "android",
+        &android,
+        "NexaWebSocketDemo",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("Android DevRuntime host should include the plugin used by imported Chat.nx");
+
+    let bridge = fs::read_to_string(
+        android.join("android/app/src/main/java/dev/nexa/websocket/demo/NexaDevPluginBridge.kt"),
+    )
+    .expect("Android DevRuntime should generate the WebSocket plugin bridge");
+    assert!(bridge.contains("name == \"connect\""));
+    assert!(bridge.contains("property == \"onMessageReceived\""));
+    assert!(bridge.contains("nexaDevFailureWebSocketWebSocketError"));
+    assert!(!android.join("android/app/src/main/assets/Chat.nx").exists());
+
+    if Toolchain::should_run_native_builds()
+        && let (Some(gradle), Some(sdk)) = (Toolchain::gradle(), Toolchain::android_sdk())
+        && sdk.join("platforms/android-36/android.jar").is_file()
+    {
+        let built = Command::new(gradle)
+            .args([":app:assembleDebug"])
+            .current_dir(android.join("android"))
+            .output()
+            .expect("Gradle should start for the WebSocket DevRuntime host");
+        assert!(
+            built.status.success(),
+            "Android WebSocket DevRuntime host failed to compile:\n{}\n{}",
+            String::from_utf8_lossy(&built.stdout),
+            String::from_utf8_lossy(&built.stderr)
+        );
+    }
+}
+
 fn copy_generated_kotlin(source: &Path, destination: &Path) {
     copy_generated_kotlin_from(source, source, destination);
 }

@@ -133,8 +133,10 @@ graph TD
 
 #### 2.3 Hot reload
 
-Current hot reload is very bad, changing a component name, remove a component, (basic tasks) need a rebuild. I want
-change every thing in my app in hot reload without rebuild except for native changes (permissions, add new plugins, etc).
+- [x] Detect edits and newly created or imported `.nx` modules, compile them to DevRuntime IR, and update the running app without copying `.nx` files into its native bundle.
+- [x] Prelink configured plugin packages into the DevRuntime host. Existing plugin methods, typed errors, property writes, event subscriptions, and native component adapters can be used by reloaded modules for bridge-supported types.
+- [x] Require a native rebuild when the host changes, including adding a plugin dependency or changing native plugin sources, plugin contracts, permissions, or platform minimums.
+- [ ] Close the remaining partial DevRuntime coverage for plugin values, native component calls, property assignment, and event subscription. Replace structural dispatch checks with behavioral parity cases for the supported IDL shapes before marking this area complete.
 
 #### 2.4 Accesibility
 
