@@ -1191,6 +1191,10 @@ pub enum Action {
         parameters: Vec<String>,
         actions: Vec<Action>,
     },
+    NetworkStatusSubscribe {
+        parameter: String,
+        actions: Vec<Action>,
+    },
     CollectionMutation {
         name: String,
         operation: CollectionMutation,

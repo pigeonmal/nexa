@@ -481,6 +481,14 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                 indent(out, depth);
                 out.push_str("}\n");
             }
+            Action::NetworkStatusSubscribe { parameter, actions } => {
+                out.text_at(depth, format_args!("NexaNetwork.onStatusChange {{ "));
+                out.push_str(&state_name(parameter));
+                out.push_str(" in\n");
+                render_actions(actions, depth + 1, out);
+                indent(out, depth);
+                out.push_str("}\n");
+            }
             Action::CollectionMutation {
                 name,
                 operation,
@@ -708,6 +716,23 @@ mod tests {
             output.as_str(),
             "nexa_player.onProgressChanged = { nexa_position, nexa_duration in\n    nexa_latest = nexa_position\n}\n"
         );
+    }
+
+    #[test]
+    fn renders_network_status_subscription_as_a_native_callback() {
+        let actions = [Action::NetworkStatusSubscribe {
+            parameter: "online".to_owned(),
+            actions: vec![Action::Assign {
+                name: "connected".to_owned(),
+                value: Expr::State("online".to_owned(), Type::Bool),
+            }],
+        }];
+        let mut output = SourceWriter::new();
+
+        render_actions(&actions, 0, &mut output);
+
+        assert!(output.contains("NexaNetwork.onStatusChange { nexa_online in"));
+        assert!(output.contains("nexa_connected = nexa_online"));
     }
 
     #[test]

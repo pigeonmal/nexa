@@ -22,6 +22,14 @@ internal data class NexaDevNativeEventSubscription(
     val locals: Map<String, Any>,
 )
 
+internal data class NexaDevNetworkStatusSubscription(
+    val id: String,
+    val parameter: String,
+    var actions: JSONArray,
+    val scope: String,
+    val locals: Map<String, Any>,
+)
+
 internal class NexaDevStateStore(internal val context: Context) {
     internal val eventScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     internal val values = mutableStateMapOf<String, Any>()
@@ -47,6 +55,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     private var navigationScreensSignature: String? = null
     internal var focusBindings = mutableMapOf<String, Pair<String, String?>>()
     internal val nativeEventSubscriptions = mutableListOf<NexaDevNativeEventSubscription>()
+    internal val networkStatusSubscriptions = mutableListOf<NexaDevNetworkStatusSubscription>()
     internal val activeScreenParameters = mutableMapOf<String, Map<String, Any>>()
     internal var pendingPluginFailure: NexaDevPluginFailure? = null
     private var hasInstalledModule = false

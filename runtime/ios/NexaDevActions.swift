@@ -102,6 +102,14 @@ extension NexaDevStateStore {
                 ) {
                     NSLog("NexaDevRuntime: native event subscription is unsupported: %@", property)
                 }
+            } else if let subscription = tagged["NetworkStatusSubscribe"] as? [String: Any],
+                      let parameter = subscription["parameter"] as? String {
+                subscribeNetworkStatus(
+                    parameter: parameter,
+                    actions: subscription["actions"] as? [Any] ?? [],
+                    scope: scope,
+                    locals: locals
+                )
             } else if let mutation = tagged["CollectionMutation"] as? [String: Any],
                       let name = mutation["name"] as? String {
                 performCollectionMutation(mutation, name: name, scope: scope, locals: locals)
@@ -192,7 +200,45 @@ extension NexaDevStateStore {
         return true
     }
 
+    func subscribeNetworkStatus(
+        parameter: String,
+        actions: [Any],
+        scope: String,
+        locals: [String: Any]
+    ) {
+        let id = "\(scope)/\(parameter)"
+        let callback = devNativeEventHandler(actions, parameters: [parameter], scope: scope, locals: locals)
+        NexaDevNetworkPathStatus.shared.setStatusHandler(id: id) { online in
+            callback([online])
+        }
+        networkStatusSubscriptions.removeAll { $0.id == id }
+        networkStatusSubscriptions.append(NexaDevNetworkStatusSubscription(
+            id: id,
+            parameter: parameter,
+            actions: actions,
+            scope: scope,
+            locals: locals
+        ))
+    }
+
     func refreshNativeEventSubscriptions(module: [String: Any]) {
+        let previousNetworkSubscriptions = networkStatusSubscriptions
+        networkStatusSubscriptions.removeAll(keepingCapacity: true)
+        for subscription in previousNetworkSubscriptions {
+            NexaDevNetworkPathStatus.shared.setStatusHandler(id: subscription.id, handler: nil)
+            if let replacement = networkStatusAction(
+                in: module,
+                scope: subscription.scope,
+                parameter: subscription.parameter
+            ) {
+                subscribeNetworkStatus(
+                    parameter: subscription.parameter,
+                    actions: replacement["actions"] as? [Any] ?? [],
+                    scope: subscription.scope,
+                    locals: subscription.locals
+                )
+            }
+        }
         let previous = nativeEventSubscriptions
         nativeEventSubscriptions.removeAll(keepingCapacity: true)
         for subscription in previous {
@@ -267,6 +313,19 @@ extension NexaDevStateStore {
                 }
                 continue
             }
+            if kind == "NetworkStatusSubscribe",
+               let parameter = fields["parameter"] as? String {
+                let id = "\(scope)/\(parameter)"
+                if !networkStatusSubscriptions.contains(where: { $0.id == id }) {
+                    subscribeNetworkStatus(
+                        parameter: parameter,
+                        actions: fields["actions"] as? [Any] ?? [],
+                        scope: scope,
+                        locals: locals
+                    )
+                }
+                continue
+            }
             if kind == "If", let condition = fields["condition"] {
                 let selected = truthy(evaluate(condition, locals: locals, scope: scope))
                     ? fields["then_branch"] as? [Any]
@@ -311,6 +370,11 @@ extension NexaDevStateStore {
     }
 
     func clearNativeEventSubscriptions(scope: String? = nil) {
+        let removedNetwork = networkStatusSubscriptions.filter { scope == nil || $0.scope == scope }
+        networkStatusSubscriptions.removeAll { scope == nil || $0.scope == scope }
+        for subscription in removedNetwork {
+            NexaDevNetworkPathStatus.shared.setStatusHandler(id: subscription.id, handler: nil)
+        }
         let removed = nativeEventSubscriptions.filter { scope == nil || $0.scope == scope }
         nativeEventSubscriptions.removeAll { scope == nil || $0.scope == scope }
         for subscription in removed {
@@ -352,6 +416,53 @@ extension NexaDevStateStore {
             }
             for nested in object.values { collectNativeEventSubscriptions(nested, into: &result) }
         }
+    }
+
+    private func networkStatusAction(
+        in module: [String: Any],
+        scope: String,
+        parameter: String
+    ) -> [String: Any]? {
+        let roots: [Any]
+        if scope == "app" {
+            roots = ["body", "on_appear", "on_active", "on_inactive", "on_background"]
+                .compactMap { module[$0] }
+        } else if scope.hasPrefix("screen/"),
+                  let screenName = scope.split(separator: "/").last.map(String.init),
+                  let screen = (module["screens"] as? [[String: Any]] ?? [])
+                    .first(where: { $0["name"] as? String == screenName }) {
+            roots = ["body", "on_appear", "on_disappear"].compactMap { screen[$0] }
+        } else if scope.hasPrefix("component/"),
+                  let componentName = scope.split(separator: "/").last.map(String.init),
+                  let component = (module["components"] as? [[String: Any]] ?? [])
+                    .first(where: { $0["name"] as? String == componentName }) {
+            roots = [component["body"]].compactMap { $0 }
+        } else {
+            roots = [module]
+        }
+        for root in roots {
+            if let action = findNetworkStatusAction(in: root, parameter: parameter) {
+                return action
+            }
+        }
+        return nil
+    }
+
+    private func findNetworkStatusAction(in value: Any, parameter: String) -> [String: Any]? {
+        if let array = value as? [Any] {
+            for item in array {
+                if let match = findNetworkStatusAction(in: item, parameter: parameter) { return match }
+            }
+        } else if let object = value as? [String: Any] {
+            if let subscription = object["NetworkStatusSubscribe"] as? [String: Any],
+               subscription["parameter"] as? String == parameter {
+                return subscription
+            }
+            for nested in object.values {
+                if let match = findNetworkStatusAction(in: nested, parameter: parameter) { return match }
+            }
+        }
+        return nil
     }
 
     private func applyCollectionMutation(
@@ -458,6 +569,14 @@ extension NexaDevStateStore {
                 ) {
                     NSLog("NexaDevRuntime: native event subscription is unsupported: %@", property)
                 }
+            } else if let subscription = tagged["NetworkStatusSubscribe"] as? [String: Any],
+                      let parameter = subscription["parameter"] as? String {
+                subscribeNetworkStatus(
+                    parameter: parameter,
+                    actions: subscription["actions"] as? [Any] ?? [],
+                    scope: scope,
+                    locals: locals
+                )
             } else if let branch = tagged["If"] as? [String: Any],
                       let condition = branch["condition"] {
                 let value = try await evaluateAsync(condition, locals: locals, scope: scope)

@@ -1117,6 +1117,11 @@
         "android": "partial"
       },
       {
+        "name": "NetworkStatusSubscribe",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "CollectionMutation",
         "ios": "covered",
         "android": "covered"

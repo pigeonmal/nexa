@@ -38,10 +38,10 @@ fn public_enums(source: &str) -> BTreeSet<String> {
 /// Returns the documented Dev boundary for IR cases the interpreter cannot execute.
 fn dev_boundary(enum_name: &str, variant_name: &str) -> Option<&'static str> {
     match (enum_name, variant_name) {
-        // Plugin calls use generated direct adapters for supported scalar,
-        // generic, and recursively composed values. Nullable values inside a
-        // compound read have presence tags; a nullable value as the complete
-        // generic result still collides with Kotlin's decode-failure marker.
+        // Native class references are opaque runtime objects rather than
+        // generic codec values. Direct constructors, methods, properties,
+        // events, and component arguments still use generated adapters for
+        // the concrete shapes accepted by the native plugin contract.
         ("Type", "Plugin") => Some("partial"),
         // Plugin property, event, and visual-component adapters share the
         // supported value subset above; this inventory records that boundary

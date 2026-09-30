@@ -121,6 +121,19 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
             }
             continue
         }
+        val networkSubscription = action.optJSONObject("NetworkStatusSubscribe")
+        if (networkSubscription != null) {
+            val parameter = networkSubscription.optString("parameter")
+            if (parameter.isNotEmpty()) {
+                subscribeNetworkStatus(
+                    parameter = parameter,
+                    actions = networkSubscription.optJSONArray("actions") ?: JSONArray(),
+                    scope = scope,
+                    locals = locals,
+                )
+            }
+            continue
+        }
         val mutation = action.optJSONObject("CollectionMutation")
         if (mutation != null) {
             mutateCollection(mutation, scope, locals)
@@ -208,7 +221,39 @@ internal fun NexaDevStateStore.subscribeNativeEvent(
     return true
 }
 
+internal fun NexaDevStateStore.subscribeNetworkStatus(
+    parameter: String,
+    actions: JSONArray,
+    scope: String,
+    locals: Map<String, Any>,
+) {
+    val id = "$scope/$parameter"
+    val parameters = JSONArray().put(parameter)
+    val handler = devNativeEventHandler(actions, parameters, scope, locals)
+    NexaDevNetworkStatus.subscribe(context, id) { online -> handler(listOf(online)) }
+    networkStatusSubscriptions.removeAll { it.id == id }
+    networkStatusSubscriptions += NexaDevNetworkStatusSubscription(
+        id = id,
+        parameter = parameter,
+        actions = actions,
+        scope = scope,
+        locals = locals.toMap(),
+    )
+}
+
 internal fun NexaDevStateStore.refreshNativeEventSubscriptions(module: JSONObject) {
+    val previousNetwork = networkStatusSubscriptions.toList()
+    networkStatusSubscriptions.clear()
+    previousNetwork.forEach { NexaDevNetworkStatus.clear(it.id) }
+    for (subscription in previousNetwork) {
+        val replacement = networkStatusAction(module, subscription.scope, subscription.parameter) ?: continue
+        subscribeNetworkStatus(
+            parameter = subscription.parameter,
+            actions = replacement.optJSONArray("actions") ?: JSONArray(),
+            scope = subscription.scope,
+            locals = subscription.locals,
+        )
+    }
     val previous = nativeEventSubscriptions.toList()
     nativeEventSubscriptions.clear()
     previous.forEach { NexaDevPluginBridge.clearInstanceEvent(it.receiver, it.property) }
@@ -263,6 +308,18 @@ private fun NexaDevStateStore.installLifecycleNativeEventSubscriptions(
         val kind = raw.keys().asSequence().firstOrNull() ?: continue
         val fields = raw.optJSONObject(kind) ?: continue
         when (kind) {
+            "NetworkStatusSubscribe" -> {
+                val parameter = fields.optString("parameter").takeIf(String::isNotEmpty) ?: continue
+                val id = "$scope/$parameter"
+                if (networkStatusSubscriptions.none { it.id == id }) {
+                    subscribeNetworkStatus(
+                        parameter = parameter,
+                        actions = fields.optJSONArray("actions") ?: JSONArray(),
+                        scope = scope,
+                        locals = locals,
+                    )
+                }
+            }
             "NativeEventSubscribe" -> {
                 val receiverExpression = fields.opt("receiver") ?: continue
                 val receiver = stableNativeEventReceiver(receiverExpression, locals, scope) ?: continue
@@ -325,6 +382,9 @@ private fun NexaDevStateStore.installLifecycleNativeEventSubscriptions(
 
 internal fun NexaDevStateStore.clearNativeEventSubscriptions(scope: String? = null) {
     if (scope != null) activeScreenParameters.remove(scope)
+    val removedNetwork = networkStatusSubscriptions.filter { scope == null || it.scope == scope }
+    networkStatusSubscriptions.removeAll { scope == null || it.scope == scope }
+    removedNetwork.forEach { NexaDevNetworkStatus.clear(it.id) }
     val removed = nativeEventSubscriptions.filter { scope == null || it.scope == scope }
     nativeEventSubscriptions.removeAll { scope == null || it.scope == scope }
     removed.forEach { NexaDevPluginBridge.clearInstanceEvent(it.receiver, it.property) }
@@ -359,6 +419,45 @@ private fun collectNativeEventSubscriptions(value: Any?, result: MutableList<JSO
             while (keys.hasNext()) collectNativeEventSubscriptions(value.opt(keys.next()), result)
         }
     }
+}
+
+private fun networkStatusAction(module: JSONObject, scope: String, parameter: String): JSONObject? {
+    val roots = when {
+        scope == "app" -> listOf("body", "on_appear", "on_active", "on_inactive", "on_background")
+            .mapNotNull(module::opt)
+        scope.startsWith("screen/") -> {
+            val screenName = scope.substringAfterLast('/')
+            val screens = module.optJSONArray("screens") ?: JSONArray()
+            val screen = (0 until screens.length())
+                .mapNotNull(screens::optJSONObject)
+                .firstOrNull { it.optString("name") == screenName }
+            screen?.let { value ->
+                listOf("body", "on_appear", "on_disappear").mapNotNull(value::opt)
+            } ?: emptyList()
+        }
+        scope.startsWith("component/") -> {
+            val componentName = scope.substringAfterLast('/')
+            val components = module.optJSONArray("components") ?: JSONArray()
+            val component = (0 until components.length())
+                .mapNotNull(components::optJSONObject)
+                .firstOrNull { it.optString("name") == componentName }
+            listOfNotNull(component?.opt("body"))
+        }
+        else -> listOf(module)
+    }
+    return roots.firstNotNullOfOrNull { findNetworkStatusAction(it, parameter) }
+}
+
+private fun findNetworkStatusAction(value: Any?, parameter: String): JSONObject? = when (value) {
+    is JSONArray -> (0 until value.length())
+        .firstNotNullOfOrNull { findNetworkStatusAction(value.opt(it), parameter) }
+    is JSONObject -> {
+        val subscription = value.optJSONObject("NetworkStatusSubscribe")
+        if (subscription?.optString("parameter") == parameter) subscription
+        else value.keys().asSequence()
+            .firstNotNullOfOrNull { findNetworkStatusAction(value.opt(it), parameter) }
+    }
+    else -> null
 }
 
 internal fun NexaDevStateStore.mutateCollection(mutation: JSONObject, scope: String, locals: Map<String, Any>) {
@@ -504,6 +603,19 @@ internal suspend fun NexaDevStateStore.performAsync(
                 locals = locals,
             )) {
                 android.util.Log.w("NexaDevRuntime", "Native event subscription is unsupported: $property")
+            }
+            continue
+        }
+        val networkSubscription = action.optJSONObject("NetworkStatusSubscribe")
+        if (networkSubscription != null) {
+            val parameter = networkSubscription.optString("parameter")
+            if (parameter.isNotEmpty()) {
+                subscribeNetworkStatus(
+                    parameter = parameter,
+                    actions = networkSubscription.optJSONArray("actions") ?: JSONArray(),
+                    scope = scope,
+                    locals = locals,
+                )
             }
             continue
         }

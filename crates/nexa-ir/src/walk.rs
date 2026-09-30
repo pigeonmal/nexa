@@ -301,7 +301,8 @@ pub fn walk_callback_actions(nodes: &[Node], visit: &mut impl FnMut(&[Action])) 
 fn walk_nested_callback_actions(actions: &[Action], visit: &mut impl FnMut(&[Action])) {
     for action in actions {
         match action {
-            Action::NativeEventSubscribe { actions, .. } => {
+            Action::NativeEventSubscribe { actions, .. }
+            | Action::NetworkStatusSubscribe { actions, .. } => {
                 visit(actions);
                 walk_nested_callback_actions(actions, visit);
             }
@@ -611,6 +612,7 @@ pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
                 walk_expression(receiver, visit);
                 walk_actions(actions, visit);
             }
+            Action::NetworkStatusSubscribe { actions, .. } => walk_actions(actions, visit),
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {
                     walk_expression(argument, visit);
@@ -687,6 +689,7 @@ pub fn walk_callback_expressions(actions: &[Action], visit: &mut impl FnMut(&Exp
                 walk_expression(value, visit);
             }
             Action::NativeEventSubscribe { receiver, .. } => walk_expression(receiver, visit),
+            Action::NetworkStatusSubscribe { .. } => {}
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {
                     walk_expression(argument, visit);
@@ -1164,6 +1167,7 @@ pub fn walk_action_children<V: IrVisitor>(action: &Action, visitor: &mut V) {
             visitor.visit_expr(receiver);
             visitor.visit_actions(actions);
         }
+        Action::NetworkStatusSubscribe { actions, .. } => visitor.visit_actions(actions),
         Action::CollectionMutation { arguments, .. } => {
             for argument in arguments {
                 visitor.visit_expr(argument);
@@ -1895,6 +1899,12 @@ pub fn fold_action_children<F: IrFolder>(action: Action, folder: &mut F) -> Opti
             parameters,
             actions: folder.fold_actions(actions),
         }),
+        Action::NetworkStatusSubscribe { parameter, actions } => {
+            Some(Action::NetworkStatusSubscribe {
+                parameter,
+                actions: folder.fold_actions(actions),
+            })
+        }
         Action::CollectionMutation {
             name,
             operation,

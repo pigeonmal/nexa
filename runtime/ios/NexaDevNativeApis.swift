@@ -2,12 +2,13 @@ import Foundation
 import UIKit
 import Network
 
-private final class NexaDevNetworkPathStatus: @unchecked Sendable {
+final class NexaDevNetworkPathStatus: @unchecked Sendable {
     static let shared = NexaDevNetworkPathStatus()
 
     private let monitor = NWPathMonitor()
     private let lock = NSLock()
     private var online = false
+    private var statusHandlers: [String: (Bool) -> Void] = [:]
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -24,8 +25,26 @@ private final class NexaDevNetworkPathStatus: @unchecked Sendable {
 
     private func setOnline(_ value: Bool) {
         lock.lock()
+        let changed = online != value
         online = value
         lock.unlock()
+        guard changed else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.notifyStatusChange(value)
+        }
+    }
+
+    func setStatusHandler(id: String, handler: ((Bool) -> Void)?) {
+        lock.lock()
+        statusHandlers[id] = handler
+        lock.unlock()
+    }
+
+    private func notifyStatusChange(_ value: Bool) {
+        lock.lock()
+        let handlers = Array(statusHandlers.values)
+        lock.unlock()
+        handlers.forEach { $0(value) }
     }
 }
 

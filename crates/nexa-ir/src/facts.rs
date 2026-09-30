@@ -12,7 +12,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::capabilities::Capabilities;
-use crate::walk::{contains_scrollable, walk_actions, walk_expression, walk_ir};
+use crate::walk::{
+    contains_scrollable, walk_actions, walk_callback_actions, walk_expression, walk_ir,
+};
 use crate::{
     AccessibilityRole, AnimationSpec, ColorValue, Expr, ImageSource, KeyboardDismissMode, ListAxis,
     ListPlan, Module, Node, NumericType, Permission, PermissionOpKind, State, Type, ViewStyle,
@@ -408,6 +410,8 @@ impl ModuleFacts {
             .chain(module.on_inactive.iter())
             .chain(module.on_background.iter())
         {
+            facts.capabilities.uses_network_connectivity |=
+                actions_contain_network_status_subscription(actions);
             walk_actions(actions, &mut |expression| {
                 observe_expr(
                     expression,
@@ -419,6 +423,8 @@ impl ModuleFacts {
         }
         for screen in &module.screens {
             for actions in screen.on_appear.iter().chain(screen.on_disappear.iter()) {
+                facts.capabilities.uses_network_connectivity |=
+                    actions_contain_network_status_subscription(actions);
                 walk_actions(actions, &mut |expression| {
                     observe_expr(
                         expression,
@@ -434,6 +440,10 @@ impl ModuleFacts {
         {
             let mut size_hit = false;
             let mut remote_hit = false;
+            walk_callback_actions(&module.body, &mut |actions| {
+                facts.capabilities.uses_network_connectivity |=
+                    actions_contain_network_status_subscription(actions);
+            });
             walk_ir(
                 &module.body,
                 &mut |node| {
@@ -461,6 +471,10 @@ impl ModuleFacts {
         for screen in &module.screens {
             let mut size_hit = false;
             let mut remote_hit = false;
+            walk_callback_actions(&screen.body, &mut |actions| {
+                facts.capabilities.uses_network_connectivity |=
+                    actions_contain_network_status_subscription(actions);
+            });
             walk_ir(
                 &screen.body,
                 &mut |node| {
@@ -492,6 +506,10 @@ impl ModuleFacts {
         for component in &module.components {
             let mut size_hit = false;
             let mut remote_hit = false;
+            walk_callback_actions(&component.body, &mut |actions| {
+                facts.capabilities.uses_network_connectivity |=
+                    actions_contain_network_status_subscription(actions);
+            });
             let calls = facts
                 .component_calls
                 .edges
@@ -914,6 +932,42 @@ fn observe_effects(effects: &crate::ViewEffects, facts: &mut StyleFacts) {
 
 /// Expression observations: capability signals, permission signals, and
 /// size-class signals (merged into the scope by the caller).
+fn actions_contain_network_status_subscription(actions: &[crate::Action]) -> bool {
+    actions.iter().any(|action| match action {
+        crate::Action::NetworkStatusSubscribe { .. } => true,
+        crate::Action::NativeEventSubscribe { actions, .. } => {
+            actions_contain_network_status_subscription(actions)
+        }
+        crate::Action::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            actions_contain_network_status_subscription(then_branch)
+                || else_branch
+                    .as_deref()
+                    .is_some_and(actions_contain_network_status_subscription)
+        }
+        crate::Action::For { body, .. }
+        | crate::Action::ForMap { body, .. }
+        | crate::Action::While { body, .. } => actions_contain_network_status_subscription(body),
+        crate::Action::TryCatch {
+            body,
+            error_catches,
+            catch_body,
+        } => {
+            actions_contain_network_status_subscription(body)
+                || error_catches
+                    .iter()
+                    .any(|arm| actions_contain_network_status_subscription(&arm.body))
+                || catch_body
+                    .as_deref()
+                    .is_some_and(actions_contain_network_status_subscription)
+        }
+        _ => false,
+    })
+}
+
 fn observe_expr(
     expression: &Expr,
     capabilities: &mut Capabilities,

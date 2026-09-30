@@ -303,12 +303,17 @@ app ConnectionExample {
     state online: Bool = Network.isOnline
 
     body {
-        Text(online ? "Online" : "Offline")
+        Column {
+            Text(online ? "Online" : "Offline")
+            Button("Watch changes") {
+                Network.onStatusChange { isOnline -> online = isOnline }
+            }
+        }
     }
 }
 ```
 
-The property is useful for an immediate check before starting work. A status-change subscription is still part of the roadmap; until it is added, read the property again when the app needs a fresh value.
+The property gives an immediate path check. `Network.onStatusChange` subscribes to later changes and passes the new Boolean value to its callback. Neither API guarantees that a particular server is reachable.
 
 ## Time
 

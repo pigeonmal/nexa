@@ -535,6 +535,39 @@ fn network_online_property_lowers_to_a_typed_synchronous_core_call() {
 }
 
 #[test]
+fn network_status_subscription_lowers_a_typed_boolean_callback() {
+    let module = compile(
+        r#"
+        app Connectivity {
+            state connected: Bool = false
+            body {
+                Button("Watch") {
+                    Network.onStatusChange { online -> connected = online }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("network status subscription should compile");
+
+    let Node::Button { actions, .. } = &module.body[0] else {
+        panic!("expected a button action");
+    };
+    let [Action::NetworkStatusSubscribe { parameter, actions }] = actions.as_slice() else {
+        panic!("expected a lowered network status subscription");
+    };
+    assert_eq!(parameter, "online");
+    assert!(matches!(
+        actions.as_slice(),
+        [Action::Assign { name, value: Expr::State(binding, _) }]
+            if name == "connected" && binding == "online"
+    ));
+    let capabilities = nexa_ir::capabilities::analyze(&module);
+    assert!(capabilities.uses_network_connectivity);
+    assert!(!capabilities.uses_network_transport());
+}
+
+#[test]
 fn haptics_calls_lower_to_validated_typed_core_calls() {
     let module = compile(
         r#"

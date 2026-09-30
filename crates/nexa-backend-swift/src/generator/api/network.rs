@@ -39,6 +39,7 @@ private final class NexaNetworkPathStatus: @unchecked Sendable {
     private let monitor = NWPathMonitor()
     private let lock = NSLock()
     private var online = false
+    private var statusHandler: ((Bool) -> Void)?
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -55,8 +56,27 @@ private final class NexaNetworkPathStatus: @unchecked Sendable {
 
     private func setOnline(_ value: Bool) {
         lock.lock()
+        let changed = online != value
         online = value
         lock.unlock()
+        if changed {
+            DispatchQueue.main.async { [weak self] in
+                self?.notifyStatusChange(value)
+            }
+        }
+    }
+
+    func setStatusHandler(_ handler: @escaping (Bool) -> Void) {
+        lock.lock()
+        statusHandler = handler
+        lock.unlock()
+    }
+
+    private func notifyStatusChange(_ value: Bool) {
+        lock.lock()
+        let handler = statusHandler
+        lock.unlock()
+        handler?(value)
     }
 }
 
@@ -342,6 +362,10 @@ public extension NexaNetwork {
     static func isOnline() -> Bool {
         NexaNetworkPathStatus.shared.isOnline
     }
+
+    static func onStatusChange(_ handler: @escaping (Bool) -> Void) {
+        NexaNetworkPathStatus.shared.setStatusHandler(handler)
+    }
 }
 
 "#,
@@ -352,6 +376,10 @@ public extension NexaNetwork {
 public enum NexaNetwork {
     public static func isOnline() -> Bool {
         NexaNetworkPathStatus.shared.isOnline
+    }
+
+    public static func onStatusChange(_ handler: @escaping (Bool) -> Void) {
+        NexaNetworkPathStatus.shared.setStatusHandler(handler)
     }
 }
 
@@ -542,6 +570,7 @@ mod tests {
         assert!(output.contains("monitor.start(queue:"));
         assert!(output.contains("lock.lock()"));
         assert!(output.contains("public static func isOnline() -> Bool"));
+        assert!(output.contains("public static func onStatusChange("));
         assert!(!output.contains("public static func fetch("));
     }
 }

@@ -61,6 +61,77 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(uses_transport, "kotlin.coroutines.resumeWithException");
 }
 
+const NETWORK_CONNECTIVITY_MEMBERS: &str = r#"    private val statusLock = Any()
+    private val statusMainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var statusManager: android.net.ConnectivityManager? = null
+    private var statusCallback: android.net.ConnectivityManager.NetworkCallback? = null
+    private var statusListener: ((Boolean) -> Unit)? = null
+    private var lastStatus: Boolean? = null
+
+    public fun isOnline(context: Context): Boolean {
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager ?: return false
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    public fun onStatusChange(context: Context, listener: (Boolean) -> Unit) {
+        val manager = context.applicationContext
+            .getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return
+        synchronized(statusLock) {
+            statusListener = listener
+            if (statusCallback != null) return
+            val applicationContext = context.applicationContext
+            val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    dispatchStatusChange(applicationContext)
+                }
+
+                override fun onLost(network: android.net.Network) {
+                    dispatchStatusChange(applicationContext)
+                }
+
+                override fun onCapabilitiesChanged(
+                    network: android.net.Network,
+                    capabilities: android.net.NetworkCapabilities,
+                ) {
+                    dispatchStatusChange(applicationContext)
+                }
+            }
+            statusManager = manager
+            statusCallback = callback
+            lastStatus = isOnline(applicationContext)
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= 24) {
+                    manager.registerDefaultNetworkCallback(callback)
+                } else {
+                    val request = android.net.NetworkRequest.Builder()
+                        .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .build()
+                    manager.registerNetworkCallback(request, callback)
+                }
+            } catch (_: SecurityException) {
+                statusCallback = null
+                statusManager = null
+                statusListener = null
+            }
+        }
+    }
+
+    private fun dispatchStatusChange(context: Context) {
+        val value = isOnline(context)
+        val listener = synchronized(statusLock) {
+            if (lastStatus == value) null else {
+                lastStatus = value
+                statusListener
+            }
+        } ?: return
+        statusMainHandler.post { listener(value) }
+    }
+
+"#;
+
 pub(crate) fn render(
     out: &mut SourceWriter,
     include_network: bool,
@@ -330,17 +401,7 @@ public object NexaNetwork {
 "#,
         );
         if include_network_connectivity {
-            out.push_str(
-                r#"    public fun isOnline(context: Context): Boolean {
-        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE)
-            as? android.net.ConnectivityManager ?: return false
-        val network = manager.activeNetwork ?: return false
-        val capabilities = manager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
-    }
-
-"#,
-            );
+            out.push_str(NETWORK_CONNECTIVITY_MEMBERS);
         }
         out.push_str(
             r#"    public suspend fun fetch(
@@ -428,20 +489,9 @@ public object NexaNetwork {
         );
     }
     if include_network_connectivity && !include_network {
-        out.push_str(
-            r#"
-public object NexaNetwork {
-    public fun isOnline(context: Context): Boolean {
-        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE)
-            as? android.net.ConnectivityManager ?: return false
-        val network = manager.activeNetwork ?: return false
-        val capabilities = manager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
-    }
-}
-
-"#,
-        );
+        out.push_str("\npublic object NexaNetwork {\n");
+        out.push_str(NETWORK_CONNECTIVITY_MEMBERS);
+        out.push_str("}\n\n");
     }
     if include_path {
         out.push_str(
@@ -595,5 +645,8 @@ mod tests {
         assert!(output.contains("public fun isOnline(context: Context): Boolean"));
         assert!(output.contains("manager.activeNetwork"));
         assert!(output.contains("NET_CAPABILITY_INTERNET"));
+        assert!(output.contains("public fun onStatusChange(context: Context"));
+        assert!(output.contains("registerDefaultNetworkCallback"));
+        assert!(!output.contains("Cronet"));
     }
 }

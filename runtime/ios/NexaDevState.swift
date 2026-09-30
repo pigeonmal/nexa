@@ -12,6 +12,14 @@ struct NexaDevNativeEventSubscription {
     let locals: [String: Any]
 }
 
+struct NexaDevNetworkStatusSubscription {
+    let id: String
+    var parameter: String
+    var actions: [Any]
+    let scope: String
+    let locals: [String: Any]
+}
+
 @MainActor
 final class NexaDevStateStore: ObservableObject {
     @Published var revision = 0
@@ -28,6 +36,7 @@ final class NexaDevStateStore: ObservableObject {
     var activeFunctions = Set<String>()
     var focusBindings: [String: (scope: String, state: String?)] = [:]
     var nativeEventSubscriptions: [NexaDevNativeEventSubscription] = []
+    var networkStatusSubscriptions: [NexaDevNetworkStatusSubscription] = []
     var activeScreenParameters: [String: [String: Any]] = [:]
     var pendingPluginFailure: NexaDevPluginFailure?
     var hasInstalledModule = false

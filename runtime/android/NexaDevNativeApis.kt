@@ -3,6 +3,85 @@ package __NEXA_PACKAGE__
 import org.json.JSONArray
 import org.json.JSONObject
 
+internal object NexaDevNetworkStatus {
+    private val lock = Any()
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val listeners = mutableMapOf<String, (Boolean) -> Unit>()
+    private var manager: android.net.ConnectivityManager? = null
+    private var callback: android.net.ConnectivityManager.NetworkCallback? = null
+    private var lastOnline: Boolean? = null
+
+    fun isOnline(context: android.content.Context): Boolean {
+        val connectivity = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager ?: return false
+        val network = connectivity.activeNetwork ?: return false
+        val capabilities = connectivity.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    fun subscribe(context: android.content.Context, id: String, listener: (Boolean) -> Unit) {
+        synchronized(lock) {
+            listeners[id] = listener
+            if (callback != null) return
+            val appContext = context.applicationContext
+            val connectivity = appContext.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+                as? android.net.ConnectivityManager ?: return
+            val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) = dispatch(appContext)
+                override fun onLost(network: android.net.Network) = dispatch(appContext)
+                override fun onCapabilitiesChanged(
+                    network: android.net.Network,
+                    capabilities: android.net.NetworkCapabilities,
+                ) = dispatch(appContext)
+            }
+            manager = connectivity
+            callback = networkCallback
+            lastOnline = isOnline(appContext)
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= 24) {
+                    connectivity.registerDefaultNetworkCallback(networkCallback)
+                } else {
+                    val request = android.net.NetworkRequest.Builder()
+                        .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .build()
+                    connectivity.registerNetworkCallback(request, networkCallback)
+                }
+            } catch (_: SecurityException) {
+                callback = null
+                manager = null
+                listeners.remove(id)
+            }
+        }
+    }
+
+    fun clear(id: String) {
+        synchronized(lock) {
+            listeners.remove(id)
+            if (listeners.isNotEmpty()) return
+            val currentManager = manager
+            val currentCallback = callback
+            if (currentManager != null && currentCallback != null) {
+                runCatching { currentManager.unregisterNetworkCallback(currentCallback) }
+            }
+            manager = null
+            callback = null
+            lastOnline = null
+        }
+    }
+
+    private fun dispatch(context: android.content.Context) {
+        val online = isOnline(context)
+        val currentListeners = synchronized(lock) {
+            if (lastOnline == online) emptyList() else {
+                lastOnline = online
+                listeners.values.toList()
+            }
+        }
+        if (currentListeners.isEmpty()) return
+        mainHandler.post { currentListeners.forEach { it(online) } }
+    }
+}
+
 private fun nexaDevPerformHaptics(name: String, options: Map<String, Any>) {
     val constant = when (name) {
         "impact" -> when (options["style"] as? String) {
@@ -265,11 +344,7 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
         return JSONObject.NULL
     }
     if (namespace == "Network" && name == "isOnline") {
-        val manager = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
-            as? android.net.ConnectivityManager ?: return false
-        val network = manager.activeNetwork ?: return false
-        val capabilities = manager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        return NexaDevNetworkStatus.isOnline(context)
     }
     if (namespace == "Keyboard" && name == "dismiss") {
         dev.nexa.core.NexaRuntimeCore.dismissKeyboard()

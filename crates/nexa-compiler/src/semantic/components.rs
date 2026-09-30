@@ -2725,6 +2725,46 @@ fn lower_actions_with_disposal_state(
                 actions,
                 span,
             } => {
+                if matches!(&receiver, ast::Expr::Name(namespace, _) if namespace == "Network") {
+                    if event != "onStatusChange" {
+                        return Err(CompileError::new(
+                            span,
+                            format!("Network has no event `{event}`"),
+                        ));
+                    }
+                    if parameters.len() != 1 {
+                        return Err(CompileError::new(
+                            span,
+                            "Network.onStatusChange requires exactly one Bool binding",
+                        ));
+                    }
+                    let parameter = &parameters[0];
+                    if symbols.contains_key(parameter) {
+                        return Err(CompileError::new(
+                            span,
+                            format!(
+                                "network event binding `{parameter}` shadows an existing value"
+                            ),
+                        ));
+                    }
+                    let mut event_symbols = symbols.clone();
+                    event_symbols.insert(parameter.clone(), (Type::Bool, false));
+                    let callback_functions = functions_with_error_handling(functions, false);
+                    let actions = lower_actions_with_aliases_depth(
+                        actions,
+                        &event_symbols,
+                        &callback_functions,
+                        false,
+                        native_aliases,
+                        0,
+                        registries,
+                    )?;
+                    lowered.push(Action::NetworkStatusSubscribe {
+                        parameter: parameter.clone(),
+                        actions,
+                    });
+                    continue;
+                }
                 let Some(receiver_type) = infer_expr_type(&receiver, symbols, functions) else {
                     return Err(CompileError::new(
                         span,
@@ -3516,6 +3556,7 @@ fn visit_action_expressions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
             Action::NativeEventSubscribe { receiver, .. } => {
                 nexa_ir::walk::walk_expression(receiver, visit);
             }
+            Action::NetworkStatusSubscribe { .. } => {}
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {
                     nexa_ir::walk::walk_expression(argument, visit);

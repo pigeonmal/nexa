@@ -1210,14 +1210,19 @@ fn network_status_calls_are_ready_for_hot_reload_on_both_platforms() {
     .expect("generate Dev hosts before Network.isOnline is used by app source");
 
     let ios = read_ios_dev_runtime(&output);
-    assert!(ios.contains("private final class NexaDevNetworkPathStatus"));
+    assert!(ios.contains("final class NexaDevNetworkPathStatus"));
     assert!(ios.contains("if namespace == \"Network\", name == \"isOnline\""));
     assert!(ios.contains("NWPathMonitor()"));
+    assert!(ios.contains("NetworkStatusSubscribe"));
+    assert!(ios.contains("setStatusHandler(id: id)"));
 
     let android = read_android_dev_runtime(&output);
     assert!(android.contains("namespace == \"Network\" && name == \"isOnline\""));
     assert!(android.contains("android.net.ConnectivityManager"));
     assert!(android.contains("NET_CAPABILITY_INTERNET"));
+    assert!(android.contains("NetworkStatusSubscribe"));
+    assert!(android.contains("NexaDevNetworkStatus.subscribe(context, id)"));
+    assert!(android.contains("NexaDevNetworkStatus.clear(it.id)"));
 }
 
 #[test]
