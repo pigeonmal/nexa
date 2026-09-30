@@ -33,14 +33,6 @@ pub(crate) fn render(codecs: &[Codec], out: &mut SourceWriter) {
     if codecs.is_empty() {
         return;
     }
-    if codecs
-        .iter()
-        .any(|codec| codec.direction == Direction::Read && matches!(&codec.ty, Type::Optional(_)))
-    {
-        out.push_str(
-            "private sealed class NexaValueReadResult<out T> {\n    data class Value<out T>(val value: T) : NexaValueReadResult<T>()\n    object Invalid : NexaValueReadResult<Nothing>()\n}\n\n",
-        );
-    }
     for codec in codecs {
         match codec.direction {
             Direction::Write => write_function(&codec.ty, out),
@@ -100,7 +92,7 @@ fn read_function(ty: &Type, out: &mut SourceWriter) {
     let uses_nullable_result = matches!(ty, Type::Optional(_));
     let visibility = if uses_nullable_result { "private " } else { "" };
     let result_type = if uses_nullable_result {
-        format!("NexaValueReadResult<{}>", kotlin_type(ty))
+        format!("{}<{}>", core_type("NexaValueReadResult"), kotlin_type(ty))
     } else {
         format!("{}?", kotlin_type(ty))
     };
@@ -267,7 +259,10 @@ fn read_binding_statements(ty: &Type, reader: &str, binding: &str, indent: &str)
         let decoded = format!("nexaDecoded_{binding}");
         vec![
             format!("{indent}val {decoded} = {expression}"),
-            format!("{indent}if ({decoded} !is NexaValueReadResult.Value<*>) return null"),
+            format!(
+                "{indent}if ({decoded} !is {}.Value<*>) return null",
+                core_type("NexaValueReadResult")
+            ),
             format!(
                 "{indent}val {binding} = {decoded}.value as {}",
                 kotlin_type(ty)
@@ -289,11 +284,12 @@ fn read_statements(ty: &Type, reader: &str) -> Vec<String> {
         Type::Bytes => vec![format!("return {reader}.readBuffer()")],
         Type::Optional(inner) => {
             let inner = read_expression(inner, reader);
+            let result = core_type("NexaValueReadResult");
             vec![
-                format!("val present = {reader}.readBool() ?: return NexaValueReadResult.Invalid"),
-                "if (!present) return NexaValueReadResult.Value(null)".to_owned(),
-                format!("val value = {inner} ?: return NexaValueReadResult.Invalid"),
-                "return NexaValueReadResult.Value(value)".to_owned(),
+                format!("val present = {reader}.readBool() ?: return {result}.Invalid"),
+                format!("if (!present) return {result}.Value(null)"),
+                format!("val value = {inner} ?: return {result}.Invalid"),
+                format!("return {result}.Value(value)"),
             ]
         }
         Type::Enum(name) => vec![format!(
@@ -479,12 +475,12 @@ mod tests {
     fn optional_compound_reads_keep_null_values_separate_from_decode_failure() {
         let optional = Type::Optional(Box::new(Type::String));
         let optional_read = read_statements(&optional, "reader").join("\n");
-        assert!(optional_read.contains("return NexaValueReadResult.Value(null)"));
-        assert!(optional_read.contains("return NexaValueReadResult.Invalid"));
+        assert!(optional_read.contains("return dev.nexa.core.NexaValueReadResult.Value(null)"));
+        assert!(optional_read.contains("return dev.nexa.core.NexaValueReadResult.Invalid"));
 
         let array = Type::Array(Box::new(optional));
         let array_read = read_statements(&array, "reader").join("\n");
-        assert!(array_read.contains("is NexaValueReadResult.Value<*>"));
+        assert!(array_read.contains("is dev.nexa.core.NexaValueReadResult.Value<*>"));
         assert!(array_read.contains("values.add(element)"));
 
         let array = Type::Array(Box::new(Type::Optional(Box::new(Type::String))));
@@ -505,9 +501,9 @@ mod tests {
         let mut output = SourceWriter::new();
         render(&codecs, &mut output);
         let generated = output.as_str();
-        assert!(generated.contains("private sealed class NexaValueReadResult"));
+        assert!(!generated.contains("private sealed class NexaValueReadResult"));
         assert!(generated.contains(&format!(
-            "private fun {}(reader: dev.nexa.core.NexaValueReader): NexaValueReadResult<String?>",
+            "private fun {}(reader: dev.nexa.core.NexaValueReader): dev.nexa.core.NexaValueReadResult<String?>",
             codec_name(&optional, Direction::Read)
         )));
         assert!(generated.contains(&format!(

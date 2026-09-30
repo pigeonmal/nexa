@@ -393,7 +393,14 @@ fn native_call(
             },
         );
         rendered.push(if codec.decodes {
-            format!("{{ reader -> {function}(reader) }}")
+            if matches!(&codec.ty, nexa_ir::Type::Optional(_)) {
+                format!("{{ reader -> {function}(reader) }}")
+            } else {
+                let result = format!("{}.NexaValueReadResult", nexa_codegen::value::KOTLIN_CORE_PACKAGE);
+                format!(
+                    "{{ reader -> {function}(reader)?.let {{ {result}.Value(it) }} ?: {result}.Invalid }}"
+                )
+            }
         } else {
             format!("{{ item, writer -> {function}(item, writer) }}")
         });

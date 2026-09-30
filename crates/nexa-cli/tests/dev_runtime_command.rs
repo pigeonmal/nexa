@@ -353,8 +353,11 @@ fn optional_generic_compound_values_generate_aot_and_dev_codecs() {
     );
     assert!(kotlin.contains("fun nexaWriteoptional_string(value: String?"));
     assert!(kotlin.contains("nexaWriteoptional_string(item, writer)"));
-    assert!(kotlin.contains("sealed class NexaValueReadResult"));
-    assert!(kotlin.contains("fun nexaReadoptional_string(reader: dev.nexa.core.NexaValueReader): NexaValueReadResult<String?>"));
+    assert!(kotlin.contains("dev.nexa.core.NexaValueReadResult<String?>"));
+    assert!(
+        nexa_codegen::value::kotlin_runtime_source()
+            .contains("public sealed class NexaValueReadResult<out T>")
+    );
     assert!(kotlin.contains(
         "fun nexaReadarray_optional_string(reader: dev.nexa.core.NexaValueReader): List<String?>?"
     ));
@@ -366,6 +369,27 @@ fn optional_generic_compound_values_generate_aot_and_dev_codecs() {
     assert!(swift.contains("return .success(payload)"));
     assert!(swift_bridge.contains("NexaDevValueCodec.write(nexaItem0, type: nexaCodec0"));
     assert!(kotlin_bridge.contains("NexaDevValueCodec.write(nexaItem0, nexaCodec0"));
+    assert!(kotlin_bridge.contains(
+        "NexaDevValueCodec.readResult<Any?>(NexaDevValueCodec.read(nexaCodec0, nexaReader0, enumCases))"
+    ));
+    let kotlin_dev_codec = nexa_testkit::TestProject::collect_sources_in(
+        &output.join("android/app/src/main/java"),
+        "kt",
+    )
+    .into_iter()
+    .find(|path| {
+        path.file_name()
+            .is_some_and(|name| name == "NexaDevValueCodec.kt")
+    })
+    .expect("find generated Kotlin Dev value codec");
+    let kotlin_dev_codec =
+        fs::read_to_string(kotlin_dev_codec).expect("read Kotlin Dev value codec");
+    assert!(
+        kotlin_dev_codec.contains(
+            "fun <Value> readResult(raw: Any?): dev.nexa.core.NexaValueReadResult<Value>"
+        )
+    );
+    assert!(kotlin_dev_codec.contains("JSONObject.NULL -> null"));
 }
 
 #[test]

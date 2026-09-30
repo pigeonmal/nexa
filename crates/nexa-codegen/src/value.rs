@@ -397,6 +397,17 @@ pub fn kotlin_runtime_source() -> String {
 
 const RUNTIME: &str = r#"// Plugin value codecs
 
+/** Keeps a valid nullable payload separate from a malformed value. */
+public sealed class NexaValueReadResult<out T> {
+    public data class Value<out T>(val value: T) : NexaValueReadResult<T>()
+    public object Invalid : NexaValueReadResult<Nothing>()
+
+    public fun valueOrNull(): T? = when (this) {
+        is Value -> value
+        Invalid -> null
+    }
+}
+
 /** Append-only little-endian writer for a plugin value codec. */
 public class NexaValueWriter {
     private var buffer = ByteArray(64)

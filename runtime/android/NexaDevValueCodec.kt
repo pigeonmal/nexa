@@ -9,6 +9,40 @@ import org.json.JSONObject
 internal object NexaDevValueCodec {
     private class JsonFailure(val caseName: String) : RuntimeException(null, null, false, false)
 
+    /**
+     * Converts the DevRuntime's JSON null sentinel back into Kotlin nulls
+     * without conflating a valid null payload with a failed read.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun <Value> readResult(raw: Any?): dev.nexa.core.NexaValueReadResult<Value> {
+        if (raw == null) return dev.nexa.core.NexaValueReadResult.Invalid
+        val value = normalizeDecodedValue(raw) as Value
+        return dev.nexa.core.NexaValueReadResult.Value(value)
+    }
+
+    private fun normalizeDecodedValue(raw: Any?): Any? = when (raw) {
+        JSONObject.NULL -> null
+        is List<*> -> raw.map { normalizeDecodedValue(it) }
+        is Set<*> -> raw.mapTo(LinkedHashSet(raw.size)) { normalizeDecodedValue(it) }
+        is Map<*, *> -> {
+            val normalized = LinkedHashMap<Any?, Any?>(raw.size)
+            for ((key, value) in raw) {
+                normalized[normalizeDecodedValue(key)] = normalizeDecodedValue(value)
+            }
+            normalized
+        }
+        is Pair<*, *> -> Pair(
+            normalizeDecodedValue(raw.first),
+            normalizeDecodedValue(raw.second),
+        )
+        is Triple<*, *, *> -> Triple(
+            normalizeDecodedValue(raw.first),
+            normalizeDecodedValue(raw.second),
+            normalizeDecodedValue(raw.third),
+        )
+        else -> raw
+    }
+
     fun asSet(raw: Any?): Set<Any>? = when (raw) {
         is Set<*> -> raw.map { it ?: JSONObject.NULL }.toSet()
         is List<*> -> raw.map { it ?: JSONObject.NULL }.toSet()

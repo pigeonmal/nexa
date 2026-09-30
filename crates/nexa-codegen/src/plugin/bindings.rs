@@ -661,12 +661,13 @@ fn kotlin_codec_parameters(method: &BridgeMethod) -> String {
     // are named through the fixed core package every generated app carries.
     let reader = format!("{}.NexaValueReader", crate::value::KOTLIN_CORE_PACKAGE);
     let writer = format!("{}.NexaValueWriter", crate::value::KOTLIN_CORE_PACKAGE);
+    let read_result = format!("{}.NexaValueReadResult", crate::value::KOTLIN_CORE_PACKAGE);
     let mut rendered = String::new();
     for (index, (ty, decodes)) in codec_types(method).into_iter().enumerate() {
         let parameter = if decodes { "decode" } else { "encode" };
         if decodes {
             rendered.push_str(&format!(
-                ", {parameter}{index}: ({reader}) -> {}?",
+                ", {parameter}{index}: ({reader}) -> {read_result}<{}>",
                 kotlin_type(ty)
             ));
         } else {
@@ -820,10 +821,10 @@ mod tests {
         let kotlin = kotlin(&plan, "dev.example.store");
         assert!(kotlin.contains("fun <T> setObject(key: String, value: T, encode0: (T, dev.nexa.core.NexaValueWriter) -> Unit): Boolean"));
         assert!(kotlin.contains(
-            "fun <T> getObject(key: String, decode0: (dev.nexa.core.NexaValueReader) -> T?): T?"
+            "fun <T> getObject(key: String, decode0: (dev.nexa.core.NexaValueReader) -> dev.nexa.core.NexaValueReadResult<T>): T?"
         ));
         assert!(kotlin.contains(
-            "fun <K, V> getMap(key: String, decode0: (dev.nexa.core.NexaValueReader) -> Map<K, V>?): Map<K, V>?"
+            "fun <K, V> getMap(key: String, decode0: (dev.nexa.core.NexaValueReader) -> dev.nexa.core.NexaValueReadResult<Map<K, V>>): Map<K, V>?"
         ));
     }
 

@@ -228,7 +228,10 @@ fn method_codec_shapes(method: &BridgeMethod) -> Vec<(&BridgeType, bool)> {
 
 fn kotlin_dynamic_type(ty: &BridgeType) -> Option<String> {
     Some(match ty {
-        BridgeType::TypeParameter(_) => "Any".to_owned(),
+        // A generic app type may be nullable even when the plugin IDL only
+        // declares a type parameter. Keep the dynamic bridge's erased type
+        // nullable so a valid null value can travel through its tagged result.
+        BridgeType::TypeParameter(_) => "Any?".to_owned(),
         BridgeType::Scalar(BridgeScalar::Void) => return None,
         BridgeType::Scalar(_) => kotlin_type_for_dev(ty),
         BridgeType::Named {
@@ -253,7 +256,14 @@ fn kotlin_dynamic_type(ty: &BridgeType) -> Option<String> {
             kotlin_dynamic_type(second)?,
             kotlin_dynamic_type(third)?
         ),
-        BridgeType::Optional(inner) => format!("{}?", kotlin_dynamic_type(inner)?),
+        BridgeType::Optional(inner) => {
+            let inner = kotlin_dynamic_type(inner)?;
+            if inner.ends_with('?') {
+                inner
+            } else {
+                format!("{inner}?")
+            }
+        }
         BridgeType::Named { .. } | BridgeType::Result { .. } => return None,
     })
 }
@@ -2488,15 +2498,15 @@ fn render_kotlin_instance_methods(
                 if generic {
                     for (index, (codec_ty, decodes)) in codec_shapes.iter().enumerate() {
                         if *decodes {
-                            let shape =
-                                kotlin_dynamic_type(codec_ty).unwrap_or_else(|| "Any".to_owned());
                             let raw = format!(
                                 "NexaDevValueCodec.read(nexaCodec{index}, nexaReader{index}, enumCases)"
                             );
                             let decoded = kotlin_dynamic_decode_value(codec_ty, &raw, namespace, 0)
                                 .ok_or_else(|| "unsupported Dev generic return codec".to_owned())?;
                             call_arguments.push(format!(
-                                "{{ nexaReader{index} -> ({decoded}) as? {shape} }}"
+                                "{{ nexaReader{index} -> NexaDevValueCodec.readResult<{shape}>({decoded}) }}",
+                                shape = kotlin_dynamic_type(codec_ty)
+                                    .ok_or_else(|| "unsupported Dev generic return codec".to_owned())?
                             ));
                         } else {
                             call_arguments.push(format!(
@@ -2883,14 +2893,15 @@ fn render_kotlin_method(
     if generic {
         for (index, (codec_ty, decodes)) in codec_shapes.iter().enumerate() {
             if *decodes {
-                let shape = kotlin_dynamic_type(codec_ty).unwrap_or_else(|| "Any".to_owned());
                 let raw = format!(
                     "NexaDevValueCodec.read(nexaCodec{index}, nexaReader{index}, enumCases)"
                 );
                 let decoded = kotlin_dynamic_decode_value(codec_ty, &raw, namespace, 0)
                     .ok_or_else(|| "unsupported Dev generic return codec".to_owned())?;
                 call_arguments.push(format!(
-                    "{{ nexaReader{index} -> ({decoded}) as? {shape} }}"
+                    "{{ nexaReader{index} -> NexaDevValueCodec.readResult<{shape}>({decoded}) }}",
+                    shape = kotlin_dynamic_type(codec_ty)
+                        .ok_or_else(|| "unsupported Dev generic return codec".to_owned())?
                 ));
             } else {
                 call_arguments.push(format!(
@@ -3254,8 +3265,11 @@ mod tests {
         assert!(kotlin.contains("codecs: List<Any>, enumCases: Map<String, List<String>>"));
         assert!(kotlin.contains("NexaDevValueCodec.write(nexaItem0, nexaCodec0"));
         assert!(kotlin.contains("NexaDevValueCodec.read(nexaCodec0, nexaReader0, enumCases)"));
+        assert!(kotlin.contains(
+            "NexaDevValueCodec.readResult<Any?>(NexaDevValueCodec.read(nexaCodec0, nexaReader0, enumCases))"
+        ));
         assert!(kotlin.contains("nexaReceiver.setObject(nexaArg0, nexaArg1"));
-        assert!(kotlin.contains("as? Map<Any, Any>"));
+        assert!(kotlin.contains("as? Map<Any?, Any?>"));
         assert!(kotlin.contains(".map { nexaEncodeSet1 -> nexaEncodeSet1 }.toSet()"));
         assert!(kotlin.contains("(nexaEncodeMapEntry1.key).toString()"));
         assert!(kotlin.contains(
@@ -3304,7 +3318,7 @@ mod tests {
         assert!(swift.contains("NexaDevValueCodec.transformMap(NexaDevValueCodec.read("));
 
         let kotlin = kotlin(&contracts).expect("render Kotlin Dev bridge");
-        assert!(kotlin.contains("val nexaArg0: Any? = if (nexaRaw0 == JSONObject.NULL) null else (nexaRaw0) as? Any ?: error("));
+        assert!(kotlin.contains("val nexaArg0: Any? = if (nexaRaw0 == JSONObject.NULL) null else (nexaRaw0) as? Any? ?: error("));
         assert!(kotlin.contains("if (nexaRaw0 == JSONObject.NULL) null else ((NexaDevValueCodec.transformPairNullable(nexaRaw0"));
         assert!(kotlin.contains("NexaDevValueCodec.transformOptionalValueMap(options[\"values\"]"));
         assert!(kotlin.contains("NexaDevValueCodec.transformPairNullable(options[\"pair\"]"));
