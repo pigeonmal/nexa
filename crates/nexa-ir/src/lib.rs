@@ -60,6 +60,7 @@ pub enum Permission {
     Contacts,
     Calendar,
     Bluetooth,
+    Motion,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

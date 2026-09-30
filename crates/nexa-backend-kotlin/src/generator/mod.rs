@@ -105,6 +105,7 @@ pub(super) fn generate_for_dev_units_with_project_features(
         nexa_ir::Permission::Contacts,
         nexa_ir::Permission::Calendar,
         nexa_ir::Permission::Bluetooth,
+        nexa_ir::Permission::Motion,
     ]
     .into_iter()
     .collect();

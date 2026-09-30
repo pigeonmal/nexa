@@ -409,6 +409,49 @@ pub(super) fn collect_plugin_signatures(
                 }
             }
         }
+        // Value types declared by a native plugin use the same direct member
+        // syntax as app structs. Register their fields as immutable plugin
+        // members so event payloads and native method results can be read
+        // without flattening them into separate callback parameters.
+        for declaration in idl
+            .types
+            .iter()
+            .filter(|declaration| declaration.kind == nexa_plugin_idl::NamedTypeKind::Struct)
+        {
+            let receiver = Type::Plugin {
+                namespace: plugin.namespace.clone(),
+                name: declaration.name.clone(),
+            };
+            for field in &declaration.fields {
+                let key = format!("{}.#property.{}", declaration.name, field.name);
+                if signatures.contains_key(&key) {
+                    return Err(CompileError::new(
+                        plugin.span,
+                        format!(
+                            "plugin value field `{}.{}` is declared more than once",
+                            declaration.name, field.name
+                        ),
+                    ));
+                }
+                let return_type = plugin_type(&plugin.namespace, &field.ty, false, &[])
+                    .map_err(|message| CompileError::new(plugin.span, message))?;
+                signatures.insert(
+                    key,
+                    FunctionSignature {
+                        parameters: Vec::new(),
+                        type_parameters: Vec::new(),
+                        return_type,
+                        is_async: false,
+                        is_throwing: false,
+                        receiver: Some(receiver.clone()),
+                        is_constructor: false,
+                        is_mutable_property: false,
+                        error_handling_allowed: false,
+                        error_type: None,
+                    },
+                );
+            }
+        }
     }
     Ok(signatures)
 }
@@ -3856,6 +3899,7 @@ fn is_permission_case(name: &str) -> bool {
             | "Contacts"
             | "Calendar"
             | "Bluetooth"
+            | "Motion"
     )
 }
 
@@ -4000,12 +4044,12 @@ mod tests {
     use std::collections::{BTreeMap, HashMap};
 
     use nexa_diagnostics::Span;
-    use nexa_ir::Type;
+    use nexa_ir::{NumericType, Type};
     use nexa_syntax::ast;
 
     use super::{
         FunctionSignature, FunctionSignatures, collect_plugin_signatures, lower_plugin_call,
-        lower_plugin_method_call,
+        lower_plugin_method_call, member_field_type_with_plugins,
     };
     use crate::semantic::context::ExprContext;
 
@@ -4022,6 +4066,64 @@ mod tests {
             error_handling_allowed: false,
             error_type: None,
         }
+    }
+
+    fn plugin_decl(idl: nexa_plugin_idl::PluginIdl) -> ast::PluginDecl {
+        ast::PluginDecl {
+            path: "sensors".to_owned(),
+            namespace: "Sensors".to_owned(),
+            span: Span::default(),
+            idl: Some(idl),
+            pure: false,
+            assets_path: None,
+            ios_sources: Vec::new(),
+            android_sources: Vec::new(),
+            cpp_sources: Vec::new(),
+            cpp_headers: Vec::new(),
+            cpp_standard: None,
+            ios_min_version: None,
+            android_min_sdk: None,
+            ios_frameworks: Vec::new(),
+            ios_xcframeworks: Vec::new(),
+            ios_resources: Vec::new(),
+            ios_privacy_manifest: None,
+            swift_packages: Vec::new(),
+            maven_dependencies: Vec::new(),
+            android_aars: Vec::new(),
+            android_resources: Vec::new(),
+            android_proguard_rules: Vec::new(),
+            android_maven_repositories: Vec::new(),
+            ios_usage_descriptions: Vec::new(),
+            ios_entitlements: Vec::new(),
+            ios_background_modes: Vec::new(),
+            ios_linker_flags: Vec::new(),
+            android_permissions: Vec::new(),
+            android_picture_in_picture: false,
+            android_media_playback_service: None,
+        }
+    }
+
+    #[test]
+    fn exposes_plugin_value_struct_fields_to_member_access() {
+        let idl = nexa_plugin_idl::parse(
+            "struct MotionReading { x: Float64 } native class Sensors { init() fn dispose() event sample(reading: MotionReading) }",
+        )
+        .expect("plugin IDL is valid");
+        let functions =
+            collect_plugin_signatures(&[plugin_decl(idl)]).expect("plugin signatures are valid");
+        let reading_type = Type::Plugin {
+            namespace: "Sensors".to_owned(),
+            name: "MotionReading".to_owned(),
+        };
+
+        assert_eq!(
+            member_field_type_with_plugins(&reading_type, "x", &functions),
+            Some(Type::Numeric(NumericType::Float64))
+        );
+        assert_eq!(
+            member_field_type_with_plugins(&reading_type, "missing", &functions),
+            None
+        );
     }
 
     #[test]
@@ -4073,38 +4175,7 @@ mod tests {
     fn requires_native_class_disposal_to_be_synchronous_void_and_parameterless() {
         let idl = nexa_plugin_idl::parse("native class VideoPlayer { async fn dispose() }")
             .expect("IDL syntax is valid even when disposal semantics are not");
-        let plugin = ast::PluginDecl {
-            path: "video-player".to_owned(),
-            namespace: "Video".to_owned(),
-            span: Span::default(),
-            idl: Some(idl),
-            pure: false,
-            assets_path: None,
-            ios_sources: Vec::new(),
-            android_sources: Vec::new(),
-            cpp_sources: Vec::new(),
-            cpp_headers: Vec::new(),
-            cpp_standard: None,
-            ios_min_version: None,
-            android_min_sdk: None,
-            ios_frameworks: Vec::new(),
-            ios_xcframeworks: Vec::new(),
-            ios_resources: Vec::new(),
-            ios_privacy_manifest: None,
-            swift_packages: Vec::new(),
-            maven_dependencies: Vec::new(),
-            android_aars: Vec::new(),
-            android_resources: Vec::new(),
-            android_proguard_rules: Vec::new(),
-            android_maven_repositories: Vec::new(),
-            ios_usage_descriptions: Vec::new(),
-            ios_entitlements: Vec::new(),
-            ios_background_modes: Vec::new(),
-            ios_linker_flags: Vec::new(),
-            android_permissions: Vec::new(),
-            android_picture_in_picture: false,
-            android_media_playback_service: None,
-        };
+        let plugin = plugin_decl(idl);
 
         let error = match collect_plugin_signatures(&[plugin]) {
             Ok(_) => panic!("async disposal cannot provide deterministic cleanup"),

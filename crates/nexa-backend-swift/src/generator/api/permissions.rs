@@ -27,9 +27,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_permission(Permission::Notifications),
         "UserNotifications",
     );
+    imports.add(features.uses_permission(Permission::Motion), "CoreMotion");
 }
 
-const ALL_PERMISSIONS: [Permission; 8] = [
+const ALL_PERMISSIONS: [Permission; 9] = [
     Permission::Camera,
     Permission::Microphone,
     Permission::Photos,
@@ -38,6 +39,7 @@ const ALL_PERMISSIONS: [Permission; 8] = [
     Permission::Contacts,
     Permission::Calendar,
     Permission::Bluetooth,
+    Permission::Motion,
 ];
 
 /// Emits only the permission frameworks and native cases reachable from the module.
@@ -77,6 +79,9 @@ pub(crate) fn render(
     }
     if include_request && permissions.contains(&Permission::Bluetooth) {
         out.push_str(bluetooth_requester());
+    }
+    if include_request && permissions.contains(&Permission::Motion) {
+        out.push_str(motion_requester());
     }
     out.push_str(visibility);
     out.push_str(" enum NexaPermissions {\n    ");
@@ -123,6 +128,7 @@ fn case_name(permission: Permission) -> &'static str {
         Permission::Contacts => "Contacts",
         Permission::Calendar => "Calendar",
         Permission::Bluetooth => "Bluetooth",
+        Permission::Motion => "Motion",
     }
 }
 
@@ -215,6 +221,11 @@ fn status_case(permission: Permission) -> &'static str {
             }
 "#
         }
+        Permission::Motion => {
+            r#"        case .Motion:
+            return NexaMotionRequester.status()
+"#
+        }
     }
 }
 
@@ -287,7 +298,47 @@ fn request_case(permission: Permission) -> &'static str {
             return await NexaBluetoothRequester().request()
 "#
         }
+        Permission::Motion => {
+            r#"        case .Motion:
+            return await NexaMotionRequester().request()
+"#
+        }
     }
+}
+
+fn motion_requester() -> &'static str {
+    r#"private final class NexaMotionRequester {
+    private let pedometer = CMPedometer()
+
+    func request() async -> NexaPermissionStatus {
+        let current = Self.status()
+        guard current == .notDetermined else {
+            return current
+        }
+        let end = Date()
+        let start = end.addingTimeInterval(-1)
+        return await withCheckedContinuation { continuation in
+            pedometer.queryPedometerData(from: start, to: end) { _, _ in
+                continuation.resume(returning: Self.status())
+            }
+        }
+    }
+
+    static func status() -> NexaPermissionStatus {
+        guard CMPedometer.isStepCountingAvailable() else {
+            return .restricted
+        }
+        switch CMPedometer.authorizationStatus() {
+        case .authorized: return .granted
+        case .denied: return .denied
+        case .restricted: return .restricted
+        case .notDetermined: return .notDetermined
+        @unknown default: return .denied
+        }
+    }
+}
+
+"#
 }
 
 fn location_requester() -> &'static str {

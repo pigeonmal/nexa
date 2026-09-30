@@ -1013,7 +1013,8 @@ mod template_generation {
                 notifications: "Notifications purpose",
                 contacts: "Contacts purpose",
                 calendar: "Calendar purpose",
-                bluetooth: "Bluetooth purpose"
+                bluetooth: "Bluetooth purpose",
+                motion: "Motion purpose"
             } }"#,
         )
         .expect("write permission config");
@@ -1085,6 +1086,11 @@ mod template_generation {
                     "android.permission.BLUETOOTH_SCAN",
                     "android.permission.BLUETOOTH_CONNECT",
                 ][..],
+            ),
+            (
+                "motion",
+                Some("NSMotionUsageDescription"),
+                &["android.permission.ACTIVITY_RECOGNITION"][..],
             ),
         ];
         for (name, ios_key, android_permissions) in platform_permissions {

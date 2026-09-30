@@ -1059,6 +1059,9 @@ fn record_permission_usage(expression: &Expr, permissions: &mut PermissionFacts)
             "Bluetooth" => {
                 permissions.used.insert(Permission::Bluetooth);
             }
+            "Motion" => {
+                permissions.used.insert(Permission::Motion);
+            }
             _ => permissions.dynamic = true,
         },
         _ => permissions.dynamic = true,
@@ -1303,18 +1306,28 @@ mod tests {
             icon: None,
             loading: None,
             disabled: None,
-            actions: vec![Action::Expression(Expr::PermissionOp {
-                op: crate::PermissionOpKind::Request,
-                permission: Box::new(Expr::EnumValue {
-                    enum_name: "Permission".to_owned(),
-                    case_name: "Camera".to_owned(),
+            actions: vec![
+                Action::Expression(Expr::PermissionOp {
+                    op: crate::PermissionOpKind::Request,
+                    permission: Box::new(Expr::EnumValue {
+                        enum_name: "Permission".to_owned(),
+                        case_name: "Camera".to_owned(),
+                    }),
                 }),
-            })],
+                Action::Expression(Expr::PermissionOp {
+                    op: crate::PermissionOpKind::Request,
+                    permission: Box::new(Expr::EnumValue {
+                        enum_name: "Permission".to_owned(),
+                        case_name: "Motion".to_owned(),
+                    }),
+                }),
+            ],
         }]);
         let facts = ModuleFacts::analyze(&module);
         assert!(facts.permissions.present);
         assert!(facts.permissions.request);
         assert!(facts.permissions.used.contains(&crate::Permission::Camera));
+        assert!(facts.permissions.used.contains(&crate::Permission::Motion));
         assert!(!facts.permissions.dynamic);
     }
 

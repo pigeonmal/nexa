@@ -59,6 +59,7 @@ pub(super) fn lower_tests(
                 "Contacts",
                 "Calendar",
                 "Bluetooth",
+                "Motion",
             ]
             .as_slice(),
         ),

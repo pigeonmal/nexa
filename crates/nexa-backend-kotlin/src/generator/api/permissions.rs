@@ -15,10 +15,14 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_permission_request,
         "androidx.activity.result.contract.ActivityResultContracts",
     );
+    imports.add(
+        features.uses_permission_request,
+        "kotlin.coroutines.resumeWithException",
+    );
     imports.add(features.uses_permissions, "android.content.Context");
 }
 
-const ALL_PERMISSIONS: [Permission; 8] = [
+const ALL_PERMISSIONS: [Permission; 9] = [
     Permission::Camera,
     Permission::Microphone,
     Permission::Photos,
@@ -27,6 +31,7 @@ const ALL_PERMISSIONS: [Permission; 8] = [
     Permission::Contacts,
     Permission::Calendar,
     Permission::Bluetooth,
+    Permission::Motion,
 ];
 
 /// Emits only the permission cases reachable from the module.
@@ -144,6 +149,7 @@ fn case_name(permission: Permission) -> &'static str {
         Permission::Contacts => "Contacts",
         Permission::Calendar => "Calendar",
         Permission::Bluetooth => "Bluetooth",
+        Permission::Motion => "Motion",
     }
 }
 
@@ -189,6 +195,14 @@ fn status_case(permission: Permission) -> &'static str {
                 NexaPermissionStatus.granted
             } else {
                 statusFor(context, android.Manifest.permission.BLUETOOTH_SCAN)
+            }
+"#
+        }
+        Permission::Motion => {
+            r#"            NexaPermission.Motion -> if (android.os.Build.VERSION.SDK_INT < 29) {
+                NexaPermissionStatus.granted
+            } else {
+                statusFor(context, android.Manifest.permission.ACTIVITY_RECOGNITION)
             }
 "#
         }
@@ -246,6 +260,14 @@ fn request_case(permission: Permission) -> &'static str {
                     android.Manifest.permission.BLUETOOTH_SCAN,
                     android.Manifest.permission.BLUETOOTH_CONNECT,
                 )
+            } else {
+                emptyArray()
+            }
+"#
+        }
+        Permission::Motion => {
+            r#"            NexaPermission.Motion -> if (android.os.Build.VERSION.SDK_INT >= 29) {
+                arrayOf(android.Manifest.permission.ACTIVITY_RECOGNITION)
             } else {
                 emptyArray()
             }

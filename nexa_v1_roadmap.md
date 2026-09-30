@@ -303,7 +303,7 @@ Create the standalone `nexa-plugins` repository containing official native plugi
 7. `@nexa/biometrics`: Face ID, Touch ID, and Android BiometricPrompt.
 8. [x] `@nexa/webview`: Embedded `WKWebView` and Android `WebView` with HTTPS-only navigation and origin-gated two-way string messaging (`plugins/webview`).
 9. `@nexa/notifications`: Local notifications & APNs/FCM push notifications.
-10. `@nexa/sensors`: Accelerometer, gyroscope, and pedometer.
+10. [x] `@nexa/sensors`: Accelerometer, gyroscope, and pedometer on iOS and Android, with typed readings/errors, runtime motion permission handling, and explicit stream disposal.
 11. `@nexa/in-app-purchases`: Apple StoreKit 2 & Google Play Billing 7.
 
 ---

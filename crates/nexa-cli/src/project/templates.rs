@@ -48,6 +48,7 @@ pub(super) fn ios_info_plist_with_dev_runtime(
             Permission::Contacts => &["NSContactsUsageDescription"],
             Permission::Calendar => &["NSCalendarsFullAccessUsageDescription"],
             Permission::Bluetooth => &["NSBluetoothAlwaysUsageDescription"],
+            Permission::Motion => &["NSMotionUsageDescription"],
         };
         for key in keys {
             usage_descriptions.insert((*key).to_owned(), description.clone());
@@ -1123,6 +1124,7 @@ pub(super) fn android_manifest(
                 "android.permission.BLUETOOTH_SCAN",
                 "android.permission.BLUETOOTH_CONNECT",
             ],
+            Permission::Motion => &["android.permission.ACTIVITY_RECOGNITION"],
         };
         for name in names {
             permissions.insert((*name).to_owned());

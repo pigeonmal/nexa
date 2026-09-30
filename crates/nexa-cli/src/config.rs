@@ -1064,6 +1064,7 @@ pub(super) fn parse_permission(name: &str) -> Option<Permission> {
         "contacts" => Some(Permission::Contacts),
         "calendar" => Some(Permission::Calendar),
         "bluetooth" => Some(Permission::Bluetooth),
+        "motion" => Some(Permission::Motion),
         _ => None,
     }
 }
@@ -1078,6 +1079,7 @@ fn permission_name(permission: Permission) -> &'static str {
         Permission::Contacts => "contacts",
         Permission::Calendar => "calendar",
         Permission::Bluetooth => "bluetooth",
+        Permission::Motion => "motion",
     }
 }
 

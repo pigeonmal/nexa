@@ -42,6 +42,11 @@
         "name": "Bluetooth",
         "ios": "covered",
         "android": "covered"
+      },
+      {
+        "name": "Motion",
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "ArithmeticOp": [
