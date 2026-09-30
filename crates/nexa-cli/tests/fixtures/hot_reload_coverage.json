@@ -806,8 +806,8 @@
       },
       {
         "name": "NativeComponentCall",
-        "ios": "partial",
-        "android": "partial"
+        "ios": "covered",
+        "android": "covered"
       }
     ],
     "AccessibilityRole": [
@@ -1108,13 +1108,13 @@
       },
       {
         "name": "NativePropertyAssign",
-        "ios": "partial",
-        "android": "partial"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "NativeEventSubscribe",
-        "ios": "partial",
-        "android": "partial"
+        "ios": "covered",
+        "android": "covered"
       },
       {
         "name": "NetworkStatusSubscribe",
@@ -1524,24 +1524,43 @@
       "android": "covered"
     },
     "plugin_service_call_shapes": {
-      "ios": "partial",
-      "android": "partial"
+      "ios": "covered",
+      "android": "covered",
+      "semantic_probe_markers": [
+        "DEVRT_SERVICE_SYNC_PASS",
+        "DEVRT_SERVICE_TYPED_ERROR_PASS"
+      ]
     },
     "async_expression_evaluation": {
       "ios": "partial",
       "android": "partial"
     },
     "typed_plugin_error_catches": {
-      "ios": "partial",
-      "android": "partial"
+      "ios": "covered",
+      "android": "covered",
+      "semantic_probe_markers": [
+        "DEVRT_SERVICE_TYPED_ERROR_PASS",
+        "DEVRT_TYPED_ERROR_PASS"
+      ]
     },
     "plugin_native_class_scalar_constructors_and_methods": {
-      "ios": "partial",
-      "android": "partial"
+      "ios": "covered",
+      "android": "covered",
+      "semantic_probe_markers": [
+        "DEVRT_GENERIC_SCALAR_PASS",
+        "DEVRT_GENERIC_OPTIONAL_ARRAY_PASS",
+        "DEVRT_GENERIC_RESULT_PASS"
+      ]
     },
     "native_plugin_properties_events_and_components": {
-      "ios": "partial",
-      "android": "partial"
+      "ios": "covered",
+      "android": "covered",
+      "semantic_probe_markers": [
+        "DEVRT_NATIVE_EVENT_PASS",
+        "DEVRT_PROPERTY_WRITE_READ_PASS",
+        "DEVRT_BASE_COMPONENT_PASS",
+        "DEVRT_IMPORTED_COMPONENT_PASS"
+      ]
     },
     "conditional_view_transitions": {
       "ios": "covered",

@@ -136,7 +136,7 @@ graph TD
 - [x] Detect edits and newly created or imported `.nx` modules, compile them to DevRuntime IR, and update the running app without copying `.nx` files into its native bundle.
 - [x] Prelink configured plugin packages into the DevRuntime host. Existing plugin methods, typed errors, property writes, event subscriptions, and native component adapters can be used by reloaded modules for bridge-supported types.
 - [x] Require a native rebuild when the host changes, including adding a plugin dependency or changing native plugin sources, plugin contracts, permissions, or platform minimums.
-- [ ] Close the remaining partial DevRuntime coverage for plugin values, native component calls, property assignment, and event subscription. The log-only device probe in `scripts/test-dev-runtime-plugin-hot-reload.sh` exercises class construction/methods, service sync/async dispatch, scalar/optional/collection/tuple/bytes/enum/struct/Result generic codecs, compound property writes, typed error payloads, class/component events, and a newly created imported component on both platforms. Add explicit unsupported-boundary cases and replace structural dispatch checks with semantic acceptance evidence before marking this area complete.
+- [x] Close the remaining partial DevRuntime coverage for plugin values, native component calls, property assignment, and event subscription. The log-only device probe in `scripts/test-dev-runtime-plugin-hot-reload.sh` exercises class construction/methods, service sync/async dispatch, scalar/optional/collection/tuple/bytes/enum/struct/Result generic codecs, compound property writes, typed error payloads, class/component events, and a newly created imported component on both platforms. Its plugin coverage inventory uses the probe's semantic log assertions instead of treating IR dispatch markers as proof; the probe now fails on explicit failure logs and passes on both the Android Emulator and iOS Simulator. The only plugin-specific DevRuntime exceptions are an already prelinked native host being required for plugin use, static `Set<Bytes>` adapters (cross-platform value equality differs), and Android generic reads with nullable type arguments (null and decode failure cannot be distinguished). Async expression evaluation remains separately marked partial.
 
 #### 2.4 Accesibility
 
@@ -219,7 +219,7 @@ I want be able to do tasks in Task or couroutines or custom thread
 
   - Swift: `URLSessionWebSocketTask` (callback APIs, iOS 13+).
   - Android: OkHttp WebSocket client 5.5.0 (Apache-2.0), isolated to this plugin. Cronet remains the HTTP transport; its request streams do not expose a WebSocket upgrade API.
-  - Keep each socket's callbacks, cancellation, and close behavior scoped to its plugin instance. Reuse the shared OkHttp client and connection pool. Do not add a custom C++/JNI WebSocket framing layer.
+  - Keep each socket's callbacks, cancellation, and close behavior scoped to its plugin instance. Reuse one OkHttp client on Android and one URLSession on iOS, routing URLSession delegate callbacks by task ID. The upgraded socket remains owned by its WebSocket instance. Do not add a custom C++/JNI WebSocket framing layer.
   - `connect()` starts the handshake; observe state and failure events for its result. `send` reports local queue acceptance, not peer delivery. Dispose the socket from the owning screen's `OnDisappear`.
 
 - **`Network.isOnline: Bool`** and **`Network.onStatusChange { isOnline in ... }`**:

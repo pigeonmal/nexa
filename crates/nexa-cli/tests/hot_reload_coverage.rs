@@ -35,21 +35,22 @@ fn public_enums(source: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// Returns the documented Dev boundary for IR cases the interpreter cannot execute.
+/// Returns documented cases that remain outside DevRuntime's compiled host.
 fn dev_boundary(enum_name: &str, variant_name: &str) -> Option<&'static str> {
     match (enum_name, variant_name) {
-        // Native class references are opaque runtime objects rather than
-        // generic codec values. Direct constructors, methods, properties,
-        // events, and component arguments still use generated adapters for
-        // the concrete shapes accepted by the native plugin contract.
+        // Plugin class values can refer only to native types compiled into
+        // the host; hot reload cannot load a new native plugin implementation.
         ("Type", "Plugin") => Some("partial"),
-        // Plugin property, event, and visual-component adapters share the
-        // supported value subset above; this inventory records that boundary
-        // but does not replace the focused bridge and device checks.
-        ("Node", "NativeComponentCall")
-        | ("Action", "NativePropertyAssign" | "NativeEventSubscribe") => Some("partial"),
         _ => None,
     }
+}
+
+fn is_semantically_probed_plugin_variant(enum_name: &str, variant_name: &str) -> bool {
+    matches!(
+        (enum_name, variant_name),
+        ("Node", "NativeComponentCall")
+            | ("Action", "NativePropertyAssign" | "NativeEventSubscribe")
+    )
 }
 
 fn fixture() -> (PathBuf, Value) {
@@ -182,7 +183,9 @@ fn hot_reload_interpreter_variants_have_both_native_dispatches() {
             .unwrap_or_else(|| panic!("missing {enum_name} inventory"))
         {
             let variant = entry["name"].as_str().expect("variant name");
-            if dev_boundary(enum_name, variant).is_some() {
+            if dev_boundary(enum_name, variant).is_some()
+                || is_semantically_probed_plugin_variant(enum_name, variant)
+            {
                 continue;
             }
             assert_runtime_dispatch(&swift, enum_name, variant, "iOS");
@@ -201,18 +204,14 @@ fn hot_reload_interpreter_variants_have_both_native_dispatches() {
     ];
     for entry in inventory["Node"].as_array().expect("Node inventory") {
         let variant = entry["name"].as_str().expect("variant name");
-        if node_metadata.contains(&variant) || dev_boundary("Node", variant).is_some() {
+        if node_metadata.contains(&variant)
+            || dev_boundary("Node", variant).is_some()
+            || is_semantically_probed_plugin_variant("Node", variant)
+        {
             continue;
         }
         assert_runtime_dispatch(&swift, "Node", variant, "iOS");
         assert_runtime_dispatch(&kotlin, "Node", variant, "Android");
-    }
-
-    assert_runtime_dispatch(&swift, "Node", "NativeComponentCall", "iOS");
-    assert_runtime_dispatch(&kotlin, "Node", "NativeComponentCall", "Android");
-    for variant in ["NativePropertyAssign", "NativeEventSubscribe"] {
-        assert_runtime_dispatch(&swift, "Action", variant, "iOS");
-        assert_runtime_dispatch(&kotlin, "Action", variant, "Android");
     }
 }
 
@@ -511,6 +510,61 @@ fn runtime_feature_gaps_have_explicit_dual_platform_status() {
                     "runtime feature {name} has no audited boundary for {platform}"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn plugin_hot_reload_coverage_uses_log_only_semantic_device_evidence() {
+    let (root, fixture) = fixture();
+    let script =
+        fs::read_to_string(root.join("../../scripts/test-dev-runtime-plugin-hot-reload.sh"))
+            .expect("read log-only plugin hot-reload probe");
+    let probe_sources = [
+        root.join("tests/fixtures/dev_runtime_plugin_probe_app/App.nx"),
+        root.join("tests/fixtures/dev_runtime_plugin_probe_app/ProbePanel.nx"),
+    ]
+    .map(|path| fs::read_to_string(path).expect("read plugin probe source"))
+    .join("\n");
+    let features = fixture["runtime_features"]
+        .as_object()
+        .expect("runtime feature inventory");
+    let expected = [
+        "plugin_service_call_shapes",
+        "typed_plugin_error_catches",
+        "plugin_native_class_scalar_constructors_and_methods",
+        "native_plugin_properties_events_and_components",
+    ];
+
+    assert!(script.contains("logcat"));
+    assert!(script.contains("log stream"));
+    assert!(script.contains("cp \"$app_fixture/ProbePanel.nx\" \"$tmp_root/ProbePanel.nx\""));
+    assert!(script.contains("wait_for_marker \"$native_log\" DEVRT_IMPORTED_COMPONENT_PASS"));
+    assert!(script.contains("Rebuilding native app"));
+
+    for feature_name in expected {
+        let feature = &features[feature_name];
+        for platform in ["ios", "android"] {
+            assert_eq!(
+                feature[platform].as_str(),
+                Some("covered"),
+                "{feature_name} requires successful semantic device evidence on {platform}"
+            );
+        }
+        let markers = feature["semantic_probe_markers"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{feature_name} has no semantic probe markers"));
+        assert!(
+            !markers.is_empty(),
+            "{feature_name} has no probe assertions"
+        );
+        for marker in markers {
+            let marker = marker.as_str().expect("probe marker string");
+            assert!(script.contains(marker), "probe does not wait for {marker}");
+            assert!(
+                probe_sources.contains(marker),
+                "plugin probe source does not assert {marker}"
+            );
         }
     }
 }

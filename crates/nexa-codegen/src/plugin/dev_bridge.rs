@@ -3188,6 +3188,27 @@ mod tests {
         )]
     }
 
+    fn byte_set_store() -> Vec<(String, PluginIdl)> {
+        vec![(
+            "Storage".to_owned(),
+            nexa_plugin_idl::parse(
+                r#"
+                native class ByteSetStore {
+                    init()
+                    property values: Set<Bytes>
+                    fn replace(values: Set<Bytes>) -> Bool
+                    event changed(values: Set<Bytes>)
+                }
+                native component ByteSetBadge {
+                    prop values: Set<Bytes>
+                    event selected(values: Set<Bytes>)
+                }
+                "#,
+            )
+            .expect("parse plugin byte-set boundary contract"),
+        )]
+    }
+
     fn video_player() -> Vec<(String, PluginIdl)> {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/video-player/native.nxid");
@@ -3450,6 +3471,22 @@ mod tests {
         assert!(kotlin.contains("nexaEncodeMapEntry0.key.name).toString()"));
         assert!(kotlin.contains("buckets = nexaArg_buckets"));
         assert!(kotlin.contains("events[\"onSelected\"]?.invoke"));
+    }
+
+    #[test]
+    fn non_hashable_byte_sets_are_an_explicit_dev_bridge_boundary() {
+        let contracts = byte_set_store();
+        let swift = swift(&contracts).expect("render Swift Dev bridge");
+        assert!(!swift.contains("nexaReceiver.replace("));
+        assert!(!swift.contains("property == \"values\""));
+        assert!(!swift.contains("nexaReceiver.onChanged = {"));
+        assert!(!swift.contains("case (\"Storage\", \"ByteSetBadge\")"));
+
+        let kotlin = kotlin(&contracts).expect("render Kotlin Dev bridge");
+        assert!(!kotlin.contains("nexaReceiver.replace("));
+        assert!(!kotlin.contains("property == \"values\""));
+        assert!(!kotlin.contains("receiver.onChanged = {"));
+        assert!(!kotlin.contains("\"Storage.ByteSetBadge\" -> {"));
     }
 
     #[test]

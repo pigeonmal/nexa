@@ -146,6 +146,19 @@ mv "$tmp_root/App.nx.next" "$tmp_root/App.nx"
 wait_for_marker "$dev_log" "Nexa source reloaded in the running app."
 wait_for_marker "$native_log" DEVRT_IMPORTED_COMPONENT_PASS
 
+for marker in \
+  DEVRT_SERVICE_TYPED_ERROR_FAIL \
+  DEVRT_SERVICE_TYPED_ERROR_WRONG_CASE \
+  DEVRT_GENERIC_RESULT_FAIL \
+  DEVRT_TYPED_ERROR_FAIL \
+  DEVRT_TYPED_ERROR_WRONG_CASE; do
+  if grep -Fq "$marker" "$native_log"; then
+    print_logs
+    echo "DevRuntime plugin probe logged failure marker: $marker" >&2
+    exit 1
+  fi
+done
+
 if grep -Fq "Rebuilding native app" "$dev_log"; then
   print_logs
   echo "The imported .nx update unexpectedly requested a native rebuild" >&2

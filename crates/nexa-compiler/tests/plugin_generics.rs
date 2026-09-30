@@ -366,6 +366,21 @@ fn optional_values_inside_compound_generic_reads_bind_read_codecs() {
 }
 
 #[test]
+fn nullable_generic_plugin_read_arguments_are_rejected_explicitly() {
+    let error = compile_with_plugin(
+        "nexa-generic-nullable-reader",
+        &storage_contract(),
+        "plugin \"store\" as Store\n\
+         app Demo {\n    let store = Store.Store(\"id\")\n    body { Button(\"Read\") { store.getObject<String?>(\"maybe\") } }\n}\n",
+    )
+    .expect_err("a nullable generic read type cannot distinguish null from decode failure");
+    assert!(
+        error.contains("must not be optional at the top level"),
+        "unexpected diagnostic: {error}"
+    );
+}
+
+#[test]
 fn a_result_plugin_value_requires_an_enum_error_type() {
     let error = compile_with_plugin(
         "nexa-generic-result-error",
