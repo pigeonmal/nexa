@@ -4,7 +4,7 @@
 
 Nexa is an Ahead-Of-Time (AOT) transpiler that compiles declarative `.nx` mobile applications directly into native Swift (SwiftUI) for iOS and Kotlin (Jetpack Compose) for Android with zero runtime overhead, zero reflection, zero dynamic interpretation, and uncompromised native performance.
 
-This document is the **Nexa 1.0 implementation roadmap and status source**. The archetypes below describe target applications; they are not a claim that every capability or end-to-end scenario is finished. The checkboxes in the phased plan and verification sections record current completion status.
+This document is the **Nexa 1.0 implementation roadmap and status source**. The archetypes below describe target applications; they are not a claim that every capability or end-to-end scenario is finished. Every actionable roadmap item has a checkbox: `[ ]` means remaining, and `[x]` means implemented and verified. Informational architecture and archetype descriptions are not task items.
 
 ---
 
@@ -130,7 +130,9 @@ graph TD
 - [x] Detect edits and newly created or imported `.nx` modules, compile them to DevRuntime IR, and update the running app without copying `.nx` files into its native bundle.
 - [x] Prelink configured plugin packages into the DevRuntime host. Existing plugin methods, typed errors, property writes, event subscriptions, and native component adapters can be used by reloaded modules for bridge-supported types.
 - [x] Require a native rebuild when the host changes, including adding a plugin dependency or changing native plugin sources, plugin contracts, permissions, or platform minimums.
-- [x] Verify DevRuntime plugin methods, supported values, property writes, event subscriptions, and visual components with semantic log assertions on Android Emulator and iOS Simulator. Coverage includes class construction/methods, service sync/async dispatch, scalar/optional/collection/tuple/bytes/enum/struct/Result codecs, compound property writes, typed error payloads, and a newly created imported component. The remaining plugin-specific limits are the need for an already prelinked native host, static `Set<Bytes>` adapters, and Android generic reads with nullable type arguments.
+- [x] Verify DevRuntime plugin methods, supported values, property writes, event subscriptions, and visual components with semantic log assertions on Android Emulator and iOS Simulator. Coverage includes class construction/methods, service sync/async dispatch, scalar/optional/collection/tuple/bytes/enum/struct/Result codecs, compound property writes, typed error payloads, and a newly created imported component.
+- [ ] Add DevRuntime bridge adapters for plugin properties and results using `Set<Bytes>`.
+- [ ] Support Android DevRuntime generic plugin reads with nullable type arguments.
 - [x] Verify awaited results nested in arithmetic, array literals/indexing, conditional branches, and short-circuit Boolean expressions with semantic log assertions on iOS Simulator and Android Emulator.
 
 #### 2.4 Accessibility
