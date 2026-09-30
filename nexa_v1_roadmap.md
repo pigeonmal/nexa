@@ -191,18 +191,34 @@ I want be able to do tasks in Task or couroutines or custom thread
 
 #### 4.2 Real-Time WebSockets & Network Connectivity
 
-- **`@nexa/websocket` plugin**:
+- [x] **`@nexa/websocket` plugin**:
 
   ```nexa
-  let socket = WebSocket.connect("wss://chat.example.com/ws")
-  socket.onMessage { msg in ... }
-  socket.send("hello")
-  socket.close()
+  plugin "dev.nexa.websocket" as WebSocket
+  app Chat {
+      let socket = WebSocket.WebSocket("wss://chat.example.com/ws")
+      state received = ""
+      body {
+          OnAppear async {
+              socket.messageReceived { message -> received = message }
+              try {
+                  await socket.connect()
+              } catch {
+                  case WebSocket.WebSocketError.invalidUrl { received = "Invalid URL" }
+                  case WebSocket.WebSocketError.alreadyConnected { received = "Already connected" }
+              }
+          }
+          OnDisappear { socket.dispose() }
+          Button("Send") { socket.send("hello") }
+          Text(received)
+      }
+  }
   ```
 
-  - Swift: `URLSessionWebSocketTask`.
+  - Swift: `URLSessionWebSocketTask` (callback APIs, iOS 13+).
   - Android: OkHttp WebSocket client 5.5.0 (Apache-2.0), isolated to this plugin. Cronet remains the HTTP transport; its request streams do not expose a WebSocket upgrade API.
-  - Keep socket creation, callbacks, cancellation, and close behavior scoped to the plugin instance. Do not add a custom C++/JNI WebSocket framing layer.
+  - Keep each socket's callbacks, cancellation, and close behavior scoped to its plugin instance. Reuse the shared OkHttp client and connection pool. Do not add a custom C++/JNI WebSocket framing layer.
+  - `connect()` starts the handshake; observe state and failure events for its result. `send` reports local queue acceptance, not peer delivery. Dispose the socket from the owning screen's `OnDisappear`.
 
 - **`Network.isOnline: Bool`** and **`Network.onStatusChange { isOnline in ... }`**:
   - Swift: `NWPathMonitor`.
