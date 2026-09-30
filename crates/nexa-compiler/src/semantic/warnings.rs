@@ -5,6 +5,12 @@ use nexa_syntax::ast;
 
 use crate::Target;
 
+struct ScopeDiagnostics<'a> {
+    target: Target,
+    file: Option<&'a str>,
+    warnings: &'a mut Vec<CompileWarning>,
+}
+
 /// Collects source-level diagnostics that are useful even when the program is
 /// valid. The analysis intentionally stays independent from native backends.
 pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
@@ -23,9 +29,11 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
         app.screens
             .iter()
             .flat_map(|screen| screen.states.iter().map(|state| &state.initial)),
-        target,
-        None,
-        &mut warnings,
+        &mut ScopeDiagnostics {
+            target,
+            file: None,
+            warnings: &mut warnings,
+        },
     );
     for screen in &app.screens {
         let mut screen_names = app_names.clone();
@@ -42,9 +50,11 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
             screen.body.iter(),
             std::iter::empty(),
             std::iter::empty(),
-            target,
-            None,
-            &mut warnings,
+            &mut ScopeDiagnostics {
+                target,
+                file: None,
+                warnings: &mut warnings,
+            },
         );
     }
 
@@ -279,9 +289,11 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
             component.body.iter(),
             std::iter::empty(),
             std::iter::empty(),
-            target,
-            component.source_file.as_deref(),
-            &mut warnings,
+            &mut ScopeDiagnostics {
+                target,
+                file: component.source_file.as_deref(),
+                warnings: &mut warnings,
+            },
         );
     }
 
@@ -295,14 +307,15 @@ fn analyze_scope<'a, I, J, K>(
     body: I,
     screens: J,
     initializers: K,
-    target: Target,
-    file: Option<&str>,
-    warnings: &mut Vec<CompileWarning>,
+    diagnostics: &mut ScopeDiagnostics<'_>,
 ) where
     I: IntoIterator<Item = &'a ast::Node>,
     J: IntoIterator<Item = &'a ast::Node>,
     K: IntoIterator<Item = &'a ast::Expr>,
 {
+    let target = diagnostics.target;
+    let file = diagnostics.file;
+    let warnings = &mut *diagnostics.warnings;
     let mut used = HashSet::new();
     for declaration in declarations {
         walk_expression(&declaration.initial, names, &mut used);

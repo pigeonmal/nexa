@@ -1,19 +1,17 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
-use nexa_ir::{Expr, Module, Node};
+use nexa_ir::{Expr, Node};
 
-use crate::generator::{
-    components::render_children, engine::features::Features, expressions::text_expression,
-    utils::indent,
-};
+use crate::generator::{components::render_children, expressions::text_expression, utils::indent};
+
+use super::RenderScope;
 
 pub(crate) fn render_dialog(
     state: &str,
     title: &Expr,
     message: &Expr,
     children: &[Node],
-    module: &Module,
-    features: &Features,
+    scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -25,7 +23,7 @@ pub(crate) fn render_dialog(
             text_expression(title)
         ),
     );
-    render_children(children, module, features, depth + 1, out);
+    render_children(children, scope.module, scope.features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push_str("} message: {\n");

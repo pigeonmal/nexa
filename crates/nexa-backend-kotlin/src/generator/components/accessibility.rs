@@ -1,11 +1,13 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{AccessibilityRole, Expr, Module, Node};
+use nexa_ir::{AccessibilityRole, Expr, Node};
 
 use crate::generator::{
     components::render_children, expressions::expression, features::Features, utils::indent,
 };
 
 use crate::generator::engine::imports::ImportSet;
+
+use super::RenderScope;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
@@ -39,8 +41,7 @@ pub(crate) fn render_accessibility(
     hint: Option<&Expr>,
     role: AccessibilityRole,
     children: &[Node],
-    module: &Module,
-    features: &Features,
+    scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -73,7 +74,7 @@ pub(crate) fn render_accessibility(
     out.push_str("},\n");
     indent(out, depth);
     out.push_str(") {\n");
-    render_children(children, module, features, depth + 1, out);
+    render_children(children, scope.module, scope.features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');

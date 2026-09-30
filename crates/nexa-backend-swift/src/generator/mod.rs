@@ -119,7 +119,7 @@ private struct NexaDragGestureView<Content: View>: View {
 "#;
 
 pub(super) use api::{crypto, network, number, permissions, time};
-use components::components as component_renderer;
+use components::node_renderer as component_renderer;
 pub(super) use components::{
     accessibility, bottom_bar, controls, custom_components, direction, images, input, keyboard,
     layout, lifecycle, links, list_runtime, lists, navigation, refresh, sheets, status_bar,
@@ -314,8 +314,10 @@ fn generate_with_analysis_mode(
                 0.0,
                 &ViewStyle::default(),
                 &module.body,
-                module,
-                &features,
+                &components::RenderScope {
+                    module,
+                    features: &features,
+                },
                 2,
                 out,
             );

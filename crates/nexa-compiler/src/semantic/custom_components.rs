@@ -32,6 +32,18 @@ pub(super) struct ComponentEventSignature {
 
 pub(super) type ComponentSignatures = HashMap<String, ComponentSignature>;
 
+#[derive(Clone, Copy)]
+pub(super) struct ComponentLoweringContext<'a> {
+    pub(super) screen_ids: &'a ScreenSignatures,
+    pub(super) themes: &'a ThemeSymbols,
+    pub(super) functions: &'a FunctionSignatures,
+    pub(super) structs: &'a StructTypes,
+    pub(super) enums: &'a HashSet<String>,
+    pub(super) enum_symbols: &'a HashMap<String, (Type, bool)>,
+    pub(super) external_signatures: &'a ComponentSignatures,
+    pub(super) target: Target,
+}
+
 pub(super) fn retain_reachable(
     components: Vec<Component>,
     body: &[Node],
@@ -70,17 +82,10 @@ pub(super) fn retain_reachable(
 
 pub(super) fn lower_components(
     declarations: Vec<ast::ComponentDecl>,
-    screen_ids: &ScreenSignatures,
-    themes: &ThemeSymbols,
-    functions: &FunctionSignatures,
-    structs: &StructTypes,
-    enums: &HashSet<String>,
-    enum_symbols: &HashMap<String, (Type, bool)>,
-    external_signatures: &ComponentSignatures,
-    target: Target,
+    context: ComponentLoweringContext<'_>,
 ) -> Result<(Vec<Component>, ComponentSignatures), CompileError> {
-    let mut signatures = collect_signatures(&declarations, structs, functions)?;
-    for (name, signature) in external_signatures {
+    let mut signatures = collect_signatures(&declarations, context.structs, context.functions)?;
+    for (name, signature) in context.external_signatures {
         if signatures.contains_key(name) {
             let span = declarations
                 .iter()
@@ -99,17 +104,7 @@ pub(super) fn lower_components(
     let mut components = Vec::with_capacity(declarations.len());
     for declaration in declarations {
         let source_file = declaration.source_file.clone();
-        let result = lower_component(
-            declaration,
-            &signatures,
-            screen_ids,
-            themes,
-            functions,
-            structs,
-            enums,
-            enum_symbols,
-            target,
-        );
+        let result = lower_component(declaration, &signatures, context);
         components.push(result.map_err(|error| in_file(error, source_file.as_deref()))?);
     }
     Ok((components, signatures))
@@ -208,14 +203,18 @@ fn resolve_component_type(
 fn lower_component(
     declaration: ast::ComponentDecl,
     signatures: &ComponentSignatures,
-    screen_ids: &ScreenSignatures,
-    themes: &ThemeSymbols,
-    functions: &FunctionSignatures,
-    structs: &StructTypes,
-    enums: &HashSet<String>,
-    enum_symbols: &HashMap<String, (Type, bool)>,
-    target: Target,
+    context: ComponentLoweringContext<'_>,
 ) -> Result<Component, CompileError> {
+    let ComponentLoweringContext {
+        screen_ids,
+        themes,
+        functions,
+        structs,
+        enums,
+        enum_symbols,
+        target,
+        ..
+    } = context;
     let source_file = declaration.source_file.clone();
     let signature = &signatures[&declaration.name];
     let mut symbols = HashMap::with_capacity(signature.parameters.len() + declaration.states.len());
@@ -633,7 +632,7 @@ mod tests {
     use nexa_ir::Type;
     use nexa_syntax::ast;
 
-    use super::lower_components;
+    use super::{ComponentLoweringContext, lower_components};
     use crate::{Target, semantic::expressions::FunctionSignature, semantic::themes::ThemeSymbols};
 
     #[test]
@@ -708,14 +707,16 @@ mod tests {
 
         let result = lower_components(
             vec![declaration],
-            &HashMap::new(),
-            &ThemeSymbols::default(),
-            &functions,
-            &HashMap::new(),
-            &HashSet::new(),
-            &HashMap::new(),
-            &HashMap::new(),
-            Target::Swift,
+            ComponentLoweringContext {
+                screen_ids: &HashMap::new(),
+                themes: &ThemeSymbols::default(),
+                functions: &functions,
+                structs: &HashMap::new(),
+                enums: &HashSet::new(),
+                enum_symbols: &HashMap::new(),
+                external_signatures: &HashMap::new(),
+                target: Target::Swift,
+            },
         );
         let Err(error) = result else {
             panic!("a component receives native class values as borrowed parameters");

@@ -1,5 +1,5 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Module, Node, ViewStyle};
+use nexa_ir::{Alignment, AnimationSpec, LayoutKind, Node, ViewStyle};
 
 use crate::generator::{
     colors,
@@ -9,6 +9,8 @@ use crate::generator::{
 };
 
 use crate::generator::engine::imports::ImportSet;
+
+use super::RenderScope;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
@@ -125,8 +127,7 @@ pub(crate) fn render_layout(
     spacing: f32,
     style: &ViewStyle,
     children: &[Node],
-    module: &Module,
-    features: &Features,
+    scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -190,7 +191,7 @@ pub(crate) fn render_layout(
         out.push_str(") {\n");
     }
     for (index, child) in children.iter().enumerate() {
-        render_node(child, module, features, depth + 1, out);
+        render_node(child, scope.module, scope.features, depth + 1, out);
         if index + 1 < children.len() {
             out.push('\n');
         }

@@ -9,6 +9,21 @@ use crate::generator::{
 
 use crate::generator::engine::imports::ImportSet;
 
+use super::RenderScope;
+
+struct SectionedPieces<'a> {
+    collection: &'a Expr,
+    element_type: &'a nexa_ir::Type,
+    item_extent: Option<f32>,
+    section: &'a str,
+    index: &'a str,
+    item: &'a str,
+    key: Option<&'a Expr>,
+    children: &'a [Node],
+    section_header: Option<&'a [Node]>,
+    refresh: Option<&'a FastListRefresh>,
+}
+
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.uses_list,
@@ -131,18 +146,19 @@ pub(crate) fn render_virtualized_list(
             common,
         } => {
             render_sectioned_list(
-                collection,
-                element_type,
-                common.item_extent,
-                section,
-                &common.index,
-                item,
-                common.key.as_ref(),
-                &common.children,
-                common.section_header.as_deref(),
-                common.refresh.as_ref(),
-                module,
-                features,
+                SectionedPieces {
+                    collection,
+                    element_type,
+                    item_extent: common.item_extent,
+                    section,
+                    index: &common.index,
+                    item,
+                    key: common.key.as_ref(),
+                    children: &common.children,
+                    section_header: common.section_header.as_deref(),
+                    refresh: common.refresh.as_ref(),
+                },
+                &RenderScope { module, features },
                 depth,
                 out,
             );
@@ -204,14 +220,10 @@ pub(crate) fn render_virtualized_list(
             .on_end_reached
             .map(|_| format!("nexaEndReached{list_id}"));
         render_list_observers(
-            pieces.axis,
-            &pieces.count,
+            &pieces,
             list_state,
             list_count.as_deref(),
             marker.as_deref(),
-            pieces.on_end_reached,
-            pieces.scroll_position,
-            pieces.on_scroll,
             depth,
             out,
         );
@@ -317,21 +329,23 @@ pub(crate) fn render_virtualized_list(
 }
 
 fn render_sectioned_list(
-    collection: &Expr,
-    element_type: &nexa_ir::Type,
-    item_extent: Option<f32>,
-    section: &str,
-    index: &str,
-    item: &str,
-    key: Option<&Expr>,
-    children: &[Node],
-    section_header: Option<&[Node]>,
-    refresh: Option<&FastListRefresh>,
-    module: &Module,
-    features: &Features,
+    pieces: SectionedPieces<'_>,
+    scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let SectionedPieces {
+        collection,
+        element_type,
+        item_extent,
+        section,
+        index,
+        item,
+        key,
+        children,
+        section_header,
+        refresh,
+    } = pieces;
     let collection = expression(collection);
     let list_depth = render_refresh_open(refresh, depth, out);
     indent(out, list_depth);
@@ -347,7 +361,7 @@ fn render_sectioned_list(
             list_depth + 3,
             format_args!("val {}: Int = sectionPosition", state_name(section)),
         );
-        render_children(header, module, features, list_depth + 3, out);
+        render_children(header, scope.module, scope.features, list_depth + 3, out);
         out.push('\n');
         indent(out, list_depth + 2);
         out.push_str("}\n");
@@ -393,8 +407,8 @@ fn render_sectioned_list(
         item_extent,
         ListAxis::Vertical,
         children,
-        module,
-        features,
+        scope.module,
+        scope.features,
         list_depth + 3,
         out,
     );
@@ -429,14 +443,10 @@ fn render_grid_list(
             .on_end_reached
             .map(|_| format!("nexaEndReached{list_id}"));
         render_list_observers(
-            ListAxis::Grid { columns },
-            &pieces.count,
+            pieces,
             list_state,
             list_count.as_deref(),
             marker.as_deref(),
-            pieces.on_end_reached,
-            pieces.scroll_position,
-            pieces.on_scroll,
             depth,
             out,
         );
@@ -560,17 +570,18 @@ fn render_refresh_close(refresh: Option<&FastListRefresh>, depth: usize, out: &m
 }
 
 fn render_list_observers(
-    axis: ListAxis,
-    count: &FlatCount<'_>,
+    pieces: &FlatPieces<'_>,
     list_state: &str,
     list_count: Option<&str>,
     marker: Option<&str>,
-    end_actions: Option<&[Action]>,
-    scroll_position: Option<&str>,
-    scroll_actions: Option<&[Action]>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let axis = pieces.axis;
+    let count = &pieces.count;
+    let end_actions = pieces.on_end_reached;
+    let scroll_position = pieces.scroll_position;
+    let scroll_actions = pieces.on_scroll;
     let scroll_position = scroll_position.map(state_name);
     let state_initializer = match axis {
         ListAxis::Grid { .. } => "rememberLazyGridState",

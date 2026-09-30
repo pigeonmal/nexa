@@ -13,18 +13,19 @@ use crate::generator::{
 use super::lifecycle;
 use nexa_ir::State;
 
+use super::RenderScope;
+
 pub(crate) fn render_link(
     destination: ScreenId,
     arguments: &[Expr],
     guard: Option<&Expr>,
     children: &[Node],
-    module: &Module,
-    features: &Features,
+    scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
     if matches!(guard, Some(Expr::Bool(false))) {
-        render_children(children, module, features, depth, out);
+        render_children(children, scope.module, scope.features, depth, out);
         return;
     }
     out.line_at(
@@ -34,7 +35,7 @@ pub(crate) fn render_link(
             route_value(destination, arguments)
         ),
     );
-    render_children(children, module, features, depth + 1, out);
+    render_children(children, scope.module, scope.features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');

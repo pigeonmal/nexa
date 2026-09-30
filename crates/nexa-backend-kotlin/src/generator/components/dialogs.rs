@@ -1,6 +1,6 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
-use nexa_ir::{Expr, Module, Node};
+use nexa_ir::{Expr, Node};
 
 use crate::generator::{
     components::render_children,
@@ -8,6 +8,8 @@ use crate::generator::{
     expressions::expression,
     utils::indent,
 };
+
+use super::RenderScope;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
@@ -21,8 +23,7 @@ pub(crate) fn render_dialog(
     title: &Expr,
     message: &Expr,
     children: &[Node],
-    module: &Module,
-    features: &Features,
+    scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -44,7 +45,7 @@ pub(crate) fn render_dialog(
     );
     indent(out, depth + 2);
     out.push_str("confirmButton = {\n");
-    render_children(children, module, features, depth + 3, out);
+    render_children(children, scope.module, scope.features, depth + 3, out);
     out.push('\n');
     indent(out, depth + 2);
     out.push_str("},\n");

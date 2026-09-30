@@ -10,6 +10,21 @@ use crate::generator::{
 use crate::generator::engine::features::Features;
 use crate::generator::engine::imports::ImportSet;
 
+pub(crate) struct TextInputProps<'a> {
+    pub(crate) state: &'a str,
+    pub(crate) placeholder: &'a str,
+    pub(crate) keyboard: KeyboardType,
+    pub(crate) secure: bool,
+    pub(crate) multiline: bool,
+    pub(crate) autofill: Option<AutofillType>,
+    pub(crate) return_key: Option<ReturnKeyType>,
+    pub(crate) autocorrect: Option<bool>,
+    pub(crate) capitalization: Option<Capitalization>,
+    pub(crate) focused: Option<&'a str>,
+    pub(crate) max_length: Option<i32>,
+    pub(crate) actions: &'a [Action],
+}
+
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
         features.uses_text_input,
@@ -74,22 +89,21 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     );
 }
 
-pub(crate) fn render_text_input(
-    state: &str,
-    placeholder: &str,
-    keyboard: KeyboardType,
-    secure: bool,
-    multiline: bool,
-    autofill: Option<AutofillType>,
-    return_key: Option<ReturnKeyType>,
-    autocorrect: Option<bool>,
-    capitalization: Option<Capitalization>,
-    focused: Option<&str>,
-    max_length: Option<i32>,
-    actions: &[Action],
-    depth: usize,
-    out: &mut SourceWriter,
-) {
+pub(crate) fn render_text_input(props: TextInputProps<'_>, depth: usize, out: &mut SourceWriter) {
+    let TextInputProps {
+        state,
+        placeholder,
+        keyboard,
+        secure,
+        multiline,
+        autofill,
+        return_key,
+        autocorrect,
+        capitalization,
+        focused,
+        max_length,
+        actions,
+    } = props;
     indent(out, depth);
     out.push_str("TextField(\n");
     out.line_at(depth + 1, format_args!("value = {},", state_name(state)));

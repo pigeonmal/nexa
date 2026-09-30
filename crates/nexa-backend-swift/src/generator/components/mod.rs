@@ -1,8 +1,16 @@
 //! Native UI component emitters.
 
+use nexa_ir::Module;
+
+use crate::generator::features::Features;
+
+pub(crate) struct RenderScope<'a> {
+    pub(crate) module: &'a Module,
+    pub(crate) features: &'a Features,
+}
+
 pub(crate) mod accessibility;
 pub(crate) mod bottom_bar;
-pub(crate) mod components;
 pub(crate) mod controls;
 pub(crate) mod custom_components;
 pub(crate) mod dialogs;
@@ -16,9 +24,11 @@ pub(crate) mod links;
 pub(crate) mod list_runtime;
 pub(crate) mod lists;
 pub(crate) mod navigation;
+#[path = "components.rs"]
+pub(crate) mod node_renderer;
 pub(crate) mod refresh;
 pub(crate) mod shared_elements;
 pub(crate) mod sheets;
 pub(crate) mod status_bar;
 
-pub(super) use components::{render_children, render_node};
+pub(super) use node_renderer::{render_children, render_node};

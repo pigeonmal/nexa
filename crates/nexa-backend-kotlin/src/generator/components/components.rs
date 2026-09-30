@@ -6,6 +6,7 @@ use crate::generator::{
     layout, links, lists, navigation, refresh, sheets, utils::indent,
 };
 
+use super::RenderScope;
 use super::conditional;
 use crate::generator::components::text;
 
@@ -16,6 +17,7 @@ pub(crate) fn render_node(
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let scope = RenderScope { module, features };
     match node {
         Node::StatusBar { .. }
         | Node::Direction { .. }
@@ -29,9 +31,7 @@ pub(crate) fn render_node(
             spacing,
             style,
             children,
-        } => layout::render_layout(
-            *kind, *spacing, style, children, module, features, depth, out,
-        ),
+        } => layout::render_layout(*kind, *spacing, style, children, &scope, depth, out),
         Node::Text { value, style } => text::render(value, style, depth, out),
         Node::Spacer => out.line_at(
             depth,
@@ -76,18 +76,20 @@ pub(crate) fn render_node(
             max_length,
             actions,
         } => input::render_text_input(
-            state,
-            placeholder,
-            *keyboard,
-            *secure,
-            *multiline,
-            *autofill,
-            *return_key,
-            *autocorrect,
-            *capitalization,
-            focused.as_deref(),
-            *max_length,
-            actions,
+            input::TextInputProps {
+                state,
+                placeholder,
+                keyboard: *keyboard,
+                secure: *secure,
+                multiline: *multiline,
+                autofill: *autofill,
+                return_key: *return_key,
+                autocorrect: *autocorrect,
+                capitalization: *capitalization,
+                focused: focused.as_deref(),
+                max_length: *max_length,
+                actions,
+            },
             depth,
             out,
         ),
@@ -133,8 +135,7 @@ pub(crate) fn render_node(
             arguments,
             guard.as_ref(),
             children,
-            module,
-            features,
+            &scope,
             depth,
             out,
         ),
@@ -152,8 +153,7 @@ pub(crate) fn render_node(
             hint.as_ref(),
             *role,
             children,
-            module,
-            features,
+            &scope,
             depth,
             out,
         ),
@@ -170,9 +170,7 @@ pub(crate) fn render_node(
             title,
             message,
             children,
-        } => dialogs::render_dialog(
-            state, title, message, children, module, features, depth, out,
-        ),
+        } => dialogs::render_dialog(state, title, message, children, &scope, depth, out),
         Node::RefreshControl {
             state,
             children,
@@ -308,8 +306,7 @@ pub(crate) fn render_children(
             0.0,
             &ViewStyle::default(),
             children,
-            module,
-            features,
+            &RenderScope { module, features },
             depth,
             out,
         ),

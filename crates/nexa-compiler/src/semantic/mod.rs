@@ -219,14 +219,16 @@ pub fn lower_with_warnings(
     }
     let (components, component_signatures) = lower_components(
         std::mem::take(&mut app.components),
-        &screen_signatures,
-        &themes,
-        &function_signatures,
-        &struct_types,
-        &owned_enum_names,
-        &enum_symbols,
-        &native_component_signatures,
-        target,
+        custom_components::ComponentLoweringContext {
+            screen_ids: &screen_signatures,
+            themes: &themes,
+            functions: &function_signatures,
+            structs: &struct_types,
+            enums: &owned_enum_names,
+            enum_symbols: &enum_symbols,
+            external_signatures: &native_component_signatures,
+            target,
+        },
     )?;
 
     let mut test_suite = tests::lower_tests(

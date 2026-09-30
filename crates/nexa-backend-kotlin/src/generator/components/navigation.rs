@@ -12,6 +12,8 @@ use crate::generator::{
 
 use crate::generator::engine::imports::{ImportContext, ImportSet};
 
+use super::RenderScope;
+
 pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
     let features = context.features;
     imports.add(context.has_navigation, "android.app.Activity");
@@ -65,20 +67,19 @@ pub(crate) fn render_link(
     arguments: &[Expr],
     guard: Option<&Expr>,
     children: &[Node],
-    module: &Module,
-    features: &Features,
+    scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
     if matches!(guard, Some(Expr::Bool(false))) {
-        render_children(children, module, features, depth, out);
+        render_children(children, scope.module, scope.features, depth, out);
         return;
     }
     out.line_at(
         depth,
         format_args!(
             "TextButton(onClick = {{ navController.navigate({}) }}{}) {{",
-            route_value(module, destination, arguments),
+            route_value(scope.module, destination, arguments),
             guard.map_or(String::new(), |guard| {
                 format!(
                     ", enabled = {}",
@@ -87,7 +88,7 @@ pub(crate) fn render_link(
             })
         ),
     );
-    render_children(children, module, features, depth + 1, out);
+    render_children(children, scope.module, scope.features, depth + 1, out);
     out.push('\n');
     indent(out, depth);
     out.push('}');

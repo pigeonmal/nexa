@@ -6,7 +6,7 @@ use crate::generator::{
     utils::indent,
 };
 
-use super::components::render_children;
+use super::node_renderer::render_children;
 
 pub(crate) struct RenderScope<'a> {
     pub(crate) module: &'a Module,

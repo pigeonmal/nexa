@@ -81,7 +81,7 @@ fn init(args: &[String]) -> Result<(), String> {
     let name = name.unwrap_or_else(|| {
         id.rsplit('.')
             .next()
-            .and_then(|suffix| pascal_case(suffix))
+            .and_then(pascal_case)
             .unwrap_or_else(|| "Plugin".to_owned())
     });
     validate_identifier(&name)?;

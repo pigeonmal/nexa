@@ -7,7 +7,7 @@ mod engine;
 
 use crate::generator::engine::types::kotlin_type;
 pub(super) use api::{network, number, permissions};
-use components::components as component_renderer;
+use components::node_renderer as component_renderer;
 pub(super) use components::{
     accessibility, assets, bottom_bar, controls, custom_components, dialogs, images, input,
     keyboard, layout, links, lists, navigation, refresh, sheets,
@@ -384,8 +384,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                     0.0,
                     &ViewStyle::default(),
                     &module.body,
-                    module,
-                    features,
+                    &components::RenderScope { module, features },
                     body_depth,
                     out,
                 );

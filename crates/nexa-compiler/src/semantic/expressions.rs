@@ -1130,13 +1130,15 @@ pub(super) fn lower_expr(
                 lower_plugin_method_call(
                     base,
                     name,
-                    type_arguments,
-                    arguments,
-                    named_arguments,
-                    *span,
-                    expected,
-                    ctx,
-                    false,
+                    CallArguments {
+                        type_arguments,
+                        arguments,
+                        named_arguments,
+                        span: *span,
+                        expected,
+                        ctx,
+                        awaited: false,
+                    },
                 )
             } else {
                 if !type_arguments.is_empty() {
@@ -1172,13 +1174,15 @@ pub(super) fn lower_expr(
         } => lower_native_call(
             namespace,
             name,
-            type_arguments,
-            arguments,
-            named_arguments,
-            *span,
-            expected,
-            ctx,
-            false,
+            CallArguments {
+                type_arguments,
+                arguments,
+                named_arguments,
+                span: *span,
+                expected,
+                ctx,
+                awaited: false,
+            },
         ),
         ast::Expr::Index {
             collection,
@@ -1452,13 +1456,15 @@ pub(super) fn lower_expr(
                 } => lower_native_call(
                     namespace,
                     name,
-                    type_arguments,
-                    arguments,
-                    named_arguments,
-                    *call_span,
-                    expected,
-                    ctx,
-                    true,
+                    CallArguments {
+                        type_arguments,
+                        arguments,
+                        named_arguments,
+                        span: *call_span,
+                        expected,
+                        ctx,
+                        awaited: true,
+                    },
                 )?,
                 ast::Expr::MethodCall {
                     base,
@@ -1475,13 +1481,15 @@ pub(super) fn lower_expr(
                     lower_plugin_method_call(
                         base,
                         name,
-                        type_arguments,
-                        arguments,
-                        named_arguments,
-                        *call_span,
-                        expected,
-                        ctx,
-                        true,
+                        CallArguments {
+                            type_arguments,
+                            arguments,
+                            named_arguments,
+                            span: *call_span,
+                            expected,
+                            ctx,
+                            awaited: true,
+                        },
                     )?
                 }
                 _ => {
@@ -2032,42 +2040,37 @@ fn lower_named_call(
     )
 }
 
+#[derive(Clone, Copy)]
+struct CallArguments<'a, 'ctx> {
+    type_arguments: &'a [ast::TypeSyntax],
+    arguments: &'a [ast::Expr],
+    named_arguments: &'a BTreeMap<String, ast::Expr>,
+    span: Span,
+    expected: Option<&'a Type>,
+    ctx: &'a ExprContext<'ctx>,
+    awaited: bool,
+}
+
 fn lower_native_call(
     namespace: &str,
     name: &str,
-    type_arguments: &[ast::TypeSyntax],
-    arguments: &[ast::Expr],
-    named_arguments: &BTreeMap<String, ast::Expr>,
-    span: Span,
-    expected: Option<&Type>,
-    ctx: &ExprContext<'_>,
-    awaited: bool,
+    call: CallArguments<'_, '_>,
 ) -> Result<Expr, CompileError> {
+    let CallArguments {
+        arguments,
+        named_arguments,
+        span,
+        expected,
+        ctx,
+        awaited,
+        ..
+    } = call;
     let qualified_name = format!("{namespace}.{name}");
     if !is_core_native_namespace(namespace) && ctx.functions.contains_key(&qualified_name) {
-        return lower_plugin_call(
-            namespace,
-            name,
-            type_arguments,
-            arguments,
-            named_arguments,
-            span,
-            expected,
-            ctx,
-            awaited,
-        );
+        return lower_plugin_call(namespace, name, call);
     }
     if namespace == "Json" {
-        return lower_json_call(
-            name,
-            type_arguments,
-            arguments,
-            named_arguments,
-            span,
-            expected,
-            ctx,
-            awaited,
-        );
+        return lower_json_call(name, call);
     }
     if !arguments.is_empty() {
         return Err(CompileError::new(
@@ -2657,16 +2660,16 @@ fn is_core_native_namespace(namespace: &str) -> bool {
     )
 }
 
-fn lower_json_call(
-    name: &str,
-    type_arguments: &[ast::TypeSyntax],
-    arguments: &[ast::Expr],
-    named_arguments: &BTreeMap<String, ast::Expr>,
-    span: Span,
-    expected: Option<&Type>,
-    ctx: &ExprContext<'_>,
-    awaited: bool,
-) -> Result<Expr, CompileError> {
+fn lower_json_call(name: &str, call: CallArguments<'_, '_>) -> Result<Expr, CompileError> {
+    let CallArguments {
+        type_arguments,
+        arguments,
+        named_arguments,
+        span,
+        expected,
+        ctx,
+        awaited,
+    } = call;
     if awaited {
         return Err(CompileError::new(
             span,
@@ -2881,14 +2884,17 @@ fn validate_json_value_type(
 fn lower_plugin_call(
     namespace: &str,
     name: &str,
-    type_arguments: &[ast::TypeSyntax],
-    arguments: &[ast::Expr],
-    named_arguments: &BTreeMap<String, ast::Expr>,
-    span: Span,
-    expected: Option<&Type>,
-    ctx: &ExprContext<'_>,
-    awaited: bool,
+    call: CallArguments<'_, '_>,
 ) -> Result<Expr, CompileError> {
+    let CallArguments {
+        type_arguments,
+        arguments,
+        named_arguments,
+        span,
+        expected,
+        ctx,
+        awaited,
+    } = call;
     let qualified_name = format!("{namespace}.{name}");
     let signature = ctx
         .functions
@@ -2996,14 +3002,17 @@ fn lower_plugin_call(
 fn lower_plugin_method_call(
     base: &ast::Expr,
     name: &str,
-    type_arguments: &[ast::TypeSyntax],
-    arguments: &[ast::Expr],
-    named_arguments: &BTreeMap<String, ast::Expr>,
-    span: Span,
-    expected: Option<&Type>,
-    ctx: &ExprContext<'_>,
-    awaited: bool,
+    call: CallArguments<'_, '_>,
 ) -> Result<Expr, CompileError> {
+    let CallArguments {
+        type_arguments,
+        arguments,
+        named_arguments,
+        span,
+        expected,
+        ctx,
+        awaited,
+    } = call;
     let Some(base_type) = infer_expr_type(base, ctx.symbols, ctx.functions) else {
         return Err(CompileError::new(
             span,
@@ -4122,8 +4131,8 @@ mod tests {
     use nexa_syntax::ast;
 
     use super::{
-        FunctionSignature, FunctionSignatures, collect_plugin_signatures, lower_plugin_call,
-        lower_plugin_method_call, member_field_type_with_plugins,
+        CallArguments, FunctionSignature, FunctionSignatures, collect_plugin_signatures,
+        lower_plugin_call, lower_plugin_method_call, member_field_type_with_plugins,
     };
     use crate::semantic::context::ExprContext;
 
@@ -4204,16 +4213,20 @@ mod tests {
     fn rejects_throwing_service_calls_without_a_recovery_block() {
         let functions: FunctionSignatures =
             HashMap::from([("Camera.capture".to_owned(), throwing_signature(None))]);
+        let symbols = HashMap::new();
+        let context = ExprContext::new(&symbols, &functions, true);
         let error = lower_plugin_call(
             "Camera",
             "capture",
-            &[],
-            &[],
-            &BTreeMap::new(),
-            Span::default(),
-            None,
-            &ExprContext::new(&HashMap::new(), &functions, true),
-            true,
+            CallArguments {
+                type_arguments: &[],
+                arguments: &[],
+                named_arguments: &BTreeMap::new(),
+                span: Span::default(),
+                expected: None,
+                ctx: &context,
+                awaited: true,
+            },
         )
         .expect_err("throwing service calls must require typed handling");
         assert!(error.to_string().contains("may throw"));
@@ -4230,16 +4243,19 @@ mod tests {
             "VideoPlayer.prepare".to_owned(),
             throwing_signature(Some(player_type)),
         )]);
+        let context = ExprContext::new(&symbols, &functions, true);
         let error = lower_plugin_method_call(
             &ast::Expr::Name("player".to_owned(), Span::default()),
             "prepare",
-            &[],
-            &[],
-            &BTreeMap::new(),
-            Span::default(),
-            None,
-            &ExprContext::new(&symbols, &functions, true),
-            true,
+            CallArguments {
+                type_arguments: &[],
+                arguments: &[],
+                named_arguments: &BTreeMap::new(),
+                span: Span::default(),
+                expected: None,
+                ctx: &context,
+                awaited: true,
+            },
         )
         .expect_err("throwing object methods must require typed handling");
         assert!(error.to_string().contains("may throw"));

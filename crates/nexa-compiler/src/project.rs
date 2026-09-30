@@ -101,18 +101,19 @@ impl IncrementalProjectCompiler {
     ) -> Result<Vec<crate::Compilation>, CompileError> {
         self.last_stats = ProjectCompileStats::default();
         let entry_path = path.as_ref();
-        let mut loaded = LoadedProject::default();
-        let mut loaded_paths = HashSet::new();
-        load_file(
-            entry_path,
-            true,
-            None,
-            &mut HashSet::new(),
-            &mut loaded_paths,
-            &mut loaded,
+        let mut context = ProjectLoadContext {
+            active: HashSet::new(),
+            loaded_paths: HashSet::new(),
+            loaded: LoadedProject::default(),
             plugin_roots,
-            self,
-        )?;
+            compiler: self,
+        };
+        load_file(entry_path, true, None, &mut context)?;
+        let ProjectLoadContext {
+            loaded,
+            loaded_paths,
+            ..
+        } = context;
         self.parsed_sources
             .retain(|path, _| loaded_paths.contains(path));
 
@@ -207,15 +208,19 @@ struct LoadedProject {
     plugins: Vec<PluginDecl>,
 }
 
+struct ProjectLoadContext<'a> {
+    active: HashSet<PathBuf>,
+    loaded_paths: HashSet<PathBuf>,
+    loaded: LoadedProject,
+    plugin_roots: &'a HashMap<String, PathBuf>,
+    compiler: &'a mut IncrementalProjectCompiler,
+}
+
 fn load_file(
     path: &Path,
     is_entry: bool,
     import_site: Option<(&str, Span)>,
-    active: &mut HashSet<PathBuf>,
-    loaded_paths: &mut HashSet<PathBuf>,
-    loaded: &mut LoadedProject,
-    plugin_roots: &HashMap<String, PathBuf>,
-    compiler: &mut IncrementalProjectCompiler,
+    context: &mut ProjectLoadContext<'_>,
 ) -> Result<(), CompileError> {
     let canonical_path = fs::canonicalize(path).map_err(|error| {
         let (span, file) = import_site
@@ -224,13 +229,13 @@ fn load_file(
         CompileError::new(span, format!("cannot resolve source file: {error}")).with_file(file)
     })?;
 
-    if active.contains(&canonical_path) {
+    if context.active.contains(&canonical_path) {
         let (span, file) = import_site
             .map(|(file, span)| (span, file.to_owned()))
             .unwrap_or((file_level_span(), canonical_path.display().to_string()));
         return Err(CompileError::new(span, "cyclic source import detected").with_file(file));
     }
-    if loaded_paths.contains(&canonical_path) {
+    if context.loaded_paths.contains(&canonical_path) {
         return Ok(());
     }
 
@@ -241,16 +246,20 @@ fn load_file(
         )
         .with_file(canonical_path.display().to_string())
     })?;
-    let mut program = compiler.parse_source(&canonical_path, source)?;
+    let mut program = context.compiler.parse_source(&canonical_path, source)?;
 
     if !program.plugins.is_empty() {
         for plugin in &mut program.plugins {
-            let declared_path = plugin_roots.get(&plugin.path).cloned().unwrap_or_else(|| {
-                canonical_path
-                    .parent()
-                    .unwrap_or_else(|| Path::new("."))
-                    .join(&plugin.path)
-            });
+            let declared_path = context
+                .plugin_roots
+                .get(&plugin.path)
+                .cloned()
+                .unwrap_or_else(|| {
+                    canonical_path
+                        .parent()
+                        .unwrap_or_else(|| Path::new("."))
+                        .join(&plugin.path)
+                });
             let manifest_path = if declared_path.is_dir() {
                 Some(declared_path.join("plugin.config.nx"))
             } else {
@@ -341,11 +350,7 @@ fn load_file(
                     source,
                     false,
                     Some((&source.display().to_string(), plugin.span)),
-                    active,
-                    loaded_paths,
-                    loaded,
-                    plugin_roots,
-                    compiler,
+                    context,
                 )?;
                 if plugin.assets_path.is_none() {
                     plugin.assets_path = source
@@ -397,7 +402,8 @@ fn load_file(
             plugin.path = idl_path.display().to_string();
         }
         for plugin in program.plugins.drain(..) {
-            if let Some(previous) = loaded
+            if let Some(previous) = context
+                .loaded
                 .plugins
                 .iter()
                 .find(|previous| previous.namespace == plugin.namespace)
@@ -414,44 +420,40 @@ fn load_file(
                 }
                 continue;
             }
-            loaded.plugins.push(plugin);
+            context.loaded.plugins.push(plugin);
         }
     }
 
-    active.insert(canonical_path.clone());
+    context.active.insert(canonical_path.clone());
     for import in &program.imports {
-        load_import(
-            import,
-            &canonical_path,
-            active,
-            loaded_paths,
-            loaded,
-            plugin_roots,
-            compiler,
-        )?;
+        load_import(import, &canonical_path, context)?;
     }
 
     let source_file = canonical_path.display().to_string();
-    loaded
+    context
+        .loaded
         .components
         .extend(program.components.into_iter().map(|mut component| {
             component.source_file = Some(source_file.clone());
             component
         }));
-    loaded
+    context
+        .loaded
         .structs
         .extend(program.structs.into_iter().map(|mut structure| {
             structure.source_file = Some(source_file.clone());
             structure
         }));
-    loaded.functions.extend(program.functions);
-    loaded
+    context.loaded.functions.extend(program.functions);
+    context
+        .loaded
         .screens
         .extend(program.screens.into_iter().map(|mut screen| {
             screen.source_file = Some(source_file.clone());
             screen
         }));
-    loaded
+    context
+        .loaded
         .tests
         .extend(program.tests.into_iter().map(|mut test| {
             test.source_file = Some(source_file.clone());
@@ -468,7 +470,7 @@ fn load_file(
                     .with_file(source_file),
             );
         }
-        if loaded.app.replace(app).is_some() {
+        if context.loaded.app.replace(app).is_some() {
             return Err(CompileError::new(
                 file_level_span(),
                 "a project can only declare one `app` in its entry file",
@@ -483,8 +485,8 @@ fn load_file(
         .with_file(source_file));
     }
 
-    active.remove(&canonical_path);
-    loaded_paths.insert(canonical_path);
+    context.active.remove(&canonical_path);
+    context.loaded_paths.insert(canonical_path);
     Ok(())
 }
 
@@ -506,11 +508,7 @@ fn file_level_span() -> Span {
 fn load_import(
     import: &ImportDecl,
     importing_file: &Path,
-    active: &mut HashSet<PathBuf>,
-    loaded_paths: &mut HashSet<PathBuf>,
-    loaded: &mut LoadedProject,
-    plugin_roots: &HashMap<String, PathBuf>,
-    compiler: &mut IncrementalProjectCompiler,
+    context: &mut ProjectLoadContext<'_>,
 ) -> Result<(), CompileError> {
     let imported_path = importing_file
         .parent()
@@ -521,10 +519,6 @@ fn load_import(
         &imported_path,
         false,
         Some((&importing_path, import.span)),
-        active,
-        loaded_paths,
-        loaded,
-        plugin_roots,
-        compiler,
+        context,
     )
 }

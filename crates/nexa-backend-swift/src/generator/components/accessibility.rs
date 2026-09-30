@@ -1,24 +1,24 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{AccessibilityRole, Expr, Module, Node};
+use nexa_ir::{AccessibilityRole, Expr, Node};
 
 use crate::generator::{
     components::render_children,
     expressions::expression,
-    features::Features,
     utils::{indent, swift_string},
 };
+
+use super::RenderScope;
 
 pub(crate) fn render_accessibility(
     label: &Expr,
     hint: Option<&Expr>,
     role: AccessibilityRole,
     children: &[Node],
-    module: &Module,
-    features: &Features,
+    scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    render_children(children, module, features, depth, out);
+    render_children(children, scope.module, scope.features, depth, out);
     let child_has_same_image_label = matches!((label, children),
         (Expr::String(label), [Node::Image { description, .. }]) if description == label
     );

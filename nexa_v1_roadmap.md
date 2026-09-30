@@ -332,8 +332,8 @@ cargo test -p nexa-testkit -- --ignored
 ```
 
 - [x] Run `cargo check --workspace --all-targets`.
-- [x] Run `cargo clippy --workspace --all-targets`; it exits successfully, with existing warnings still to resolve or baseline.
-- [ ] Resolve or explicitly baseline all remaining workspace Clippy warnings for a warning-clean strict lint gate.
+- [x] Run `cargo clippy --workspace --all-targets`; it exits successfully with no warnings across workspace targets.
+- [x] Resolve all remaining workspace Clippy warnings and verify a warning-free strict lint gate.
 - [x] Run `cargo test --workspace`.
 - [x] Run the ignored `nexa-testkit` concurrency collision gate.
 

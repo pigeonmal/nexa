@@ -7,6 +7,33 @@ use crate::generator::{
     expressions::expression, features::Features, utils::indent,
 };
 
+use super::RenderScope;
+
+struct SectionedPieces<'a> {
+    collection: &'a Expr,
+    element_type: &'a nexa_ir::Type,
+    item_extent: Option<f32>,
+    section: &'a str,
+    index: &'a str,
+    item: &'a str,
+    key: Option<&'a Expr>,
+    children: &'a [Node],
+    section_header: Option<&'a [Node]>,
+    refresh: Option<&'a FastListRefresh>,
+}
+
+struct OpenListConfig<'a> {
+    axis: ListAxis,
+    row_count: String,
+    key: String,
+    item_extent: Option<f32>,
+    on_end_reached: Option<&'a [Action]>,
+    on_scroll: Option<&'a [Action]>,
+    scroll_position: Option<&'a str>,
+    sticky_header: Option<&'a [Node]>,
+    refresh: Option<&'a FastListRefresh>,
+}
+
 pub(crate) fn render_virtualized_list(
     plan: &ListPlan,
     module: &Module,
@@ -23,18 +50,19 @@ pub(crate) fn render_virtualized_list(
             common,
         } => {
             render_sectioned_list(
-                collection,
-                element_type,
-                common.item_extent,
-                section,
-                &common.index,
-                item,
-                common.key.as_ref(),
-                &common.children,
-                common.section_header.as_deref(),
-                common.refresh.as_ref(),
-                module,
-                features,
+                SectionedPieces {
+                    collection,
+                    element_type,
+                    item_extent: common.item_extent,
+                    section,
+                    index: &common.index,
+                    item,
+                    key: common.key.as_ref(),
+                    children: &common.children,
+                    section_header: common.section_header.as_deref(),
+                    refresh: common.refresh.as_ref(),
+                },
+                &RenderScope { module, features },
                 depth,
                 out,
             );
@@ -52,17 +80,18 @@ pub(crate) fn render_virtualized_list(
                 })
                 .unwrap_or_default();
             open_list(
-                common.axis,
-                format!("max(0, Int({}))", expression(count)),
-                &key,
-                common.item_extent,
-                common.on_end_reached.as_deref(),
-                common.on_scroll.as_deref(),
-                common.scroll_position.as_deref(),
-                common.sticky_header.as_deref(),
-                common.refresh.as_ref(),
-                module,
-                features,
+                OpenListConfig {
+                    axis: common.axis,
+                    row_count: format!("max(0, Int({}))", expression(count)),
+                    key,
+                    item_extent: common.item_extent,
+                    on_end_reached: common.on_end_reached.as_deref(),
+                    on_scroll: common.on_scroll.as_deref(),
+                    scroll_position: common.scroll_position.as_deref(),
+                    sticky_header: common.sticky_header.as_deref(),
+                    refresh: common.refresh.as_ref(),
+                },
+                &RenderScope { module, features },
                 depth,
                 out,
             );
@@ -98,17 +127,18 @@ pub(crate) fn render_virtualized_list(
                 })
                 .unwrap_or_default();
             open_list(
-                common.axis,
-                format!("{collection}.count"),
-                &key,
-                common.item_extent,
-                common.on_end_reached.as_deref(),
-                common.on_scroll.as_deref(),
-                common.scroll_position.as_deref(),
-                common.sticky_header.as_deref(),
-                common.refresh.as_ref(),
-                module,
-                features,
+                OpenListConfig {
+                    axis: common.axis,
+                    row_count: format!("{collection}.count"),
+                    key,
+                    item_extent: common.item_extent,
+                    on_end_reached: common.on_end_reached.as_deref(),
+                    on_scroll: common.on_scroll.as_deref(),
+                    scroll_position: common.scroll_position.as_deref(),
+                    sticky_header: common.sticky_header.as_deref(),
+                    refresh: common.refresh.as_ref(),
+                },
+                &RenderScope { module, features },
                 depth,
                 out,
             );
@@ -136,21 +166,23 @@ pub(crate) fn render_virtualized_list(
 }
 
 fn render_sectioned_list(
-    collection: &Expr,
-    element_type: &nexa_ir::Type,
-    item_extent: Option<f32>,
-    section: &str,
-    index: &str,
-    item: &str,
-    key: Option<&Expr>,
-    children: &[Node],
-    section_header: Option<&[Node]>,
-    refresh: Option<&FastListRefresh>,
-    module: &Module,
-    features: &Features,
+    pieces: SectionedPieces<'_>,
+    scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let SectionedPieces {
+        collection,
+        element_type,
+        item_extent,
+        section,
+        index,
+        item,
+        key,
+        children,
+        section_header,
+        refresh,
+    } = pieces;
     let collection = expression(collection);
     indent(out, depth);
     if section_header.is_some() {
@@ -206,7 +238,7 @@ fn render_sectioned_list(
                 state_name(section)
             ),
         );
-        render_children(header, module, features, depth + 3, out);
+        render_children(header, scope.module, scope.features, depth + 3, out);
         out.push('\n');
         indent(out, depth + 2);
         out.push_str("}\n");
@@ -237,7 +269,7 @@ fn render_sectioned_list(
             swift_type(element_type)
         ),
     );
-    render_children(children, module, features, depth + 2, out);
+    render_children(children, scope.module, scope.features, depth + 2, out);
     out.push('\n');
     indent(out, depth + 1);
     out.push_str("}\n");
@@ -276,20 +308,22 @@ fn list_constructor(
 }
 
 fn open_list(
-    axis: ListAxis,
-    row_count: String,
-    key: &str,
-    item_extent: Option<f32>,
-    on_end_reached: Option<&[Action]>,
-    on_scroll: Option<&[Action]>,
-    scroll_position: Option<&str>,
-    sticky_header: Option<&[Node]>,
-    refresh: Option<&FastListRefresh>,
-    module: &Module,
-    features: &Features,
+    config: OpenListConfig<'_>,
+    scope: &RenderScope<'_>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
+    let OpenListConfig {
+        axis,
+        row_count,
+        key,
+        item_extent,
+        on_end_reached,
+        on_scroll,
+        scroll_position,
+        sticky_header,
+        refresh,
+    } = config;
     if on_end_reached.is_some()
         || on_scroll.is_some()
         || scroll_position.is_some()
@@ -297,7 +331,7 @@ fn open_list(
         || refresh.is_some()
     {
         let mut constructor =
-            list_constructor(axis, row_count, key, item_extent, sticky_header.is_some());
+            list_constructor(axis, row_count, &key, item_extent, sticky_header.is_some());
         constructor.pop();
         out.push_str(&constructor);
         if let Some(scroll_position) = scroll_position {
@@ -316,7 +350,7 @@ fn open_list(
             out.push_str(", headerContent: {\n");
             indent(out, depth + 1);
             out.push_str("VStack(spacing: 0) {\n");
-            render_children(sticky_header, module, features, depth + 2, out);
+            render_children(sticky_header, scope.module, scope.features, depth + 2, out);
             out.push('\n');
             indent(out, depth + 1);
             out.push_str("}\n");
@@ -348,7 +382,7 @@ fn open_list(
         out.push_str(&list_constructor(
             axis,
             row_count,
-            key,
+            &key,
             item_extent,
             sticky_header.is_some(),
         ));
