@@ -62,6 +62,26 @@ fn android_release_signing_is_configured_at_build_time() {
     assert!(gradle.contains("create(\"nexaRelease\")"));
     assert!(gradle.contains("System.getenv(\"NEXA_ANDROID_KEYSTORE\")"));
     assert!(gradle.contains("signingConfigs.getByName(\"nexaRelease\")"));
+    assert!(!gradle.contains("androidx.work:work-runtime-ktx"));
+}
+
+#[test]
+fn android_background_tasks_require_workmanager_minimum_sdk() {
+    let mut config = ProjectConfig::from_defaults(&[], "demo").unwrap();
+    config.android_min_sdk = 22;
+    let error = templates::android_app_gradle_with_dev_runtime(
+        "demo",
+        nexa_backend_kotlin::KotlinProjectFeatures {
+            uses_background_tasks: true,
+            ..Default::default()
+        },
+        &[],
+        &[],
+        &config,
+        false,
+    )
+    .expect_err("WorkManager 2.11.2 requires API 23 or later");
+    assert!(error.contains("require minSdk 23"));
 }
 
 #[test]
@@ -404,7 +424,7 @@ mod template_generation {
         config: &ProjectConfig,
         plugins: &[crate::plugin_package::PluginPackage],
     ) -> Result<String, String> {
-        ios_info_plist_with_orientation(app_name, config, plugins, false, false)
+        ios_info_plist_with_orientation(app_name, config, plugins, false, false, &[])
     }
 
     fn plugin(namespace: &str) -> crate::plugin_package::PluginPackage {
@@ -707,14 +727,15 @@ mod template_generation {
     #[test]
     fn ios_hosts_always_declare_a_launch_screen() {
         let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
-        let plist = ios_info_plist_with_orientation("Demo", &config, &[], false, false).unwrap();
+        let plist =
+            ios_info_plist_with_orientation("Demo", &config, &[], false, false, &[]).unwrap();
         assert!(plist.contains("<key>UILaunchScreen</key><dict/>"));
         assert!(!plist.contains("<key>UISupportedInterfaceOrientations</key>"));
 
         let mut custom_splash = config;
         custom_splash.splash_source = Some(std::path::PathBuf::from("assets/splash.png"));
-        let plist =
-            ios_info_plist_with_orientation("Demo", &custom_splash, &[], false, false).unwrap();
+        let plist = ios_info_plist_with_orientation("Demo", &custom_splash, &[], false, false, &[])
+            .unwrap();
         assert!(plist.contains("<key>UILaunchStoryboardName</key><string>LaunchScreen</string>"));
         assert!(!plist.contains("<key>UILaunchScreen</key>"));
     }
@@ -722,7 +743,8 @@ mod template_generation {
     #[test]
     fn ios_hosts_declare_landscape_for_scene_orientation_requests() {
         let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
-        let plist = ios_info_plist_with_orientation("Demo", &config, &[], false, true).unwrap();
+        let plist =
+            ios_info_plist_with_orientation("Demo", &config, &[], false, true, &[]).unwrap();
         assert!(plist.contains("<key>UISupportedInterfaceOrientations</key>"));
         assert!(plist.contains("<string>UIInterfaceOrientationLandscapeLeft</string>"));
         assert!(plist.contains("<string>UIInterfaceOrientationLandscapeRight</string>"));
@@ -1078,7 +1100,7 @@ mod template_generation {
             Some("dev.nexa.audio.AudioPlaybackService".to_owned());
 
         let plist =
-            ios_info_plist_with_orientation("Demo", &config, &[audio.clone()], false, false)
+            ios_info_plist_with_orientation("Demo", &config, &[audio.clone()], false, false, &[])
                 .expect("iOS audio metadata should generate");
         assert!(
             plist.contains("<key>UIBackgroundModes</key><array><string>audio</string></array>")
@@ -1279,8 +1301,9 @@ mod template_generation {
             ProjectConfig::from_defaults(&[], "DeepLinkDemo").expect("default app config");
         config.deep_links = vec!["nexa://".to_owned(), "https://links.example.com".to_owned()];
 
-        let plist = ios_info_plist_with_orientation("DeepLinkDemo", &config, &[], false, false)
-            .expect("render iOS URL scheme metadata");
+        let plist =
+            ios_info_plist_with_orientation("DeepLinkDemo", &config, &[], false, false, &[])
+                .expect("render iOS URL scheme metadata");
         assert!(
             plist.contains("<key>CFBundleURLSchemes</key><array><string>nexa</string></array>")
         );

@@ -20,6 +20,9 @@ pub(crate) fn optimize(module: &mut Module) {
         function.body = fold_expression(std::mem::replace(&mut function.body, Expr::Bool(false)));
         prune_unused_function_locals(function);
     }
+    for task in &mut module.background_tasks {
+        task.actions = optimize_actions(std::mem::take(&mut task.actions));
+    }
     module.states.iter_mut().for_each(|state| {
         state.initial = fold_expression(std::mem::replace(&mut state.initial, Expr::Bool(false)));
     });
@@ -261,6 +264,9 @@ fn prune_unused_functions(module: &mut Module) {
     {
         collect_action_function_references(actions, &declared, &mut used);
     }
+    for task in &module.background_tasks {
+        collect_action_function_references(&task.actions, &declared, &mut used);
+    }
     for screen in &module.screens {
         for state in &screen.states {
             collect_expression_function_references(&state.initial, &declared, &mut used);
@@ -448,6 +454,9 @@ fn prune_unused_structs(module: &mut Module) {
     if let Some(actions) = &module.on_appear {
         collect_action_struct_names(actions, &mut used);
     }
+    for task in &module.background_tasks {
+        collect_action_struct_names(&task.actions, &mut used);
+    }
     if let Some(actions) = &module.on_disappear {
         collect_action_struct_names(actions, &mut used);
     }
@@ -516,6 +525,9 @@ fn prune_unused_plugins(module: &mut Module) {
     nexa_ir::walk::walk_ir(&module.body, &mut collect_node, &mut collect);
     if let Some(actions) = &module.on_appear {
         nexa_ir::walk::walk_actions(actions, &mut collect);
+    }
+    for task in &module.background_tasks {
+        nexa_ir::walk::walk_actions(&task.actions, &mut collect);
     }
     if let Some(actions) = &module.on_disappear {
         nexa_ir::walk::walk_actions(actions, &mut collect);
@@ -1556,6 +1568,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),

@@ -28,6 +28,39 @@ fn parses_top_level_async_function_declaration() {
 }
 
 #[test]
+fn parses_app_scoped_periodic_background_task() {
+    let app = nexa_syntax::parse(
+        r#"app Demo {
+            background task Refresh(identifier: "dev.example.refresh", everyMinutes: 60) {
+                Storage.setString(key: "last-run", value: "ok")
+            }
+            body { Text("ready") }
+        }"#,
+    )
+    .expect("background task declaration should parse");
+
+    assert_eq!(app.background_tasks.len(), 1);
+    assert_eq!(app.background_tasks[0].name, "Refresh");
+    assert_eq!(app.background_tasks[0].identifier, "dev.example.refresh");
+    assert_eq!(app.background_tasks[0].interval_minutes, 60);
+    assert_eq!(app.background_tasks[0].body.len(), 1);
+}
+
+#[test]
+fn rejects_duplicate_background_task_identifiers() {
+    let error = nexa_syntax::parse(
+        r#"app Demo {
+            background task First(identifier: "dev.example.refresh", everyMinutes: 60) {}
+            background task Second(identifier: "dev.example.refresh", everyMinutes: 90) {}
+            body { Text("ready") }
+        }"#,
+    )
+    .expect_err("two task declarations cannot register one operating-system identifier");
+
+    assert!(error.to_string().contains("declared more than once"));
+}
+
+#[test]
 fn parses_qualified_native_class_component_parameter_types() {
     let app = nexa_syntax::parse(
         r#"

@@ -51,6 +51,29 @@ fn generate_example(project: &TestProject, example: &str, target: &str) -> PathB
     output
 }
 
+fn build_android_debug_if_available(android_project: &Path, host: &str) {
+    if !Toolchain::should_run_native_builds() {
+        return;
+    }
+    let (Some(gradle), Some(sdk)) = (Toolchain::gradle(), Toolchain::android_sdk()) else {
+        return;
+    };
+    if !sdk.join("platforms/android-36/android.jar").is_file() {
+        return;
+    }
+    let built = Command::new(gradle)
+        .args([":app:assembleDebug"])
+        .current_dir(android_project.join("android"))
+        .output()
+        .expect("Gradle should start for the Android native host");
+    assert!(
+        built.status.success(),
+        "{host} failed to compile:\n{}\n{}",
+        String::from_utf8_lossy(&built.stdout),
+        String::from_utf8_lossy(&built.stderr)
+    );
+}
+
 #[test]
 fn multipart_upload_generates_native_streaming_calls() {
     let temp = TestProject::new("nexa-multipart-upload-codegen");
@@ -122,23 +145,69 @@ fn multipart_upload_generates_native_streaming_calls() {
         );
     }
 
-    if Toolchain::should_run_native_builds() {
-        if let (Some(gradle), Some(sdk)) = (Toolchain::gradle(), Toolchain::android_sdk()) {
-            if sdk.join("platforms/android-36/android.jar").is_file() {
-                let built = Command::new(gradle)
-                    .args([":app:assembleDebug"])
-                    .current_dir(android.join("android"))
-                    .output()
-                    .expect("Gradle should start for the Android upload host");
-                assert!(
-                    built.status.success(),
-                    "Android upload host failed to compile:\n{}\n{}",
-                    String::from_utf8_lossy(&built.stdout),
-                    String::from_utf8_lossy(&built.stderr)
-                );
-            }
-        }
+    build_android_debug_if_available(&android, "Android upload host");
+}
+
+#[test]
+fn background_task_generates_native_schedulers_and_feature_gated_dependencies() {
+    let temp = TestProject::new("nexa-background-task-codegen");
+    let entry = example_path("background_task.nx");
+
+    let ios = temp.join("background-task-ios");
+    nexa_cli::generate_project(&entry, "ios", &ios, "NexaBackgroundSync")
+        .expect("iOS background-task project should generate");
+    let swift = swift_sources(&ios.join("ios/NexaBackgroundSync"))
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Swift source"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(swift.contains(".backgroundTask(.appRefresh(\"dev.example.backgroundsync.refresh\"))"));
+    assert!(swift.contains("await __nexaBackgroundTask0()"));
+    assert!(swift.contains("NexaStorage.setString("));
+    let plist = fs::read_to_string(ios.join("ios/NexaBackgroundSync/Info.plist"))
+        .expect("read generated iOS background-task metadata");
+    assert!(plist.contains("<key>BGTaskSchedulerPermittedIdentifiers</key>"));
+    assert!(plist.contains("<string>dev.example.backgroundsync.refresh</string>"));
+    assert!(plist.contains("<key>UIBackgroundModes</key><array><string>fetch</string></array>"));
+    if let Some(sdk) = Toolchain::ios_simulator_sdk_path() {
+        let built = Command::new("xcrun")
+            .args([
+                "--sdk",
+                "iphonesimulator",
+                "swiftc",
+                "-typecheck",
+                "-sdk",
+                sdk,
+                "-target",
+                "arm64-apple-ios16.0-simulator",
+            ])
+            .args(swift_sources(&ios.join("ios/NexaBackgroundSync")))
+            .output()
+            .expect("Swift compiler should start for the iOS background-task host");
+        assert!(
+            built.status.success(),
+            "iOS background-task host failed to type-check:\n{}\n{}",
+            String::from_utf8_lossy(&built.stdout),
+            String::from_utf8_lossy(&built.stderr)
+        );
     }
+
+    let android = temp.join("background-task-android");
+    nexa_cli::generate_project(&entry, "android", &android, "NexaBackgroundSync")
+        .expect("Android background-task project should generate");
+    let kotlin = kotlin_sources(&android.join("android/app/src/main/java"))
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Kotlin source"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(kotlin.contains("suspend fun __nexaBackgroundTask0()"));
+    assert!(kotlin.contains("class NexaBackgroundWorker"));
+    assert!(kotlin.contains("ExistingPeriodicWorkPolicy.UPDATE"));
+    assert!(kotlin.contains("NexaRuntime.bind(applicationContext)"));
+    let gradle = fs::read_to_string(android.join("android/app/build.gradle.kts"))
+        .expect("read generated Android dependencies");
+    assert!(gradle.contains("androidx.work:work-runtime-ktx:2.11.2"));
+    build_android_debug_if_available(&android, "Android background-task host");
 }
 
 #[test]

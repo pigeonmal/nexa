@@ -12,6 +12,8 @@ pub struct Module {
     pub enums: Vec<EnumDecl>,
     pub structs: Vec<StructDecl>,
     pub functions: Vec<Function>,
+    #[serde(default)]
+    pub background_tasks: Vec<BackgroundTask>,
     pub states: Vec<State>,
     pub screens: Vec<Screen>,
     pub components: Vec<Component>,
@@ -89,6 +91,15 @@ pub struct Function {
     pub locals: Vec<FunctionLocal>,
     pub return_type: Type,
     pub body: Expr,
+}
+
+/// A periodic app task emitted as a native background worker.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackgroundTask {
+    pub name: String,
+    pub identifier: String,
+    pub interval_minutes: u32,
+    pub actions: Vec<Action>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

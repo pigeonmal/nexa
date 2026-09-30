@@ -10,6 +10,7 @@ pub struct App {
     pub structs: Vec<StructDecl>,
     pub states: Vec<StateDecl>,
     pub functions: Vec<FunctionDecl>,
+    pub background_tasks: Vec<BackgroundTaskDecl>,
     pub screens: Vec<ScreenDecl>,
     pub theme: Option<ThemeDecl>,
     pub components: Vec<ComponentDecl>,
@@ -267,6 +268,16 @@ pub struct FunctionDecl {
 pub struct FunctionParameter {
     pub name: String,
     pub ty: TypeSyntax,
+    pub span: Span,
+}
+
+/// A periodic app task that the native host can resume after process death.
+#[derive(Clone, Debug)]
+pub struct BackgroundTaskDecl {
+    pub name: String,
+    pub identifier: String,
+    pub interval_minutes: u32,
+    pub body: Vec<Stmt>,
     pub span: Span,
 }
 

@@ -6,14 +6,14 @@ use std::{
 use nexa_diagnostics::{CompileError, CompileWarning};
 use nexa_ir::walk::any_node;
 use nexa_ir::{
-    Action, DirectionConfig, Function, FunctionLocal, FunctionParameter, Module, Node, Screen,
-    ScreenId, State, StatusBarConfig, Type,
+    Action, BackgroundTask, DirectionConfig, Function, FunctionLocal, FunctionParameter, Module,
+    Node, Screen, ScreenId, State, StatusBarConfig, Type,
 };
 use nexa_syntax::ast;
 
 use self::{
-    components::{contains_content, lower_nodes},
-    context::{ExprContext, ScreenSignature, ScreenSignatures, SemanticContext},
+    components::{contains_content, lower_actions_with_aliases, lower_nodes},
+    context::{ExprContext, ScreenSignature, ScreenSignatures, SemanticContext, TypeRegistries},
     custom_components::{lower_components, retain_reachable},
     expressions::{
         FunctionSignature, FunctionSignatures, StructTypes, collect_function_signatures,
@@ -243,6 +243,45 @@ pub fn lower_with_warnings(
         &enum_symbols,
     )?;
     tests::bind_test_functions(&mut test_suite, &functions);
+
+    let background_tasks = app
+        .background_tasks
+        .into_iter()
+        .map(|task| {
+            if task.interval_minutes < 15 {
+                return Err(CompileError::new(
+                    task.span,
+                    "background task interval must be at least 15 minutes on Android",
+                ));
+            }
+            if !valid_background_task_identifier(&task.identifier) {
+                return Err(CompileError::new(
+                    task.span,
+                    format!(
+                        "background task identifier `{}` must use reverse-domain notation, such as `dev.example.app.refresh`",
+                        task.identifier
+                    ),
+                ));
+            }
+            let actions = lower_actions_with_aliases(
+                task.body,
+                &enum_symbols,
+                &function_signatures,
+                true,
+                &HashMap::new(),
+                TypeRegistries {
+                    structs: &struct_types,
+                    enums: &owned_enum_names,
+                },
+            )?;
+            Ok(BackgroundTask {
+                name: task.name,
+                identifier: task.identifier,
+                interval_minutes: task.interval_minutes,
+                actions,
+            })
+        })
+        .collect::<Result<Vec<_>, CompileError>>()?;
 
     let mut symbols = enum_symbols.clone();
     let mut states = Vec::with_capacity(app.states.len());
@@ -517,6 +556,7 @@ pub fn lower_with_warnings(
         enums: enum_declarations,
         structs: struct_declarations,
         functions,
+        background_tasks,
         states,
         screens,
         components,
@@ -544,6 +584,19 @@ pub fn lower_with_warnings(
     validate_module_callback_disposal(&module, &function_signatures)?;
     crate::optimize::optimize(&mut module);
     Ok((module, warnings, test_suite))
+}
+
+fn valid_background_task_identifier(identifier: &str) -> bool {
+    let labels = identifier.split('.').collect::<Vec<_>>();
+    labels.len() >= 3
+        && labels.iter().all(|label| {
+            !label.is_empty()
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
 }
 
 fn validate_module_callback_disposal(
@@ -1072,6 +1125,11 @@ fn module_uses_json_error(module: &Module) -> bool {
             expression_uses_json_error(&local.initial, &mut found);
         }
         expression_uses_json_error(&function.body, &mut found);
+    }
+    for task in &module.background_tasks {
+        nexa_ir::walk::walk_actions(&task.actions, &mut |expression| {
+            expression_uses_json_error(expression, &mut found)
+        });
     }
     for screen in &module.screens {
         {
@@ -2001,6 +2059,7 @@ mod callback_disposal_tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states,
             screens: Vec::new(),
             components: Vec::new(),
@@ -2135,6 +2194,7 @@ mod callback_disposal_tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: vec![state("player", constructor())],
             screens: Vec::new(),
             components: Vec::new(),
@@ -2178,6 +2238,7 @@ mod callback_disposal_tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: vec![state("player", constructor())],
             screens: Vec::new(),
             components: Vec::new(),

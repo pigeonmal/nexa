@@ -17,6 +17,7 @@ fn module(revision: &str, label: &str) -> DevModule {
         enums: Vec::new(),
         structs: Vec::new(),
         functions: Vec::new(),
+        background_tasks: Vec::new(),
         states: Vec::new(),
         screens: Vec::new(),
         components: Vec::new(),

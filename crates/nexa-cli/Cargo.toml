@@ -21,7 +21,7 @@ nexa-ir = { path = "../nexa-ir" }
 nexa-plugin-idl = { path = "../nexa-plugin-idl" }
 nexa-syntax = { path = "../nexa-syntax" }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+serde_json = "1"
 
 [dev-dependencies]
 nexa-testkit = { path = "../nexa-testkit" }
-serde_json = "1"

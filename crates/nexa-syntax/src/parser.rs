@@ -961,6 +961,7 @@ impl Parser {
         self.expect(Kind::LBrace, "expected `{` after app name")?;
         let mut enums = Vec::new();
         let mut states = Vec::new();
+        let mut background_tasks = Vec::new();
         let mut screens = Vec::new();
         let mut functions = Vec::new();
         let mut theme = None;
@@ -976,6 +977,33 @@ impl Parser {
                 functions.push(self.function_decl(true)?);
             } else if self.word_is("fn") {
                 functions.push(self.function_decl(false)?);
+            } else if self.word_is("background") {
+                let declaration = self.background_task_decl()?;
+                if background_tasks
+                    .iter()
+                    .any(|task: &BackgroundTaskDecl| task.name == declaration.name)
+                {
+                    return Err(CompileError::new(
+                        declaration.span,
+                        format!(
+                            "background task `{}` is declared more than once",
+                            declaration.name
+                        ),
+                    ));
+                }
+                if background_tasks
+                    .iter()
+                    .any(|task| task.identifier == declaration.identifier)
+                {
+                    return Err(CompileError::new(
+                        declaration.span,
+                        format!(
+                            "background task identifier `{}` is declared more than once",
+                            declaration.identifier
+                        ),
+                    ));
+                }
+                background_tasks.push(declaration);
             } else if self.word_is("screen") {
                 screens.push(self.screen_decl()?);
             } else if self.word_is("theme") {
@@ -991,7 +1019,7 @@ impl Parser {
                 body = Some(self.block_nodes()?);
             } else {
                 return self.error_here(
-                    "expected an `enum`, `state`, `fn`, `async fn`, `screen`, `theme`, or `body` declaration",
+                    "expected an `enum`, `state`, `fn`, `async fn`, `background task`, `screen`, `theme`, or `body` declaration",
                 );
             }
         }
@@ -1004,6 +1032,7 @@ impl Parser {
             structs: Vec::new(),
             states,
             functions,
+            background_tasks,
             screens,
             theme,
             components: Vec::new(),
@@ -1217,6 +1246,53 @@ impl Parser {
             return_type,
             body,
             span: keyword,
+        })
+    }
+
+    fn background_task_decl(&mut self) -> Result<BackgroundTaskDecl, CompileError> {
+        let span = self.peek().span;
+        self.expect_word("background")?;
+        self.expect_word("task")?;
+        let (name, _) = self.ident()?;
+        let mut arguments = self.named_args(&["identifier", "everyMinutes"])?;
+        let identifier = match self.required_arg(
+            &mut arguments,
+            "identifier",
+            "background tasks require a literal `identifier`",
+        )? {
+            Expr::String(value, _) if !value.trim().is_empty() => value,
+            expression => {
+                return Err(CompileError::new(
+                    expression.span(),
+                    "background task `identifier` must be a non-empty string literal",
+                ));
+            }
+        };
+        let interval_minutes = match self.required_arg(
+            &mut arguments,
+            "everyMinutes",
+            "background tasks require an integer `everyMinutes` interval",
+        )? {
+            Expr::Number(value, number_span) => value.parse::<u32>().map_err(|_| {
+                CompileError::new(
+                    number_span,
+                    "background task `everyMinutes` must be a positive integer",
+                )
+            })?,
+            expression => {
+                return Err(CompileError::new(
+                    expression.span(),
+                    "background task `everyMinutes` must be an integer literal",
+                ));
+            }
+        };
+        let body = self.block_stmts()?;
+        Ok(BackgroundTaskDecl {
+            name,
+            identifier,
+            interval_minutes,
+            body,
+            span,
         })
     }
 

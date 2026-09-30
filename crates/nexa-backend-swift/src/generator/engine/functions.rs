@@ -2,6 +2,7 @@ use nexa_codegen::SourceWriter;
 use nexa_ir::{Function, Module};
 
 use super::{expressions, utils::indent};
+use crate::generator::controls;
 use crate::generator::engine::types::swift_type;
 
 pub(crate) fn render(module: &Module, out: &mut SourceWriter) {
@@ -10,6 +11,13 @@ pub(crate) fn render(module: &Module, out: &mut SourceWriter) {
     }
     if !module.functions.is_empty() {
         out.push('\n');
+    }
+    for (index, task) in module.background_tasks.iter().enumerate() {
+        out.push_str(&format!(
+            "@MainActor\nfunc __nexaBackgroundTask{index}() async {{\n"
+        ));
+        controls::render_actions(&task.actions, 1, out);
+        out.push_str("}\n\n");
     }
 }
 

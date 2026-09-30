@@ -27,7 +27,8 @@ fn project_features_from_analysis(
         uses_coroutines: features.uses_network_transport()
             || features.uses_file_async
             || features.uses_permission_request
-            || features.facts.capabilities.uses_secure_storage_api,
+            || features.facts.capabilities.uses_secure_storage_api
+            || !module.background_tasks.is_empty(),
         uses_permission_request: features.uses_permission_request,
         uses_navigation: !module.screens.is_empty(),
         uses_compose_animation: features.uses_conditional_transition
@@ -40,6 +41,7 @@ fn project_features_from_analysis(
         uses_lifecycle_events: module.on_active.is_some()
             || module.on_inactive.is_some()
             || module.on_background.is_some(),
+        uses_background_tasks: !module.background_tasks.is_empty(),
     }
 }
 
@@ -306,9 +308,10 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                 || features.facts.capabilities.uses_keyboard_api
                 || features.facts.capabilities.uses_clipboard_api
                 || features.facts.capabilities.uses_haptics_api
-                || features.facts.capabilities.uses_screen_orientation_api
-                || features.facts.capabilities.uses_storage_api
-                || !module.plugins.is_empty()
+            || features.facts.capabilities.uses_screen_orientation_api
+            || features.facts.capabilities.uses_storage_api
+            || !module.plugins.is_empty()
+            || !module.background_tasks.is_empty()
             {
                 out.push_str("    NexaRuntime.bind(LocalContext.current)\n");
             }
@@ -413,6 +416,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
         || features.facts.capabilities.uses_clipboard_api
         || features.facts.capabilities.uses_screen_orientation_api
         || !module.plugins.is_empty()
+        || !module.background_tasks.is_empty()
     {
         units.write("runtime", |out| {
             runtime::render(out, features.uses_permission_request);
@@ -508,6 +512,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: vec![Screen {
                 id: ScreenId(0),
@@ -554,6 +559,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -614,6 +620,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: vec![State {
                 name: "price".to_owned(),
                 ty: Type::String,
@@ -651,6 +658,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -706,6 +714,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -765,6 +774,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: vec![State {
                 name: "distance".to_owned(),
                 ty: Type::Numeric(NumericType::Float64),
@@ -861,6 +871,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: vec![state("zoom"), state("distance")],
             screens: Vec::new(),
             components: Vec::new(),
@@ -962,6 +973,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: vec![
                 native_instance_state("appPlayer"),
                 State {
@@ -1092,6 +1104,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: vec![Component {
@@ -1141,6 +1154,7 @@ mod tests {
             app_name: "ResultApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
+            background_tasks: Vec::new(),
             enums: vec![nexa_ir::EnumDecl {
                 name: "AppError".to_owned(),
                 cases: vec!["NotFound".to_owned(), "Unauthorized".to_owned()],
@@ -1231,6 +1245,7 @@ mod tests {
             }],
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: vec![Screen {
                 id: ScreenId(0),

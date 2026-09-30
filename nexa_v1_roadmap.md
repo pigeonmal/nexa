@@ -256,7 +256,7 @@ I want be able to do tasks in Task or couroutines or custom thread
 - [x] **`Storage`**: App-private string preferences with `getString`, `setString`, `delete`, and `clear` on both native platforms and DevRuntime.
 - [x] **`Clipboard`**: `setText`, `getText`, and `hasText` on both native platforms and DevRuntime.
 - [x] **`Haptics`**: `.impact(Light|Medium|Heavy)`, `.notification(Success|Error)`, `.selection()` on both native backends and DevRuntime.
-- **`BackgroundTask`**: Periodic background execution (iOS `BGTaskScheduler`, Android `WorkManager`).
+- [x] **`BackgroundTask`**: Periodic background execution (iOS `BGTaskScheduler`, Android `WorkManager`), typed app-scope declarations, AOT handlers, and automatic Dev host rebuild when task code changes.
 
 #### 4.6 Keyboard Ergonomics
 

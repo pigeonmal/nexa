@@ -12,6 +12,7 @@ fn module(body: Vec<Node>, state_type: Type) -> Module {
         enums: Vec::new(),
         structs: Vec::new(),
         functions: Vec::new(),
+        background_tasks: Vec::new(),
         states: vec![State {
             name: "count".to_owned(),
             ty: state_type,

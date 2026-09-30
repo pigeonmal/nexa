@@ -6,7 +6,7 @@ package __NEXA_PACKAGE__
  */
 internal object NexaDevSchema {
     const val PROTOCOL_VERSION: Int = 10
-    const val DEV_IR_FORMAT_VERSION: Int = 15
+    const val DEV_IR_FORMAT_VERSION: Int = 16
     const val TARGET_PLATFORM: String = "android"
 }
 

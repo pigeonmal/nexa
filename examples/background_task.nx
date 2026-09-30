@@ -1,0 +1,18 @@
+app BackgroundSync {
+    background task RefreshHeartbeat(
+        identifier: "dev.example.backgroundsync.refresh",
+        everyMinutes: 60
+    ) {
+        Storage.setString(
+            key: "background.lastRefresh",
+            value: Time.iso8601(timestamp: Time.now())
+        )
+    }
+
+    body {
+        Column(spacing: 12) {
+            Text("Background sync example")
+            Text("The system schedules a heartbeat when background time is available.")
+        }
+    }
+}

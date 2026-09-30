@@ -2463,7 +2463,7 @@ fn lower_screen_target(
     Ok((id, lowered))
 }
 
-fn lower_actions_with_aliases(
+pub(super) fn lower_actions_with_aliases(
     actions: Vec<ast::Stmt>,
     symbols: &HashMap<String, (Type, bool)>,
     functions: &FunctionSignatures,

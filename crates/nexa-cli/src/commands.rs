@@ -181,6 +181,21 @@ fn check_project(args: &[String]) -> Result<(), String> {
                 .map(|plugin| (plugin.namespace.as_str(), plugin.artifacts.android_min_sdk))
                 .collect::<Vec<_>>();
             project_config.validate_android_plugin_minimums(&requirements)?;
+            crate::project::validate_android_background_task_minimum(
+                &compilation.module,
+                &project_config,
+            )?;
+        }
+        if target == nexa_compiler::Target::Swift {
+            let packages = crate::project::plugin_package::packages_for_module(
+                &compilation.plugins,
+                &compilation.module,
+            );
+            crate::project::validate_ios_background_task_minimum(
+                &compilation.module,
+                &packages,
+                &project_config,
+            )?;
         }
         for warning in compilation.warnings {
             warnings.insert(warning.to_string());
@@ -384,6 +399,7 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
             &platform,
             &mut dev_compiler,
         )?;
+        let mut background_tasks = background_task_fingerprint(&modules)?;
         let server = nexa_dev_server::DevServer::bind(modules)?;
         let server_url = format!("ws://{}", server.address());
         project_args.extend([
@@ -412,16 +428,16 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
             Some(server.address().port()),
         )?;
         println!("Watching .nx sources. Press Ctrl-C to stop.");
-        watch_sources(
-            &root,
-            &entry,
-            &platform,
-            &project_name,
-            &output,
-            &project_args,
-            &server,
-            &mut dev_compiler,
-        )
+        let watch_context = DevWatchContext {
+            root: &root,
+            entry: &entry,
+            platform: &platform,
+            project_name: &project_name,
+            output: &output,
+            project_args: &project_args,
+            server: &server,
+        };
+        watch_sources(&watch_context, &mut background_tasks, &mut dev_compiler)
     } else {
         super::project::run(&project_args)?;
         build_platforms(&output, &project_name, &platform, BuildMode::Release, None)
@@ -506,20 +522,26 @@ pub(crate) fn report_in_language_tests(
     }
 }
 
+struct DevWatchContext<'a> {
+    root: &'a Path,
+    entry: &'a Path,
+    platform: &'a str,
+    project_name: &'a str,
+    output: &'a Path,
+    project_args: &'a [String],
+    server: &'a nexa_dev_server::DevServer,
+}
+
 fn watch_sources(
-    root: &Path,
-    entry: &Path,
-    platform: &str,
-    project_name: &str,
-    output: &Path,
-    project_args: &[String],
-    server: &nexa_dev_server::DevServer,
+    context: &DevWatchContext<'_>,
+    background_tasks: &mut String,
     compiler: &mut nexa_compiler::IncrementalProjectCompiler,
 ) -> Result<(), String> {
-    let dependencies = crate::config::load_plugin_dependencies(&root.join("nexa.config.nx"))?;
-    let resolved = crate::dependencies::resolve(root, &dependencies)?;
+    let dependencies =
+        crate::config::load_plugin_dependencies(&context.root.join("nexa.config.nx"))?;
+    let resolved = crate::dependencies::resolve(context.root, &dependencies)?;
     let mut plugin_roots = resolved.plugin_roots.into_values().collect::<Vec<_>>();
-    let mut previous = source_fingerprint(root, &plugin_roots)?;
+    let mut previous = source_fingerprint(context.root, &plugin_roots)?;
     let mut performance_overlay_enabled = false;
     let mut native_rebuild_pending = false;
     let (console_commands, _raw_terminal) = start_dev_console_input();
@@ -527,39 +549,35 @@ fn watch_sources(
         match console_commands.try_recv() {
             Ok(DevConsoleCommand::HotReload) => {
                 println!("Hot reloading Nexa source...");
-                match compile_and_publish_dev_modules(entry, platform, server, compiler) {
-                    Ok(()) => println!("Nexa source reloaded in the running app."),
+                match reload_or_rebuild_dev_app(context, background_tasks, compiler) {
+                    Ok(true) => println!("Native app rebuilt for background task changes."),
+                    Ok(false) => println!("Nexa source reloaded in the running app."),
                     Err(error) => {
                         eprintln!("{error}");
-                        publish_dev_error(server, entry, platform, error);
+                        publish_dev_error(context.server, context.entry, context.platform, error);
                     }
                 }
             }
             Ok(DevConsoleCommand::HotRestart) => {
                 println!("Hot restarting Nexa app state...");
-                match compile_and_publish_dev_modules(entry, platform, server, compiler) {
-                    Ok(()) => {
-                        server.publish_restart("hot restart requested");
+                match reload_or_rebuild_dev_app(context, background_tasks, compiler) {
+                    Ok(rebuilt) => {
+                        if !rebuilt {
+                            context.server.publish_restart("hot restart requested");
+                        }
                         println!("Nexa app state restarted in the running app.");
                     }
                     Err(error) => {
                         eprintln!("{error}");
-                        publish_dev_error(server, entry, platform, error);
+                        publish_dev_error(context.server, context.entry, context.platform, error);
                     }
                 }
             }
             Ok(DevConsoleCommand::Rebuild) => {
                 println!("Rebuilding native app...");
-                let rebuilt = match rebuild_dev_app(
-                    entry,
-                    platform,
-                    project_name,
-                    output,
-                    project_args,
-                    server,
-                    compiler,
-                ) {
-                    Ok(()) => {
+                let rebuilt = match rebuild_dev_app(context, compiler) {
+                    Ok(task_fingerprint) => {
+                        *background_tasks = task_fingerprint;
                         println!("Native app rebuilt and relaunched.");
                         true
                     }
@@ -569,12 +587,13 @@ fn watch_sources(
                     }
                 };
                 if rebuilt {
-                    let dependencies =
-                        crate::config::load_plugin_dependencies(&root.join("nexa.config.nx"))?;
-                    let resolved = crate::dependencies::resolve(root, &dependencies)?;
+                    let dependencies = crate::config::load_plugin_dependencies(
+                        &context.root.join("nexa.config.nx"),
+                    )?;
+                    let resolved = crate::dependencies::resolve(context.root, &dependencies)?;
                     plugin_roots = resolved.plugin_roots.into_values().collect();
                 }
-                previous = source_fingerprint(root, &plugin_roots)?;
+                previous = source_fingerprint(context.root, &plugin_roots)?;
                 if rebuilt {
                     native_rebuild_pending = false;
                 }
@@ -582,7 +601,9 @@ fn watch_sources(
             }
             Ok(DevConsoleCommand::TogglePerformanceOverlay) => {
                 performance_overlay_enabled = !performance_overlay_enabled;
-                server.set_performance_overlay(performance_overlay_enabled);
+                context
+                    .server
+                    .set_performance_overlay(performance_overlay_enabled);
                 let state = if performance_overlay_enabled {
                     "on"
                 } else {
@@ -597,7 +618,7 @@ fn watch_sources(
             Err(TryRecvError::Empty | TryRecvError::Disconnected) => {}
         }
         thread::sleep(Duration::from_millis(350));
-        let current = match source_fingerprint(root, &plugin_roots) {
+        let current = match source_fingerprint(context.root, &plugin_roots) {
             Ok(current) => current,
             Err(error) => {
                 eprintln!("warning: {error}");
@@ -630,18 +651,15 @@ fn watch_sources(
             continue;
         }
         thread::sleep(Duration::from_millis(200));
-        match super::project::compile_dev_modules_with_compiler(entry, platform, compiler) {
-            Ok(modules) => {
-                for (target, module) in modules {
-                    if let Err(error) = server.publish_module(target, module) {
-                        eprintln!("dev server: {error}");
-                    }
-                }
-                println!("Nexa source reloaded in the running app.");
+        match reload_or_rebuild_dev_app(context, background_tasks, compiler) {
+            Ok(true) => {
+                native_rebuild_pending = false;
+                println!("Background task changes rebuilt and relaunched the native app.");
             }
+            Ok(false) => println!("Nexa source reloaded in the running app."),
             Err(error) => {
                 eprintln!("{error}");
-                publish_dev_error(server, entry, platform, error);
+                publish_dev_error(context.server, context.entry, context.platform, error);
             }
         }
     }
@@ -753,41 +771,63 @@ fn start_dev_console_input() -> (Receiver<DevConsoleCommand>, Option<RawTerminal
     (receiver, None)
 }
 
-fn compile_and_publish_dev_modules(
-    entry: &Path,
-    platform: &str,
-    server: &nexa_dev_server::DevServer,
+fn reload_or_rebuild_dev_app(
+    context: &DevWatchContext<'_>,
+    background_tasks: &mut String,
     compiler: &mut nexa_compiler::IncrementalProjectCompiler,
-) -> Result<(), String> {
-    let modules = super::project::compile_dev_modules_with_compiler(entry, platform, compiler)?;
-    for (target, module) in modules {
-        server.publish_module(target, module)?;
+) -> Result<bool, String> {
+    let modules = super::project::compile_dev_modules_with_compiler(
+        context.entry,
+        context.platform,
+        compiler,
+    )?;
+    let next_fingerprint = background_task_fingerprint(&modules)?;
+    if next_fingerprint != *background_tasks {
+        println!(
+            "Background task declarations or actions changed; rebuilding the native host because the OS runs compiled handlers."
+        );
+        *background_tasks = rebuild_dev_app(context, compiler)?;
+        return Ok(true);
     }
-    Ok(())
+    for (target, module) in modules {
+        context.server.publish_module(target, module)?;
+    }
+    Ok(false)
 }
 
 fn rebuild_dev_app(
-    entry: &Path,
-    platform: &str,
-    project_name: &str,
-    output: &Path,
-    project_args: &[String],
-    server: &nexa_dev_server::DevServer,
+    context: &DevWatchContext<'_>,
     compiler: &mut nexa_compiler::IncrementalProjectCompiler,
-) -> Result<(), String> {
-    let modules = super::project::compile_dev_modules_with_compiler(entry, platform, compiler)?;
-    super::project::run(project_args)?;
+) -> Result<String, String> {
+    let modules = super::project::compile_dev_modules_with_compiler(
+        context.entry,
+        context.platform,
+        compiler,
+    )?;
+    let task_fingerprint = background_task_fingerprint(&modules)?;
+    super::project::run(context.project_args)?;
     build_platforms(
-        output,
-        project_name,
-        platform,
+        context.output,
+        context.project_name,
+        context.platform,
         BuildMode::Dev,
-        Some(server.address().port()),
+        Some(context.server.address().port()),
     )?;
     for (target, module) in modules {
-        server.publish_module(target, module)?;
+        context.server.publish_module(target, module)?;
     }
-    Ok(())
+    Ok(task_fingerprint)
+}
+
+fn background_task_fingerprint(
+    modules: &[(nexa_dev_protocol::TargetPlatform, nexa_dev_ir::DevModule)],
+) -> Result<String, String> {
+    let task_sets = modules
+        .iter()
+        .map(|(_, module)| &module.module.background_tasks)
+        .collect::<Vec<_>>();
+    serde_json::to_string(&task_sets)
+        .map_err(|error| format!("could not fingerprint background tasks: {error}"))
 }
 
 fn changed_paths(

@@ -440,6 +440,32 @@ app Preferences {
 
 The iOS implementation uses the app's `UserDefaults` domain and the Android implementation uses a dedicated private `SharedPreferences` file. Calls are synchronous and available through DevRuntime hot reload. Use `SecureStorage` for credentials and other secrets; ordinary `Storage` is not encrypted.
 
+## Background tasks
+
+Declare periodic work at app scope. The task body is compiled into the native host and cannot read or mutate screen state, because the operating system may launch it after the app process has stopped:
+
+```nexa
+app Weather {
+    background task RefreshWeather(
+        identifier: "dev.example.weather.refresh",
+        everyMinutes: 60
+    ) {
+        Storage.setString(
+            key: "weather.lastRefresh",
+            value: Time.iso8601(timestamp: Time.now())
+        )
+    }
+
+    body {
+        Text("Weather")
+    }
+}
+```
+
+The interval must be at least 15 minutes so the declaration is valid on Android. WorkManager and iOS background refresh are best-effort: the operating system chooses when eligible work runs and may defer it for power or scheduling reasons. Do not use periodic work for exact alarms or continuous execution. iOS hosts register each reverse-domain task identifier and enable Background Fetch; Android hosts use a persistent WorkManager worker. The Android WorkManager dependency is included only when the app declares a background task.
+
+Task handlers are AOT code. In a `nexa dev` session, editing a background task declaration or body causes the native host to rebuild and relaunch automatically; UI-only edits continue to hot reload. See [`background_task.nx`](../examples/background_task.nx).
+
 ## Haptics
 
 Use `Haptics.impact(style:)` for light, medium, or heavy impact feedback; `Haptics.notification(kind:)` for success or error feedback; and `Haptics.selection()` for selection changes. The style values are `Light`, `Medium`, and `Heavy`; notification values are `Success` and `Error`.

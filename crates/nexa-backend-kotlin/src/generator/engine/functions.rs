@@ -2,6 +2,7 @@ use nexa_codegen::SourceWriter;
 use nexa_ir::{Function, Module};
 
 use super::{expressions, utils::indent};
+use crate::generator::controls;
 use crate::generator::engine::types::kotlin_type;
 
 pub(crate) fn render(module: &Module, out: &mut SourceWriter) {
@@ -10,6 +11,24 @@ pub(crate) fn render(module: &Module, out: &mut SourceWriter) {
     }
     if !module.functions.is_empty() {
         out.push('\n');
+    }
+    for (index, task) in module.background_tasks.iter().enumerate() {
+        out.push_str(&format!(
+            "internal suspend fun __nexaBackgroundTask{index}() {{\n"
+        ));
+        controls::render_actions(&task.actions, 1, out);
+        out.push_str("}\n\n");
+    }
+    if !module.background_tasks.is_empty() {
+        out.push_str(
+            "internal suspend fun __nexaRunBackgroundTask(index: Int) {\n    when (index) {\n",
+        );
+        for (index, _) in module.background_tasks.iter().enumerate() {
+            out.push_str(&format!(
+                "        {index} -> __nexaBackgroundTask{index}()\n"
+            ));
+        }
+        out.push_str("        else -> Unit\n    }\n}\n");
     }
 }
 

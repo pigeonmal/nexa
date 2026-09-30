@@ -36,6 +36,7 @@ pub(super) fn ios_info_plist_with_orientation(
     plugins: &[PluginPackage],
     dev_runtime: bool,
     supports_screen_orientation: bool,
+    background_task_identifiers: &[String],
 ) -> Result<String, String> {
     let mut usage_descriptions = std::collections::BTreeMap::<String, String>::new();
     for (permission, description) in config.permissions() {
@@ -68,10 +69,14 @@ pub(super) fn ios_info_plist_with_orientation(
             usage_descriptions.insert(key.clone(), message.clone());
         }
     }
-    let background_modes = plugins
+    let mut background_modes = plugins
         .iter()
         .flat_map(|plugin| plugin.artifacts.ios_background_modes.iter())
+        .cloned()
         .collect::<std::collections::BTreeSet<_>>();
+    if !background_task_identifiers.is_empty() {
+        background_modes.insert("fetch".to_owned());
+    }
     let background_modes = if background_modes.is_empty() {
         String::new()
     } else {
@@ -91,6 +96,15 @@ pub(super) fn ios_info_plist_with_orientation(
             )
         })
         .collect::<String>();
+    let background_identifiers = if background_task_identifiers.is_empty() {
+        String::new()
+    } else {
+        let identifiers = background_task_identifiers
+            .iter()
+            .map(|identifier| format!("<string>{}</string>", xml_escape(identifier)))
+            .collect::<String>();
+        format!("<key>BGTaskSchedulerPermittedIdentifiers</key><array>{identifiers}</array>")
+    };
     let splash = if config.splash_source.is_some() {
         "<key>UILaunchStoryboardName</key><string>LaunchScreen</string>"
     } else {
@@ -127,12 +141,51 @@ pub(super) fn ios_info_plist_with_orientation(
         ""
     };
     Ok(format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleExecutable</key><string>{app_name}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string><key>LSRequiresIPhoneOS</key><true/>{splash}{interface_orientations}{dev_network}{url_types}{background_modes}{entries}</dict></plist>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleExecutable</key><string>{app_name}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string><key>LSRequiresIPhoneOS</key><true/>{splash}{interface_orientations}{dev_network}{url_types}{background_modes}{background_identifiers}{entries}</dict></plist>\n",
         xml_escape(&config.display_name),
         xml_escape(&config.ios_bundle_identifier),
         xml_escape(&config.version),
         config.build_number
     ))
+}
+
+pub(super) fn ios_app_source(
+    app_name: &str,
+    app_root: &str,
+    tasks: &[nexa_ir::BackgroundTask],
+) -> String {
+    let mut source = String::from("import SwiftUI\n");
+    if !tasks.is_empty() {
+        source.push_str("import BackgroundTasks\n");
+    }
+    source.push_str(&format!(
+        "\n@main\nstruct {app_name}App: App {{\n    var body: some Scene {{\n        WindowGroup {{\n            {app_root}"
+    ));
+    if !tasks.is_empty() {
+        source.push_str("\n                .task { __nexaScheduleBackgroundTasks() }");
+    }
+    source.push_str("\n        }");
+    for task in tasks.iter().enumerate() {
+        let (index, task) = task;
+        source.push_str(&format!(
+            "\n        .backgroundTask(.appRefresh(\"{}\")) {{\n            await __nexaBackgroundTask{index}()\n            __nexaScheduleBackgroundTask(\"{}\", everyMinutes: {})\n        }}",
+            task.identifier, task.identifier, task.interval_minutes
+        ));
+    }
+    source.push_str("\n    }\n}\n");
+    if !tasks.is_empty() {
+        source.push_str("\nprivate func __nexaScheduleBackgroundTasks() {\n");
+        for task in tasks {
+            source.push_str(&format!(
+                "    __nexaScheduleBackgroundTask(\"{}\", everyMinutes: {})\n",
+                task.identifier, task.interval_minutes
+            ));
+        }
+        source.push_str(
+            "}\n\nprivate func __nexaScheduleBackgroundTask(_ identifier: String, everyMinutes: Int) {\n    let request = BGAppRefreshTaskRequest(identifier: identifier)\n    request.earliestBeginDate = Date(timeIntervalSinceNow: TimeInterval(everyMinutes * 60))\n    do {\n        try BGTaskScheduler.shared.submit(request)\n    } catch {\n        NSLog(\"Nexa background task schedule failed for %@: %@\", identifier, String(describing: error))\n    }\n}\n",
+        );
+    }
+    source
 }
 
 pub(super) fn ios_privacy_manifest(
@@ -289,7 +342,10 @@ fn merge_swift_packages(plugins: &[PluginPackage]) -> Result<Vec<SwiftPackage>, 
     Ok(packages)
 }
 
-fn minimum_ios_version(configured: &str, plugins: &[PluginPackage]) -> Result<String, String> {
+pub(super) fn minimum_ios_version(
+    configured: &str,
+    plugins: &[PluginPackage],
+) -> Result<String, String> {
     let mut minimum = configured
         .split('.')
         .map(str::parse::<u32>)
@@ -1227,6 +1283,12 @@ pub(super) fn android_app_gradle_with_dev_runtime(
     config: &ProjectConfig,
     dev_runtime: bool,
 ) -> Result<String, String> {
+    if features.uses_background_tasks && config.android_min_sdk < 23 {
+        return Err(format!(
+            "Android background tasks require minSdk 23 because WorkManager 2.11.2 does not support API levels below 23; increase `android.minSdk` from {} in `nexa.config.nx`.",
+            config.android_min_sdk
+        ));
+    }
     let maven_dependencies = merge_maven_dependencies(plugins)?;
     let plugin_minimums = plugins
         .iter()
@@ -1280,6 +1342,9 @@ pub(super) fn android_app_gradle_with_dev_runtime(
         dependencies.push_str(
             "    implementation(\"org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0\")\n",
         );
+    }
+    if features.uses_background_tasks {
+        dependencies.push_str("    implementation(\"androidx.work:work-runtime-ktx:2.11.2\")\n");
     }
     if config.splash_source.is_some() {
         dependencies.push_str("    implementation(\"androidx.core:core-splashscreen:1.0.1\")\n");

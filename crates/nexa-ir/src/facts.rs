@@ -421,6 +421,18 @@ impl ModuleFacts {
                 );
             });
         }
+        for task in &module.background_tasks {
+            facts.capabilities.uses_network_connectivity |=
+                actions_contain_network_status_subscription(&task.actions);
+            walk_actions(&task.actions, &mut |expression| {
+                observe_expr(
+                    expression,
+                    &mut facts.capabilities,
+                    &mut facts.permissions,
+                    &mut false,
+                );
+            });
+        }
         for screen in &module.screens {
             for actions in screen.on_appear.iter().chain(screen.on_disappear.iter()) {
                 facts.capabilities.uses_network_connectivity |=
@@ -1200,6 +1212,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),

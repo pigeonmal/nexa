@@ -580,6 +580,7 @@ fn generate_ios(
     config: &ProjectConfig,
     dev_session: Option<&DevSessionConfig>,
 ) -> Result<(), String> {
+    validate_ios_background_task_minimum(module, plugins, config)?;
     let dev_runtime = dev_session.is_some();
     let prepared = prepare_ios(
         root,
@@ -871,9 +872,7 @@ fn ios_plan(
     plan = plan
         .with_file(
             format!("{directory}/{app_name}App.swift"),
-            format!(
-                "import SwiftUI\n\n@main\nstruct {app_name}App: App {{\n    var body: some Scene {{\n        WindowGroup {{\n            {app_root}\n        }}\n    }}\n}}\n"
-            ),
+            templates::ios_app_source(app_name, &app_root, &module.background_tasks),
         )
         .with_file(
             format!("ios/{app_name}.xcodeproj/xcshareddata/xcschemes/{app_name}.xcscheme"),
@@ -902,6 +901,11 @@ fn ios_plan(
                 plugins,
                 dev_runtime,
                 dev_runtime || prepared.supports_screen_orientation,
+                &module
+                    .background_tasks
+                    .iter()
+                    .map(|task| task.identifier.clone())
+                    .collect::<Vec<_>>(),
             )?,
         );
     if config.splash_source.is_some() {
@@ -941,6 +945,7 @@ fn generate_android(
     config: &ProjectConfig,
     dev_session: Option<&DevSessionConfig>,
 ) -> Result<(), String> {
+    validate_android_background_task_minimum(module, config)?;
     let package = config.android_application_id.clone();
     let package_path = package.replace('.', "/");
     let source_dir = root.join("android/app/src/main/java").join(&package_path);
@@ -1036,6 +1041,7 @@ fn generate_android(
         plugins,
         dev_session,
         project_features,
+        &module.background_tasks,
         &local_aars,
         &resources,
     )?;
@@ -1070,6 +1076,43 @@ fn generate_android(
     writers::remove_stale_units(&source_dir, &keep, plan.platform().unit_extension())
 }
 
+pub(crate) fn validate_ios_background_task_minimum(
+    module: &Module,
+    plugins: &[plugin_package::PluginPackage],
+    config: &ProjectConfig,
+) -> Result<(), String> {
+    if module.background_tasks.is_empty() {
+        return Ok(());
+    }
+    let minimum = templates::minimum_ios_version(&config.ios_min_version, plugins)?;
+    let parts = minimum
+        .split('.')
+        .map(str::parse::<u32>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| format!("invalid iOS minimum version `{minimum}`"))?;
+    let major = *parts.first().unwrap_or(&0);
+    let minor = *parts.get(1).unwrap_or(&0);
+    if (major, minor) < (16, 0) {
+        return Err(format!(
+            "iOS background tasks require iOS 16.0 or later, but the resolved deployment target is {minimum}. Increase `ios.minVersion` in `nexa.config.nx`."
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_android_background_task_minimum(
+    module: &Module,
+    config: &ProjectConfig,
+) -> Result<(), String> {
+    if !module.background_tasks.is_empty() && config.android_min_sdk < 23 {
+        return Err(format!(
+            "Android background tasks require minSdk 23 because WorkManager 2.11.2 does not support API levels below 23; increase `android.minSdk` from {} in `nexa.config.nx`.",
+            config.android_min_sdk
+        ));
+    }
+    Ok(())
+}
+
 /// Computes every Android file and path, without touching the filesystem.
 #[allow(clippy::too_many_arguments)]
 fn android_plan(
@@ -1082,6 +1125,7 @@ fn android_plan(
     plugins: &[plugin_package::PluginPackage],
     dev_session: Option<&DevSessionConfig>,
     project_features: nexa_backend_kotlin::KotlinProjectFeatures,
+    background_tasks: &[nexa_ir::BackgroundTask],
     local_aars: &[String],
     resources: &plugins::StagedResources,
 ) -> Result<ProjectPlan, String> {
@@ -1110,6 +1154,11 @@ fn android_plan(
     } else {
         ("", "")
     };
+    let background_schedule = if background_tasks.is_empty() {
+        String::new()
+    } else {
+        "        NexaBackgroundWorker.scheduleAll(applicationContext)\n".to_owned()
+    };
     let activity_content = if install_play_services_cronet {
         format!(
             "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Play Services Cronet provider is unavailable; network calls may fail\", result.exception)\n            setContent {{ MaterialTheme {{ {compose_root} }} }}\n        }}\n"
@@ -1123,7 +1172,7 @@ fn android_plan(
         .with_file(
             format!("{source_directory}/MainActivity.kt"),
             format!(
-                "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{splash_import}{cronet_import}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n{activity_content}    }}\n}}\n"
+                "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{splash_import}{cronet_import}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n{background_schedule}{activity_content}    }}\n}}\n"
             ),
         )
         .with_file(
@@ -1169,6 +1218,15 @@ fn android_plan(
             "android/app/proguard-rules.pro",
             plugins::android_plugin_proguard_rules(plugins, package)?,
         );
+    let background_worker_path = format!("{source_directory}/NexaBackgroundWorker.kt");
+    if background_tasks.is_empty() {
+        plan = plan.with_removal(background_worker_path);
+    } else {
+        plan = plan.with_file(
+            background_worker_path,
+            android_background_worker_source(package, background_tasks),
+        );
+    }
     // Plugin resources are staged relative to the asset directory so the
     // marker survives the application id changing.
     let resource_directory = plugins::ANDROID_RESOURCES;
@@ -1219,6 +1277,19 @@ fn android_plan(
     }
     plan.validate()?;
     Ok(plan)
+}
+
+fn android_background_worker_source(package: &str, tasks: &[nexa_ir::BackgroundTask]) -> String {
+    let mut schedules = String::new();
+    for (index, task) in tasks.iter().enumerate() {
+        schedules.push_str(&format!(
+            "        workManager.enqueueUniquePeriodicWork(\n            \"{}\",\n            ExistingPeriodicWorkPolicy.UPDATE,\n            PeriodicWorkRequestBuilder<NexaBackgroundWorker>({}, TimeUnit.MINUTES)\n                .setInputData(workDataOf(\"nexaTaskIndex\" to {index}))\n                .build(),\n        )\n",
+            task.identifier, task.interval_minutes
+        ));
+    }
+    format!(
+        "package {package}\n\nimport android.content.Context\nimport androidx.work.CoroutineWorker\nimport androidx.work.ExistingPeriodicWorkPolicy\nimport androidx.work.PeriodicWorkRequestBuilder\nimport androidx.work.WorkManager\nimport androidx.work.WorkerParameters\nimport androidx.work.workDataOf\nimport kotlinx.coroutines.CancellationException\nimport java.util.concurrent.TimeUnit\n\nclass NexaBackgroundWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {{\n    override suspend fun doWork(): Result {{\n        NexaRuntime.bind(applicationContext)\n        return try {{\n            __nexaRunBackgroundTask(inputData.getInt(\"nexaTaskIndex\", -1))\n            Result.success()\n        }} catch (cancelled: CancellationException) {{\n            throw cancelled\n        }} catch (_: Exception) {{\n            Result.retry()\n        }}\n    }}\n\n    companion object {{\n        fun scheduleAll(context: Context) {{\n            val workManager = WorkManager.getInstance(context.applicationContext)\n{schedules}        }}\n    }}\n}}\n"
+    )
 }
 
 fn copy_config_icons(root: &Path, app_name: &str, config: &ProjectConfig) -> Result<(), String> {

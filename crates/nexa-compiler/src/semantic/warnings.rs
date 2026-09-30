@@ -89,6 +89,16 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
             walk_expression(&state.initial, &function_names, &mut used_functions);
         }
     }
+    for task in &app.background_tasks {
+        walk_actions(
+            &task.body,
+            &function_names,
+            &mut used_functions,
+            target,
+            None,
+            &mut reachability_warnings,
+        );
+    }
     for node in app
         .body
         .iter()

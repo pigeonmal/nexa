@@ -527,6 +527,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: vec![Screen {
                 id: ScreenId(0),
@@ -570,6 +571,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -631,6 +633,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: vec![State {
                 name: "price".to_owned(),
                 ty: Type::String,
@@ -668,6 +671,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -722,6 +726,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: Vec::new(),
@@ -778,6 +783,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: vec![State {
                 name: "distance".to_owned(),
                 ty: Type::Numeric(NumericType::Float64),
@@ -860,6 +866,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: vec![State {
                 name: "zoom".to_owned(),
                 ty: Type::Numeric(NumericType::Float64),
@@ -943,6 +950,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: vec![native_instance_state("player")],
             screens: Vec::new(),
             components: Vec::new(),
@@ -983,6 +991,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: vec![player],
             screens: Vec::new(),
             components: Vec::new(),
@@ -1017,6 +1026,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: vec![
                 native_instance_state("appPlayer"),
                 State {
@@ -1160,6 +1170,7 @@ mod tests {
             enums: Vec::new(),
             structs: Vec::new(),
             functions: Vec::new(),
+            background_tasks: Vec::new(),
             states: Vec::new(),
             screens: Vec::new(),
             components: vec![Component {
@@ -1198,6 +1209,7 @@ mod tests {
             app_name: "ResultApp".to_owned(),
             plugins: Vec::new(),
             plugin_assets: Vec::new(),
+            background_tasks: Vec::new(),
             enums: vec![nexa_ir::EnumDecl {
                 name: "AppError".to_owned(),
                 cases: vec!["NotFound".to_owned(), "Unauthorized".to_owned()],
