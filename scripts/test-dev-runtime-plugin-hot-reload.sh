@@ -43,7 +43,7 @@ print_logs() {
 cleanup() {
   local status=$?
   if [[ -n "$dev_pid" ]]; then
-    kill -INT "$dev_pid" 2>/dev/null || true
+    kill -TERM "$dev_pid" 2>/dev/null || true
     wait "$dev_pid" 2>/dev/null || true
   fi
   if [[ "$platform" == "ios" && -n "$device_id" ]]; then
@@ -109,15 +109,28 @@ wait_for_marker() {
   return 1
 }
 
-(cd "$tmp_root" && "$nexa_bin" dev "--$platform" --out "$tmp_root/build") >"$dev_log" 2>&1 &
+(cd "$tmp_root" && exec "$nexa_bin" dev "--$platform" --out "$tmp_root/build") >"$dev_log" 2>&1 &
 dev_pid=$!
 
 wait_for_marker "$dev_log" "Nexa $target_name dev runtime connected."
 for marker in \
+  DEVRT_SERVICE_SYNC_PASS \
+  DEVRT_SERVICE_TYPED_ERROR_PASS \
   DEVRT_NATIVE_EVENT_PASS \
   DEVRT_PROPERTY_WRITE_READ_PASS \
   DEVRT_GENERIC_SCALAR_PASS \
   DEVRT_GENERIC_OPTIONAL_ARRAY_PASS \
+  DEVRT_GENERIC_OPTIONAL_VALUE_PASS \
+  DEVRT_GENERIC_OPTIONAL_NULL_PASS \
+  DEVRT_GENERIC_SET_PASS \
+  DEVRT_GENERIC_MAP_PASS \
+  DEVRT_GENERIC_PAIR_PASS \
+  DEVRT_GENERIC_TRIPLE_PASS \
+  DEVRT_GENERIC_BYTES_PASS \
+  DEVRT_GENERIC_ENUM_PASS \
+  DEVRT_GENERIC_STRUCT_PASS \
+  DEVRT_GENERIC_NESTED_STRUCT_PASS \
+  DEVRT_GENERIC_RESULT_PASS \
   DEVRT_TYPED_ERROR_PASS \
   DEVRT_BASE_COMPONENT_PASS; do
   wait_for_marker "$native_log" "$marker"

@@ -7,15 +7,23 @@ error ProbeError {
     rejected(value: ProbeValue, reason: String)
 }
 
+service DevProbe {
+    fn increment(value: Int32) -> Int32
+    async fn fail() -> ProbeValue throws ProbeError
+}
+
 native class Probe {
     init()
 
     property value: ProbeValue
 
     fn updated() -> ProbeValue
+    fn numericMap() -> Map<Int32, Int32>
     fn replace(value: ProbeValue)
     fn emit()
     fn echo<T>(value: T) -> T
+    fn hasValue<T>(value: T?) -> Bool
+    fn echoOptional<T>(value: T?) -> T?
     async fn fail() -> ProbeValue throws ProbeError
 
     event changed(value: ProbeValue)

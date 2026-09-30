@@ -1,15 +1,68 @@
 import "ProbePanel.nx"
+struct ProbePayload {
+    label: String,
+    score: Int32,
+}
+
+struct ProbeEnvelope {
+    payload: ProbePayload,
+    labels: Array<String?>,
+    metadata: Map<String, Int32?>,
+}
 
 plugin "dev.nexa.runtime-probe" as DevProbe
 
 app DevRuntimeProbe {
+    enum ProbeMode {
+        fast,
+        safe,
+    }
+
+    enum ProbeFailure {
+        failed,
+    }
+
     let probe = DevProbe.Probe()
     state genericScalar: Int32 = 0
     state optionalInput: Array<String?> = ["one", null]
     state optionalValues: Array<String?> = []
+    state genericOptionalInput: String? = "optional"
+    state genericOptionalOutput: String? = null
+    state genericSetInput: Set<Int32> = [11, 12]
+    state genericSetOutput: Set<Int32> = []
+    state genericMapInput: Map<Int32, Int32> = [:]
+    state genericMapOutput: Map<Int32, Int32> = [:]
+    state genericPairInput: Pair<String, Int32> = Pair("pair", 43)
+    state genericPairOutput: Pair<String, Int32> = Pair("", 0)
+    state genericTripleInput: Triple<String, Int32, Bool> = Triple("triple", 44, true)
+    state genericTripleOutput: Triple<String, Int32, Bool> = Triple("", 0, false)
+    state genericBytesInput: Bytes = Bytes.fromText(text: "bytes")
+    state genericBytesOutput: Bytes = Bytes.fromText(text: "")
+    state genericEnumOutput: ProbeMode = ProbeMode.safe
+    state genericStructOutput: ProbePayload = ProbePayload("", 0)
+    state genericEnvelopeOutput: ProbeEnvelope = ProbeEnvelope(ProbePayload("", 0), [], [:])
+    state genericResultInput: Result<ProbePayload, ProbeFailure> = Ok(ProbePayload("result", 48))
+    state genericResultOutput: Result<ProbePayload, ProbeFailure> = Ok(ProbePayload("initial", 46))
+    state genericResultPayload: ProbePayload = ProbePayload("", 0)
 
     body {
         OnAppear async {
+            if DevProbe.increment(41) == 42 {
+                Log.info(message: "DEVRT_SERVICE_SYNC_PASS")
+            }
+            try {
+                await DevProbe.fail()
+                Log.error(message: "DEVRT_SERVICE_TYPED_ERROR_FAIL")
+            } catch {
+                case DevProbe.ProbeError.rejected(value, reason) {
+                    if value.score == 47 && reason == "service-probe" {
+                        Log.info(message: "DEVRT_SERVICE_TYPED_ERROR_PASS")
+                    }
+                }
+                else {
+                    Log.error(message: "DEVRT_SERVICE_TYPED_ERROR_WRONG_CASE")
+                }
+            }
             probe.changed { value ->
                 if value.score == 42 {
                     Log.info(message: "DEVRT_NATIVE_EVENT_PASS")
@@ -26,8 +79,69 @@ app DevRuntimeProbe {
                 Log.info(message: "DEVRT_GENERIC_SCALAR_PASS")
             }
             optionalValues = probe.echo<Array<String?>>(optionalInput)
-            if optionalValues.count == 2 {
+            if optionalValues.count == 2
+                && (optionalValues[0] ?? "") == "one"
+                && optionalValues[1] == null {
                 Log.info(message: "DEVRT_GENERIC_OPTIONAL_ARRAY_PASS")
+            }
+            genericOptionalOutput = probe.echoOptional<String>(genericOptionalInput)
+            if probe.hasValue<String>(genericOptionalInput)
+                && (genericOptionalOutput ?? "") == "optional" {
+                Log.info(message: "DEVRT_GENERIC_OPTIONAL_VALUE_PASS")
+            }
+            genericOptionalOutput = probe.echoOptional<String>(null)
+            if !probe.hasValue<String>(null) && genericOptionalOutput == null {
+                Log.info(message: "DEVRT_GENERIC_OPTIONAL_NULL_PASS")
+            }
+            genericSetOutput = probe.echo<Set<Int32>>(genericSetInput)
+            if genericSetOutput.count == 2 {
+                Log.info(message: "DEVRT_GENERIC_SET_PASS")
+            }
+            genericMapInput = probe.numericMap()
+            genericMapOutput = probe.echo<Map<Int32, Int32>>(genericMapInput)
+            if genericMapOutput.count == 2 && (genericMapOutput[2] ?? 0) == 42 {
+                Log.info(message: "DEVRT_GENERIC_MAP_PASS")
+            }
+            genericPairOutput = probe.echo<Pair<String, Int32>>(genericPairInput)
+            if genericPairOutput.first == "pair" && genericPairOutput.second == 43 {
+                Log.info(message: "DEVRT_GENERIC_PAIR_PASS")
+            }
+            genericTripleOutput = probe.echo<Triple<String, Int32, Bool>>(genericTripleInput)
+            if genericTripleOutput.first == "triple" && genericTripleOutput.second == 44 && genericTripleOutput.third {
+                Log.info(message: "DEVRT_GENERIC_TRIPLE_PASS")
+            }
+            genericBytesOutput = probe.echo<Bytes>(genericBytesInput)
+            if Bytes.count(bytes: genericBytesOutput) == 5 {
+                Log.info(message: "DEVRT_GENERIC_BYTES_PASS")
+            }
+            genericEnumOutput = probe.echo<ProbeMode>(ProbeMode.fast)
+            if genericEnumOutput == ProbeMode.fast {
+                Log.info(message: "DEVRT_GENERIC_ENUM_PASS")
+            }
+            genericStructOutput = probe.echo<ProbePayload>(ProbePayload("struct", 45))
+            if genericStructOutput.label == "struct" && genericStructOutput.score == 45 {
+                Log.info(message: "DEVRT_GENERIC_STRUCT_PASS")
+            }
+            genericEnvelopeOutput = probe.echo<ProbeEnvelope>(ProbeEnvelope(
+                ProbePayload("nested", 46),
+                ["one", null],
+                ["present": 7, "null": null]
+            ))
+            if genericEnvelopeOutput.payload.score == 46
+                && genericEnvelopeOutput.labels.count == 2
+                && genericEnvelopeOutput.labels[1] == null
+                && genericEnvelopeOutput.metadata.count == 2 {
+                Log.info(message: "DEVRT_GENERIC_NESTED_STRUCT_PASS")
+            }
+            genericResultOutput = probe.echo<Result<ProbePayload, ProbeFailure>>(genericResultInput)
+            try {
+                genericResultPayload = genericResultOutput?
+                if genericResultPayload.label == "result"
+                    && genericResultPayload.score == 48 {
+                    Log.info(message: "DEVRT_GENERIC_RESULT_PASS")
+                }
+            } catch {
+                Log.error(message: "DEVRT_GENERIC_RESULT_FAIL")
             }
 
             try {
