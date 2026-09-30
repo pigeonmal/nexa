@@ -295,7 +295,7 @@ Create the standalone `nexa-plugins` repository containing official native plugi
 5. `@nexa/maps`: Apple Maps (`MapKit`) & Google Maps SDK for Android.
 6. `@nexa/sqlite`: Relational SQLite database with migrations and transactions. (ultra performance)
 7. `@nexa/biometrics`: Face ID, Touch ID, and Android BiometricPrompt.
-8. `@nexa/webview`: Embedded `WKWebView` and Android `WebView` with two-way JS messaging.
+8. [x] `@nexa/webview`: Embedded `WKWebView` and Android `WebView` with HTTPS-only navigation and origin-gated two-way string messaging (`plugins/webview`).
 9. `@nexa/notifications`: Local notifications & APNs/FCM push notifications.
 10. `@nexa/sensors`: Accelerometer, gyroscope, and pedometer.
 11. `@nexa/in-app-purchases`: Apple StoreKit 2 & Google Play Billing 7.
