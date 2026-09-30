@@ -1258,6 +1258,23 @@ pub(super) fn lower_expr(
             optional,
             span,
         } => {
+            if !*optional
+                && name == "isOnline"
+                && matches!(base.as_ref(), ast::Expr::Name(namespace, _) if namespace == "Network")
+            {
+                let return_type = Type::Bool;
+                require_expected(expected, &return_type, *span)?;
+                return Ok(Expr::NativeCall {
+                    receiver: None,
+                    namespace: "Network".to_owned(),
+                    name: "isOnline".to_owned(),
+                    arguments: Vec::new(),
+                    codecs: Vec::new(),
+                    return_type,
+                    is_async: false,
+                    is_throwing: false,
+                });
+            }
             if !*optional && let ast::Expr::Name(enum_name, _) = base.as_ref() {
                 if enum_name == "PermissionStatus" && is_permission_status_case(name) {
                     let ty = Type::Enum("PermissionStatus".to_owned());
@@ -3441,6 +3458,12 @@ pub(super) fn infer_expr_type(
             optional,
             ..
         } => {
+            if !*optional
+                && name == "isOnline"
+                && matches!(base.as_ref(), ast::Expr::Name(namespace, _) if namespace == "Network")
+            {
+                return Some(Type::Bool);
+            }
             if !*optional && let ast::Expr::Name(enum_name, _) = base.as_ref() {
                 if enum_name == "PermissionStatus" && is_permission_status_case(name) {
                     return Some(Type::Enum("PermissionStatus".to_owned()));

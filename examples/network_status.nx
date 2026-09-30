@@ -1,0 +1,10 @@
+app NetworkStatus {
+    state online: Bool = Network.isOnline
+
+    body {
+        Column(spacing: 12) {
+            Text("Network status")
+            Text(online ? "Online" : "Offline")
+        }
+    }
+}

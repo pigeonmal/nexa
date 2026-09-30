@@ -1014,7 +1014,8 @@ mod template_generation {
             )
         );
 
-        let manifest = android_manifest("Demo", "com.example.demo", false, &config, &[plugin]);
+        let manifest =
+            android_manifest("Demo", "com.example.demo", false, false, &config, &[plugin]);
         assert!(manifest.contains("android.permission.CAMERA"));
         assert!(manifest.contains("android.permission.RECORD_AUDIO"));
     }
@@ -1022,12 +1023,14 @@ mod template_generation {
     #[test]
     fn plugin_picture_in_picture_metadata_reaches_only_opted_in_hosts() {
         let config = ProjectConfig::from_defaults(&[], "Demo").expect("empty project config");
-        let without_video = android_manifest("Demo", "com.example.demo", false, &config, &[]);
+        let without_video =
+            android_manifest("Demo", "com.example.demo", false, false, &config, &[]);
         assert!(!without_video.contains("android:supportsPictureInPicture"));
 
         let mut video = plugin("Video");
         video.artifacts.android_picture_in_picture = true;
-        let with_video = android_manifest("Demo", "com.example.demo", false, &config, &[video]);
+        let with_video =
+            android_manifest("Demo", "com.example.demo", false, false, &config, &[video]);
         assert!(with_video.contains("android:supportsPictureInPicture=\"true\""));
         assert!(with_video.contains(
             "android:configChanges=\"screenSize|smallestScreenSize|screenLayout|orientation\""
@@ -1037,10 +1040,19 @@ mod template_generation {
     #[test]
     fn android_launcher_uses_the_user_orientation_policy_at_startup() {
         let config = ProjectConfig::from_defaults(&[], "Demo").expect("empty project config");
-        let manifest = android_manifest("Demo", "com.example.demo", false, &config, &[]);
+        let manifest = android_manifest("Demo", "com.example.demo", false, false, &config, &[]);
 
         assert!(manifest.contains("android:screenOrientation=\"fullUser\""));
         assert!(!manifest.contains("android:screenOrientation=\"portrait\""));
+    }
+
+    #[test]
+    fn connectivity_status_adds_state_permission_without_internet_transport() {
+        let config = ProjectConfig::from_defaults(&[], "Demo").expect("empty project config");
+        let manifest = android_manifest("Demo", "com.example.demo", false, true, &config, &[]);
+
+        assert!(manifest.contains("android.permission.ACCESS_NETWORK_STATE"));
+        assert!(!manifest.contains("android.permission.INTERNET"));
     }
 
     #[test]
@@ -1057,7 +1069,8 @@ mod template_generation {
             plist.contains("<key>UIBackgroundModes</key><array><string>audio</string></array>")
         );
 
-        let manifest = android_manifest("Demo", "com.example.demo", false, &config, &[audio]);
+        let manifest =
+            android_manifest("Demo", "com.example.demo", false, false, &config, &[audio]);
         assert!(manifest.contains("android.permission.FOREGROUND_SERVICE"));
         assert!(manifest.contains("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"));
         assert!(manifest.contains(
@@ -1093,6 +1106,7 @@ mod template_generation {
         let manifest = templates::android_manifest(
             "Permissions",
             "com.example.permissions",
+            false,
             false,
             &config,
             &[],
@@ -1280,6 +1294,7 @@ mod template_generation {
         let manifest = android_manifest(
             "DeepLinkDemo",
             "dev.example.deep_link_demo",
+            false,
             false,
             &config,
             &[],

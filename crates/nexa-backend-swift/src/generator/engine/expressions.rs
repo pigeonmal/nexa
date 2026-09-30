@@ -477,6 +477,7 @@ fn native_call(
         );
     }
     match (namespace, name) {
+        ("Network", "isOnline") => "NexaNetwork.isOnline()".to_owned(),
         ("Haptics", "impact") => {
             let style = arguments
                 .iter()
@@ -714,6 +715,22 @@ mod tests {
             expression(&call("hasText", Vec::new(), Type::Bool)),
             "NexaClipboard.hasText()"
         );
+    }
+
+    #[test]
+    fn network_status_calls_use_the_direct_native_helper() {
+        let call = Expr::NativeCall {
+            receiver: None,
+            namespace: "Network".to_owned(),
+            name: "isOnline".to_owned(),
+            arguments: Vec::new(),
+            codecs: Vec::new(),
+            return_type: Type::Bool,
+            is_async: false,
+            is_throwing: false,
+        };
+
+        assert_eq!(expression(&call), "NexaNetwork.isOnline()");
     }
 
     #[test]

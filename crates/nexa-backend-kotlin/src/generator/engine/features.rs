@@ -19,6 +19,7 @@ pub(crate) struct Features {
     pub(crate) uses_shared_elements: bool,
     pub(crate) uses_native_library: bool,
     pub(crate) uses_network_api: bool,
+    pub(crate) uses_network_connectivity: bool,
     pub(crate) uses_path_api: bool,
     pub(crate) uses_file_api: bool,
     pub(crate) uses_file_async: bool,
@@ -163,6 +164,7 @@ impl Features {
         let capabilities = &facts.capabilities;
         self.uses_remote_image = capabilities.uses_remote_image;
         self.uses_network_api = capabilities.uses_network_api;
+        self.uses_network_connectivity = capabilities.uses_network_connectivity;
         self.uses_path_api = capabilities.uses_path_api;
         self.uses_file_api = capabilities.uses_file_api;
         self.uses_file_async = capabilities.uses_file_async;
@@ -375,8 +377,10 @@ impl Features {
         self.uses_mutable_map = types.mutable_map;
         self.uses_mutable_generic_state = types.mutable_generic;
         self.uses_navigation_uri = types.string_route_param;
-        self.uses_native_library =
-            self.uses_network_transport() || self.uses_path_api || self.uses_file_api;
+        self.uses_native_library = self.uses_network_transport()
+            || self.uses_network_connectivity
+            || self.uses_path_api
+            || self.uses_file_api;
     }
 
     pub(crate) fn uses_network_transport(&self) -> bool {

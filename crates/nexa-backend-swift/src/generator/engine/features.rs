@@ -21,6 +21,7 @@ pub(crate) struct Features {
     pub(crate) uses_shared_elements: bool,
     pub(crate) uses_native_library: bool,
     pub(crate) uses_network_api: bool,
+    pub(crate) uses_network_connectivity: bool,
     pub(crate) uses_path_api: bool,
     pub(crate) uses_file_api: bool,
     pub(crate) uses_file_async: bool,
@@ -49,11 +50,14 @@ impl Features {
         features.uses_remote_image = capabilities.uses_remote_image;
         features.uses_shared_elements = facts.ui.image.shared_element;
         features.uses_network_api = capabilities.uses_network_api;
+        features.uses_network_connectivity = capabilities.uses_network_connectivity;
         features.uses_path_api = capabilities.uses_path_api;
         features.uses_file_api = capabilities.uses_file_api;
         features.uses_file_async = capabilities.uses_file_async;
-        features.uses_native_library =
-            features.uses_network_transport() || features.uses_path_api || features.uses_file_api;
+        features.uses_native_library = features.uses_network_transport()
+            || features.uses_network_connectivity
+            || features.uses_path_api
+            || features.uses_file_api;
 
         let lists = &facts.ui.lists;
         features.uses_fast_list = lists.any;

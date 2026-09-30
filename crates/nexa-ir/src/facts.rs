@@ -963,9 +963,10 @@ fn observe_expr(
     } = expression
     {
         match namespace.as_str() {
-            "Network" => {
-                capabilities.uses_network_api = true;
-            }
+            "Network" => match name.as_str() {
+                "isOnline" => capabilities.uses_network_connectivity = true,
+                _ => capabilities.uses_network_api = true,
+            },
             "Path" => capabilities.uses_path_api = true,
             "File" => {
                 capabilities.uses_file_api = true;

@@ -9,11 +9,15 @@ use nexa_codegen::SourceWriter;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     imports.add(
-        features.uses_network_transport() || features.uses_path_api || features.uses_file_api,
+        features.uses_network_transport()
+            || features.uses_network_connectivity
+            || features.uses_path_api
+            || features.uses_file_api,
         "Foundation",
     );
     imports.add(features.uses_network_api, "CryptoKit");
     imports.add(features.uses_network_api, "Security");
+    imports.add(features.uses_network_connectivity, "Network");
     imports.add(features.uses_remote_image, "ImageIO");
 }
 
@@ -24,7 +28,41 @@ pub(crate) fn render(
     include_path: bool,
     include_file: bool,
     include_file_async: bool,
+    include_network_connectivity: bool,
 ) {
+    if include_network_connectivity {
+        out.push_str(
+            r#"
+private final class NexaNetworkPathStatus: @unchecked Sendable {
+    static let shared = NexaNetworkPathStatus()
+
+    private let monitor = NWPathMonitor()
+    private let lock = NSLock()
+    private var online = false
+
+    private init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            self?.setOnline(path.status == .satisfied)
+        }
+        monitor.start(queue: DispatchQueue(label: "dev.nexa.network-path-status"))
+    }
+
+    var isOnline: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return online
+    }
+
+    private func setOnline(_ value: Bool) {
+        lock.lock()
+        online = value
+        lock.unlock()
+    }
+}
+
+"#,
+        );
+    }
     if include_network || include_image_support {
         out.push_str(
             r#"
@@ -294,6 +332,32 @@ public enum NexaNetwork {
 "#,
         );
     }
+    if include_network_connectivity && include_network {
+        // The connectivity helper is emitted above and the networking API
+        // already owns this enum, so attach the cheap synchronous getter here.
+        // Insert before the transport operations by generating an extension.
+        out.push_str(
+            r#"
+public extension NexaNetwork {
+    static func isOnline() -> Bool {
+        NexaNetworkPathStatus.shared.isOnline
+    }
+}
+
+"#,
+        );
+    } else if include_network_connectivity {
+        out.push_str(
+            r#"
+public enum NexaNetwork {
+    public static func isOnline() -> Bool {
+        NexaNetworkPathStatus.shared.isOnline
+    }
+}
+
+"#,
+        );
+    }
     if include_path {
         out.push_str(
             r#"public enum NexaPath {
@@ -457,7 +521,7 @@ mod tests {
     #[test]
     fn network_pins_hash_the_trusted_chain_spki_instead_of_the_leaf_certificate() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, false, false, false, false);
+        render(&mut output, true, false, false, false, false, false);
 
         assert!(output.contains("SecTrustEvaluateWithError(trust, nil)"));
         assert!(output.contains("SecTrustCopyCertificateChain(trust)"));
@@ -466,5 +530,18 @@ mod tests {
         assert!(output.contains("SHA256.hash(data: Data(bytes[range]))"));
         assert!(output.contains("certificatePins.map { $0.lowercased() }"));
         assert!(!output.contains("SHA256.hash(data: certificateData)"));
+    }
+
+    #[test]
+    fn network_status_uses_a_shared_thread_safe_path_monitor() {
+        let mut output = SourceWriter::new();
+        render(&mut output, false, false, false, false, false, true);
+
+        assert!(output.contains("private final class NexaNetworkPathStatus: @unchecked Sendable"));
+        assert!(output.contains("monitor.pathUpdateHandler"));
+        assert!(output.contains("monitor.start(queue:"));
+        assert!(output.contains("lock.lock()"));
+        assert!(output.contains("public static func isOnline() -> Bool"));
+        assert!(!output.contains("public static func fetch("));
     }
 }

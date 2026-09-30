@@ -294,6 +294,22 @@ app JsonExample {
 
 Parse failures are returned as `JsonError.invalidJson`, `typeMismatch`, `missingField`, or `invalidValue`; callers can inspect the result or propagate it with `?` from a function that returns a compatible `Result`.
 
+## Network connectivity
+
+`Network.isOnline` synchronously reports whether the device currently has a network path. It does not guarantee that a particular server is reachable. The Android implementation checks the active network's internet capability; iOS observes the current path with `NWPathMonitor`.
+
+```nexa
+app ConnectionExample {
+    state online: Bool = Network.isOnline
+
+    body {
+        Text(online ? "Online" : "Offline")
+    }
+}
+```
+
+The property is useful for an immediate check before starting work. A status-change subscription is still part of the roadmap; until it is added, read the property again when the app needs a fresh value.
+
 ## Time
 
 `Time` is a core API, available on every target without a plugin:

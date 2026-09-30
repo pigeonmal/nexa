@@ -164,6 +164,18 @@ mod tests {
     }
 
     #[test]
+    fn network_status_imports_context_without_cronet_transport() {
+        let mut features = Features::default();
+        features.uses_network_connectivity = true;
+        let imports = render_features(&features);
+
+        assert!(imports.contains("import android.content.Context\n"));
+        assert!(imports.contains("import androidx.compose.ui.platform.LocalContext\n"));
+        assert!(!imports.contains("import org.chromium.net."));
+        assert!(!imports.contains("import kotlinx.coroutines."));
+    }
+
+    #[test]
     fn remote_images_use_the_cronet_adapter_without_typed_upload_support() {
         let mut features = Features::default();
         features.uses_remote_image = true;

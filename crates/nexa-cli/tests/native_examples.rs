@@ -11,6 +11,7 @@ const EXAMPLES: &[&str] = &[
     "crypto",
     "clipboard",
     "haptics",
+    "network_status",
     "currency_formatting",
     "keyboard_ergonomics",
     "pressable_double_tap",
@@ -39,6 +40,14 @@ fn generate_example(project: &TestProject, example: &str, target: &str) -> PathB
     );
     nexa_cli::generate_project(&entry, target, &output, &app_name)
         .unwrap_or_else(|error| panic!("failed to generate {example} for {target}:\n{error}"));
+    if example == "network_status" && target == "android" {
+        let manifest = fs::read_to_string(output.join("android/app/src/main/AndroidManifest.xml"))
+            .expect("network status example should generate an Android manifest");
+        assert!(manifest.contains("android.permission.ACCESS_NETWORK_STATE"));
+        let gradle = fs::read_to_string(output.join("android/app/build.gradle.kts"))
+            .expect("network status example should generate Android Gradle config");
+        assert!(!gradle.to_ascii_lowercase().contains("cronet"));
+    }
     output
 }
 

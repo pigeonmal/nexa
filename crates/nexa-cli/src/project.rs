@@ -1119,7 +1119,14 @@ fn android_plan(
         )
         .with_file(
             "android/app/src/main/AndroidManifest.xml",
-            templates::android_manifest(app_name, package, project_features.uses_network, config, plugins),
+            templates::android_manifest(
+                app_name,
+                package,
+                project_features.uses_network,
+                dev_session.is_some() || project_features.uses_network_connectivity,
+                config,
+                plugins,
+            ),
         )
         .with_file(
             "android/settings.gradle.kts",

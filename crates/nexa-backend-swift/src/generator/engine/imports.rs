@@ -97,7 +97,20 @@ mod tests {
         let network_imports = render(&network_features);
         assert!(network_imports.contains("import Foundation\n"));
         assert!(network_imports.contains("import CryptoKit\n"));
+        assert!(!network_imports.contains("import Network\n"));
         assert!(!network_imports.contains("import ImageIO\n"));
+    }
+
+    #[test]
+    fn network_status_imports_path_monitor_without_transport_crypto() {
+        let mut features = Features::default();
+        features.uses_network_connectivity = true;
+        let imports = render(&features);
+
+        assert!(imports.contains("import Foundation\n"));
+        assert!(imports.contains("import Network\n"));
+        assert!(!imports.contains("import CryptoKit\n"));
+        assert!(!imports.contains("import Security\n"));
     }
 
     #[test]

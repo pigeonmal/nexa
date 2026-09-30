@@ -3,6 +3,7 @@ mod generator;
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct KotlinProjectFeatures {
     pub uses_network: bool,
+    pub uses_network_connectivity: bool,
     pub uses_remote_image: bool,
     pub uses_coroutines: bool,
     pub uses_permission_request: bool,

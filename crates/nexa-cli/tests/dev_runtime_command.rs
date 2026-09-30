@@ -1189,6 +1189,38 @@ fn native_storage_calls_are_ready_for_hot_reload_on_both_platforms() {
 }
 
 #[test]
+fn network_status_calls_are_ready_for_hot_reload_on_both_platforms() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    fs::write(
+        &entry,
+        "app NetworkStatusHotReload { body { Text(\"ready\") } }\n",
+    )
+    .expect("write app without network status calls");
+    let output = root.join("build");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "RuntimeSmoke",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Dev hosts before Network.isOnline is used by app source");
+
+    let ios = read_ios_dev_runtime(&output);
+    assert!(ios.contains("private final class NexaDevNetworkPathStatus"));
+    assert!(ios.contains("if namespace == \"Network\", name == \"isOnline\""));
+    assert!(ios.contains("NWPathMonitor()"));
+
+    let android = read_android_dev_runtime(&output);
+    assert!(android.contains("namespace == \"Network\" && name == \"isOnline\""));
+    assert!(android.contains("android.net.ConnectivityManager"));
+    assert!(android.contains("NET_CAPABILITY_INTERNET"));
+}
+
+#[test]
 fn development_module_preserves_app_lifecycle_callbacks_for_the_native_runtime() {
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dev_lifecycle.nx");

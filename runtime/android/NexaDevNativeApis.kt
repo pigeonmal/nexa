@@ -264,6 +264,13 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
         pendingPluginFailure = failure
         return JSONObject.NULL
     }
+    if (namespace == "Network" && name == "isOnline") {
+        val manager = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager ?: return false
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
     if (namespace == "Keyboard" && name == "dismiss") {
         dev.nexa.core.NexaRuntimeCore.dismissKeyboard()
         return JSONObject.NULL

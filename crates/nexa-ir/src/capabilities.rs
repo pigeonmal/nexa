@@ -11,6 +11,7 @@ use crate::Module;
 pub struct Capabilities {
     pub uses_remote_image: bool,
     pub uses_network_api: bool,
+    pub uses_network_connectivity: bool,
     pub uses_path_api: bool,
     pub uses_file_api: bool,
     pub uses_file_async: bool,
@@ -133,6 +134,28 @@ mod tests {
         assert!(capabilities.uses_network_transport());
         assert!(!capabilities.uses_network_api);
         assert!(!capabilities.uses_file_api);
+    }
+
+    #[test]
+    fn network_status_does_not_enable_request_transport() {
+        let module = Module {
+            on_appear: Some(vec![Action::Expression(Expr::NativeCall {
+                receiver: None,
+                namespace: "Network".to_owned(),
+                name: "isOnline".to_owned(),
+                arguments: Vec::new(),
+                codecs: Vec::new(),
+                return_type: crate::Type::Bool,
+                is_async: false,
+                is_throwing: false,
+            })]),
+            ..empty_module(Vec::new())
+        };
+
+        let capabilities = analyze(&module);
+        assert!(capabilities.uses_network_connectivity);
+        assert!(!capabilities.uses_network_api);
+        assert!(!capabilities.uses_network_transport());
     }
 
     #[test]

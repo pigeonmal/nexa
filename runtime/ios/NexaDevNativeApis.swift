@@ -1,5 +1,33 @@
 import Foundation
 import UIKit
+import Network
+
+private final class NexaDevNetworkPathStatus: @unchecked Sendable {
+    static let shared = NexaDevNetworkPathStatus()
+
+    private let monitor = NWPathMonitor()
+    private let lock = NSLock()
+    private var online = false
+
+    private init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            self?.setOnline(path.status == .satisfied)
+        }
+        monitor.start(queue: DispatchQueue(label: "dev.nexa.dev-network-path-status"))
+    }
+
+    var isOnline: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return online
+    }
+
+    private func setOnline(_ value: Bool) {
+        lock.lock()
+        online = value
+        lock.unlock()
+    }
+}
 
 private func nexaDevFormatCurrency(_ amount: Double, _ currencyCode: String) -> String {
     let formatter = NumberFormatter()
@@ -339,6 +367,9 @@ extension NexaDevStateStore {
                 for: nil
             )
             return NSNull()
+        }
+        if namespace == "Network", name == "isOnline" {
+            return NexaDevNetworkPathStatus.shared.isOnline
         }
         if namespace == "Json", let codec = codecs.first {
             switch name {

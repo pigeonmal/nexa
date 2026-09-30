@@ -1092,12 +1092,16 @@ pub(super) fn android_manifest(
     _app_name: &str,
     package: &str,
     remote: bool,
+    network_connectivity: bool,
     config: &ProjectConfig,
     plugins: &[PluginPackage],
 ) -> String {
     let mut permissions = std::collections::BTreeSet::new();
     if remote {
         permissions.insert("android.permission.INTERNET".to_owned());
+    }
+    if network_connectivity {
+        permissions.insert("android.permission.ACCESS_NETWORK_STATE".to_owned());
     }
     for (permission, _) in config.permissions() {
         let names: &[&str] = match *permission {

@@ -22,6 +22,7 @@ fn project_features_from_analysis(
 ) -> crate::KotlinProjectFeatures {
     crate::KotlinProjectFeatures {
         uses_network: features.uses_network_transport(),
+        uses_network_connectivity: features.uses_network_connectivity,
         uses_remote_image: features.uses_remote_image,
         uses_coroutines: features.uses_network_transport()
             || features.uses_file_async
@@ -299,6 +300,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                 );
             }
             if features.uses_network_api
+                || features.uses_network_connectivity
                 || features.uses_path_api
                 || features.uses_permissions
                 || features.facts.capabilities.uses_keyboard_api
@@ -400,6 +402,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
         out.push_str(COLLECTION_ITERATION_HELPERS);
     });
     if features.uses_network_api
+        || features.uses_network_connectivity
         || features.uses_path_api
         || features.uses_permissions
         || features.facts.capabilities.uses_keyboard_api
@@ -422,6 +425,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                 features.uses_path_api,
                 features.uses_file_api,
                 features.uses_file_async,
+                features.uses_network_connectivity,
             );
         });
     }

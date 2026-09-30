@@ -504,6 +504,37 @@ fn app_storage_calls_lower_to_typed_synchronous_core_calls() {
 }
 
 #[test]
+fn network_online_property_lowers_to_a_typed_synchronous_core_call() {
+    let module = compile(
+        r#"
+        app Connectivity {
+            state connected: Bool = Network.isOnline
+            body { Text(connected ? "Online" : "Offline") }
+        }
+        "#,
+    )
+    .expect("network connectivity property should compile");
+
+    assert!(matches!(
+        &module.states[0].initial,
+        Expr::NativeCall {
+            receiver: None,
+            namespace,
+            name,
+            arguments,
+            return_type: Type::Bool,
+            is_async: false,
+            is_throwing: false,
+            ..
+        } if namespace == "Network" && name == "isOnline" && arguments.is_empty()
+    ));
+    let capabilities = nexa_ir::capabilities::analyze(&module);
+    assert!(capabilities.uses_network_connectivity);
+    assert!(!capabilities.uses_network_api);
+    assert!(!capabilities.uses_network_transport());
+}
+
+#[test]
 fn haptics_calls_lower_to_validated_typed_core_calls() {
     let module = compile(
         r#"

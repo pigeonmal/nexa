@@ -10,13 +10,17 @@ use nexa_codegen::SourceWriter;
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
     let uses_transport = features.uses_network_transport();
     imports.add(
-        uses_transport || features.uses_path_api || features.uses_permissions,
+        uses_transport
+            || features.uses_network_connectivity
+            || features.uses_path_api
+            || features.uses_permissions,
         "android.content.Context",
     );
     imports.add(
         features.uses_network_api
             || features.uses_path_api
             || features.uses_permissions
+            || features.uses_network_connectivity
             || features.facts.capabilities.uses_keyboard_api,
         "androidx.compose.ui.platform.LocalContext",
     );
@@ -64,6 +68,7 @@ pub(crate) fn render(
     include_path: bool,
     include_file: bool,
     include_file_async: bool,
+    include_network_connectivity: bool,
 ) {
     if include_network || include_image_support {
         out.push_str(if include_network {
@@ -322,7 +327,23 @@ private class NexaCronetImageRequestClient(
 }
 
 public object NexaNetwork {
-    public suspend fun fetch(
+"#,
+        );
+        if include_network_connectivity {
+            out.push_str(
+                r#"    public fun isOnline(context: Context): Boolean {
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager ?: return false
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+"#,
+            );
+        }
+        out.push_str(
+            r#"    public suspend fun fetch(
         context: Context,
         url: String,
         method: String = "GET",
@@ -400,6 +421,22 @@ public object NexaNetwork {
             }
         }
         return true
+    }
+}
+
+"#,
+        );
+    }
+    if include_network_connectivity && !include_network {
+        out.push_str(
+            r#"
+public object NexaNetwork {
+    public fun isOnline(context: Context): Boolean {
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager ?: return false
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 }
 
@@ -527,7 +564,7 @@ mod tests {
     #[test]
     fn network_pins_require_64_character_sha256_spki_hex_values() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, false, false, false, false);
+        render(&mut output, true, false, false, false, false, false);
 
         assert!(output.contains("value.length == 64"));
         assert!(output.contains("it in '0'..'9'"));
@@ -541,12 +578,22 @@ mod tests {
     #[test]
     fn network_cache_uses_the_generated_project_cronet_configuration() {
         let mut output = SourceWriter::new();
-        render(&mut output, true, false, false, false, false);
+        render(&mut output, true, false, false, false, false, false);
 
         assert!(output.contains("NexaCronetConfig.DISK_CACHE_SIZE_BYTES"));
         assert!(output.contains("CronetEngine.Builder.HTTP_CACHE_DISABLED"));
         assert!(!output.contains(
             ".enableHttpCache(\n                CronetEngine.Builder.HTTP_CACHE_DISK,\n                64L * 1024L * 1024L"
         ));
+    }
+
+    #[test]
+    fn network_status_uses_connectivity_manager_without_cronet_requests() {
+        let mut output = SourceWriter::new();
+        render(&mut output, false, false, false, false, false, true);
+
+        assert!(output.contains("public fun isOnline(context: Context): Boolean"));
+        assert!(output.contains("manager.activeNetwork"));
+        assert!(output.contains("NET_CAPABILITY_INTERNET"));
     }
 }

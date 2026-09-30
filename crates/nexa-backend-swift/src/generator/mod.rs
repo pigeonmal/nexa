@@ -365,6 +365,7 @@ fn generate_with_analysis_mode(
                 features.uses_path_api,
                 features.uses_file_api,
                 features.uses_file_async,
+                features.uses_network_connectivity,
             );
         });
     }
