@@ -9,6 +9,52 @@ import org.json.JSONObject
 internal object NexaDevValueCodec {
     private class JsonFailure(val caseName: String) : RuntimeException(null, null, false, false)
 
+    /** ByteArray uses reference equality in Kotlin, while Nexa Bytes is a value. */
+    private class ByteArrayContentKey(value: ByteArray?) {
+        private val bytes = value
+        private val contentHash = value?.contentHashCode() ?: 0
+
+        override fun equals(other: Any?): Boolean =
+            other is ByteArrayContentKey && when {
+                bytes == null -> other.bytes == null
+                other.bytes == null -> false
+                else -> bytes.contentEquals(other.bytes)
+            }
+
+        override fun hashCode(): Int = contentHash
+    }
+
+    /** Set adapter that gives Kotlin ByteArray the content semantics of Nexa Bytes. */
+    private class ByteArrayContentSet : AbstractSet<ByteArray?>() {
+        private val values = LinkedHashMap<ByteArrayContentKey, ByteArray?>()
+
+        override val size: Int get() = values.size
+
+        override fun iterator(): Iterator<ByteArray?> = values.values.iterator()
+
+        override fun contains(element: ByteArray?): Boolean =
+            values.containsKey(ByteArrayContentKey(element))
+
+        override fun equals(other: Any?): Boolean {
+            if (other === this) return true
+            if (other !is Set<*> || other.size != size) return false
+            return other.all { candidate ->
+                when (candidate) {
+                    null -> contains(null)
+                    is ByteArray -> contains(candidate)
+                    else -> false
+                }
+            }
+        }
+
+        override fun hashCode(): Int = values.keys.sumOf(ByteArrayContentKey::hashCode)
+
+        fun add(value: ByteArray?) {
+            val key = ByteArrayContentKey(value)
+            if (!values.containsKey(key)) values[key] = value
+        }
+    }
+
     /**
      * Converts the DevRuntime's JSON null sentinel back into Kotlin nulls
      * without conflating a valid null payload with a failed read.
@@ -22,6 +68,7 @@ internal object NexaDevValueCodec {
 
     private fun normalizeDecodedValue(raw: Any?): Any? = when (raw) {
         JSONObject.NULL -> null
+        is ByteArrayContentSet -> raw
         is List<*> -> raw.map { normalizeDecodedValue(it) }
         is Set<*> -> raw.mapTo(LinkedHashSet(raw.size)) { normalizeDecodedValue(it) }
         is Map<*, *> -> {
@@ -65,6 +112,37 @@ internal object NexaDevValueCodec {
         for (value in values) {
             val element = decode(value ?: JSONObject.NULL) ?: return null
             decoded.add(element)
+        }
+        return decoded
+    }
+
+    fun transformByteArraySet(raw: Any?, decode: (Any) -> ByteArray?): Set<ByteArray>? {
+        val values: Collection<*> = when (raw) {
+            is Set<*> -> raw
+            is List<*> -> raw
+            else -> return null
+        }
+        val decoded = ByteArrayContentSet()
+        for (value in values) {
+            decoded.add(decode(value ?: JSONObject.NULL) ?: return null)
+        }
+        @Suppress("UNCHECKED_CAST")
+        return decoded as Set<ByteArray>
+    }
+
+    fun transformOptionalByteArraySet(raw: Any?, decode: (Any) -> ByteArray?): Set<ByteArray?>? {
+        val values: Collection<*> = when (raw) {
+            is Set<*> -> raw
+            is List<*> -> raw
+            else -> return null
+        }
+        val decoded = ByteArrayContentSet()
+        for (value in values) {
+            if (value == null || value == JSONObject.NULL) {
+                decoded.add(null)
+            } else {
+                decoded.add(decode(value) ?: return null)
+            }
         }
         return decoded
     }

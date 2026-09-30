@@ -70,6 +70,23 @@ public final class ProbeImpl: ProbeSpec {
     }
 }
 
+@MainActor
+public final class ProbeByteSetImpl: ProbeByteSetSpec {
+    public var values: Set<Data> = [Data([0x4E, 0x58]), Data([0x4E, 0x58])]
+    public var onChanged: ((Set<Data>) -> Void)?
+
+    public init() {}
+
+    public func replace(_ values: Set<Data>) -> Set<Data> {
+        self.values = values
+        return values
+    }
+
+    public func emit() {
+        onChanged?(values)
+    }
+}
+
 public struct ProbeCardImpl: View {
     private let value: ProbeValue
     private let onSelected: ((ProbeValue) -> Void)?
@@ -86,6 +103,26 @@ public struct ProbeCardImpl: View {
                 guard !didSendSelection else { return }
                 didSendSelection = true
                 onSelected?(value)
+            }
+    }
+}
+
+public struct ProbeByteSetCardImpl: View {
+    private let values: Set<Data>
+    private let onSelected: ((Set<Data>) -> Void)?
+    @State private var didSendSelection = false
+
+    public init(values: Set<Data>, onSelected: ((Set<Data>) -> Void)?) {
+        self.values = values
+        self.onSelected = onSelected
+    }
+
+    public var body: some View {
+        Text("Byte values: \(values.count)")
+            .onAppear {
+                guard !didSendSelection else { return }
+                didSendSelection = true
+                onSelected?(values)
             }
     }
 }

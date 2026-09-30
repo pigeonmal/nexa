@@ -870,7 +870,8 @@ fn supported_hashable_collection_element(ty: &BridgeType) -> bool {
             | BridgeScalar::UInt64
             | BridgeScalar::Float32
             | BridgeScalar::Float64
-            | BridgeScalar::String,
+            | BridgeScalar::String
+            | BridgeScalar::Bytes,
         ) => true,
         BridgeType::Named {
             kind: BridgeNamedKind::Enum,
@@ -1302,7 +1303,21 @@ fn kotlin_decode_value(
             let item = format!("nexaDevSetItem{depth}");
             if let BridgeType::Optional(optional_inner) = inner.as_ref() {
                 let decoded = kotlin_decode_value(optional_inner, &item, namespace, depth + 1)?;
-                format!("NexaDevValueCodec.transformOptionalSet({raw}) {{ {item} -> {decoded} }}")
+                if matches!(
+                    optional_inner.as_ref(),
+                    BridgeType::Scalar(BridgeScalar::Bytes)
+                ) {
+                    format!(
+                        "NexaDevValueCodec.transformOptionalByteArraySet({raw}) {{ {item} -> {decoded} }}"
+                    )
+                } else {
+                    format!(
+                        "NexaDevValueCodec.transformOptionalSet({raw}) {{ {item} -> {decoded} }}"
+                    )
+                }
+            } else if matches!(inner.as_ref(), BridgeType::Scalar(BridgeScalar::Bytes)) {
+                let decoded = kotlin_decode_value(inner, &item, namespace, depth + 1)?;
+                format!("NexaDevValueCodec.transformByteArraySet({raw}) {{ {item} -> {decoded} }}")
             } else {
                 let decoded = kotlin_decode_value(inner, &item, namespace, depth + 1)?;
                 format!("NexaDevValueCodec.transformSet({raw}) {{ {item} -> {decoded} }}")
@@ -3474,19 +3489,21 @@ mod tests {
     }
 
     #[test]
-    fn non_hashable_byte_sets_are_an_explicit_dev_bridge_boundary() {
+    fn byte_sets_are_supported_by_dev_plugin_bridges() {
         let contracts = byte_set_store();
         let swift = swift(&contracts).expect("render Swift Dev bridge");
-        assert!(!swift.contains("nexaReceiver.replace("));
-        assert!(!swift.contains("property == \"values\""));
-        assert!(!swift.contains("nexaReceiver.onChanged = {"));
-        assert!(!swift.contains("case (\"Storage\", \"ByteSetBadge\")"));
+        assert!(swift.contains("nexaReceiver.replace(nexaArg0)"));
+        assert!(swift.contains("property == \"values\""));
+        assert!(swift.contains("nexaReceiver.onChanged = {"));
+        assert!(swift.contains("case (\"Storage\", \"ByteSetBadge\")"));
 
         let kotlin = kotlin(&contracts).expect("render Kotlin Dev bridge");
-        assert!(!kotlin.contains("nexaReceiver.replace("));
-        assert!(!kotlin.contains("property == \"values\""));
-        assert!(!kotlin.contains("receiver.onChanged = {"));
-        assert!(!kotlin.contains("\"Storage.ByteSetBadge\" -> {"));
+        assert!(kotlin.contains("nexaReceiver.replace(nexaArg0)"));
+        assert!(kotlin.contains("property == \"values\""));
+        assert!(kotlin.contains("receiver.onChanged = {"));
+        assert!(kotlin.contains("\"Storage.ByteSetBadge\" -> {"));
+        assert!(kotlin.contains("transformByteArraySet(options[\"values\"])"));
+        assert!(kotlin.matches("transformByteArraySet(").count() >= 3);
     }
 
     #[test]

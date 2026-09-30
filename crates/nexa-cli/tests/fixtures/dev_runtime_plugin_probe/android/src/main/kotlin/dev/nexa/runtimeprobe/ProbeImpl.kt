@@ -58,10 +58,32 @@ public class ProbeImpl : ProbeSpec {
     }
 }
 
+public class ProbeByteSetImpl : ProbeByteSetSpec {
+    override var values: Set<ByteArray> = setOf(byteArrayOf(0x4E, 0x58), byteArrayOf(0x4E, 0x58))
+    override var onChanged: ((Set<ByteArray>) -> Unit)? = null
+
+    override fun replace(values: Set<ByteArray>): Set<ByteArray> {
+        this.values = values
+        return values
+    }
+
+    override fun emit() {
+        onChanged?.invoke(values)
+    }
+}
+
 @Composable
 public fun ProbeCardImpl(value: ProbeValue, onSelected: ((ProbeValue) -> Unit)?) {
     LaunchedEffect(value) {
         onSelected?.invoke(value)
     }
     Text(value.label)
+}
+
+@Composable
+public fun ProbeByteSetCardImpl(values: Set<ByteArray>, onSelected: ((Set<ByteArray>) -> Unit)?) {
+    LaunchedEffect(values) {
+        onSelected?.invoke(values)
+    }
+    Text("Byte values: ${values.size}")
 }

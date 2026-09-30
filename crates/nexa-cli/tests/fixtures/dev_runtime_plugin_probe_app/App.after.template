@@ -31,6 +31,7 @@ app DevRuntimeProbe {
     }
 
     let probe = DevProbe.Probe()
+    let byteSetProbe = DevProbe.ProbeByteSet()
     state asyncSum: Int32 = 0
     state asyncValues: Array<Int32> = []
     state asyncConditional: Int32 = 0
@@ -98,6 +99,16 @@ app DevRuntimeProbe {
             if probe.value.score == 42 {
                 Log.info(message: "DEVRT_PROPERTY_WRITE_READ_PASS")
             }
+            byteSetProbe.changed { values ->
+                if values.count == 1 {
+                    Log.info(message: "DEVRT_BYTE_SET_EVENT_PASS")
+                }
+            }
+            if byteSetProbe.replace(byteSetProbe.values).count == 1
+                && byteSetProbe.values.count == 1 {
+                Log.info(message: "DEVRT_BYTE_SET_PROPERTY_RESULT_PASS")
+            }
+            byteSetProbe.emit()
             genericScalar = probe.echo<Int32>(42)
             if genericScalar == 42 {
                 Log.info(message: "DEVRT_GENERIC_SCALAR_PASS")
@@ -183,6 +194,12 @@ app DevRuntimeProbe {
             }
         }
 
+        DevProbe.ProbeByteSetCard(values: byteSetProbe.values)
+            .onSelected { values ->
+                if values.count == 1 {
+                    Log.info(message: "DEVRT_BYTE_SET_COMPONENT_PASS")
+                }
+            }
         ProbePanel(player: probe)
     }
 }

@@ -31,7 +31,23 @@ native class Probe {
     fn dispose()
 }
 
+native class ProbeByteSet {
+    init()
+
+    property values: Set<Bytes>
+
+    fn replace(values: Set<Bytes>) -> Set<Bytes>
+    fn emit()
+
+    event changed(values: Set<Bytes>)
+}
+
 native component ProbeCard {
     prop value: ProbeValue
     event selected(value: ProbeValue)
+}
+
+native component ProbeByteSetCard {
+    prop values: Set<Bytes>
+    event selected(values: Set<Bytes>)
 }
