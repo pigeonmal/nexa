@@ -1,6 +1,6 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, CollectionMutation, ErrorCatchArm, HapticStyle, Module, Node};
+use nexa_ir::{Action, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node};
 
 use crate::generator::{
     components::render_children,
@@ -210,11 +210,61 @@ pub(crate) fn render_pressable(
         children,
         actions,
         double_tap_actions,
+        long_press_duration_ms,
         long_press_actions,
+        drag_parameters,
+        drag_actions,
+        pinch_parameter,
+        pinch_actions,
     } = node
     else {
         return;
     };
+    let root_depth = depth;
+    let has_drag = drag_parameters.len() == 4;
+    let has_pinch = pinch_parameter.is_some();
+    let has_drag_velocity = has_drag
+        && nexa_ir::walk::actions_reference_state(
+            drag_actions,
+            &[drag_parameters[2].as_str(), drag_parameters[3].as_str()],
+        );
+    if has_drag || has_pinch {
+        indent(out, root_depth);
+        out.push_str("NexaDragGestureView(enabled: !( ");
+        out.push_str(&expression(disabled));
+        out.push_str("), trackVelocity: ");
+        out.push_str(if has_drag_velocity { "true" } else { "false" });
+        out.push_str(", onDrag: ");
+        if has_drag {
+            out.push_str("{ ");
+            out.push_str(
+                &drag_parameters
+                    .iter()
+                    .map(|name| state_name(name))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+            out.push_str(" in\n");
+            render_actions(drag_actions, root_depth + 1, out);
+            indent(out, root_depth);
+            out.push('}');
+        } else {
+            out.push_str("nil");
+        }
+        out.push_str(", onPinch: ");
+        if let Some(parameter) = pinch_parameter {
+            out.push_str("{ ");
+            out.push_str(&state_name(parameter));
+            out.push_str(" in\n");
+            render_actions(pinch_actions, root_depth + 1, out);
+            indent(out, root_depth);
+            out.push('}');
+        } else {
+            out.push_str("nil");
+        }
+        out.push_str(") {\n");
+    }
+    let depth = root_depth + usize::from(has_drag || has_pinch);
     indent(out, depth);
     out.push_str(if double_tap_actions.is_empty() {
         "Button(action: {"
@@ -267,13 +317,20 @@ pub(crate) fn render_pressable(
         out.push('}');
         out.push_str(".accessibilityAddTraits(.isButton)");
         if !matches!(disabled, nexa_ir::Expr::Bool(true)) && !long_press_actions.is_empty() {
-            out.push_str(".onLongPressGesture {");
+            out.push_str(".onLongPressGesture(minimumDuration: ");
+            out.push_str(&long_press_duration_seconds(long_press_duration_ms));
+            out.push_str(") {");
             out.push('\n');
             if let Some(haptic) = haptic {
                 render_haptic(*haptic, depth + 1, out);
             }
             render_actions(long_press_actions, depth + 1, out);
             indent(out, depth);
+            out.push('}');
+        }
+        if has_drag || has_pinch {
+            out.push('\n');
+            indent(out, root_depth);
             out.push('}');
         }
         return;
@@ -308,7 +365,9 @@ pub(crate) fn render_pressable(
     }
     out.push_str(".buttonStyle(.plain)");
     if !matches!(disabled, nexa_ir::Expr::Bool(true)) && !long_press_actions.is_empty() {
-        out.push_str(".onLongPressGesture {");
+        out.push_str(".onLongPressGesture(minimumDuration: ");
+        out.push_str(&long_press_duration_seconds(long_press_duration_ms));
+        out.push_str(") {");
         out.push('\n');
         if let Some(haptic) = haptic {
             render_haptic(*haptic, depth + 1, out);
@@ -317,6 +376,15 @@ pub(crate) fn render_pressable(
         indent(out, depth);
         out.push('}');
     }
+    if has_drag || has_pinch {
+        out.push('\n');
+        indent(out, root_depth);
+        out.push('}');
+    }
+}
+
+fn long_press_duration_seconds(duration_ms: &Expr) -> String {
+    format!("(Double(max(1, {})) / 1000.0)", expression(duration_ms))
 }
 
 fn render_haptic(style: HapticStyle, depth: usize, out: &mut SourceWriter) {

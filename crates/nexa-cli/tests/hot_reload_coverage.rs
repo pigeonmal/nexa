@@ -130,6 +130,26 @@ fn inventory_tracks_every_public_ir_node_and_interpreter_variant() {
 }
 
 #[test]
+fn shared_element_image_fields_have_dev_renderers_on_both_platforms() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS dev renderer");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android dev renderer");
+    let swift_root = fs::read_to_string(root.join("../../runtime/ios/NexaDevRuntime.swift"))
+        .expect("read iOS dev root");
+    let kotlin_root = fs::read_to_string(root.join("../../runtime/android/NexaDevRuntime.kt"))
+        .expect("read Android dev root");
+
+    assert!(swift.contains("fields[\"shared_element\"]"));
+    assert!(swift.contains("matchedGeometryEffect(id: id, in: namespace)"));
+    assert!(swift_root.contains(".environment(\\.nexaSharedNamespace, nexaSharedNamespace)"));
+    assert!(kotlin.contains("fields.opt(\"shared_element\")"));
+    assert!(kotlin.contains("nexaSharedElementModifier("));
+    assert!(kotlin_root.contains("NexaSharedTransitionContent {"));
+}
+
+#[test]
 fn hot_reload_interpreter_variants_have_both_native_dispatches() {
     let (root, fixture) = fixture();
     let inventory = fixture["ir_variants"]
@@ -385,6 +405,36 @@ fn pressable_double_tap_actions_are_consumed_by_both_dev_renderers() {
     assert!(kotlin.contains("fields.optJSONArray(\"double_tap_actions\")"));
     assert!(kotlin.contains("onDoubleClick = {"));
     assert!(kotlin.contains("store.perform(doubleTapActions"));
+}
+
+#[test]
+fn pressable_long_press_duration_is_consumed_by_both_dev_renderers() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS renderer");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android renderer");
+
+    assert!(swift.contains("fields[NexaDevKeys.longPressDurationMs]"));
+    assert!(swift.contains("LongPressGesture(minimumDuration: longPressMinimumDuration)"));
+    assert!(kotlin.contains("NexaDevKeys.LONG_PRESS_DURATION_MS"));
+    assert!(kotlin.contains("override val longPressTimeoutMillis: Long = longPressDurationMs"));
+}
+
+#[test]
+fn pressable_pinch_actions_are_consumed_by_both_dev_renderers() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS renderer");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android renderer");
+
+    assert!(swift.contains("fields[NexaDevKeys.pinchParameter]"));
+    assert!(swift.contains("MagnificationGesture()"));
+    assert!(swift.contains("store.perform(pinchActions"));
+    assert!(kotlin.contains("fields.optString(NexaDevKeys.PINCH_PARAMETER)"));
+    assert!(kotlin.contains("detectTransformGestures"));
+    assert!(kotlin.contains("store.perform(pinchActions"));
 }
 
 #[test]

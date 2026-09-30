@@ -1,0 +1,22 @@
+app PressablePinch {
+    state zoom: Float64 = 1.0
+    state updates: Int32 = 0
+    state offsetX: Float64 = 0.0
+
+    body {
+        Column(spacing: 12) {
+            Text("Pinch scale: $zoom")
+            Pressable() {
+                Text("Pinch to zoom")
+            }.onPress {
+                updates = updates + 1
+            }.onDrag { translationX, translationY, velocityX, velocityY ->
+                offsetX = translationX
+            }.onPinch { scaleFactor ->
+                zoom = zoom * scaleFactor
+            }
+            Text("Gesture updates: $updates")
+            Text("Horizontal drag: $offsetX")
+        }
+    }
+}

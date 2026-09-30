@@ -5,6 +5,119 @@ mod api;
 mod components;
 mod engine;
 
+const DRAG_GESTURE_HELPERS: &str = r#"@MainActor
+private final class NexaDragVelocityTracker {
+    private var lastTranslation = CGSize.zero
+    private var lastTime: Date?
+
+    func update(_ value: DragGesture.Value) -> CGSize {
+        defer {
+            lastTranslation = value.translation
+            lastTime = value.time
+        }
+        if #available(iOS 18.0, *) {
+            return value.velocity
+        }
+        guard let lastTime else { return .zero }
+        let elapsed = value.time.timeIntervalSince(lastTime)
+        guard elapsed > 0 else { return .zero }
+        return CGSize(
+            width: (value.translation.width - lastTranslation.width) / elapsed,
+            height: (value.translation.height - lastTranslation.height) / elapsed
+        )
+    }
+
+    func reset() {
+        lastTranslation = .zero
+        lastTime = nil
+    }
+}
+
+@MainActor
+private final class NexaMagnificationTracker {
+    private var previousMagnification = 1.0
+
+    func consume(_ magnification: Double) -> Double? {
+        guard previousMagnification > 0, magnification.isFinite else { return nil }
+        let scaleFactor = magnification / previousMagnification
+        previousMagnification = magnification
+        return scaleFactor.isFinite ? scaleFactor : nil
+    }
+
+    func reset() {
+        previousMagnification = 1.0
+    }
+}
+
+@MainActor
+private struct NexaDragGestureView<Content: View>: View {
+    let enabled: Bool
+    let onDrag: ((Double, Double, Double, Double) -> Void)?
+    let onPinch: ((Double) -> Void)?
+    let content: Content
+    @State private var velocityTracker: NexaDragVelocityTracker?
+    @State private var magnificationTracker = NexaMagnificationTracker()
+
+    init(
+        enabled: Bool,
+        trackVelocity: Bool,
+        onDrag: ((Double, Double, Double, Double) -> Void)?,
+        onPinch: ((Double) -> Void)?,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.enabled = enabled
+        self.onDrag = onDrag
+        self.content = content()
+        _velocityTracker = State(
+            initialValue: trackVelocity ? NexaDragVelocityTracker() : nil
+        )
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard enabled else { return }
+                let velocity = velocityTracker?.update(value) ?? .zero
+                onDrag?(
+                    Double(value.translation.width),
+                    Double(value.translation.height),
+                    Double(velocity.width),
+                    Double(velocity.height)
+                )
+            }
+            .onEnded { _ in velocityTracker?.reset() }
+    }
+
+    private var pinchGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { magnification in
+                guard enabled else { return }
+                guard let scaleFactor = magnificationTracker.consume(Double(magnification)) else {
+                    return
+                }
+                onPinch?(scaleFactor)
+            }
+            .onEnded { _ in magnificationTracker.reset() }
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if onDrag != nil, onPinch != nil {
+            content
+                .highPriorityGesture(dragGesture)
+                .simultaneousGesture(pinchGesture)
+        } else if onDrag != nil {
+            content.highPriorityGesture(dragGesture)
+        } else if onPinch != nil {
+            content.simultaneousGesture(pinchGesture)
+        } else {
+            content
+        }
+    }
+}
+
+"#;
+
 pub(super) use api::{crypto, network, number, permissions, time};
 use components::components as component_renderer;
 pub(super) use components::{
@@ -92,6 +205,9 @@ fn generate_with_analysis_mode(
             "@MainActor\nprivate final class NexaNativeObjectStorage<Value>: ObservableObject {\n    @Published var value: Value\n\n    init(makeValue: () -> Value) {\n        value = makeValue()\n    }\n}\n\n",
         );
     }
+    if features.uses_drag || features.uses_pinch {
+        preamble.push_str(DRAG_GESTURE_HELPERS);
+    }
     let mut units = SourceUnits::new("swift");
     units.set_imports(&imports::render(&features));
     units.set_preamble(&preamble);
@@ -126,6 +242,9 @@ fn generate_with_analysis_mode(
         if !module.screens.is_empty() {
             out.push_str("    private static let __nexaRootScreenIdentity = UUID()\n");
             out.push_str("    @State private var __nexaNavigationPath = NavigationPath()\n");
+        }
+        if features.uses_shared_elements {
+            out.push_str("    @Namespace private var nexaSharedNamespace\n");
         }
         for state in &module.states {
             if state.is_native_class_constructor_binding() {
@@ -205,6 +324,9 @@ fn generate_with_analysis_mode(
         lifecycle::render_on_disappear(module.on_disappear.as_deref(), 2, out);
         lifecycle::render_scene_phase(module, 2, out);
         status_bar::render(module.status_bar, 2, out);
+        if features.uses_shared_elements {
+            out.push_str("\n        .environment(\\.nexaSharedNamespace, nexaSharedNamespace)");
+        }
         out.push_str("\n    }\n");
         if !module.screens.is_empty() {
             for screen in &module.screens {
@@ -213,6 +335,10 @@ fn generate_with_analysis_mode(
         }
         out.push_str("}\n");
     });
+
+    if features.uses_shared_elements {
+        units.write("shared-elements", components::shared_elements::render);
+    }
 
     units.write("components", |out| {
         custom_components::render(module, &features, out);
@@ -308,6 +434,9 @@ pub(super) fn generate_for_dev_units_with_project_features(
     module: &Module,
 ) -> (GeneratedSources, crate::SwiftProjectFeatures) {
     let mut features = features::Features::analyze(module);
+    // A shared element may appear after the development host is built, so
+    // keep its namespace bridge available for hot-reloaded modules.
+    features.uses_shared_elements = true;
     // Calls to Nexa's async native APIs can appear after the dev host has been
     // built. Keep the same URLSession adapter as release output in that host.
     features.uses_network_api = true;
@@ -371,9 +500,60 @@ fn module_has_native_object_state(module: &Module) -> bool {
 mod tests {
     use super::generate;
     use nexa_ir::{
-        Action, AnimationSpec, Component, Expr, Function, LayoutKind, Module, Node, NumericType,
-        Screen, ScreenId, State, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
+        Action, AnimationSpec, Component, Expr, Function, ImageScale, ImageSource, LayoutKind,
+        Module, Node, NumericType, Screen, ScreenId, State, TextStyle, Type, ViewStyle,
+        ViewTransition, WhenCase,
     };
+
+    #[test]
+    fn shared_image_elements_use_a_namespace_across_navigation_screens() {
+        let image = Node::Image {
+            source: ImageSource::Asset("hero".to_owned()),
+            description: "Hero".to_owned(),
+            scale: ImageScale::Fit,
+            placeholder: None,
+            shared_element: Some(Expr::String("hero-image".to_owned())),
+        };
+        let module = Module {
+            app_name: "SharedHero".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: vec![Screen {
+                id: ScreenId(0),
+                name: "Home".to_owned(),
+                parameters: Vec::new(),
+                states: Vec::new(),
+                body: vec![image],
+                status_bar: None,
+                on_appear: None,
+                on_appear_async: false,
+                on_disappear: None,
+            }],
+            components: Vec::new(),
+            body: vec![Node::NavigationStack {
+                root: ScreenId(0),
+                arguments: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+        assert!(swift.contains("@Namespace private var nexaSharedNamespace"));
+        assert!(swift.contains(".nexaSharedElement(id: \"hero-image\")"));
+        assert!(swift.contains(".environment(\\.nexaSharedNamespace, nexaSharedNamespace)"));
+        assert!(swift.contains("matchedGeometryEffect(id: id, in: namespace)"));
+    }
 
     #[test]
     fn configured_spring_uses_native_response_and_damping_values() {
@@ -554,7 +734,15 @@ mod tests {
                         ty: NumericType::Int32,
                     },
                 }],
+                long_press_duration_ms: Expr::Number {
+                    raw: "500".to_owned(),
+                    ty: NumericType::Int32,
+                },
                 long_press_actions: Vec::new(),
+                drag_parameters: Vec::new(),
+                drag_actions: Vec::new(),
+                pinch_parameter: None,
+                pinch_actions: Vec::new(),
             }],
             status_bar: None,
             direction: None,
@@ -572,6 +760,153 @@ mod tests {
         assert!(swift.contains(".exclusively(before: TapGesture(count: 1)"));
         assert!(swift.contains("nexa_taps = 2"));
         assert!(!swift.contains("onLongPressGesture"));
+        assert!(!swift.contains("NexaDragGestureView"));
+    }
+
+    #[test]
+    fn drag_pressable_emits_native_gesture_and_typed_callback() {
+        let module = Module {
+            app_name: "DragApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: vec![State {
+                name: "distance".to_owned(),
+                ty: Type::Numeric(NumericType::Float64),
+                initial: Expr::Number {
+                    raw: "0.0".to_owned(),
+                    ty: NumericType::Float64,
+                },
+                mutable: true,
+            }],
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Pressable {
+                disabled: Expr::Bool(false),
+                haptic: None,
+                children: vec![Node::Text {
+                    value: Expr::String("Drag me".to_owned()),
+                    style: TextStyle::default(),
+                }],
+                actions: Vec::new(),
+                double_tap_actions: Vec::new(),
+                long_press_duration_ms: Expr::Number {
+                    raw: "500".to_owned(),
+                    ty: NumericType::Int32,
+                },
+                long_press_actions: Vec::new(),
+                drag_parameters: vec![
+                    "translationX".to_owned(),
+                    "translationY".to_owned(),
+                    "velocityX".to_owned(),
+                    "velocityY".to_owned(),
+                ],
+                drag_actions: vec![Action::Assign {
+                    name: "distance".to_owned(),
+                    value: Expr::State("velocityX".to_owned(), Type::Numeric(NumericType::Float64)),
+                }],
+                pinch_parameter: None,
+                pinch_actions: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+
+        assert!(swift.contains("private struct NexaDragGestureView<Content: View>"));
+        assert!(swift.contains("content.highPriorityGesture(dragGesture)"));
+        assert!(swift.contains(
+            "onDrag: { nexa_translationX, nexa_translationY, nexa_velocityX, nexa_velocityY in"
+        ));
+        assert!(swift.contains("trackVelocity: true"));
+        assert!(swift.contains("nexa_distance = nexa_velocityX"));
+
+        let mut translation_only_module = module;
+        let Node::Pressable { drag_actions, .. } = &mut translation_only_module.body[0] else {
+            panic!("expected Pressable");
+        };
+        drag_actions[0] = Action::Assign {
+            name: "distance".to_owned(),
+            value: Expr::State(
+                "translationX".to_owned(),
+                Type::Numeric(NumericType::Float64),
+            ),
+        };
+        let swift = generate(&translation_only_module);
+        assert!(swift.contains("trackVelocity: false"));
+    }
+
+    #[test]
+    fn pinch_pressable_emits_native_scale_delta_callback() {
+        let module = Module {
+            app_name: "PinchApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: vec![State {
+                name: "zoom".to_owned(),
+                ty: Type::Numeric(NumericType::Float64),
+                initial: Expr::Number {
+                    raw: "1.0".to_owned(),
+                    ty: NumericType::Float64,
+                },
+                mutable: true,
+            }],
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Pressable {
+                disabled: Expr::Bool(false),
+                haptic: None,
+                children: vec![Node::Text {
+                    value: Expr::String("Pinch to zoom".to_owned()),
+                    style: TextStyle::default(),
+                }],
+                actions: Vec::new(),
+                double_tap_actions: Vec::new(),
+                long_press_duration_ms: Expr::Number {
+                    raw: "500".to_owned(),
+                    ty: NumericType::Int32,
+                },
+                long_press_actions: Vec::new(),
+                drag_parameters: Vec::new(),
+                drag_actions: Vec::new(),
+                pinch_parameter: Some("scaleFactor".to_owned()),
+                pinch_actions: vec![Action::Assign {
+                    name: "zoom".to_owned(),
+                    value: Expr::State(
+                        "scaleFactor".to_owned(),
+                        Type::Numeric(NumericType::Float64),
+                    ),
+                }],
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+
+        assert!(swift.contains("MagnificationGesture()"));
+        assert!(swift.contains("NexaMagnificationTracker"));
+        assert!(swift.contains("onPinch: { nexa_scaleFactor in"));
+        assert!(swift.contains("nexa_zoom = nexa_scaleFactor"));
+        assert!(!swift.contains("onDrag: {"));
     }
 
     fn native_instance_state(name: &str) -> State {

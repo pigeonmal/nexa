@@ -125,6 +125,7 @@ mod tests {
             description: "Example image".to_owned(),
             scale: ImageScale::Fit,
             placeholder: None,
+            shared_element: None,
         }]);
 
         let capabilities = analyze(&module);

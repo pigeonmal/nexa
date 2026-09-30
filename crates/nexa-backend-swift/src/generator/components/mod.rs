@@ -17,6 +17,7 @@ pub(crate) mod list_runtime;
 pub(crate) mod lists;
 pub(crate) mod navigation;
 pub(crate) mod refresh;
+pub(crate) mod shared_elements;
 pub(crate) mod sheets;
 pub(crate) mod status_bar;
 

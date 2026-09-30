@@ -947,6 +947,211 @@ fn conditional_transitions_lower_to_typed_ir() {
 }
 
 #[test]
+fn pressable_drag_bindings_are_typed_and_validated() {
+    let module = compile(
+        r#"app Drag {
+            state total: Float64 = 0.0
+            body {
+                Pressable() {
+                    Text("Drag")
+                }.onPress {
+                    total = 0.0
+                }.onDrag { translationX, translationY, velocityX, velocityY ->
+                    total = velocityX
+                }
+            }
+        }"#,
+    )
+    .expect("drag bindings should compile as immutable Float64 values");
+
+    let Node::Pressable {
+        drag_parameters,
+        drag_actions,
+        ..
+    } = &module.body[0]
+    else {
+        panic!("expected Pressable");
+    };
+    assert_eq!(
+        drag_parameters,
+        &["translationX", "translationY", "velocityX", "velocityY"]
+    );
+    assert!(matches!(
+        &drag_actions[0],
+        Action::Assign {
+            value: Expr::State(name, Type::Numeric(NumericType::Float64)),
+            ..
+        } if name == "velocityX"
+    ));
+
+    for (parameters, expected) in [
+        ("x, y", "requires four bindings"),
+        ("x, x, vx, vy", "binds `x` more than once"),
+    ] {
+        let source = format!(
+            "app Invalid {{ body {{ Pressable() {{ Text(\"Drag\") }}.onPress {{ }}.onDrag {{ {parameters} -> }} }} }}"
+        );
+        let error = compile(&source).expect_err("invalid drag bindings should be rejected");
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+
+    let shadow_error = compile(
+        r#"app Invalid {
+            state x: Float64 = 0.0
+            body {
+                Pressable() { Text("Drag") }.onPress { }.onDrag { x, y, vx, vy -> }
+            }
+        }"#,
+    )
+    .expect_err("drag bindings must not shadow app values");
+    assert!(
+        shadow_error
+            .to_string()
+            .contains("shadows an existing value")
+    );
+}
+
+#[test]
+fn pressable_drag_example_compiles_for_both_targets() {
+    let source = include_str!("../../../examples/pressable_drag.nx");
+    for target in [Target::Swift, Target::Kotlin] {
+        let module = nexa_compiler::compile_for_target(source, target)
+            .expect("the drag example should compile for each native target");
+        assert!(matches!(
+            &module.body[0],
+            Node::Layout { children, .. }
+                if children.iter().any(|node| matches!(node, Node::Pressable { .. }))
+        ));
+    }
+}
+
+#[test]
+fn pressable_pinch_bindings_are_typed_and_validated() {
+    let module = compile(
+        r#"app Pinch {
+            state zoom: Float64 = 1.0
+            body {
+                Pressable() { Text("Pinch") }
+                    .onPress { }
+                    .onPinch { scaleFactor -> zoom = zoom * scaleFactor }
+            }
+        }"#,
+    )
+    .expect("pinch scale delta should be an immutable Float64 binding");
+
+    let Node::Pressable {
+        pinch_parameter,
+        pinch_actions,
+        ..
+    } = &module.body[0]
+    else {
+        panic!("expected Pressable");
+    };
+    assert_eq!(pinch_parameter.as_deref(), Some("scaleFactor"));
+    assert!(matches!(
+        &pinch_actions[0],
+        Action::Assign {
+            value: Expr::Arithmetic {
+                right,
+                ty: NumericType::Float64,
+                ..
+            },
+            ..
+        } if matches!(right.as_ref(), Expr::State(name, Type::Numeric(NumericType::Float64)) if name == "scaleFactor")
+    ));
+
+    for (handler, expected) in [
+        ("zoom = 1.0", "requires one binding"),
+        ("scaleFactor, extra ->", "requires one binding"),
+    ] {
+        let source = format!(
+            "app Invalid {{ state zoom: Float64 = 0.0 body {{ Pressable() {{ Text(\"Pinch\") }}.onPress {{ }}.onPinch {{ {handler} }} }} }}"
+        );
+        let error = compile(&source).expect_err("invalid pinch bindings should be rejected");
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+
+    let shadow_error = compile(
+        r#"app Invalid {
+            state scaleFactor: Float64 = 1.0
+            body {
+                Pressable() { Text("Pinch") }.onPress { }.onPinch { scaleFactor -> }
+            }
+        }"#,
+    )
+    .expect_err("pinch callback bindings must not shadow app values");
+    assert!(
+        shadow_error
+            .to_string()
+            .contains("shadows an existing value")
+    );
+}
+
+#[test]
+fn pressable_pinch_example_compiles_for_both_targets() {
+    let source = include_str!("../../../examples/pressable_pinch.nx");
+    for target in [Target::Swift, Target::Kotlin] {
+        let module = nexa_compiler::compile_for_target(source, target)
+            .expect("the pinch example should compile for each native target");
+        assert!(matches!(
+            &module.body[0],
+            Node::Layout { children, .. }
+                if children.iter().any(|node| matches!(node, Node::Pressable { .. }))
+        ));
+    }
+}
+
+#[test]
+fn pressable_long_press_duration_is_typed_and_tap_has_a_canonical_alias() {
+    let module = compile(
+        r#"app LongPress {
+            state holds: Int32 = 0
+            state duration: Int32 = 650
+            body {
+                Pressable() { Text("Hold") }
+                    .onTap { holds = holds + 1 }
+                    .onLongPress(durationMs: duration) { holds = holds + 1 }
+            }
+        }"#,
+    )
+    .expect("typed duration and canonical tap handler should compile");
+
+    let Node::Pressable {
+        actions,
+        long_press_duration_ms,
+        long_press_actions,
+        ..
+    } = &module.body[0]
+    else {
+        panic!("expected Pressable");
+    };
+    assert!(matches!(
+        long_press_duration_ms,
+        Expr::State(name, Type::Numeric(NumericType::Int32)) if name == "duration"
+    ));
+    assert_eq!(actions.len(), 1);
+    assert_eq!(long_press_actions.len(), 1);
+
+    for duration in ["\"slow\"", "true"] {
+        let source = format!(
+            "app Invalid {{ body {{ Pressable() {{ Text(\"Hold\") }}.onTap {{ }}.onLongPress(durationMs: {duration}) {{ }} }} }}"
+        );
+        let error = compile(&source).expect_err("long-press duration must have type Int32");
+        assert!(error.to_string().contains("expected Int32"), "{error}");
+    }
+
+    let duplicate_tap = compile(
+        r#"app Invalid {
+            body {
+                Pressable() { Text("Tap") }.onTap { }.onPress { }
+            }
+        }"#,
+    )
+    .expect_err("a Pressable cannot install the same tap callback twice");
+    assert!(duplicate_tap.to_string().contains("only one tap handler"));
+}
+
+#[test]
 fn visual_modifiers_reject_invalid_ranges_and_shapes() {
     for (body, expected) in [
         (
@@ -1048,6 +1253,29 @@ fn accessibility_options_require_a_valid_nonempty_label_and_role() {
         let error = compile(&source).expect_err("invalid accessibility source should fail");
         assert!(error.to_string().contains(expected), "{error}");
     }
+}
+
+#[test]
+fn image_shared_element_modifier_lowers_a_typed_string_identifier() {
+    let module = compile(
+        r#"
+        app SharedImage {
+            body {
+                Image(asset: "hero", description: "Hero")
+                    .sharedElement(id: "product-hero")
+            }
+        }
+        "#,
+    )
+    .expect("shared element identifiers should be type checked");
+
+    assert!(matches!(
+        module.body.as_slice(),
+        [Node::Image {
+            shared_element: Some(Expr::String(id)),
+            ..
+        }] if id == "product-hero"
+    ));
 }
 
 #[test]

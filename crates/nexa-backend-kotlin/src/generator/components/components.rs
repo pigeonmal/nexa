@@ -109,11 +109,13 @@ pub(crate) fn render_node(
             description,
             scale,
             placeholder,
+            shared_element,
         } => images::render_image(
             source,
             description,
             *scale,
             placeholder.as_deref(),
+            shared_element.as_ref(),
             depth,
             out,
         ),

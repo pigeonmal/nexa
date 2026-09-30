@@ -73,6 +73,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
     let mut target = ProjectTarget::All;
     let mut deny_warnings = false;
     let mut locked = false;
+    let mut execute_tests = false;
     let mut flavor = None;
     let mut arch = None;
     let mut dev_server_url = None;
@@ -82,6 +83,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         match args[cursor].as_str() {
             "--deny-warnings" => deny_warnings = true,
             "--locked" => locked = true,
+            "--execute-tests" => execute_tests = true,
             "--dev-server-url" => {
                 cursor += 1;
                 dev_server_url = Some(
@@ -241,7 +243,8 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         &sorted_plugin_roots,
     )
     .map_err(|error| format!("project cache: {error}"))?;
-    if dev_session.is_none()
+    if !execute_tests
+        && dev_session.is_none()
         && project_config.as_ref().is_some_and(|config| {
             let config = match &flavor {
                 Some(flavor) => match config.with_flavor(flavor) {
@@ -280,6 +283,12 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
         plugin_roots,
     )
     .map_err(|error| error.to_string())?;
+    if execute_tests {
+        let Some(compilation) = compilations.first() else {
+            return Err("no compilation target was selected for in-language tests".to_owned());
+        };
+        crate::commands::report_in_language_tests(&compilation.tests, &input)?;
+    }
     let mut warnings = Vec::new();
     let compiled = targets
         .iter()

@@ -196,6 +196,7 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     let mut once = false;
     let mut compile_only = false;
     let mut locked = false;
+    let mut unit_only = false;
     let mut cursor = 0;
     while cursor < args.len() {
         match args[cursor].as_str() {
@@ -230,6 +231,10 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
                 return Err("`--compile-only` is only supported by `nexa dev`".to_owned());
             }
             "--locked" => locked = true,
+            "--unit-only" if command == "test" => unit_only = true,
+            "--unit-only" => {
+                return Err("`--unit-only` is only supported by `nexa test`".to_owned());
+            }
             "--flavor" => {
                 cursor += 1;
                 set_flavor(
@@ -267,6 +272,9 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
         output.push(flavor);
     }
     let entry = find_entry(&root)?;
+    if unit_only {
+        return run_in_language_tests(&entry, &platform, locked);
+    }
     if command == "release" && matches!(platform.as_str(), "android" | "all") {
         validate_android_release_signing()?;
     }
@@ -349,6 +357,7 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
         crate::dependencies::sync_lock(&root, !dependencies.is_empty(), &resolved.lock_file, true)?;
     }
     if command == "test" {
+        project_args.push("--execute-tests".to_owned());
         super::project::run(&project_args)?;
         build_platforms(&output, &project_name, &platform, BuildMode::Test, None)
     } else if command == "dev" {
@@ -403,6 +412,84 @@ fn native_command(command: &str, args: &[String]) -> Result<(), String> {
     } else {
         super::project::run(&project_args)?;
         build_platforms(&output, &project_name, &platform, BuildMode::Release, None)
+    }
+}
+
+fn run_in_language_tests(entry: &Path, platform: &str, locked: bool) -> Result<(), String> {
+    let project_root = entry.parent().unwrap_or_else(|| Path::new("."));
+    let config_path = project_root.join("nexa.config.nx");
+    let dependencies = crate::config::load_plugin_dependencies(&config_path)?;
+    let resolved = crate::dependencies::resolve(project_root, &dependencies)?;
+    crate::dependencies::sync_lock(
+        project_root,
+        !dependencies.is_empty(),
+        &resolved.lock_file,
+        locked,
+    )?;
+    let targets = match platform {
+        "ios" => vec![nexa_compiler::Target::Swift],
+        "android" => vec![nexa_compiler::Target::Kotlin],
+        "all" => vec![nexa_compiler::Target::Swift, nexa_compiler::Target::Kotlin],
+        value => return Err(format!("unknown platform `{value}`")),
+    };
+    let compilations = nexa_compiler::compile_file_with_warnings_for_targets_and_plugin_roots(
+        entry,
+        &targets,
+        &resolved.plugin_roots,
+    )
+    .map_err(|error| error.to_string())?;
+    let mut warnings = std::collections::BTreeSet::new();
+    for compilation in &compilations {
+        for warning in &compilation.warnings {
+            warnings.insert(warning.to_string());
+        }
+    }
+    for warning in warnings {
+        eprintln!("{warning}");
+    }
+    let Some(compilation) = compilations.into_iter().next() else {
+        return Err("no compilation target was selected for in-language tests".to_owned());
+    };
+    report_in_language_tests(&compilation.tests, entry)
+}
+
+pub(crate) fn report_in_language_tests(
+    suite: &nexa_compiler::testing::TestSuite,
+    entry: &Path,
+) -> Result<(), String> {
+    if suite.tests.is_empty() {
+        println!("No in-language `.nx` tests found.");
+        return Ok(());
+    }
+
+    println!("Running {} in-language `.nx` test(s)", suite.tests.len());
+    let report = nexa_compiler::testing::run_tests(suite);
+    for name in report.passed_names {
+        println!("PASS {name}");
+    }
+    for failure in &report.failures {
+        let location = failure.source_file.as_deref().map_or_else(
+            || {
+                format!(
+                    "{}:{}:{}",
+                    entry.display(),
+                    failure.span.line,
+                    failure.span.column
+                )
+            },
+            |file| format!("{file}:{}:{}", failure.span.line, failure.span.column),
+        );
+        eprintln!("FAIL {} ({location}): {}", failure.name, failure.message);
+    }
+    if report.failures.is_empty() {
+        println!("{} passed; 0 failed", report.passed);
+        Ok(())
+    } else {
+        Err(format!(
+            "in-language tests failed: {} passed; {} failed",
+            report.passed,
+            report.failures.len()
+        ))
     }
 }
 
@@ -1524,7 +1611,7 @@ fn ensure_success(status: ExitStatus, label: &str) -> Result<(), String> {
 
 fn print_help() {
     println!(
-        "Nexa — native iOS and Android apps from one .nx project\n\nUsage:\n  nexa create <ProjectName>\n  nexa check [--ios | --android] [--audit] [--locked]\n  nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--out <path>]\n  nexa dev [--ios | --android] [--locked]\n  nexa test [--ios | --android] [--locked]\n  nexa release [--ios | --android] [--locked]\n  nexa doctor\n  nexa plugin init | check | generate\n\nRun `nexa <command> --help` for command options."
+        "Nexa — native iOS and Android apps from one .nx project\n\nUsage:\n  nexa create <ProjectName>\n  nexa check [--ios | --android] [--audit] [--locked]\n  nexa audit <source.nx> [--target <ios|android|all>] [--release-sizes] [--out <path>]\n  nexa dev [--ios | --android] [--locked]\n  nexa test [--ios | --android] [--locked]\n  nexa test --unit-only [--ios | --android] [--locked]\n  nexa release [--ios | --android] [--locked]\n  nexa doctor\n  nexa plugin init | check | generate\n\nRun `nexa <command> --help` for command options."
     );
 }
 
@@ -1542,7 +1629,7 @@ fn print_command_help(command: &str) {
         }
         "test" => {
             println!(
-                "Usage: nexa test [--ios | --android] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]"
+                "Usage: nexa test [--ios | --android] [--arch <architecture>] [--flavor <name>] [--out <directory>] [--locked]\n       nexa test --unit-only [--ios | --android] [--locked]"
             )
         }
         "release" => println!(
@@ -1563,4 +1650,66 @@ fn set_flavor(current: &mut Option<String>, requested: &str) -> Result<(), Strin
     }
     *current = Some(requested.to_owned());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{changed_paths, run_in_language_tests, source_fingerprint};
+    use nexa_testkit::TestProject;
+
+    #[test]
+    fn dev_watcher_detects_new_imported_screen_and_tab_files() {
+        let project = TestProject::new("nexa-dev-watcher-modular-sources");
+        let entry = project.write_app("app Demo { body { Text(\"Initial\") } }\n");
+        let previous =
+            source_fingerprint(project.path(), &[]).expect("fingerprint initial source tree");
+
+        let screen = project.write("screens/Home.nx", "screen Home { Column { HomeTab() } }\n");
+        let tab = project.write(
+            "tabs/HomeTab.nx",
+            "component HomeTab() { body { Text(\"Home tab\") } }\n",
+        );
+        project.write_app(
+            "import \"screens/Home.nx\"\nimport \"tabs/HomeTab.nx\"\napp Demo { body { NavigationStack(root: Home) } }\n",
+        );
+
+        let current = source_fingerprint(project.path(), &[])
+            .expect("fingerprint source tree with new modules");
+        let changed = changed_paths(&previous, &current);
+
+        assert!(changed.contains(&entry));
+        assert!(changed.contains(&screen));
+        assert!(changed.contains(&tab));
+    }
+
+    #[test]
+    fn unit_test_command_loads_imported_test_and_app_function_modules() {
+        let project = TestProject::new("nexa-cli-unit-test-command");
+        let entry = project.write_app(
+            "import \"math.nx\"\nimport \"tests/Cart.nx\"\napp Cart { body { Text(\"Cart\") } }\n",
+        );
+        project.write(
+            "math.nx",
+            "fn add(left: Int32, right: Int32) -> Int32 { return left + right }\n",
+        );
+        project.write(
+            "tests/Cart.nx",
+            "test \"named test arguments\" { assert(add(right: 2, left: 3) == 5) }\n",
+        );
+
+        run_in_language_tests(&entry, "all", false)
+            .expect("execute tests from imported source files without native toolchains");
+        let output = project.join("build");
+        crate::project::run(&[
+            entry.display().to_string(),
+            "--target".to_owned(),
+            "all".to_owned(),
+            "--out".to_owned(),
+            output.display().to_string(),
+            "--name".to_owned(),
+            "Cart".to_owned(),
+            "--execute-tests".to_owned(),
+        ])
+        .expect("run in-language tests as part of the native test project pipeline");
+    }
 }

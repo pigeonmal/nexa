@@ -26,7 +26,7 @@ pub(super) fn root_readme(app_name: &str, targets: &[&str]) -> String {
     if targets.contains(&"android") {
         readme.push_str("## Android\n\nRun `nexa dev --android` for emulator development and `nexa release --android` for a signed AAB.\n\n");
     }
-    readme.push_str("Run `nexa test` to compile generated native projects and `nexa doctor` to check the toolchain.\n");
+    readme.push_str("Run `nexa test` to execute `.nx` test blocks and compile generated native projects; use `nexa test --unit-only` to skip native toolchains. Run `nexa doctor` to check the toolchain.\n");
     readme
 }
 

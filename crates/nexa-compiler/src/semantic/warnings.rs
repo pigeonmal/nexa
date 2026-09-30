@@ -58,6 +58,32 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
     for state in &app.states {
         walk_expression(&state.initial, &function_names, &mut used_functions);
     }
+    for test in &app.tests {
+        let mut test_names = function_names.clone();
+        test_names.extend(
+            test.statements
+                .iter()
+                .filter_map(|statement| match statement {
+                    ast::TestStatement::Let { name, .. } => Some(name.clone()),
+                    ast::TestStatement::Assert { .. } => None,
+                }),
+        );
+        for statement in &test.statements {
+            match statement {
+                ast::TestStatement::Let { initial, .. } => {
+                    walk_expression(initial, &test_names, &mut used_functions);
+                }
+                ast::TestStatement::Assert {
+                    condition, message, ..
+                } => {
+                    walk_expression(condition, &test_names, &mut used_functions);
+                    if let Some(message) = message {
+                        walk_expression(message, &test_names, &mut used_functions);
+                    }
+                }
+            }
+        }
+    }
     for screen in &app.screens {
         for state in &screen.states {
             walk_expression(&state.initial, &function_names, &mut used_functions);
@@ -123,6 +149,51 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
                 ),
                 None,
             );
+        }
+    }
+
+    for test in &app.tests {
+        let local_names = test
+            .statements
+            .iter()
+            .filter_map(|statement| match statement {
+                ast::TestStatement::Let { name, .. } => Some(name.clone()),
+                ast::TestStatement::Assert { .. } => None,
+            })
+            .collect::<HashSet<_>>();
+        let names = function_names
+            .iter()
+            .chain(local_names.iter())
+            .cloned()
+            .collect::<HashSet<_>>();
+        let mut used = HashSet::new();
+        for statement in &test.statements {
+            match statement {
+                ast::TestStatement::Let { initial, .. } => {
+                    walk_expression(initial, &names, &mut used);
+                }
+                ast::TestStatement::Assert {
+                    condition, message, ..
+                } => {
+                    walk_expression(condition, &names, &mut used);
+                    if let Some(message) = message {
+                        walk_expression(message, &names, &mut used);
+                    }
+                }
+            }
+        }
+        for statement in &test.statements {
+            let ast::TestStatement::Let { name, span, .. } = statement else {
+                continue;
+            };
+            if !used.contains(name) {
+                push_warning(
+                    &mut warnings,
+                    *span,
+                    format!("unused test local `{name}`"),
+                    test.source_file.as_deref(),
+                );
+            }
         }
     }
 
@@ -388,6 +459,21 @@ fn walk_invocation(
             if let Some(actions) = modifier_actions("onDoubleTap") {
                 walk_actions(actions, names, used, target, file, warnings);
             }
+            if let Some((parameters, actions)) = inv.modifiers.iter().find_map(|modifier| {
+                (modifier.name == "onDrag" || modifier.name == "onPinch")
+                    .then_some(&modifier.body)
+                    .and_then(|body| match body {
+                        ast::ModifierBody::EventActions {
+                            parameters,
+                            actions,
+                        } => Some((parameters, actions)),
+                        _ => None,
+                    })
+            }) {
+                let mut drag_names = names.clone();
+                drag_names.extend(parameters.iter().cloned());
+                walk_actions(actions, &drag_names, used, target, file, warnings);
+            }
         }
         "NavigationStack" => {
             if let Some(root) = inv.arguments.get("root") {
@@ -586,9 +672,21 @@ fn walk_invocation(
                 ast::ChildBody::None => {}
             }
             for modifier in &inv.modifiers {
+                for value in modifier.arguments.values() {
+                    walk_expression(value, names, used);
+                }
                 match &modifier.body {
+                    ast::ModifierBody::None => {}
                     ast::ModifierBody::Actions(actions) => {
                         walk_actions(actions, names, used, target, file, warnings)
+                    }
+                    ast::ModifierBody::EventActions {
+                        parameters,
+                        actions,
+                    } => {
+                        let mut event_names = names.clone();
+                        event_names.extend(parameters.iter().cloned());
+                        walk_actions(actions, &event_names, used, target, file, warnings)
                     }
                     ast::ModifierBody::Nodes(nodes) => {
                         walk_child_nodes(nodes, names, used, target, file, warnings)
@@ -907,6 +1005,9 @@ fn expression_references_name(expression: &ast::Expr, name: &str) -> bool {
         ast::Expr::Call(_, _, arguments, _) => arguments
             .iter()
             .any(|argument| expression_references_name(argument, name)),
+        ast::Expr::CallNamed { arguments, .. } => arguments
+            .values()
+            .any(|argument| expression_references_name(argument, name)),
         ast::Expr::MethodCall {
             base,
             arguments,
@@ -1033,6 +1134,16 @@ fn walk_expression(expr: &ast::Expr, names: &HashSet<String>, used: &mut HashSet
                 used.insert(name.clone());
             }
             for argument in arguments {
+                walk_expression(argument, names, used);
+            }
+        }
+        ast::Expr::CallNamed {
+            name, arguments, ..
+        } => {
+            if names.contains(name) {
+                used.insert(name.clone());
+            }
+            for argument in arguments.values() {
                 walk_expression(argument, names, used);
             }
         }

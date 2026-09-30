@@ -27,16 +27,22 @@ pub fn walk_ir(
             }
             Node::Pressable {
                 disabled,
+                long_press_duration_ms,
                 children,
                 actions,
                 double_tap_actions,
                 long_press_actions,
+                drag_actions,
+                pinch_actions,
                 ..
             } => {
                 walk_expression(disabled, visit_expression);
+                walk_expression(long_press_duration_ms, visit_expression);
                 walk_actions(actions, visit_expression);
                 walk_actions(double_tap_actions, visit_expression);
                 walk_actions(long_press_actions, visit_expression);
+                walk_actions(drag_actions, visit_expression);
+                walk_actions(pinch_actions, visit_expression);
                 walk_ir(children, visit_node, visit_expression);
             }
             Node::Link { url, children } => {
@@ -190,9 +196,16 @@ pub fn walk_ir(
                 }
             }
             Node::NavigationBack { label } => walk_expression(label, visit_expression),
-            Node::Image { source, .. } => {
+            Node::Image {
+                source,
+                shared_element,
+                ..
+            } => {
                 if let crate::ImageSource::RemoteUrl(url) = source {
                     walk_expression(url, visit_expression);
+                }
+                if let Some(id) = shared_element {
+                    walk_expression(id, visit_expression);
                 }
             }
         }
@@ -235,14 +248,20 @@ pub fn walk_callback_actions(nodes: &[Node], visit: &mut impl FnMut(&[Action])) 
                     actions,
                     double_tap_actions,
                     long_press_actions,
+                    drag_actions,
+                    pinch_actions,
                     ..
                 } => {
                     visit(actions);
                     visit(double_tap_actions);
                     visit(long_press_actions);
+                    visit(drag_actions);
+                    visit(pinch_actions);
                     walk_nested_callback_actions(actions, visit);
                     walk_nested_callback_actions(double_tap_actions, visit);
                     walk_nested_callback_actions(long_press_actions, visit);
+                    walk_nested_callback_actions(drag_actions, visit);
+                    walk_nested_callback_actions(pinch_actions, visit);
                     None
                 }
                 Node::RefreshControl { actions, .. } => Some(actions.as_slice()),
@@ -638,6 +657,21 @@ pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
     }
 }
 
+/// Returns whether any action expression reads one of the named state/local
+/// bindings. The shared expression walk also covers nested actions and
+/// callback bodies.
+pub fn actions_reference_state(actions: &[Action], names: &[&str]) -> bool {
+    let mut found = false;
+    walk_actions(actions, &mut |expression| {
+        if let Expr::State(name, _) = expression
+            && names.contains(&name.as_str())
+        {
+            found = true;
+        }
+    });
+    found
+}
+
 /// Visits expressions executed by one action callback. The receiver of a
 /// nested native-event subscription is included, but its handler body is a
 /// separate callback and is not traversed here.
@@ -766,13 +800,19 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             children,
             actions,
             double_tap_actions,
+            long_press_duration_ms,
             long_press_actions,
+            drag_actions,
+            pinch_actions,
             ..
         } => {
             visitor.visit_expr(disabled);
+            visitor.visit_expr(long_press_duration_ms);
             visitor.visit_actions(actions);
             visitor.visit_actions(double_tap_actions);
             visitor.visit_actions(long_press_actions);
+            visitor.visit_actions(drag_actions);
+            visitor.visit_actions(pinch_actions);
             visitor.visit_nodes(children);
         }
         Node::Link { url, children } => {
@@ -926,9 +966,16 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
             }
         }
         Node::NavigationBack { label } => visitor.visit_expr(label),
-        Node::Image { source, .. } => {
+        Node::Image {
+            source,
+            shared_element,
+            ..
+        } => {
             if let crate::ImageSource::RemoteUrl(url) = source {
                 visitor.visit_expr(url);
+            }
+            if let Some(id) = shared_element {
+                visitor.visit_expr(id);
             }
         }
     }
@@ -1205,14 +1252,24 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             children,
             actions,
             double_tap_actions,
+            long_press_duration_ms,
             long_press_actions,
+            drag_parameters,
+            drag_actions,
+            pinch_parameter,
+            pinch_actions,
         } => Some(Node::Pressable {
             disabled: folder.fold_expr(disabled),
             haptic,
             children: folder.fold_nodes(children),
             actions: folder.fold_actions(actions),
             double_tap_actions: folder.fold_actions(double_tap_actions),
+            long_press_duration_ms: folder.fold_expr(long_press_duration_ms),
             long_press_actions: folder.fold_actions(long_press_actions),
+            drag_parameters,
+            drag_actions: folder.fold_actions(drag_actions),
+            pinch_parameter,
+            pinch_actions: folder.fold_actions(pinch_actions),
         }),
         Node::Link { url, children } => Some(Node::Link {
             url: folder.fold_expr(url),
@@ -1423,6 +1480,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             description,
             scale,
             placeholder,
+            shared_element,
         } => Some(Node::Image {
             source: match source {
                 crate::ImageSource::RemoteUrl(url) => {
@@ -1433,6 +1491,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
             description,
             scale,
             placeholder,
+            shared_element: shared_element.map(|id| folder.fold_expr(id)),
         }),
         Node::Content
         | Node::Spacer

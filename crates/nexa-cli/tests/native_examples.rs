@@ -14,6 +14,7 @@ const EXAMPLES: &[&str] = &[
     "currency_formatting",
     "keyboard_ergonomics",
     "pressable_double_tap",
+    "pressable_pinch",
     "spring_animation",
     "showcase",
     "todo_app",

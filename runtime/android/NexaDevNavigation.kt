@@ -88,11 +88,15 @@ internal fun RenderNavigationStack(
                     .mapNotNull(screens::optJSONObject)
                     .firstOrNull { it.optString("name") == screenName }
                 if (screen != null && destination != null) {
+                    val animatedVisibilityScope = this
                     val parameters = store.screenParameters(
                         screen,
                         destination.optJSONObject("parameters") ?: JSONObject(),
                     )
-                    CompositionLocalProvider(LocalNexaDevNavController provides navController) {
+                    CompositionLocalProvider(
+                        LocalNexaDevNavController provides navController,
+                        LocalNexaAnimatedVisibilityScope provides animatedVisibilityScope,
+                    ) {
                         NexaDevScreenLifecycle(screen, store, parameters)
                         NexaDevNodeList(
                             screen.optJSONArray("body") ?: JSONArray(),

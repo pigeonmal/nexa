@@ -276,7 +276,7 @@ Reference: components.md#textinput
 
 ### `Pressable`
 
-Pressable region with tap, double-tap, and long-press actions
+Pressable region with tap, drag, pinch, double-tap, and long-press actions
 
 Signature: `Pressable(disabled:, haptic:, accessibilityLabel:, accessibilityHint:, accessibilityRole:) { ... }`
 
@@ -286,9 +286,12 @@ Children: node block
 
 Modifiers:
 
-- `.onPress` (actions, required)
+- `.onPress` (actions, optional)
+- `.onTap` (actions, optional)
 - `.onLongPress` (actions, optional)
 - `.onDoubleTap` (actions, optional)
+- `.onDrag` (event actions, optional)
+- `.onPinch` (event actions, optional)
 
 Reference: components.md#pressable
 
@@ -308,7 +311,9 @@ Exactly one of: `asset`, `url`
 
 Children: none
 
-Modifiers: none
+Modifiers:
+
+- `.sharedElement` (no block, optional)
 
 Reference: components.md#image
 

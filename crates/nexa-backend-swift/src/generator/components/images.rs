@@ -11,6 +11,7 @@ pub(crate) fn render_image(
     description: &str,
     scale: ImageScale,
     placeholder: Option<&str>,
+    shared_element: Option<&nexa_ir::Expr>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -41,6 +42,9 @@ pub(crate) fn render_image(
             ".accessibilityLabel({})",
             swift_string(description)
         ));
+    }
+    if let Some(id) = shared_element {
+        out.push_str(&format!(".nexaSharedElement(id: {})", expression(id)));
     }
 }
 

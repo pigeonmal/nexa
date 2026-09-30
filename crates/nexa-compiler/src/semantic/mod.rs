@@ -31,6 +31,7 @@ mod custom_components;
 mod expressions;
 mod generics;
 mod styles;
+mod tests;
 mod themes;
 mod warnings;
 
@@ -44,7 +45,7 @@ fn with_screen_source(error: CompileError, source_file: Option<&str>) -> Compile
 pub fn lower_with_warnings(
     mut app: ast::App,
     target: Target,
-) -> Result<(Module, Vec<CompileWarning>), CompileError> {
+) -> Result<(Module, Vec<CompileWarning>, crate::testing::TestSuite), CompileError> {
     let warnings = warnings::analyze(&app, target);
     let themes = lower_theme(app.theme.as_ref())?;
     let enum_declarations = lower_enum_declarations(&app.enums)?;
@@ -228,6 +229,12 @@ pub fn lower_with_warnings(
         target,
     )?;
 
+    let mut test_suite = tests::lower_tests(
+        std::mem::take(&mut app.tests),
+        &app.functions,
+        &app.structs,
+        &app.enums,
+    )?;
     let functions = lower_functions(
         std::mem::take(&mut app.functions),
         &function_signatures,
@@ -235,6 +242,7 @@ pub fn lower_with_warnings(
         &owned_enum_names,
         &enum_symbols,
     )?;
+    tests::bind_test_functions(&mut test_suite, &functions);
 
     let mut symbols = enum_symbols.clone();
     let mut states = Vec::with_capacity(app.states.len());
@@ -535,7 +543,7 @@ pub fn lower_with_warnings(
     }
     validate_module_callback_disposal(&module, &function_signatures)?;
     crate::optimize::optimize(&mut module);
-    Ok((module, warnings))
+    Ok((module, warnings, test_suite))
 }
 
 fn validate_module_callback_disposal(

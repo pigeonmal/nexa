@@ -165,7 +165,24 @@ pub(crate) fn render_navigation_stack(
             out.line_at(depth + 2, format_args!("LaunchedEffect({state}) {{ if ({state}) {requester}.requestFocus() else {requester}.freeFocus() }}"
             ));
         }
-        render_children(&screen.body, module, features, depth + 2, out);
+        if features.uses_shared_elements {
+            out.line_at(
+                depth + 2,
+                format_args!("val nexaAnimatedVisibilityScope = this"),
+            );
+            out.line_at(
+                depth + 2,
+                format_args!(
+                    "CompositionLocalProvider(LocalNexaAnimatedVisibilityScope provides nexaAnimatedVisibilityScope) {{"
+                ),
+            );
+            render_children(&screen.body, module, features, depth + 3, out);
+            out.push('\n');
+            indent(out, depth + 2);
+            out.push('}');
+        } else {
+            render_children(&screen.body, module, features, depth + 2, out);
+        }
         if screen.on_appear.is_some() || screen.on_disappear.is_some() {
             out.push('\n');
         }

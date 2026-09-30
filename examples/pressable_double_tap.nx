@@ -5,11 +5,11 @@ app PressableDoubleTap {
         Column {
             Pressable(haptic: Light) {
                 Text("Double tap to like")
-            }.onPress {
+            }.onTap {
                 likes = likes + 1
             }.onDoubleTap {
                 likes = likes + 2
-            }.onLongPress {
+            }.onLongPress(durationMs: 700) {
                 likes = 0
             }
 

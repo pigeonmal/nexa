@@ -153,9 +153,9 @@ pub const COMPONENTS: &[ComponentEntry] = &[
     },
     ComponentEntry {
         name: "Pressable",
-        summary: "Pressable region with tap, double-tap, and long-press actions",
+        summary: "Pressable region with tap, drag, pinch, double-tap, and long-press actions",
         snippet: "Pressable {\n    $0\n}.onPress {\n}",
-        probe: "app P { state n: Int32 = 0\n body { Pressable() { Text(\"x\") }.onPress { n = 1 }.onDoubleTap { n = 2 } } }",
+        probe: "app P { state n: Int32 = 0\n body { Pressable() { Text(\"x\") }.onTap { n = 1 }.onLongPress(durationMs: 650) { n = 0 }.onDoubleTap { n = 2 }.onDrag { x, y, vx, vy -> n = n + 1 }.onPinch { scaleFactor -> n = n + 1 } } }",
     },
     ComponentEntry {
         name: "NavigationStack",
@@ -588,6 +588,11 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
         snippet: "shadow(radius: ${1:8}, x: ${2:0}, y: ${3:4}, color: \"${4:#00000040}\")",
     },
     DotModifierEntry {
+        name: "sharedElement",
+        summary: "Match an image element across screen transitions",
+        snippet: "sharedElement(id: \"${1:hero}\")",
+    },
+    DotModifierEntry {
         name: "blur",
         summary: "Blur a view",
         snippet: "blur(${1:4})",
@@ -604,18 +609,33 @@ pub const DOT_MODIFIERS: &[DotModifierEntry] = &[
     },
     DotModifierEntry {
         name: "onPress",
-        summary: "Pressable tap action (required)",
+        summary: "Pressable tap action (alias: onTap)",
         snippet: "onPress {\n    $0\n}",
     },
     DotModifierEntry {
+        name: "onTap",
+        summary: "Pressable tap action",
+        snippet: "onTap {\n    $0\n}",
+    },
+    DotModifierEntry {
         name: "onLongPress",
-        summary: "Pressable long-press action",
-        snippet: "onLongPress {\n    $0\n}",
+        summary: "Pressable long-press action with an optional duration",
+        snippet: "onLongPress(durationMs: ${1:500}) {\n    $0\n}",
     },
     DotModifierEntry {
         name: "onDoubleTap",
         summary: "Pressable double-tap action",
         snippet: "onDoubleTap {\n    $0\n}",
+    },
+    DotModifierEntry {
+        name: "onDrag",
+        summary: "Pressable drag callback with translation and velocity values",
+        snippet: "onDrag { translationX, translationY, velocityX, velocityY ->\n    $0\n}",
+    },
+    DotModifierEntry {
+        name: "onPinch",
+        summary: "Pressable pinch callback with a cumulative scale factor",
+        snippet: "onPinch { scaleFactor ->\n    $0\n}",
     },
     DotModifierEntry {
         name: "onRefresh",
@@ -743,8 +763,12 @@ pub enum ChildModel {
 /// The payload a trailing dot-modifier accepts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModifierBody {
+    /// A value-only modifier with no trailing block.
+    None,
     /// `.onPress { ... }` action statements.
     Actions,
+    /// Event parameter bindings followed by action statements.
+    EventActions,
     /// `.stickyHeader { ... }` child nodes.
     Nodes,
 }
@@ -753,6 +777,8 @@ pub enum ModifierBody {
 pub struct ModifierSchema {
     /// Modifier name exactly as written in `.nx` source.
     pub name: &'static str,
+    /// Named options accepted before the modifier's trailing block.
+    pub arguments: &'static [ArgSchema],
     /// Whether the modifier body holds actions or nodes.
     pub body: ModifierBody,
     /// Whether omitting the modifier is a compile error.
@@ -1127,7 +1153,12 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
             both_message: "Image accepts either `asset` or `url`, not both",
         }],
         children: ChildModel::None,
-        modifiers: &[],
+        modifiers: &[ModifierSchema {
+            name: "sharedElement",
+            arguments: &[req("id")],
+            body: ModifierBody::None,
+            required: false,
+        }],
         flags: &[],
         trailing_message: None,
     },
@@ -1144,23 +1175,44 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         modifiers: &[
             ModifierSchema {
                 name: "onPress",
+                arguments: &[],
                 body: ModifierBody::Actions,
-                required: true,
+                required: false,
+            },
+            ModifierSchema {
+                name: "onTap",
+                arguments: &[],
+                body: ModifierBody::Actions,
+                required: false,
             },
             ModifierSchema {
                 name: "onLongPress",
+                arguments: &[opt("durationMs")],
                 body: ModifierBody::Actions,
                 required: false,
             },
             ModifierSchema {
                 name: "onDoubleTap",
+                arguments: &[],
                 body: ModifierBody::Actions,
+                required: false,
+            },
+            ModifierSchema {
+                name: "onDrag",
+                arguments: &[],
+                body: ModifierBody::EventActions,
+                required: false,
+            },
+            ModifierSchema {
+                name: "onPinch",
+                arguments: &[],
+                body: ModifierBody::EventActions,
                 required: false,
             },
         ],
         flags: &[],
         trailing_message: Some(
-            "Pressable actions must use `.onPress { ... }`, `.onLongPress { ... }`, or `.onDoubleTap { ... }`",
+            "Pressable actions must use exactly one of `.onPress { ... }` or `.onTap { ... }`, with optional `.onLongPress(durationMs: 500) { ... }`, `.onDoubleTap { ... }`, `.onDrag { x, y, vx, vy -> ... }`, or `.onPinch { scaleFactor -> ... }`",
         ),
     },
     ComponentSchema {
@@ -1282,6 +1334,7 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         children: ChildModel::Nodes,
         modifiers: &[ModifierSchema {
             name: "onRefresh",
+            arguments: &[],
             body: ModifierBody::Actions,
             required: true,
         }],
@@ -1315,21 +1368,25 @@ pub const COMPONENT_SCHEMAS: &[ComponentSchema] = &[
         modifiers: &[
             ModifierSchema {
                 name: "onEndReached",
+                arguments: &[],
                 body: ModifierBody::Actions,
                 required: false,
             },
             ModifierSchema {
                 name: "onScroll",
+                arguments: &[],
                 body: ModifierBody::Actions,
                 required: false,
             },
             ModifierSchema {
                 name: "stickyHeader",
+                arguments: &[],
                 body: ModifierBody::Nodes,
                 required: false,
             },
             ModifierSchema {
                 name: "sectionHeader",
+                arguments: &[],
                 body: ModifierBody::Nodes,
                 required: false,
             },
@@ -1868,7 +1925,9 @@ pub fn render_syntax_audit() -> String {
                         "- `.{}` ({}, {})\n",
                         modifier.name,
                         match modifier.body {
+                            ModifierBody::None => "no block",
                             ModifierBody::Actions => "actions",
+                            ModifierBody::EventActions => "event actions",
                             ModifierBody::Nodes => "nodes",
                         },
                         if modifier.required {

@@ -114,10 +114,18 @@ fn take_positional(
 
 /// Remove one trailing dot-modifier body by name.
 fn take_modifier(modifiers: &mut Vec<ast::DotModifier>, name: &str) -> Option<ast::ModifierBody> {
+    take_modifier_decl(modifiers, name).map(|modifier| modifier.body)
+}
+
+/// Remove one complete trailing dot-modifier declaration by name.
+fn take_modifier_decl(
+    modifiers: &mut Vec<ast::DotModifier>,
+    name: &str,
+) -> Option<ast::DotModifier> {
     modifiers
         .iter()
         .position(|modifier| modifier.name == name)
-        .map(|index| modifiers.remove(index).body)
+        .map(|index| modifiers.remove(index))
 }
 
 /// Take an optional action-block modifier body.
@@ -873,6 +881,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
         ast::Node::ComponentInvocation(inv) if inv.name == "Image" => {
             let span = inv.span;
             let mut args = inv.arguments;
+            let mut modifiers = inv.modifiers;
             let source = match (args.remove("asset"), args.remove("url")) {
                 (Some(asset), None) => ast::ImageSource::Asset(asset),
                 (None, Some(url)) => ast::ImageSource::Url(url),
@@ -886,6 +895,20 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let description = take_required_arg(&mut args, &inv.name, "description", span)?;
             let scale = args.remove("scale");
             let placeholder = args.remove("placeholder");
+            let shared_element = take_modifier_decl(&mut modifiers, "sharedElement")
+                .map(|modifier| {
+                    let id = modifier.arguments.get("id").ok_or_else(|| {
+                        CompileError::new(modifier.span, "`.sharedElement` requires `id`")
+                    })?;
+                    if !matches!(modifier.body, ast::ModifierBody::None) {
+                        return Err(CompileError::new(
+                            modifier.span,
+                            "`.sharedElement(id: ...)` does not accept a trailing block",
+                        ));
+                    }
+                    lower_expr(id, Some(&Type::String), &cx.exprs(false))
+                })
+                .transpose()?;
             let source = match source {
                 ast::ImageSource::Asset(asset) => {
                     let asset = require_string_literal(&asset, "Image asset")?;
@@ -946,11 +969,11 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 description,
                 scale,
                 placeholder,
+                shared_element,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "Pressable" => {
             let span = inv.span;
-            let schema = invocation_schema(&inv)?;
             let mut args = inv.arguments;
             let disabled = args.remove("disabled");
             let haptic = args.remove("haptic");
@@ -959,25 +982,130 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 _ => return Err(child_mismatch(span)),
             };
             let mut modifiers = inv.modifiers;
-            let actions = match take_modifier(&mut modifiers, "onPress") {
+            let on_press = take_modifier_decl(&mut modifiers, "onPress");
+            let on_tap = take_modifier_decl(&mut modifiers, "onTap");
+            if on_press.is_some() && on_tap.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "Pressable accepts only one tap handler; use `.onTap` or `.onPress`, not both",
+                ));
+            }
+            let actions = match on_press.or(on_tap).map(|modifier| modifier.body) {
                 Some(ast::ModifierBody::Actions(actions)) => actions,
                 _ => {
                     return Err(CompileError::new(
                         span,
-                        catalog::required_modifier_message(schema, "onPress"),
+                        "Pressable requires a tap handler using `.onTap { ... }` or `.onPress { ... }`",
                     ));
                 }
             };
-            let long_press_actions = match take_modifier(&mut modifiers, "onLongPress") {
-                Some(ast::ModifierBody::Actions(actions)) => actions,
-                Some(_) => return Err(child_mismatch(span)),
-                None => Vec::new(),
-            };
+            let (long_press_duration_ms, long_press_actions) =
+                match take_modifier_decl(&mut modifiers, "onLongPress") {
+                    Some(modifier) => {
+                        let duration = modifier.arguments.get("durationMs");
+                        let duration = duration
+                            .map(|value| {
+                                lower_expr(
+                                    value,
+                                    Some(&Type::Numeric(NumericType::Int32)),
+                                    &cx.exprs(false),
+                                )
+                            })
+                            .transpose()?
+                            .unwrap_or(Expr::Number {
+                                raw: "500".to_owned(),
+                                ty: NumericType::Int32,
+                            });
+                        let actions = match modifier.body {
+                            ast::ModifierBody::Actions(actions) => actions,
+                            _ => return Err(child_mismatch(span)),
+                        };
+                        (duration, actions)
+                    }
+                    None => (
+                        Expr::Number {
+                            raw: "500".to_owned(),
+                            ty: NumericType::Int32,
+                        },
+                        Vec::new(),
+                    ),
+                };
             let double_tap_actions = match take_modifier(&mut modifiers, "onDoubleTap") {
                 Some(ast::ModifierBody::Actions(actions)) => actions,
                 Some(_) => return Err(child_mismatch(span)),
                 None => Vec::new(),
             };
+            let (drag_parameters, drag_actions) = match take_modifier(&mut modifiers, "onDrag") {
+                Some(ast::ModifierBody::EventActions {
+                    parameters,
+                    actions,
+                }) => (parameters, actions),
+                Some(_) => return Err(child_mismatch(span)),
+                None => (Vec::new(), Vec::new()),
+            };
+            let (pinch_parameter, pinch_actions) = match take_modifier(&mut modifiers, "onPinch") {
+                Some(ast::ModifierBody::EventActions {
+                    parameters,
+                    actions,
+                }) => {
+                    if parameters.len() != 1 {
+                        return Err(CompileError::new(
+                            span,
+                            ".onPinch requires one binding for its scaleFactor delta",
+                        ));
+                    }
+                    let Some(parameter) = parameters.into_iter().next() else {
+                        return Err(CompileError::new(
+                            span,
+                            ".onPinch requires one binding for its scaleFactor delta",
+                        ));
+                    };
+                    if symbols.contains_key(&parameter) {
+                        return Err(CompileError::new(
+                            span,
+                            format!(".onPinch binding `{parameter}` shadows an existing value"),
+                        ));
+                    }
+                    (Some(parameter), actions)
+                }
+                Some(_) => return Err(child_mismatch(span)),
+                None => (None, Vec::new()),
+            };
+            let mut drag_symbols = symbols.clone();
+            if !drag_parameters.is_empty() {
+                if drag_parameters.len() != 4 {
+                    return Err(CompileError::new(
+                        span,
+                        ".onDrag requires four bindings: translationX, translationY, velocityX, and velocityY",
+                    ));
+                }
+                let mut unique_parameters = HashSet::with_capacity(drag_parameters.len());
+                for parameter in &drag_parameters {
+                    if !unique_parameters.insert(parameter.as_str()) {
+                        return Err(CompileError::new(
+                            span,
+                            format!(".onDrag binds `{parameter}` more than once"),
+                        ));
+                    }
+                    if symbols.contains_key(parameter) {
+                        return Err(CompileError::new(
+                            span,
+                            format!(".onDrag binding `{parameter}` shadows an existing value"),
+                        ));
+                    }
+                    drag_symbols.insert(
+                        parameter.clone(),
+                        (Type::Numeric(NumericType::Float64), false),
+                    );
+                }
+            }
+            let mut pinch_symbols = symbols.clone();
+            if let Some(parameter) = &pinch_parameter {
+                pinch_symbols.insert(
+                    parameter.clone(),
+                    (Type::Numeric(NumericType::Float64), false),
+                );
+            }
             let disabled = disabled
                 .map(|value| lower_expr(&value, Some(&Type::Bool), &cx.exprs(false)))
                 .transpose()?
@@ -1017,13 +1145,40 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                     enums: cx.enums,
                 },
             )?;
+            let drag_actions = lower_actions_with_aliases(
+                drag_actions,
+                &drag_symbols,
+                functions,
+                false,
+                native_aliases,
+                TypeRegistries {
+                    structs: cx.structs,
+                    enums: cx.enums,
+                },
+            )?;
+            let pinch_actions = lower_actions_with_aliases(
+                pinch_actions,
+                &pinch_symbols,
+                functions,
+                false,
+                native_aliases,
+                TypeRegistries {
+                    structs: cx.structs,
+                    enums: cx.enums,
+                },
+            )?;
             Ok(Node::Pressable {
                 disabled,
                 haptic,
                 children: lowered_children,
                 actions,
                 double_tap_actions,
+                long_press_duration_ms,
                 long_press_actions,
+                drag_parameters,
+                drag_actions,
+                pinch_parameter,
+                pinch_actions,
             })
         }
         ast::Node::ComponentInvocation(inv) if inv.name == "NavigationStack" => {

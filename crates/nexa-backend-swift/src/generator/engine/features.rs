@@ -18,6 +18,7 @@ pub(crate) struct Features {
     pub(crate) uses_link: bool,
     pub(crate) uses_navigation_back: bool,
     pub(crate) uses_remote_image: bool,
+    pub(crate) uses_shared_elements: bool,
     pub(crate) uses_native_library: bool,
     pub(crate) uses_network_api: bool,
     pub(crate) uses_path_api: bool,
@@ -29,6 +30,8 @@ pub(crate) struct Features {
     pub(crate) used_permissions: HashSet<Permission>,
     pub(crate) dynamic_permission: bool,
     pub(crate) uses_haptic: bool,
+    pub(crate) uses_drag: bool,
+    pub(crate) uses_pinch: bool,
     pub(crate) app_uses_adaptive_color: bool,
     pub(crate) app_uses_size_class: bool,
     components_using_adaptive_color: HashSet<String>,
@@ -44,6 +47,7 @@ impl Features {
         let mut features = Self::default();
         let capabilities = &facts.capabilities;
         features.uses_remote_image = capabilities.uses_remote_image;
+        features.uses_shared_elements = facts.ui.image.shared_element;
         features.uses_network_api = capabilities.uses_network_api;
         features.uses_path_api = capabilities.uses_path_api;
         features.uses_file_api = capabilities.uses_file_api;
@@ -64,6 +68,8 @@ impl Features {
         features.uses_link = ui.app.link || ui.components.values().any(|scope| scope.link);
         features.uses_navigation_back = ui.app.navigation_back;
         features.uses_haptic = ui.app.haptic || ui.components.values().any(|scope| scope.haptic);
+        features.uses_drag = ui.pressable.drag;
+        features.uses_pinch = ui.pressable.pinch;
         features.app_uses_adaptive_color =
             ui.app.adaptive_background || ui.app.adaptive_border || ui.app.adaptive_text;
         features.app_uses_size_class = ui.app.size_class;

@@ -8,7 +8,7 @@
 use nexa_ir::{Module, Node};
 use serde::{Deserialize, Serialize};
 
-pub const DEV_IR_FORMAT_VERSION: u16 = 11;
+pub const DEV_IR_FORMAT_VERSION: u16 = 15;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DevModule {

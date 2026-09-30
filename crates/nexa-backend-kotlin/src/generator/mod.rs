@@ -29,7 +29,8 @@ fn project_features_from_analysis(
             || features.facts.capabilities.uses_secure_storage_api,
         uses_permission_request: features.uses_permission_request,
         uses_navigation: !module.screens.is_empty(),
-        uses_compose_animation: features.uses_conditional_transition,
+        uses_compose_animation: features.uses_conditional_transition
+            || features.uses_shared_elements,
         uses_compose_graphics: features.uses_color
             || features.uses_asset
             || features.uses_tab_icon
@@ -72,6 +73,9 @@ pub(super) fn generate_for_dev_units_with_project_features(
     // initial source has none, so the development host always carries the same
     // Coil/Cronet support that release output uses for remote images.
     features.uses_remote_image = true;
+    // Shared-transition APIs can be introduced by hot reload without
+    // rebuilding the development host.
+    features.uses_shared_elements = true;
     // Async native calls can be added while a dev session is running, so keep
     // the same first-party Cronet adapter available even if the initial app
     // does not call Network yet.
@@ -353,7 +357,11 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             if !module.states.is_empty() {
                 out.push('\n');
             }
-            let body_depth = components::direction::start(module.direction, out);
+            if features.uses_shared_elements {
+                out.push_str("    NexaSharedTransitionContent {\n");
+            }
+            let body_base_depth = if features.uses_shared_elements { 2 } else { 1 };
+            let body_depth = components::direction::start(module.direction, body_base_depth, out);
             components::lifecycle::render_on_appear(module.on_appear.as_deref(), body_depth, out);
             components::lifecycle::render_on_disappear(
                 module.on_disappear.as_deref(),
@@ -375,9 +383,16 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                     out,
                 );
             }
-            components::direction::end(module.direction, out);
+            components::direction::end(module.direction, body_base_depth, out);
+            if features.uses_shared_elements {
+                out.push_str("\n    }");
+            }
             out.push_str("\n}\n");
     });
+
+    if features.uses_shared_elements {
+        units.write("shared-elements", components::shared_elements::render);
+    }
 
     units.write("components", |out| {
         custom_components::render(module, features, out);
@@ -465,9 +480,63 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
 mod tests {
     use super::generate;
     use nexa_ir::{
-        Action, AnimationSpec, Component, Expr, Function, LayoutKind, Module, Node, NumericType,
-        Screen, ScreenId, State, TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
+        Action, AnimationSpec, Component, Expr, Function, ImageScale, ImageSource, LayoutKind,
+        Module, Node, NumericType, Screen, ScreenId, State, TextStyle, Type, ViewStyle,
+        ViewTransition, WhenCase,
     };
+
+    #[test]
+    fn shared_image_elements_use_compose_scopes_across_navigation_screens() {
+        let image = Node::Image {
+            source: ImageSource::Asset("hero".to_owned()),
+            description: "Hero".to_owned(),
+            scale: ImageScale::Fit,
+            placeholder: None,
+            shared_element: Some(Expr::String("hero-image".to_owned())),
+        };
+        let module = Module {
+            app_name: "SharedHero".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: Vec::new(),
+            screens: vec![Screen {
+                id: ScreenId(0),
+                name: "Home".to_owned(),
+                parameters: Vec::new(),
+                states: Vec::new(),
+                body: vec![image],
+                status_bar: None,
+                on_appear: None,
+                on_appear_async: false,
+                on_disappear: None,
+            }],
+            components: Vec::new(),
+            body: vec![Node::NavigationStack {
+                root: ScreenId(0),
+                arguments: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        assert!(kotlin.contains("NexaSharedTransitionContent {"));
+        assert!(kotlin.contains("SharedTransitionLayout"));
+        assert!(kotlin.contains("nexaSharedElementModifier(\"hero-image\")"));
+        assert!(
+            kotlin
+                .contains("LocalNexaAnimatedVisibilityScope provides nexaAnimatedVisibilityScope")
+        );
+    }
 
     #[test]
     fn configured_spring_maps_response_and_damping_to_compose_physics() {
@@ -648,7 +717,15 @@ mod tests {
                         ty: NumericType::Int32,
                     },
                 }],
+                long_press_duration_ms: Expr::Number {
+                    raw: "500".to_owned(),
+                    ty: NumericType::Int32,
+                },
                 long_press_actions: Vec::new(),
+                drag_parameters: Vec::new(),
+                drag_actions: Vec::new(),
+                pinch_parameter: None,
+                pinch_actions: Vec::new(),
             }],
             status_bar: None,
             direction: None,
@@ -669,6 +746,188 @@ mod tests {
         assert!(kotlin.contains("combinedClickable("));
         assert!(kotlin.contains("onDoubleClick = {"));
         assert!(!kotlin.contains("onLongClick = {"));
+        assert!(!kotlin.contains("import androidx.compose.ui.input.pointer"));
+    }
+
+    #[test]
+    fn drag_pressable_emits_pointer_input_and_typed_callback() {
+        let module = Module {
+            app_name: "DragApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: vec![State {
+                name: "distance".to_owned(),
+                ty: Type::Numeric(NumericType::Float64),
+                initial: Expr::Number {
+                    raw: "0.0".to_owned(),
+                    ty: NumericType::Float64,
+                },
+                mutable: true,
+            }],
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Pressable {
+                disabled: Expr::Bool(false),
+                haptic: None,
+                children: vec![Node::Text {
+                    value: Expr::String("Drag me".to_owned()),
+                    style: TextStyle::default(),
+                }],
+                actions: Vec::new(),
+                double_tap_actions: Vec::new(),
+                long_press_duration_ms: Expr::Number {
+                    raw: "500".to_owned(),
+                    ty: NumericType::Int32,
+                },
+                long_press_actions: Vec::new(),
+                drag_parameters: vec![
+                    "translationX".to_owned(),
+                    "translationY".to_owned(),
+                    "velocityX".to_owned(),
+                    "velocityY".to_owned(),
+                ],
+                drag_actions: vec![Action::Assign {
+                    name: "distance".to_owned(),
+                    value: Expr::State("velocityX".to_owned(), Type::Numeric(NumericType::Float64)),
+                }],
+                pinch_parameter: None,
+                pinch_actions: Vec::new(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+
+        assert!(kotlin.contains("import androidx.compose.foundation.gestures.detectDragGestures"));
+        assert!(kotlin.contains("import androidx.compose.ui.input.pointer.pointerInput"));
+        assert!(kotlin.contains("import androidx.compose.ui.input.pointer.util.VelocityTracker"));
+        assert!(kotlin.contains(".pointerInput(nexaDragDensity, !(false))"));
+        assert!(kotlin.contains("nexaVelocityTracker.calculateVelocity()"));
+        assert!(
+            kotlin.contains(
+                "val nexa_translationX = (nexaTranslationX / nexaDragDensity).toDouble()"
+            )
+        );
+        assert!(kotlin.contains("nexa_distance = nexa_velocityX"));
+
+        let mut translation_only_module = module;
+        let Node::Pressable { drag_actions, .. } = &mut translation_only_module.body[0] else {
+            panic!("expected Pressable");
+        };
+        drag_actions[0] = Action::Assign {
+            name: "distance".to_owned(),
+            value: Expr::State(
+                "translationX".to_owned(),
+                Type::Numeric(NumericType::Float64),
+            ),
+        };
+        let kotlin = generate(&translation_only_module);
+        assert!(!kotlin.contains("import androidx.compose.ui.input.pointer.util.VelocityTracker"));
+        assert!(!kotlin.contains("calculateVelocity()"));
+    }
+
+    #[test]
+    fn pinch_pressable_emits_scale_delta_and_shares_transform_input_with_drag() {
+        let state = |name: &str| State {
+            name: name.to_owned(),
+            ty: Type::Numeric(NumericType::Float64),
+            initial: Expr::Number {
+                raw: "1.0".to_owned(),
+                ty: NumericType::Float64,
+            },
+            mutable: true,
+        };
+        let mut module = Module {
+            app_name: "PinchApp".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            states: vec![state("zoom"), state("distance")],
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Pressable {
+                disabled: Expr::Bool(false),
+                haptic: None,
+                children: vec![Node::Text {
+                    value: Expr::String("Pinch to zoom".to_owned()),
+                    style: TextStyle::default(),
+                }],
+                actions: Vec::new(),
+                double_tap_actions: Vec::new(),
+                long_press_duration_ms: Expr::Number {
+                    raw: "500".to_owned(),
+                    ty: NumericType::Int32,
+                },
+                long_press_actions: Vec::new(),
+                drag_parameters: Vec::new(),
+                drag_actions: Vec::new(),
+                pinch_parameter: Some("scaleFactor".to_owned()),
+                pinch_actions: vec![Action::Assign {
+                    name: "zoom".to_owned(),
+                    value: Expr::State(
+                        "scaleFactor".to_owned(),
+                        Type::Numeric(NumericType::Float64),
+                    ),
+                }],
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+
+        assert!(
+            kotlin.contains("import androidx.compose.foundation.gestures.detectTransformGestures")
+        );
+        assert!(kotlin.contains("import androidx.compose.ui.input.pointer.pointerInput"));
+        assert!(!kotlin.contains("detectDragGestures"));
+        assert!(!kotlin.contains("LocalDensity"));
+        assert!(kotlin.contains("if (nexaZoomChange != 1f)"));
+        assert!(kotlin.contains("val nexa_scaleFactor = nexaZoomChange.toDouble()"));
+        assert!(kotlin.contains("nexa_zoom = nexa_scaleFactor"));
+
+        let Node::Pressable {
+            drag_parameters,
+            drag_actions,
+            ..
+        } = &mut module.body[0]
+        else {
+            panic!("expected Pressable");
+        };
+        *drag_parameters = vec![
+            "translationX".to_owned(),
+            "translationY".to_owned(),
+            "velocityX".to_owned(),
+            "velocityY".to_owned(),
+        ];
+        *drag_actions = vec![Action::Assign {
+            name: "distance".to_owned(),
+            value: Expr::State("velocityX".to_owned(), Type::Numeric(NumericType::Float64)),
+        }];
+        let kotlin = generate(&module);
+        assert!(kotlin.contains("detectTransformGestures { _, nexaPan, nexaZoomChange, _ ->"));
+        assert!(!kotlin.contains("detectDragGestures"));
+        assert!(kotlin.contains("import android.os.SystemClock"));
+        assert!(kotlin.contains("nexa_distance = nexa_velocityX"));
+        assert!(kotlin.contains("nexa_zoom = nexa_scaleFactor"));
     }
 
     #[test]

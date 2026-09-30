@@ -38,6 +38,7 @@ pub(crate) fn render_image(
     description: &str,
     scale: ImageScale,
     placeholder: Option<&str>,
+    shared_element: Option<&nexa_ir::Expr>,
     depth: usize,
     out: &mut SourceWriter,
 ) {
@@ -51,14 +52,23 @@ pub(crate) fn render_image(
     } else {
         kotlin_string(description)
     };
+    let shared_modifier = shared_element.map(|id| {
+        format!(
+            "{}    modifier = nexaSharedElementModifier({}),\n",
+            "    ".repeat(depth),
+            expression(id)
+        )
+    });
+    let shared_modifier = shared_modifier.as_deref().unwrap_or("");
     match source {
         ImageSource::Asset(asset) => {
             out.push_str(&format!(
-                "Image(\n{}    painter = nexaDrawablePainter({}),\n{}    contentDescription = {description},\n{}    contentScale = {content_scale}\n{})",
+                "Image(\n{}    painter = nexaDrawablePainter({}),\n{}    contentDescription = {description},\n{}    contentScale = {content_scale},\n{}{})",
                 "    ".repeat(depth),
                 kotlin_string(asset),
                 "    ".repeat(depth),
                 "    ".repeat(depth),
+                shared_modifier,
                 "    ".repeat(depth),
             ));
         }
@@ -87,8 +97,9 @@ pub(crate) fn render_image(
                 ));
             }
             out.push_str(&format!(
-                "{}    contentScale = {content_scale}\n{})",
+                "{}    contentScale = {content_scale},\n{}{})",
                 "    ".repeat(depth),
+                shared_modifier,
                 "    ".repeat(depth)
             ));
         }

@@ -67,6 +67,7 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     crate::generator::components::navigation::imports(&context, &mut imports);
     crate::generator::components::refresh::imports(context.features, &mut imports);
     crate::generator::components::sheets::imports(context.features, &mut imports);
+    crate::generator::components::shared_elements::imports(context.features, &mut imports);
     crate::generator::api::network::imports(context.features, &mut imports);
     crate::generator::api::json::imports(context.features, &mut imports);
     crate::generator::api::clipboard::imports(context.features, &mut imports);

@@ -6,7 +6,7 @@ package __NEXA_PACKAGE__
  */
 internal object NexaDevSchema {
     const val PROTOCOL_VERSION: Int = 10
-    const val DEV_IR_FORMAT_VERSION: Int = 11
+    const val DEV_IR_FORMAT_VERSION: Int = 15
     const val TARGET_PLATFORM: String = "android"
 }
 
@@ -72,6 +72,13 @@ internal object NexaDevKeys {
     const val ON_INACTIVE = "on_inactive"
     const val ON_BACKGROUND = "on_background"
     const val TRANSITION = "transition"
+
+    // Pressable fields
+    const val DRAG_PARAMETERS = "drag_parameters"
+    const val DRAG_ACTIONS = "drag_actions"
+    const val PINCH_PARAMETER = "pinch_parameter"
+    const val PINCH_ACTIONS = "pinch_actions"
+    const val LONG_PRESS_DURATION_MS = "long_press_duration_ms"
 
     // Screen fields
     const val NAME = "name"

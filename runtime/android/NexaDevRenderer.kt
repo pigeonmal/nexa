@@ -1,5 +1,6 @@
 package __NEXA_PACKAGE__
 
+import android.os.SystemClock
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -24,6 +25,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -98,11 +101,17 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role as SemanticsRole
 import androidx.compose.ui.semantics.contentDescription
@@ -444,6 +453,11 @@ internal fun NexaDevNode(
         "Pressable" -> {
             val disabled = store.evaluate(fields.opt("disabled"), locals, scope) as? Boolean ?: false
             val doubleTapActions = fields.optJSONArray("double_tap_actions") ?: JSONArray()
+            val longPressActions = fields.optJSONArray("long_press_actions") ?: JSONArray()
+            val dragParameters = fields.optJSONArray(NexaDevKeys.DRAG_PARAMETERS) ?: JSONArray()
+            val dragActions = fields.optJSONArray(NexaDevKeys.DRAG_ACTIONS) ?: JSONArray()
+            val pinchParameter = fields.optString(NexaDevKeys.PINCH_PARAMETER).takeIf(String::isNotEmpty)
+            val pinchActions = fields.optJSONArray(NexaDevKeys.PINCH_ACTIONS) ?: JSONArray()
             val hapticStyle = fields.optString("haptic").takeIf(String::isNotEmpty)
             val haptic = LocalHapticFeedback.current
             val hapticType = when (hapticStyle) {
@@ -452,21 +466,115 @@ internal fun NexaDevNode(
                 "Heavy" -> HapticFeedbackType.ContextClick
                 else -> null
             }
-            Box(Modifier.combinedClickable(
-                enabled = !disabled,
-                onClick = {
-                    if (hapticType != null) haptic.performHapticFeedback(hapticType)
-                    store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals)
-                },
-                onLongClick = {
-                    store.perform(fields.optJSONArray("long_press_actions") ?: JSONArray(), scope, locals)
-                },
-                onDoubleClick = {
-                    if (hapticType != null) haptic.performHapticFeedback(hapticType)
-                    store.perform(doubleTapActions, scope, locals)
-                },
-            )) {
-                RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
+            val dragModifier = if (pinchParameter != null) {
+                val density = if (dragParameters.length() == 4) LocalDensity.current.density else 1f
+                Modifier.pointerInput(density, !disabled, dragActions, pinchActions) {
+                    if (!disabled) {
+                        var translationX = 0f
+                        var translationY = 0f
+                        var lastGestureTime = 0L
+                        val gestureLocals = locals.toMutableMap()
+                        detectTransformGestures { _, pan, zoomChange, _ ->
+                            if (dragParameters.length() == 4 && (pan.x != 0f || pan.y != 0f)) {
+                                translationX += pan.x
+                                translationY += pan.y
+                                val now = SystemClock.uptimeMillis()
+                                val elapsed = if (lastGestureTime == 0L || now - lastGestureTime > 100L) {
+                                    0L
+                                } else {
+                                    now - lastGestureTime
+                                }
+                                lastGestureTime = now
+                                gestureLocals[dragParameters.getString(0)] =
+                                    (translationX / density).toDouble()
+                                gestureLocals[dragParameters.getString(1)] =
+                                    (translationY / density).toDouble()
+                                gestureLocals[dragParameters.getString(2)] =
+                                    if (elapsed == 0L) 0.0 else (pan.x * 1000f / elapsed.toFloat() / density).toDouble()
+                                gestureLocals[dragParameters.getString(3)] =
+                                    if (elapsed == 0L) 0.0 else (pan.y * 1000f / elapsed.toFloat() / density).toDouble()
+                                store.perform(dragActions, scope, gestureLocals)
+                            }
+                            if (zoomChange != 1f) {
+                                gestureLocals[pinchParameter] = zoomChange.toDouble()
+                                store.perform(pinchActions, scope, gestureLocals)
+                            }
+                        }
+                    }
+                }
+            } else if (dragParameters.length() == 4) {
+                val density = LocalDensity.current.density
+                Modifier.pointerInput(density, !disabled, dragActions) {
+                    if (!disabled) {
+                        val velocityTracker = VelocityTracker()
+                        var translationX = 0f
+                        var translationY = 0f
+                        val dragLocals = locals.toMutableMap()
+                        detectDragGestures(
+                            onDragStart = {
+                                translationX = 0f
+                                translationY = 0f
+                                velocityTracker.resetTracking()
+                            },
+                            onDragEnd = { velocityTracker.resetTracking() },
+                            onDragCancel = { velocityTracker.resetTracking() },
+                            onDrag = { change, dragAmount ->
+                                translationX += dragAmount.x
+                                translationY += dragAmount.y
+                                velocityTracker.addPointerInputChange(change)
+                                val velocity = velocityTracker.calculateVelocity()
+                                dragLocals[dragParameters.getString(0)] =
+                                    (translationX / density).toDouble()
+                                dragLocals[dragParameters.getString(1)] =
+                                    (translationY / density).toDouble()
+                                dragLocals[dragParameters.getString(2)] =
+                                    (velocity.x / density).toDouble()
+                                dragLocals[dragParameters.getString(3)] =
+                                    (velocity.y / density).toDouble()
+                                store.perform(dragActions, scope, dragLocals)
+                                change.consume()
+                            },
+                        )
+                    }
+                }
+            } else {
+                Modifier
+            }
+            val pressableContent: @Composable () -> Unit = {
+                Box(dragModifier.combinedClickable(
+                    enabled = !disabled,
+                    onClick = {
+                        if (hapticType != null) haptic.performHapticFeedback(hapticType)
+                        store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals)
+                    },
+                    onLongClick = {
+                        store.perform(longPressActions, scope, locals)
+                    },
+                    onDoubleClick = {
+                        if (hapticType != null) haptic.performHapticFeedback(hapticType)
+                        store.perform(doubleTapActions, scope, locals)
+                    },
+                )) {
+                    RenderChildren(fields.optJSONArray("children") ?: JSONArray(), module, store, locals, scope)
+                }
+            }
+            if (longPressActions.length() == 0) {
+                pressableContent()
+            } else {
+                val longPressDurationMs = (store.evaluate(
+                    fields.opt(NexaDevKeys.LONG_PRESS_DURATION_MS),
+                    locals,
+                    scope,
+                ) as? Number)?.toLong()?.coerceAtLeast(1L) ?: 500L
+                val baseViewConfiguration = LocalViewConfiguration.current
+                val longPressViewConfiguration = remember(baseViewConfiguration, longPressDurationMs) {
+                    object : ViewConfiguration by baseViewConfiguration {
+                        override val longPressTimeoutMillis: Long = longPressDurationMs
+                    }
+                }
+                CompositionLocalProvider(LocalViewConfiguration provides longPressViewConfiguration) {
+                    pressableContent()
+                }
             }
         }
         "TextInput" -> {
@@ -789,15 +897,21 @@ internal fun NexaDevNode(
             val description = fields.optString("description").takeIf(String::isNotEmpty)
             val scale = if (fields.optString("scale") == "Fill") ContentScale.Crop else ContentScale.Fit
             val placeholder = fields.optString("placeholder").takeIf(String::isNotEmpty)
+            val sharedElementExpression = fields.opt("shared_element")
+            val renderedModifier = if (sharedElementExpression != null && sharedElementExpression != JSONObject.NULL) {
+                modifier.then(nexaSharedElementModifier(store.evaluate(sharedElementExpression, locals, scope) ?: ""))
+            } else {
+                modifier
+            }
             val asset = source.optString("Asset").takeIf(String::isNotEmpty)
             val remoteExpression = source.opt("RemoteUrl")
             if (asset != null) {
                 val context = LocalContext.current
                 val resourceId = remember(asset) { context.resources.getIdentifier(asset, "drawable", context.packageName) }
                 if (resourceId != 0) {
-                    Image(painterResource(resourceId), contentDescription = description, contentScale = scale)
+                    Image(painterResource(resourceId), contentDescription = description, contentScale = scale, modifier = renderedModifier)
                 } else {
-                    Text(placeholder ?: "Image unavailable")
+                    Text(placeholder ?: "Image unavailable", modifier = renderedModifier)
                 }
             } else if (remoteExpression != null && remoteExpression != JSONObject.NULL) {
                 val url = store.stringify(store.evaluate(remoteExpression, locals, scope))
@@ -813,9 +927,10 @@ internal fun NexaDevNode(
                     contentScale = scale,
                     placeholder = placeholderPainter,
                     error = placeholderPainter,
+                    modifier = renderedModifier,
                 )
             } else {
-                Text(placeholder ?: "Image unavailable")
+                Text(placeholder ?: "Image unavailable", modifier = renderedModifier)
             }
         }
         "RefreshControl" -> {

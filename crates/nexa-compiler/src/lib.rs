@@ -2,6 +2,7 @@ mod compile;
 mod optimize;
 mod project;
 mod semantic;
+pub mod testing;
 
 pub use compile::compile;
 pub use compile::{

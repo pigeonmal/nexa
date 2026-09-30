@@ -16,6 +16,7 @@ pub(crate) struct Features {
     pub(crate) uses_tab_badge: bool,
     pub(crate) uses_tab_badge_placeholder: bool,
     pub(crate) uses_remote_image: bool,
+    pub(crate) uses_shared_elements: bool,
     pub(crate) uses_native_library: bool,
     pub(crate) uses_network_api: bool,
     pub(crate) uses_path_api: bool,
@@ -81,6 +82,9 @@ pub(crate) struct Features {
     pub(crate) uses_clickable: bool,
     pub(crate) uses_long_press: bool,
     pub(crate) uses_double_tap: bool,
+    pub(crate) uses_drag: bool,
+    pub(crate) uses_drag_velocity: bool,
+    pub(crate) uses_pinch: bool,
     pub(crate) uses_column: bool,
     pub(crate) uses_row: bool,
     pub(crate) uses_box: bool,
@@ -169,6 +173,7 @@ impl Features {
         self.dynamic_permission = facts.permissions.dynamic;
 
         let ui = &facts.ui;
+        self.uses_shared_elements = ui.image.shared_element;
         let types = &facts.used_types;
         self.uses_bottom_bar = ui.bottom_bar.present;
         self.uses_tab_icon = ui.bottom_bar.tab_icon;
@@ -242,6 +247,9 @@ impl Features {
         self.uses_clickable = pressable.clickable;
         self.uses_long_press = pressable.long_press;
         self.uses_double_tap = pressable.double_tap;
+        self.uses_drag = pressable.drag;
+        self.uses_drag_velocity = pressable.drag_velocity;
+        self.uses_pinch = pressable.pinch;
         self.uses_box |= pressable.present;
         self.uses_modifier |= pressable.present;
 

@@ -57,7 +57,65 @@ fn double_tap_pressable(value: &str) -> Node {
                 ty: NumericType::Int32,
             },
         }],
+        long_press_duration_ms: Expr::Number {
+            raw: "500".to_owned(),
+            ty: NumericType::Int32,
+        },
         long_press_actions: Vec::new(),
+        drag_parameters: Vec::new(),
+        drag_actions: Vec::new(),
+        pinch_parameter: None,
+        pinch_actions: Vec::new(),
+    }
+}
+
+fn pinch_pressable(value: &str) -> Node {
+    Node::Pressable {
+        disabled: Expr::Bool(false),
+        haptic: None,
+        children: vec![text("Pinch")],
+        actions: Vec::new(),
+        double_tap_actions: Vec::new(),
+        long_press_duration_ms: Expr::Number {
+            raw: "500".to_owned(),
+            ty: NumericType::Int32,
+        },
+        long_press_actions: Vec::new(),
+        drag_parameters: Vec::new(),
+        drag_actions: Vec::new(),
+        pinch_parameter: Some("scaleFactor".to_owned()),
+        pinch_actions: vec![Action::Assign {
+            name: "count".to_owned(),
+            value: Expr::Number {
+                raw: value.to_owned(),
+                ty: NumericType::Float64,
+            },
+        }],
+    }
+}
+
+fn long_pressable(duration_ms: &str) -> Node {
+    Node::Pressable {
+        disabled: Expr::Bool(false),
+        haptic: None,
+        children: vec![text("Long press")],
+        actions: Vec::new(),
+        double_tap_actions: Vec::new(),
+        long_press_duration_ms: Expr::Number {
+            raw: duration_ms.to_owned(),
+            ty: NumericType::Int32,
+        },
+        long_press_actions: vec![Action::Assign {
+            name: "count".to_owned(),
+            value: Expr::Number {
+                raw: "1".to_owned(),
+                ty: NumericType::Int32,
+            },
+        }],
+        drag_parameters: Vec::new(),
+        drag_actions: Vec::new(),
+        pinch_parameter: None,
+        pinch_actions: Vec::new(),
     }
 }
 
@@ -85,6 +143,69 @@ fn double_tap_action_changes_are_carried_by_a_hot_reload_patch() {
     assert_eq!(patch.operations.len(), 1);
     assert!(patch.operations[0].path.contains("/double_tap_actions/"));
     assert_eq!(patch.operations[0].value, Some(serde_json::json!("2")));
+}
+
+#[test]
+fn pinch_callback_changes_are_carried_by_a_hot_reload_patch() {
+    let original = lower(
+        &module(
+            vec![pinch_pressable("1.0")],
+            Type::Numeric(NumericType::Int32),
+        ),
+        "revision-1",
+    );
+    let updated = lower(
+        &module(
+            vec![pinch_pressable("1.5")],
+            Type::Numeric(NumericType::Int32),
+        ),
+        "revision-2",
+    );
+
+    let payload = serde_json::to_value(&updated.module).expect("Dev IR serializes");
+    assert_eq!(
+        payload["body"][0]["Pressable"]["pinch_parameter"],
+        "scaleFactor"
+    );
+    assert!(payload["body"][0]["Pressable"]["pinch_actions"].is_array());
+
+    let patch = nexa_dev_ir::diff(&original, &updated).expect("pinch callback is patchable");
+    assert_eq!(patch.operations.len(), 1);
+    assert!(patch.operations[0].path.contains("/pinch_actions/"));
+    assert_eq!(patch.operations[0].value, Some(serde_json::json!("1.5")));
+}
+
+#[test]
+fn long_press_duration_changes_are_carried_by_a_hot_reload_patch() {
+    let original = lower(
+        &module(
+            vec![long_pressable("500")],
+            Type::Numeric(NumericType::Int32),
+        ),
+        "revision-1",
+    );
+    let updated = lower(
+        &module(
+            vec![long_pressable("750")],
+            Type::Numeric(NumericType::Int32),
+        ),
+        "revision-2",
+    );
+
+    let payload = serde_json::to_value(&updated.module).expect("Dev IR serializes");
+    assert_eq!(
+        payload["body"][0]["Pressable"]["long_press_duration_ms"]["Number"]["raw"],
+        "750"
+    );
+
+    let patch = nexa_dev_ir::diff(&original, &updated).expect("duration is patchable");
+    assert_eq!(patch.operations.len(), 1);
+    assert!(
+        patch.operations[0]
+            .path
+            .contains("/long_press_duration_ms/")
+    );
+    assert_eq!(patch.operations[0].value, Some(serde_json::json!("750")));
 }
 
 #[test]

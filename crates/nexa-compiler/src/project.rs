@@ -132,8 +132,21 @@ impl IncrementalProjectCompiler {
                 app.structs = loaded.structs.clone();
                 app.screens.extend(loaded.screens.clone());
                 app.functions.extend(loaded.functions.clone());
+                app.tests = loaded
+                    .tests
+                    .iter()
+                    .filter(|test| {
+                        !test.source_file.as_deref().is_some_and(|source_file| {
+                            let source_file = Path::new(source_file);
+                            plugin_roots
+                                .values()
+                                .any(|plugin_root| source_file.starts_with(plugin_root))
+                        })
+                    })
+                    .cloned()
+                    .collect();
                 let plugins = app.plugins.clone();
-                let (module, mut warnings) = semantic::lower_with_warnings(app, target)
+                let (module, mut warnings, tests) = semantic::lower_with_warnings(app, target)
                     .map_err(|error| error.with_file(entry_path.display().to_string()))?;
                 for warning in &mut warnings {
                     if warning.file.is_none() {
@@ -144,6 +157,7 @@ impl IncrementalProjectCompiler {
                     module,
                     warnings,
                     plugins,
+                    tests,
                 })
             })
             .collect()
@@ -189,6 +203,7 @@ struct LoadedProject {
     structs: Vec<StructDecl>,
     functions: Vec<nexa_syntax::ast::FunctionDecl>,
     screens: Vec<nexa_syntax::ast::ScreenDecl>,
+    tests: Vec<nexa_syntax::ast::TestDecl>,
     plugins: Vec<PluginDecl>,
 }
 
@@ -435,6 +450,12 @@ fn load_file(
         .extend(program.screens.into_iter().map(|mut screen| {
             screen.source_file = Some(source_file.clone());
             screen
+        }));
+    loaded
+        .tests
+        .extend(program.tests.into_iter().map(|mut test| {
+            test.source_file = Some(source_file.clone());
+            test
         }));
 
     if let Some(mut app) = program.app {

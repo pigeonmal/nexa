@@ -2,6 +2,101 @@ import Foundation
 import SwiftUI
 import UIKit
 
+@MainActor
+private final class NexaDevDragVelocityTracker {
+    private var lastTranslation = CGSize.zero
+    private var lastTime: Date?
+
+    func update(_ value: DragGesture.Value) -> CGSize {
+        defer {
+            lastTranslation = value.translation
+            lastTime = value.time
+        }
+        if #available(iOS 18.0, *) {
+            return value.velocity
+        }
+        guard let lastTime else { return .zero }
+        let elapsed = value.time.timeIntervalSince(lastTime)
+        guard elapsed > 0 else { return .zero }
+        return CGSize(
+            width: (value.translation.width - lastTranslation.width) / elapsed,
+            height: (value.translation.height - lastTranslation.height) / elapsed
+        )
+    }
+
+    func reset() {
+        lastTranslation = .zero
+        lastTime = nil
+    }
+}
+
+@MainActor
+private final class NexaDevMagnificationTracker {
+    private var previousMagnification = 1.0
+
+    func consume(_ magnification: Double) -> Double? {
+        guard previousMagnification > 0, magnification.isFinite else { return nil }
+        let scaleFactor = magnification / previousMagnification
+        previousMagnification = magnification
+        return scaleFactor.isFinite ? scaleFactor : nil
+    }
+
+    func reset() {
+        previousMagnification = 1.0
+    }
+}
+
+@MainActor
+private struct NexaDevDragGestureView<Content: View>: View {
+    let enabled: Bool
+    let content: Content
+    let onDrag: ((Double, Double, Double, Double) -> Void)?
+    let onPinch: ((Double) -> Void)?
+    @State private var velocityTracker = NexaDevDragVelocityTracker()
+    @State private var magnificationTracker = NexaDevMagnificationTracker()
+
+    private var dragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard enabled else { return }
+                let velocity = velocityTracker.update(value)
+                onDrag?(
+                    Double(value.translation.width),
+                    Double(value.translation.height),
+                    Double(velocity.width),
+                    Double(velocity.height)
+                )
+            }
+            .onEnded { _ in velocityTracker.reset() }
+    }
+
+    private var pinchGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { magnification in
+                guard enabled,
+                    let scaleFactor = magnificationTracker.consume(Double(magnification))
+                else { return }
+                onPinch?(scaleFactor)
+            }
+            .onEnded { _ in magnificationTracker.reset() }
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if onDrag != nil, onPinch != nil {
+            content
+                .highPriorityGesture(dragGesture)
+                .simultaneousGesture(pinchGesture)
+        } else if onDrag != nil {
+            content.highPriorityGesture(dragGesture)
+        } else if onPinch != nil {
+            content.simultaneousGesture(pinchGesture)
+        } else {
+            content
+        }
+    }
+}
+
 private func nexaDevTransition(_ raw: Any?) -> AnyTransition? {
     switch raw as? String {
     case "Fade": .opacity
@@ -202,6 +297,7 @@ struct NexaDevNodeList: View {
     var parameters: [String: Any] = [:]
     var stateScope: String = "app"
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.nexaSharedNamespace) private var nexaSharedNamespace
     @Environment(\.nexaDevContentSlot) private var contentSlot
 
     var body: some View {
@@ -449,6 +545,12 @@ struct NexaDevNodeList: View {
             let actions = fields["actions"] as? [Any] ?? []
             let doubleTapActions = fields["double_tap_actions"] as? [Any] ?? []
             let longPressActions = fields["long_press_actions"] as? [Any] ?? []
+            let longPressDurationMs = max(1, (store.evaluate(fields[NexaDevKeys.longPressDurationMs] ?? ["Number": ["raw": "500", "ty": "Int32"]], locals: locals, scope: scope) as? NSNumber)?.intValue ?? 500)
+            let longPressMinimumDuration = Double(longPressDurationMs) / 1000.0
+            let dragParameters = fields[NexaDevKeys.dragParameters] as? [String] ?? []
+            let dragActions = fields[NexaDevKeys.dragActions] as? [Any] ?? []
+            let pinchParameter = fields[NexaDevKeys.pinchParameter] as? String
+            let pinchActions = fields[NexaDevKeys.pinchActions] as? [Any] ?? []
             let disabled = fields["disabled"].map { store.truthy(store.evaluate($0, locals: locals, scope: scope)) } ?? false
             let haptic = fields["haptic"] as? String
             let content = NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
@@ -462,6 +564,7 @@ struct NexaDevNodeList: View {
             }
             .buttonStyle(.plain)
             .disabled(disabled)
+            let pressable: AnyView
             if !doubleTapActions.isEmpty {
                 let tapped = button
                     .highPriorityGesture(
@@ -483,20 +586,43 @@ struct NexaDevNodeList: View {
                     }
                     .accessibilityAddTraits(.isButton)
                 if longPressActions.isEmpty {
-                    return AnyView(tapped)
+                    pressable = AnyView(tapped)
+                } else {
+                    pressable = AnyView(tapped.simultaneousGesture(LongPressGesture(minimumDuration: longPressMinimumDuration).onEnded { _ in
+                        guard !disabled else { return }
+                        playNexaHaptic(haptic)
+                        store.perform(longPressActions, scope: scope, locals: locals)
+                    }))
                 }
-                return AnyView(tapped.simultaneousGesture(LongPressGesture().onEnded { _ in
+            } else if longPressActions.isEmpty {
+                pressable = AnyView(button)
+            } else {
+                pressable = AnyView(button.simultaneousGesture(LongPressGesture(minimumDuration: longPressMinimumDuration).onEnded { _ in
                     guard !disabled else { return }
                     playNexaHaptic(haptic)
                     store.perform(longPressActions, scope: scope, locals: locals)
                 }))
             }
-            if longPressActions.isEmpty {
-                return AnyView(button)
-            }
-            return AnyView(button.simultaneousGesture(LongPressGesture().onEnded { _ in
-                store.perform(longPressActions, scope: scope, locals: locals)
-            }))
+            guard dragParameters.count == 4 || pinchParameter != nil else { return pressable }
+            var dragLocals = locals
+            var pinchLocals = locals
+            return AnyView(NexaDevDragGestureView(
+                enabled: !disabled,
+                content: pressable,
+                onDrag: dragParameters.count == 4 ? { translationX, translationY, velocityX, velocityY in
+                    dragLocals[dragParameters[0]] = translationX
+                    dragLocals[dragParameters[1]] = translationY
+                    dragLocals[dragParameters[2]] = velocityX
+                    dragLocals[dragParameters[3]] = velocityY
+                    store.perform(dragActions, scope: scope, locals: dragLocals)
+                } : nil,
+                onPinch: pinchParameter.map { parameter in
+                    { scaleFactor in
+                        pinchLocals[parameter] = scaleFactor
+                        store.perform(pinchActions, scope: scope, locals: pinchLocals)
+                    }
+                }
+            ))
         case "TextInput":
             let name = fields["state"] as? String ?? ""
             let placeholder = fields["placeholder"] as? String ?? ""
@@ -716,7 +842,7 @@ struct NexaDevNodeList: View {
             let description = fields["description"] as? String ?? ""
             let mode: ContentMode = fields["scale"] as? String == "Fill" ? .fill : .fit
             let placeholder = fields["placeholder"] as? String
-            let rendered: AnyView
+            var rendered: AnyView
             if let asset = source["Asset"] as? String {
                 rendered = AnyView(Image(asset).resizable().aspectRatio(contentMode: mode))
             } else if let expression = source["RemoteUrl"] {
@@ -738,6 +864,11 @@ struct NexaDevNodeList: View {
                 } else {
                     rendered = AnyView(Image(systemName: "photo"))
                 }
+            }
+            if let sharedExpression = fields["shared_element"] as? [String: Any],
+               let namespace = nexaSharedNamespace {
+                let id = store.evaluate(sharedExpression, locals: locals, scope: scope) as? String ?? ""
+                rendered = AnyView(rendered.matchedGeometryEffect(id: id, in: namespace))
             }
             return AnyView(rendered.accessibilityLabel(description).accessibilityHidden(description.isEmpty))
         case "RefreshControl":

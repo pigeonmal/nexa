@@ -582,6 +582,7 @@ pub enum Node {
         description: String,
         scale: ImageScale,
         placeholder: Option<String>,
+        shared_element: Option<Expr>,
     },
     Pressable {
         disabled: Expr,
@@ -589,7 +590,12 @@ pub enum Node {
         children: Vec<Node>,
         actions: Vec<Action>,
         double_tap_actions: Vec<Action>,
+        long_press_duration_ms: Expr,
         long_press_actions: Vec<Action>,
+        drag_parameters: Vec<String>,
+        drag_actions: Vec<Action>,
+        pinch_parameter: Option<String>,
+        pinch_actions: Vec<Action>,
     },
     NavigationStack {
         root: ScreenId,

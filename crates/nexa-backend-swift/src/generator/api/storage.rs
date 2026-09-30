@@ -13,7 +13,10 @@ pub(crate) fn render(out: &mut SourceWriter) {
         r#"// App-private string storage. Keys are isolated from unrelated defaults.
 enum NexaStorage {
     private static let keyPrefix = "dev.nexa.storage."
-    private static let defaults = UserDefaults.standard
+    // UserDefaults is thread-safe, but its reference type is not Sendable on
+    // every supported Foundation version. The static binding is immutable;
+    // this declaration avoids adding actor hops to the synchronous API.
+    private nonisolated(unsafe) static let defaults = UserDefaults.standard
 
     static func getString(_ key: String) -> String? {
         defaults.string(forKey: keyPrefix + key)

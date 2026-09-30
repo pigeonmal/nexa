@@ -18,22 +18,29 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
     );
 }
 
-pub(crate) fn start(config: Option<DirectionConfig>, out: &mut SourceWriter) -> usize {
+pub(crate) fn start(
+    config: Option<DirectionConfig>,
+    base_depth: usize,
+    out: &mut SourceWriter,
+) -> usize {
     let Some(config) = config else {
-        return 1;
+        return base_depth;
     };
     let direction = match config.style {
         nexa_ir::DirectionStyle::Ltr => "Ltr",
         nexa_ir::DirectionStyle::Rtl => "Rtl",
     };
-    out.push_str("    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.");
+    out.indent(base_depth);
+    out.push_str("CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.");
     out.push_str(direction);
     out.push_str(") {\n");
-    2
+    base_depth + 1
 }
 
-pub(crate) fn end(config: Option<DirectionConfig>, out: &mut SourceWriter) {
+pub(crate) fn end(config: Option<DirectionConfig>, base_depth: usize, out: &mut SourceWriter) {
     if config.is_some() {
-        out.push_str("\n    }");
+        out.push('\n');
+        out.indent(base_depth);
+        out.push('}');
     }
 }

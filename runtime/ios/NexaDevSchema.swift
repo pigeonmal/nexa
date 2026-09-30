@@ -7,7 +7,7 @@ public enum NexaDevSchema {
     public static let protocolVersion: Int = 10
 
     /// Format version of the Dev IR payload.
-    public static let devIRFormatVersion: Int = 11
+    public static let devIRFormatVersion: Int = 15
 
     /// Platform identifier for iOS dev runtimes.
     public static let targetPlatform = "ios"
@@ -73,6 +73,13 @@ public enum NexaDevKeys {
     public static let onInactive = "on_inactive"
     public static let onBackground = "on_background"
     public static let transition = "transition"
+
+    // Pressable fields
+    public static let dragParameters = "drag_parameters"
+    public static let dragActions = "drag_actions"
+    public static let pinchParameter = "pinch_parameter"
+    public static let pinchActions = "pinch_actions"
+    public static let longPressDurationMs = "long_press_duration_ms"
 
     // Screen fields
     public static let name = "name"

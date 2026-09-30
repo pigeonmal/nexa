@@ -104,6 +104,7 @@ graph TD
 
 #### 1.3 Developer Ergonomics Polish
 
+- [x] Import local `.nx` modules recursively, including standalone screens and reusable tab components; hot reload picks up added or edited imported files.
 - Inline conditional expressions: `let val = if condition { a } else { b }` and `condition ? a : b`.
 - Clean modifier chaining: `Text("Hi").fontSize(18).bold().padding(12)`.
 - Collection utilities: `array.random()`, `array.shuffled()`, `array.reverse()`, `array.slice(start..end)`, `array.count`, `array.isEmpty`.
@@ -155,18 +156,19 @@ I want be able to do tasks in Task or couroutines or custom thread
 
 #### 3.2 Shared Element Hero Transitions
 
-- Syntax: `Image(url: item.imageUrl).sharedElement(id: "item_\(item.id)")`.
-- Swift lowering: SwiftUI `.matchedGeometryEffect(id:in:)`.
-- Kotlin lowering: Jetpack Compose `SharedTransitionLayout` + `Modifier.sharedElement`.
+- [x] Syntax: `Image(url: item.imageUrl).sharedElement(id: "item-42")`.
+- [x] Swift lowering: SwiftUI `.matchedGeometryEffect(id:in:)`.
+- [x] Kotlin lowering: Jetpack Compose `SharedTransitionLayout` + `Modifier.sharedElement`.
+- [x] DevRuntime renders shared IDs after hot reload on iOS and Android.
 
 #### 3.3 Gesture Handling Suite (very optimized gesture, for 120+ fps)
 
 - Modifiers for interactive nodes:
-  - `.onTap { ... }`
-  - `.onDoubleTap { ... }` (TikTok double tap to like)
-  - `.onLongPress(durationMs: Int32) { ... }`
-  - `.onDrag { translationX, translationY, velocity in ... }` (Swipe cards, sheets)
-  - `.onPinch { scaleFactor in ... }` (Product photo zoom)
+  - [x] `.onTap { ... }` (legacy `.onPress` remains accepted)
+  - [x] `.onDoubleTap { ... }` (TikTok double tap to like)
+  - [x] `.onLongPress(durationMs: Int32) { ... }`
+  - [x] `.onDrag { translationX, translationY, velocityX, velocityY -> ... }` (translation uses points/dp; velocity uses points/dp per second)
+  - [x] `.onPinch { scaleFactor -> ... }` (Product photo zoom; multiplicative scale delta per gesture update)
 
 ---
 
@@ -265,7 +267,10 @@ I want be able to do tasks in Task or couroutines or custom thread
       assert(result == 100.0)
   }
   ```
-- Evaluated and verified directly by `nexa test`.
+- [x] Parse named top-level `test` blocks with immutable `let` bindings and `assert(condition[, message])` statements.
+- [x] Type-check test values with the compiler's existing function signatures and lower assertions to typed IR.
+- [x] Evaluate deterministic synchronous test expressions through pure app-local functions in the host CLI; `nexa test --unit-only` skips native toolchain builds.
+- Platform APIs, plugin calls, and async functions remain outside the host evaluator; native test-host compilation still runs after in-language tests under ordinary `nexa test`.
 
 ---
 
@@ -289,9 +294,9 @@ We establish two specialized platform AI skills under `.agents/skills/`:
 
 Create the standalone `nexa-plugins` repository containing official native plugin packages:
 
-1. `@nexa/video-player`: AVPlayer (iOS) & Media3 ExoPlayer (Android). Adaptive HLS/DASH streaming, PiP, playback controls.
-2. `@nexa/audio-player`: Background audio playback, lock screen metadata (`MPNowPlayingInfoCenter`, `MediaSession`).
-3. `@nexa/mmkv`: Tencent MMKV zero-copy memory-mapped high-performance storage. (already created)
+1. [x] `@nexa/video-player`: AVPlayer (iOS) & Media3 ExoPlayer 1.11.1 (Android). Adaptive HLS/DASH, PiP, playback controls, embedded Cronet networking, and an optional LGPL-only FFmpeg fallback controlled by `VideoView.softwareDecodingEnabled`.
+2. [x] `@nexa/audio-player`: Background audio playback, lock screen metadata (`MPNowPlayingInfoCenter`, `MediaSession`).
+3. [x] `@nexa/mmkv`: Tencent MMKV zero-copy memory-mapped storage. The Android arm64 Release conformance benchmark records 1,000 identical string writes in 0.170–0.288 ms with compare-before-set enabled and 1,000 reads in 0.158–0.182 ms; comparison-disabled writes are retained as a diagnostic.
 4. `@nexa/camera`: Photo/video capture, QR & barcode scanning (`AVCaptureSession` / `CameraX`). (zero copy stream for image ia)
 5. `@nexa/maps`: Apple Maps (`MapKit`) & Google Maps SDK for Android.
 6. `@nexa/sqlite`: Relational SQLite database with migrations and transactions. (ultra performance)

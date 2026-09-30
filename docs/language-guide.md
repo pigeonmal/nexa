@@ -202,6 +202,31 @@ app ProfileApp {
 
 App-local functions currently use typed parameters, immutable local `let` bindings, and one return expression. Struct constructors take field values in declaration order.
 
+### In-language tests
+
+Declare named tests at the top level of any imported `.nx` file. A test may
+bind immutable local values, call synchronous app-local functions using
+positional or named arguments, and assert Boolean expressions:
+
+```nexa
+fn calculateTotal(price: Float64, qty: Float64) -> Float64 {
+    return price * qty
+}
+
+test "cart item calculation" {
+    let result = calculateTotal(price: 50.0, qty: 2)
+    assert(result == 100.0)
+    assert(result > 0.0, "the total must be positive")
+}
+```
+
+`nexa test` evaluates these typed, deterministic checks before compiling the
+native test hosts. Use `nexa test --unit-only` to run them without Xcode or the
+Android toolchain. Test blocks are host-side compiler input and are omitted
+from generated application code. Tests can call pure synchronous `.nx`
+functions; platform APIs, plugin calls, and asynchronous functions cannot run
+inside the host evaluator.
+
 ## Results and postfix `?`
 
 Use an enum for the error type so the result can map to Swift's `Result`, whose failure type must conform to `Error`:

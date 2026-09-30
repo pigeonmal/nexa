@@ -10,6 +10,7 @@ public struct NexaDevRuntimeRoot: View {
     @StateObject private var runtime: NexaDevRuntime
     @StateObject private var performance = NexaDevPerformanceMonitor()
     @FocusState private var activeInput: String?
+    @Namespace private var nexaSharedNamespace
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.scenePhase) private var scenePhase
@@ -131,6 +132,7 @@ public struct NexaDevRuntimeRoot: View {
             performance.setEnabled(enabled)
         }
         .environment(\.layoutDirection, configuredLayoutDirection)
+        .environment(\.nexaSharedNamespace, nexaSharedNamespace)
         .modifier(NexaDevStatusBarVisibility(hidden: statusBar["hidden"] as? Bool ?? false))
         .preferredColorScheme(statusBarColorScheme)
         .background(alignment: .top) {

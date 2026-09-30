@@ -1,0 +1,21 @@
+app PressableDrag {
+    state offsetX: Float64 = 0.0
+    state velocityX: Float64 = 0.0
+
+    body {
+        Column(spacing: 12) {
+            Text("Horizontal offset: $offsetX")
+            Text("Horizontal velocity: $velocityX")
+
+            Pressable() {
+                Text("Drag me")
+            }.onPress {
+                offsetX = 0.0
+                velocityX = 0.0
+            }.onDrag { translationX, translationY, dragVelocityX, dragVelocityY ->
+                offsetX = translationX
+                velocityX = dragVelocityX
+            }
+        }
+    }
+}

@@ -191,6 +191,7 @@ pub struct RefreshFacts {
 pub struct ImageFacts {
     pub asset: bool,
     pub placeholder: bool,
+    pub shared_element: bool,
 }
 
 /// Virtualized-list observations. Axis bits count flat (count- and
@@ -252,6 +253,9 @@ pub struct PressableFacts {
     pub present: bool,
     pub long_press: bool,
     pub double_tap: bool,
+    pub drag: bool,
+    pub drag_velocity: bool,
+    pub pinch: bool,
     /// A pressable without long-press actions (native clickable path).
     pub clickable: bool,
 }
@@ -700,9 +704,11 @@ fn observe_node(
         Node::Image {
             source,
             placeholder,
+            shared_element,
             ..
         } => {
             ui.image.asset |= matches!(source, ImageSource::Asset(_));
+            ui.image.shared_element |= shared_element.is_some();
             *remote_hit |= matches!(source, ImageSource::RemoteUrl(_));
             ui.image.placeholder |= placeholder.is_some();
         }
@@ -711,6 +717,9 @@ fn observe_node(
             haptic,
             double_tap_actions,
             long_press_actions,
+            drag_parameters,
+            drag_actions,
+            pinch_parameter,
             ..
         } => {
             ui.pressable.present = true;
@@ -719,6 +728,14 @@ fn observe_node(
             let double_tap = !double_tap_actions.is_empty();
             ui.pressable.long_press |= long_press;
             ui.pressable.double_tap |= double_tap;
+            ui.pressable.drag |= drag_parameters.len() == 4;
+            if drag_parameters.len() == 4 {
+                ui.pressable.drag_velocity |= crate::walk::actions_reference_state(
+                    drag_actions,
+                    &[drag_parameters[2].as_str(), drag_parameters[3].as_str()],
+                );
+            }
+            ui.pressable.pinch |= pinch_parameter.is_some();
             ui.pressable.clickable |= !long_press && !double_tap;
             record_child_layout(children, ui);
         }
@@ -1189,7 +1206,15 @@ mod tests {
             children: Vec::new(),
             actions: Vec::new(),
             double_tap_actions: Vec::new(),
+            long_press_duration_ms: crate::Expr::Number {
+                raw: "500".to_owned(),
+                ty: crate::NumericType::Int32,
+            },
             long_press_actions: Vec::new(),
+            drag_parameters: Vec::new(),
+            drag_actions: Vec::new(),
+            pinch_parameter: None,
+            pinch_actions: Vec::new(),
         }]);
         let facts = ModuleFacts::analyze(&module);
         assert!(facts.ui.app.haptic);
@@ -1233,6 +1258,7 @@ mod tests {
             description: "Example image".to_owned(),
             scale: ImageScale::Fit,
             placeholder: None,
+            shared_element: None,
         }]);
         let facts = ModuleFacts::analyze(&module);
         assert!(facts.capabilities.uses_remote_image);

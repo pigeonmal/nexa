@@ -120,13 +120,15 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
                     "Ltr" -> LayoutDirection.Ltr
                     else -> LocalLayoutDirection.current
                 }
-                CompositionLocalProvider(LocalLayoutDirection provides direction) {
-                    NexaDevNodeList(
-                        module.optJSONArray("body") ?: JSONArray(),
-                        module,
-                        store,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                NexaSharedTransitionContent {
+                    CompositionLocalProvider(LocalLayoutDirection provides direction) {
+                        NexaDevNodeList(
+                            module.optJSONArray("body") ?: JSONArray(),
+                            module,
+                            store,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
         }

@@ -272,27 +272,39 @@ app SizePicker {
 ---
 
 ### `Pressable`
-Gesture wrapper detecting tap, double-tap, and long-press interactions with hardware haptics.
+Gesture wrapper detecting taps, double-taps, long presses, drag updates, and pinch scale changes.
 
 ```nexa
 app PressableExample {
     state taps: Int32 = 0
+    state dragOffset: Float64 = 0.0
+    state zoom: Float64 = 1.0
 
     body {
         Pressable(disabled: false, haptic: Medium) {
-            Text("Tap me!")
-        }.onPress {
+            Column {
+                Text("Tap, drag, or pinch me")
+                Text("Horizontal offset: $dragOffset")
+            }
+        }.onTap {
             taps = taps + 1
         }.onDoubleTap {
             taps = taps + 2
-        }.onLongPress {
+        }.onLongPress(durationMs: 700) {
             taps = 0
+        }.onDrag { translationX, translationY, velocityX, velocityY ->
+            dragOffset = translationX
+        }.onPinch { scaleFactor ->
+            zoom = zoom * scaleFactor
         }
     }
 }
 ```
 - **Properties**: `disabled: Bool`, optional `haptic: Light | Medium | Heavy`.
-- **Modifiers**: `.onPress { ... }`, `.onDoubleTap { ... }`, `.onLongPress { ... }`.
+- **Modifiers**: `.onTap { ... }` (or legacy `.onPress { ... }`), `.onDoubleTap { ... }`, `.onLongPress(durationMs: 700) { ... }`, `.onDrag { translationX, translationY, velocityX, velocityY -> ... }`, and `.onPinch { scaleFactor -> ... }`.
+- Long-press duration defaults to 500 ms. Runtime values are clamped to at least 1 ms for consistent platform behavior.
+- Drag translations use points on iOS and dp on Android; velocities use those same units per second.
+- `scaleFactor` is the multiplicative scale delta for the current gesture update. Multiply the current zoom by it; Android and iOS report the same incremental semantics.
 
 ---
 
@@ -312,6 +324,15 @@ app ImageExample {
 - **Properties**: `asset: String` OR `url: String`, `description: String`, `scale: Fit | Fill`, `placeholder: String`.
 
 Put app-owned image files directly in `assets/images/` and reference each file by its lowercase filename without an extension. For example, `assets/images/hero_banner.png` is `Image(asset: "hero_banner", ...)`. Nexa copies these files into the iOS asset catalog and Android `drawable-nodpi` resources when it generates the native projects. Supported formats are PNG, JPG/JPEG, and WebP. Asset names must start with a lowercase letter and contain only lowercase letters, digits, and underscores.
+
+Use `.sharedElement(id: ...)` on matching images in two navigation screens to animate the image between destinations. Both images must evaluate to the same string identifier:
+
+```nexa
+Image(asset: "product", description: "Product")
+    .sharedElement(id: "product-42")
+```
+
+This maps to SwiftUI matched geometry on iOS and Compose shared transitions on Android. It also works in `nexa dev` hot reload; the development host already includes the native transition support.
 
 ---
 

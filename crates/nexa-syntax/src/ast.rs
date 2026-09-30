@@ -13,6 +13,8 @@ pub struct App {
     pub screens: Vec<ScreenDecl>,
     pub theme: Option<ThemeDecl>,
     pub components: Vec<ComponentDecl>,
+    /// Host-evaluated unit tests. These declarations never enter generated app code.
+    pub tests: Vec<TestDecl>,
     pub body: Vec<Node>,
     pub span: Span,
 }
@@ -102,7 +104,31 @@ pub struct Program {
     pub functions: Vec<FunctionDecl>,
     /// Named screens declared in a standalone source module.
     pub screens: Vec<ScreenDecl>,
+    pub tests: Vec<TestDecl>,
     pub app: Option<App>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TestDecl {
+    pub name: String,
+    pub statements: Vec<TestStatement>,
+    pub span: Span,
+    pub source_file: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TestStatement {
+    Let {
+        name: String,
+        ty: Option<TypeSyntax>,
+        initial: Expr,
+        span: Span,
+    },
+    Assert {
+        condition: Expr,
+        message: Option<Expr>,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -397,13 +423,19 @@ pub struct ListRows {
 pub struct DotModifier {
     pub name: String,
     pub span: Span,
+    pub arguments: BTreeMap<String, Expr>,
     pub body: ModifierBody,
 }
 
 /// A dot-modifier payload: action statements or child nodes.
 #[derive(Clone, Debug)]
 pub enum ModifierBody {
+    None,
     Actions(Vec<Stmt>),
+    EventActions {
+        parameters: Vec<String>,
+        actions: Vec<Stmt>,
+    },
     Nodes(Vec<Node>),
 }
 
@@ -534,6 +566,12 @@ pub enum Expr {
     /// `Call(String, Vec<Expr>, Span)` plus explicit value type arguments,
     /// as in `getObject<PlayerOptions>("key")`.
     Call(String, Vec<TypeSyntax>, Vec<Expr>, Span),
+    CallNamed {
+        name: String,
+        type_arguments: Vec<TypeSyntax>,
+        arguments: BTreeMap<String, Expr>,
+        span: Span,
+    },
     MethodCall {
         base: Box<Expr>,
         name: String,
@@ -643,6 +681,7 @@ impl Expr {
             | Self::Pair(_, _, s)
             | Self::Triple(_, _, _, s)
             | Self::Call(_, _, _, s)
+            | Self::CallNamed { span: s, .. }
             | Self::MethodCall { span: s, .. }
             | Self::Closure { span: s, .. }
             | Self::QualifiedCall { span: s, .. }

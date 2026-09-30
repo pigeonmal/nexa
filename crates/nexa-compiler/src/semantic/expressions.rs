@@ -594,6 +594,7 @@ pub(super) fn references_state(expr: &ast::Expr) -> bool {
             references_state(first) || references_state(second) || references_state(third)
         }
         ast::Expr::Call(_, _, arguments, _) => arguments.iter().any(references_state),
+        ast::Expr::CallNamed { arguments, .. } => arguments.values().any(references_state),
         ast::Expr::MethodCall {
             base,
             arguments,
@@ -1065,6 +1066,12 @@ pub(super) fn lower_expr(
         ast::Expr::Call(name, type_arguments, arguments, span) => {
             lower_call(name, type_arguments, arguments, *span, expected, ctx, false)
         }
+        ast::Expr::CallNamed {
+            name,
+            type_arguments,
+            arguments,
+            span,
+        } => lower_named_call(name, type_arguments, arguments, *span, expected, ctx, false),
         ast::Expr::MethodCall {
             base,
             name,
@@ -1353,6 +1360,20 @@ pub(super) fn lower_expr(
             }
             let call = match value.as_ref() {
                 ast::Expr::Call(name, type_arguments, arguments, call_span) => lower_call(
+                    name,
+                    type_arguments,
+                    arguments,
+                    *call_span,
+                    expected,
+                    ctx,
+                    true,
+                )?,
+                ast::Expr::CallNamed {
+                    name,
+                    type_arguments,
+                    arguments,
+                    span: call_span,
+                } => lower_named_call(
                     name,
                     type_arguments,
                     arguments,
@@ -1889,6 +1910,66 @@ fn lower_call(
                 } if struct_name == name
             ),
     })
+}
+
+fn lower_named_call(
+    name: &str,
+    type_arguments: &[ast::TypeSyntax],
+    named_arguments: &BTreeMap<String, ast::Expr>,
+    span: Span,
+    expected: Option<&Type>,
+    ctx: &ExprContext<'_>,
+    awaited: bool,
+) -> Result<Expr, CompileError> {
+    let Some(signature) = ctx.functions.get(name) else {
+        return Err(CompileError::new(
+            span,
+            format!("unknown function `{name}`"),
+        ));
+    };
+    for argument in named_arguments.keys() {
+        if !signature
+            .parameters
+            .iter()
+            .any(|(parameter, _)| parameter == argument)
+        {
+            return Err(CompileError::new(
+                named_arguments[argument].span(),
+                format!("function `{name}` has no parameter named `{argument}`"),
+            ));
+        }
+    }
+    let arguments = signature
+        .parameters
+        .iter()
+        .map(|(parameter, _)| {
+            named_arguments.get(parameter).cloned().ok_or_else(|| {
+                CompileError::new(
+                    span,
+                    format!("function `{name}` is missing argument `{parameter}`"),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if named_arguments.len() != signature.parameters.len() {
+        return Err(CompileError::new(
+            span,
+            format!(
+                "function `{name}` expects {} named argument(s), found {}",
+                signature.parameters.len(),
+                named_arguments.len()
+            ),
+        ));
+    }
+    lower_call(
+        name,
+        type_arguments,
+        &arguments,
+        span,
+        expected,
+        ctx,
+        awaited,
+    )
 }
 
 fn lower_native_call(
@@ -3256,6 +3337,9 @@ pub(super) fn infer_expr_type(
                     .map(|signature| signature.return_type.clone())
             }
         }
+        ast::Expr::CallNamed { name, .. } => functions
+            .get(name)
+            .map(|signature| signature.return_type.clone()),
         ast::Expr::QualifiedCall {
             namespace, name, ..
         } => match (namespace.as_str(), name.as_str()) {

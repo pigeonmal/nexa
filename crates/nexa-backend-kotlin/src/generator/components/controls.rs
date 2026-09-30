@@ -21,6 +21,50 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         features.uses_long_press || features.uses_double_tap,
         "androidx.compose.foundation.combinedClickable",
     );
+    imports.add(
+        features.uses_long_press,
+        "androidx.compose.runtime.CompositionLocalProvider",
+    );
+    imports.add(
+        features.uses_long_press,
+        "androidx.compose.runtime.remember",
+    );
+    imports.add(
+        features.uses_long_press,
+        "androidx.compose.ui.platform.LocalViewConfiguration",
+    );
+    imports.add(
+        features.uses_long_press,
+        "androidx.compose.ui.platform.ViewConfiguration",
+    );
+    imports.add(
+        features.uses_drag && !features.uses_pinch,
+        "androidx.compose.foundation.gestures.detectDragGestures",
+    );
+    imports.add(
+        features.uses_pinch,
+        "androidx.compose.foundation.gestures.detectTransformGestures",
+    );
+    imports.add(
+        features.uses_drag || features.uses_pinch,
+        "androidx.compose.ui.input.pointer.pointerInput",
+    );
+    imports.add(
+        features.uses_drag_velocity && !features.uses_pinch,
+        "androidx.compose.ui.input.pointer.util.VelocityTracker",
+    );
+    imports.add(
+        features.uses_drag_velocity && !features.uses_pinch,
+        "androidx.compose.ui.input.pointer.util.addPointerInputChange",
+    );
+    imports.add(
+        features.uses_drag_velocity && features.uses_pinch,
+        "android.os.SystemClock",
+    );
+    imports.add(
+        features.uses_drag,
+        "androidx.compose.ui.platform.LocalDensity",
+    );
     imports.add(features.uses_button, "androidx.compose.material3.Button");
     imports.add(
         features.uses_button_loading,
@@ -274,12 +318,16 @@ pub(crate) fn render_pressable(
         children,
         actions,
         double_tap_actions,
+        long_press_duration_ms,
         long_press_actions,
+        drag_parameters,
+        drag_actions,
+        pinch_parameter,
+        pinch_actions,
     } = node
     else {
         return;
     };
-    indent(out, depth);
     let has_double_tap = !double_tap_actions.is_empty();
     let has_combined_clickable = !long_press_actions.is_empty() || has_double_tap;
     let modifier = if has_combined_clickable {
@@ -288,15 +336,222 @@ pub(crate) fn render_pressable(
         "clickable"
     };
     let has_long_press = !long_press_actions.is_empty();
+    let has_drag = drag_parameters.len() == 4;
+    let has_pinch = pinch_parameter.is_some();
+    let has_drag_velocity = has_drag
+        && nexa_ir::walk::actions_reference_state(
+            drag_actions,
+            &[drag_parameters[2].as_str(), drag_parameters[3].as_str()],
+        );
     let enabled = format!("!({})", expression(disabled));
-    out.push_str(&format!(
-        "Box(\n{}    modifier = Modifier.{}(\n{}        enabled = {enabled},\n{}        role = Role.Button,\n{}        onClick = {{",
-        "    ".repeat(depth),
-        modifier,
-        "    ".repeat(depth),
-        "    ".repeat(depth),
-        "    ".repeat(depth)
-    ));
+    let mut depth = depth;
+    if has_long_press {
+        let duration = expression(long_press_duration_ms);
+        out.line_at(depth, format_args!("CompositionLocalProvider("));
+        out.line_at(
+            depth + 1,
+            format_args!(
+                "LocalViewConfiguration provides remember(LocalViewConfiguration.current, {duration}) {{"
+            ),
+        );
+        out.line_at(
+            depth + 2,
+            format_args!("object : ViewConfiguration by LocalViewConfiguration.current {{"),
+        );
+        out.line_at(
+            depth + 3,
+            format_args!(
+                "override val longPressTimeoutMillis: Long = ({duration}).toLong().coerceAtLeast(1L)"
+            ),
+        );
+        out.line_at(depth + 2, format_args!("}}"));
+        out.line_at(depth + 1, format_args!("}}"));
+        out.line_at(depth, format_args!(") {{"));
+        depth += 1;
+    }
+    if has_drag {
+        out.line_at(
+            depth,
+            format_args!("val nexaDragDensity = LocalDensity.current.density"),
+        );
+    }
+    out.text_at(
+        depth,
+        format_args!("Box(\n{}    modifier = Modifier", "    ".repeat(depth)),
+    );
+    if has_pinch {
+        out.push_str(".pointerInput(");
+        if has_drag {
+            out.push_str("nexaDragDensity, ");
+        }
+        out.push_str(&format!("{enabled}) {{\n"));
+        out.line_at(depth + 2, format_args!("if ({enabled}) {{"));
+        if has_drag {
+            out.line_at(depth + 3, format_args!("var nexaTranslationX = 0f"));
+            out.line_at(depth + 3, format_args!("var nexaTranslationY = 0f"));
+            if has_drag_velocity {
+                out.line_at(depth + 3, format_args!("var nexaLastGestureTime = 0L"));
+            }
+        }
+        out.line_at(
+            depth + 3,
+            format_args!("detectTransformGestures {{ _, nexaPan, nexaZoomChange, _ ->"),
+        );
+        if has_drag {
+            out.line_at(
+                depth + 4,
+                format_args!("if (nexaPan.x != 0f || nexaPan.y != 0f) {{"),
+            );
+            out.line_at(depth + 5, format_args!("nexaTranslationX += nexaPan.x"));
+            out.line_at(depth + 5, format_args!("nexaTranslationY += nexaPan.y"));
+            let names = drag_parameters
+                .iter()
+                .map(|name| state_name(name))
+                .collect::<Vec<_>>();
+            out.line_at(
+                depth + 5,
+                format_args!(
+                    "val {} = (nexaTranslationX / nexaDragDensity).toDouble()",
+                    names[0]
+                ),
+            );
+            out.line_at(
+                depth + 5,
+                format_args!(
+                    "val {} = (nexaTranslationY / nexaDragDensity).toDouble()",
+                    names[1]
+                ),
+            );
+            if has_drag_velocity {
+                out.line_at(
+                    depth + 5,
+                    format_args!("val nexaNow = SystemClock.uptimeMillis()"),
+                );
+                out.line_at(depth + 5, format_args!("val nexaElapsed = if (nexaLastGestureTime == 0L || nexaNow - nexaLastGestureTime > 100L) 0L else nexaNow - nexaLastGestureTime"));
+                out.line_at(depth + 5, format_args!("nexaLastGestureTime = nexaNow"));
+                out.line_at(depth + 5, format_args!("val nexaVelocityX = if (nexaElapsed == 0L) 0f else nexaPan.x * (1000f / nexaElapsed.toFloat())"));
+                out.line_at(depth + 5, format_args!("val nexaVelocityY = if (nexaElapsed == 0L) 0f else nexaPan.y * (1000f / nexaElapsed.toFloat())"));
+                out.line_at(
+                    depth + 5,
+                    format_args!(
+                        "val {} = (nexaVelocityX / nexaDragDensity).toDouble()",
+                        names[2]
+                    ),
+                );
+                out.line_at(
+                    depth + 5,
+                    format_args!(
+                        "val {} = (nexaVelocityY / nexaDragDensity).toDouble()",
+                        names[3]
+                    ),
+                );
+            }
+            render_actions(drag_actions, depth + 5, out);
+            out.line_at(depth + 4, format_args!("}}"));
+        }
+        out.line_at(depth + 4, format_args!("if (nexaZoomChange != 1f) {{"));
+        let pinch_name = pinch_parameter
+            .as_deref()
+            .map(state_name)
+            .unwrap_or_else(|| "nexaScaleFactor".to_owned());
+        out.line_at(
+            depth + 5,
+            format_args!("val {pinch_name} = nexaZoomChange.toDouble()"),
+        );
+        render_actions(pinch_actions, depth + 5, out);
+        out.line_at(depth + 4, format_args!("}}"));
+        out.line_at(depth + 3, format_args!("}}"));
+        out.line_at(depth + 2, format_args!("}}"));
+        out.push('}');
+    }
+    if has_drag && !has_pinch {
+        out.push_str(&format!(".pointerInput(nexaDragDensity, {enabled}) {{\n"));
+        out.line_at(depth + 2, format_args!("if ({enabled}) {{"));
+        if has_drag_velocity {
+            out.line_at(
+                depth + 3,
+                format_args!("val nexaVelocityTracker = VelocityTracker()"),
+            );
+        }
+        out.line_at(depth + 3, format_args!("var nexaTranslationX = 0f"));
+        out.line_at(depth + 3, format_args!("var nexaTranslationY = 0f"));
+        out.line_at(depth + 3, format_args!("detectDragGestures("));
+        out.line_at(depth + 4, format_args!("onDragStart = {{"));
+        out.line_at(depth + 5, format_args!("nexaTranslationX = 0f"));
+        out.line_at(depth + 5, format_args!("nexaTranslationY = 0f"));
+        if has_drag_velocity {
+            out.line_at(
+                depth + 5,
+                format_args!("nexaVelocityTracker.resetTracking()"),
+            );
+            out.line_at(depth + 4, format_args!("}},"));
+            out.line_at(
+                depth + 4,
+                format_args!("onDragEnd = {{ nexaVelocityTracker.resetTracking() }},"),
+            );
+            out.line_at(
+                depth + 4,
+                format_args!("onDragCancel = {{ nexaVelocityTracker.resetTracking() }},"),
+            );
+        } else {
+            out.line_at(depth + 4, format_args!("}},"));
+        }
+        out.line_at(depth + 4, format_args!("onDrag = {{ change, dragAmount ->"));
+        out.line_at(depth + 5, format_args!("nexaTranslationX += dragAmount.x"));
+        out.line_at(depth + 5, format_args!("nexaTranslationY += dragAmount.y"));
+        let names = drag_parameters
+            .iter()
+            .map(|name| state_name(name))
+            .collect::<Vec<_>>();
+        out.line_at(
+            depth + 5,
+            format_args!(
+                "val {} = (nexaTranslationX / nexaDragDensity).toDouble()",
+                names[0]
+            ),
+        );
+        out.line_at(
+            depth + 5,
+            format_args!(
+                "val {} = (nexaTranslationY / nexaDragDensity).toDouble()",
+                names[1]
+            ),
+        );
+        if has_drag_velocity {
+            out.line_at(
+                depth + 5,
+                format_args!("nexaVelocityTracker.addPointerInputChange(change)"),
+            );
+            out.line_at(
+                depth + 5,
+                format_args!("val nexaVelocity = nexaVelocityTracker.calculateVelocity()"),
+            );
+            out.line_at(
+                depth + 5,
+                format_args!(
+                    "val {} = (nexaVelocity.x / nexaDragDensity).toDouble()",
+                    names[2]
+                ),
+            );
+            out.line_at(
+                depth + 5,
+                format_args!(
+                    "val {} = (nexaVelocity.y / nexaDragDensity).toDouble()",
+                    names[3]
+                ),
+            );
+        }
+        render_actions(drag_actions, depth + 5, out);
+        out.line_at(depth + 5, format_args!("change.consume()"));
+        out.line_at(depth + 4, format_args!("}},"));
+        out.line_at(depth + 3, format_args!(")"));
+        out.line_at(depth + 2, format_args!("}}"));
+        out.push('}');
+    }
+    out.push_str(&format!(".{modifier}(\n"));
+    out.line_at(depth + 2, format_args!("enabled = {enabled},"));
+    out.line_at(depth + 2, format_args!("role = Role.Button,"));
+    out.text_at(depth + 2, format_args!("onClick = {{"));
     if actions.is_empty() && haptic.is_none() {
         out.push_str(if has_combined_clickable {
             " },\n"
@@ -346,6 +601,10 @@ pub(crate) fn render_pressable(
     out.push('\n');
     indent(out, depth);
     out.push('}');
+    if has_long_press {
+        indent(out, depth - 1);
+        out.push('}');
+    }
 }
 
 fn render_haptic(style: HapticStyle, depth: usize, out: &mut SourceWriter) {

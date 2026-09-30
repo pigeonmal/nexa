@@ -25,6 +25,7 @@ pub fn parse(tokens: Vec<Token>) -> Result<App, CompileError> {
     app.structs = program.structs;
     app.functions.extend(program.functions);
     app.screens.extend(program.screens);
+    app.tests = program.tests;
     app.plugins = program.plugins;
     Ok(app)
 }
@@ -661,6 +662,7 @@ impl Parser {
         let mut structs = Vec::new();
         let mut functions = Vec::new();
         let mut screens = Vec::new();
+        let mut tests = Vec::new();
         let mut app = None;
         while !self.check(&Kind::Eof) {
             if self.word_is("import") {
@@ -679,6 +681,8 @@ impl Parser {
                 functions.push(self.function_decl(false)?);
             } else if self.word_is("screen") {
                 screens.push(self.screen_decl()?);
+            } else if self.word_is("test") {
+                tests.push(self.test_decl()?);
             } else if self.word_is("app") {
                 if app.is_some() {
                     return self.error_here("a source file can only declare one `app`");
@@ -686,7 +690,7 @@ impl Parser {
                 app = Some(self.app_decl()?);
             } else {
                 return self.error_here(
-                    "expected an `import`, `plugin`, `struct`, `component`, `fn`, `async fn`, `screen`, or `app` declaration",
+                    "expected an `import`, `plugin`, `struct`, `component`, `fn`, `async fn`, `screen`, `test`, or `app` declaration",
                 );
             }
         }
@@ -697,7 +701,82 @@ impl Parser {
             structs,
             functions,
             screens,
+            tests,
             app,
+        })
+    }
+
+    fn test_decl(&mut self) -> Result<TestDecl, CompileError> {
+        let span = self.advance().span;
+        let token = self.advance().clone();
+        let Kind::String(name) = token.kind else {
+            return Err(CompileError::new(
+                token.span,
+                "a test block requires a quoted name",
+            ));
+        };
+        if name.trim().is_empty() {
+            return Err(CompileError::new(token.span, "a test name cannot be empty"));
+        }
+        self.expect(Kind::LBrace, "expected `{` after test name")?;
+        let mut statements = Vec::new();
+        while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            if self.word_is("let") {
+                let statement_span = self.advance().span;
+                let (name, _) = self.ident()?;
+                let ty = if self.take(&Kind::Colon) {
+                    Some(self.type_syntax()?)
+                } else {
+                    None
+                };
+                self.expect(Kind::Equal, "expected `=` after test local name")?;
+                let initial = self.expr()?;
+                statements.push(TestStatement::Let {
+                    name,
+                    ty,
+                    initial,
+                    span: statement_span,
+                });
+                self.optional_semicolon();
+                continue;
+            }
+            if self.word_is("assert") {
+                let statement_span = self.advance().span;
+                self.expect(Kind::LParen, "expected `(` after `assert`")?;
+                let condition = self.expr()?;
+                let message = if self.take(&Kind::Comma) {
+                    Some(self.expr()?)
+                } else {
+                    None
+                };
+                self.expect(Kind::RParen, "expected `)` after assertion")?;
+                statements.push(TestStatement::Assert {
+                    condition,
+                    message,
+                    span: statement_span,
+                });
+                self.optional_semicolon();
+                continue;
+            }
+            return self
+                .error_here("test blocks support only `let` declarations and `assert(...)`");
+        }
+        self.expect(Kind::RBrace, "expected `}` to close test block")?;
+        self.optional_semicolon();
+        if statements
+            .iter()
+            .all(|statement| !matches!(statement, TestStatement::Assert { .. }))
+        {
+            return Err(CompileError::new(
+                span,
+                format!("test `{name}` must contain at least one assertion"),
+            ));
+        }
+        Ok(TestDecl {
+            name,
+            statements,
+            span,
+            source_file: None,
         })
     }
 
@@ -930,6 +1009,7 @@ impl Parser {
             screens,
             theme,
             components: Vec::new(),
+            tests: Vec::new(),
             body,
             span,
         })
@@ -1479,13 +1559,40 @@ impl Parser {
                     catalog::duplicate_modifier_message(schema, &modifier),
                 ));
             }
+            let allowed_arguments = spec
+                .arguments
+                .iter()
+                .map(|argument| argument.name)
+                .collect::<Vec<_>>();
+            let modifier_arguments = if self.check(&Kind::LParen) {
+                self.named_args(&allowed_arguments)?
+            } else {
+                BTreeMap::new()
+            };
+            for argument in spec.arguments.iter().filter(|argument| argument.required) {
+                if !modifier_arguments.contains_key(argument.name) {
+                    return Err(CompileError::new(
+                        modifier_span,
+                        format!("modifier `.{modifier}` requires `{}`", argument.name),
+                    ));
+                }
+            }
             let body = match spec.body {
+                catalog::ModifierBody::None => ModifierBody::None,
                 catalog::ModifierBody::Actions => ModifierBody::Actions(self.block_stmts()?),
+                catalog::ModifierBody::EventActions => {
+                    let (parameters, actions) = self.native_event_handler()?;
+                    ModifierBody::EventActions {
+                        parameters,
+                        actions,
+                    }
+                }
                 catalog::ModifierBody::Nodes => ModifierBody::Nodes(self.block_nodes()?),
             };
             modifiers.push(DotModifier {
                 name: modifier,
                 span: modifier_span,
+                arguments: modifier_arguments,
                 body,
             });
         }
@@ -2772,8 +2879,17 @@ impl Parser {
     fn call_expression(&mut self, name: String, span: Span) -> Result<Expr, CompileError> {
         let type_arguments = self.type_arguments()?;
         self.expect(Kind::LParen, "expected `(` after function name")?;
-        let arguments = self.call_arguments_after_open()?;
-        Ok(Expr::Call(name, type_arguments, arguments, span))
+        let (arguments, named_arguments) = self.call_arguments_after_open_with_names()?;
+        if named_arguments.is_empty() {
+            Ok(Expr::Call(name, type_arguments, arguments, span))
+        } else {
+            Ok(Expr::CallNamed {
+                name,
+                type_arguments,
+                arguments: named_arguments,
+                span,
+            })
+        }
     }
 
     fn spring_expression(&mut self, span: Span) -> Result<Expr, CompileError> {
