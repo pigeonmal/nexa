@@ -153,6 +153,10 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
         nexaDevPerformHaptics(name, options)
         return JSONObject.NULL
     }
+    if (namespace == "Screen" && name == "lockOrientation") {
+        dev.nexa.core.NexaRuntimeCore.lockOrientation(options["mode"] as? String ?: "All")
+        return JSONObject.NULL
+    }
     if (namespace == "Clipboard") {
         val manager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
             as android.content.ClipboardManager
@@ -367,6 +371,10 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
     }
     if (namespace == "Haptics") {
         nexaDevPerformHaptics(name, options)
+        return JSONObject.NULL
+    }
+    if (namespace == "Screen" && name == "lockOrientation") {
+        dev.nexa.core.NexaRuntimeCore.lockOrientation(options["mode"] as? String ?: "All")
         return JSONObject.NULL
     }
     if (namespace == "Json") {

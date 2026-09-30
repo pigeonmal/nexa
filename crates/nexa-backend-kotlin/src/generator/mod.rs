@@ -306,6 +306,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                 || features.facts.capabilities.uses_keyboard_api
                 || features.facts.capabilities.uses_clipboard_api
                 || features.facts.capabilities.uses_haptics_api
+                || features.facts.capabilities.uses_screen_orientation_api
                 || features.facts.capabilities.uses_storage_api
                 || !module.plugins.is_empty()
             {
@@ -410,6 +411,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
         || features.facts.capabilities.uses_secure_storage_api
         || features.facts.capabilities.uses_storage_api
         || features.facts.capabilities.uses_clipboard_api
+        || features.facts.capabilities.uses_screen_orientation_api
         || !module.plugins.is_empty()
     {
         units.write("runtime", |out| {

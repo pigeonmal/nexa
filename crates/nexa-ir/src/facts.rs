@@ -1034,6 +1034,7 @@ fn observe_expr(
             "Storage" => capabilities.uses_storage_api = true,
             "Clipboard" => capabilities.uses_clipboard_api = true,
             "Haptics" => capabilities.uses_haptics_api = true,
+            "Screen" => capabilities.uses_screen_orientation_api |= name == "lockOrientation",
             _ => {}
         }
     }

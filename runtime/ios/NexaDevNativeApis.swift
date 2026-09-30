@@ -84,6 +84,26 @@ private func nexaDevPerformHaptics(_ name: String, options: [String: Any]) {
 }
 
 @MainActor
+private func nexaDevLockOrientation(_ mode: String) {
+    let mask: UIInterfaceOrientationMask
+    switch mode {
+    case "Portrait":
+        mask = .portrait
+    case "Landscape":
+        mask = .landscape
+    default:
+        mask = UIDevice.current.userInterfaceIdiom == .pad ? .all : .allButUpsideDown
+    }
+    guard let scene = UIApplication.shared.connectedScenes
+        .compactMap({ $0 as? UIWindowScene })
+        .first(where: { $0.activationState == .foregroundActive })
+    else {
+        return
+    }
+    scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
+}
+
+@MainActor
 extension NexaDevStateStore {
     func invokeNativeAsync(
         _ call: [String: Any],
@@ -175,6 +195,10 @@ extension NexaDevStateStore {
         }
         if namespace == "Haptics" {
             nexaDevPerformHaptics(name, options: options)
+            return NSNull()
+        }
+        if namespace == "Screen", name == "lockOrientation" {
+            nexaDevLockOrientation(options["mode"] as? String ?? "All")
             return NSNull()
         }
         func stringOption(_ key: String, _ fallback: String = "") -> String {
@@ -448,6 +472,10 @@ extension NexaDevStateStore {
         }
         if namespace == "Haptics" {
             nexaDevPerformHaptics(name, options: options)
+            return NSNull()
+        }
+        if namespace == "Screen", name == "lockOrientation" {
+            nexaDevLockOrientation(options["mode"] as? String ?? "All")
             return NSNull()
         }
         func stringOption(_ key: String) -> String { options[key] as? String ?? "" }

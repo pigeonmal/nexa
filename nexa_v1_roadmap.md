@@ -246,6 +246,7 @@ I want be able to do tasks in Task or couroutines or custom thread
   - Zero permissions required (uses iOS `PHPickerViewController` and Android Photo Picker).
 - **`Screen.lockOrientation(mode)`**:
   - Canonical Nexa enums: `Portrait`, `Landscape`, `All`. Essential for video apps.
+  - [x] Implement direct iOS and Android orientation requests and DevRuntime dispatch; generated iOS hosts declare the supported scene orientations.
   - [x] Fix Android startup orientation: generated launcher activities now follow the user's current orientation policy, including landscape, from first launch.
 
 #### 4.5 Formatting & Utilities

@@ -387,6 +387,20 @@ public object NexaRuntimeCore {
             }
         }
     }
+
+    public fun lockOrientation(mode: String) {
+        val activity = foregroundActivity?.get() ?: return
+        val requestedOrientation = when (mode) {
+            "Portrait" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            "Landscape" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        }
+        activity.runOnUiThread {
+            if (!activity.isFinishing && !activity.isDestroyed) {
+                activity.requestedOrientation = requestedOrientation
+            }
+        }
+    }
 }
 "#;
 

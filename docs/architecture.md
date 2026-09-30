@@ -54,6 +54,8 @@ C++ native plugins use generated bindings and standard C++ types such as `std::i
 
 ## 3. Generated Source Cache
 
+`build-v128` adds typed screen orientation requests to both AOT backends and DevRuntime, with iOS scene geometry support and generated interface-orientation declarations.
+
 `build-v127` preserves valid nullable values while decoding generic plugin returns in Android DevRuntime, including nullable elements in compound values.
 
 `build-v125` adds configurable Pressable long-press timing to both native backends and DevRuntime, accepts `.onTap` as the tap-handler spelling, and advances the Dev IR format.

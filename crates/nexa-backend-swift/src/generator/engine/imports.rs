@@ -43,7 +43,8 @@ pub(crate) fn render(features: &Features) -> String {
     crate::generator::api::time::imports(features, &mut imports);
     imports.add(
         features.facts.capabilities.uses_keyboard_api
-            || features.facts.capabilities.uses_haptics_api,
+            || features.facts.capabilities.uses_haptics_api
+            || features.facts.capabilities.uses_screen_orientation_api,
         "UIKit",
     );
     imports.render()

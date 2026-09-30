@@ -9,6 +9,7 @@ pub(crate) mod json;
 pub(crate) mod network;
 pub(crate) mod number;
 pub(crate) mod permissions;
+pub(crate) mod screen_orientation;
 pub(crate) mod secure_storage;
 pub(crate) mod storage;
 pub(crate) mod time;

@@ -25,6 +25,7 @@ pub struct Capabilities {
     pub uses_storage_api: bool,
     pub uses_clipboard_api: bool,
     pub uses_haptics_api: bool,
+    pub uses_screen_orientation_api: bool,
 }
 
 impl Capabilities {
@@ -102,6 +103,7 @@ mod tests {
                     Action::Expression(call("Crypto", "sha256")),
                     Action::Expression(call("Clipboard", "hasText")),
                     Action::Expression(call("Haptics", "selection")),
+                    Action::Expression(call("Screen", "lockOrientation")),
                 ],
             }],
         }]);
@@ -115,6 +117,7 @@ mod tests {
         assert!(capabilities.uses_crypto_api);
         assert!(capabilities.uses_clipboard_api);
         assert!(capabilities.uses_haptics_api);
+        assert!(capabilities.uses_screen_orientation_api);
     }
 
     #[test]

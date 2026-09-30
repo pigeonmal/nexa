@@ -160,6 +160,7 @@ fn project_features_from_analysis(features: &features::Features) -> crate::Swift
         // The feature-gated NexaNetwork helper contains its download operation,
         // which inspects the downloaded file's size with FileManager.
         requires_file_timestamp_reason: features.uses_network_api,
+        uses_screen_orientation_api: features.facts.capabilities.uses_screen_orientation_api,
     }
 }
 
@@ -405,6 +406,9 @@ fn generate_with_analysis_mode(
     }
     if features.facts.capabilities.uses_clipboard_api {
         units.write("clipboard", api::clipboard::render);
+    }
+    if features.facts.capabilities.uses_screen_orientation_api {
+        units.write("screen-orientation", api::screen_orientation::render);
     }
     units.write("functions", |out| {
         functions::render(module, out);

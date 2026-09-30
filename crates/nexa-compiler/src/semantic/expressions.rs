@@ -2118,6 +2118,7 @@ fn lower_native_call(
         ),
         "File.delete" => (Type::Bool, true, vec![("path", Type::String, None)]),
         "Keyboard.dismiss" => (Type::Void, false, Vec::new()),
+        "Screen.lockOrientation" => (Type::Void, false, vec![("mode", Type::String, None)]),
         "Bytes.fromText" => (Type::Bytes, false, vec![("text", Type::String, None)]),
         "Bytes.fromArray" => (
             Type::Bytes,
@@ -2281,6 +2282,17 @@ fn lower_native_call(
             {
                 Expr::String(name.clone())
             }
+            ("Screen.lockOrientation", "mode", ast::Expr::Name(name, _))
+                if matches!(name.as_str(), "Portrait" | "Landscape" | "All") =>
+            {
+                Expr::String(name.clone())
+            }
+            ("Screen.lockOrientation", "mode", value) => {
+                return Err(CompileError::new(
+                    value.span(),
+                    "Screen.lockOrientation mode must be `Portrait`, `Landscape`, or `All`",
+                ));
+            }
             ("Haptics.impact", "style", value) => {
                 return Err(CompileError::new(
                     value.span(),
@@ -2390,6 +2402,16 @@ fn native_plan(
             namespace: "Keyboard".to_owned(),
             name: "dismiss".to_owned(),
             arguments: Vec::new(),
+            codecs: Vec::new(),
+            return_type: Type::Void,
+            is_async: false,
+            is_throwing: false,
+        }),
+        "Screen.lockOrientation" => Ok(Expr::NativeCall {
+            receiver: None,
+            namespace: "Screen".to_owned(),
+            name: "lockOrientation".to_owned(),
+            arguments: vec![("mode".to_owned(), take("mode")?)],
             codecs: Vec::new(),
             return_type: Type::Void,
             is_async: false,
@@ -3449,6 +3471,7 @@ pub(super) fn infer_expr_type(
             ("Storage", "getString") => Some(Type::Optional(Box::new(Type::String))),
             ("Storage", "setString" | "delete" | "clear") => Some(Type::Void),
             ("Haptics", "impact" | "notification" | "selection") => Some(Type::Void),
+            ("Screen", "lockOrientation") => Some(Type::Void),
             ("Time", "now") | ("Time", "monotonic") => Some(Type::Numeric(NumericType::Int64)),
             ("Time", "sleep") => Some(Type::Void),
             ("Time", "iso8601") => Some(Type::String),

@@ -44,7 +44,12 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
         context.uses_plugins
             || context.features.facts.capabilities.uses_clipboard_api
             || context.features.facts.capabilities.uses_storage_api
-            || context.features.facts.capabilities.uses_haptics_api,
+            || context.features.facts.capabilities.uses_haptics_api
+            || context
+                .features
+                .facts
+                .capabilities
+                .uses_screen_orientation_api,
         "androidx.compose.ui.platform.LocalContext",
     );
 

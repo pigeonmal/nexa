@@ -7,6 +7,7 @@ pub use nexa_codegen::{GeneratedSources, SourceUnit};
 pub struct SwiftProjectFeatures {
     pub requires_user_defaults_reason: bool,
     pub requires_file_timestamp_reason: bool,
+    pub uses_screen_orientation_api: bool,
 }
 
 pub struct SwiftBackend;

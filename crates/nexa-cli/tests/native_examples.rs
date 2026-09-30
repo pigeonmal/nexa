@@ -387,6 +387,86 @@ fn haptics_example_generates_native_calls_and_android_activity_binding() {
 }
 
 #[test]
+fn screen_orientation_generates_direct_native_calls_and_runtime_support() {
+    let temp = TestProject::new("nexa-screen-orientation-codegen");
+    let entry = temp.join("Orientation.nx");
+    fs::write(
+        &entry,
+        r#"app Orientation {
+    body {
+        Column {
+            Button("Portrait") { Screen.lockOrientation(mode: Portrait) }
+            Button("Landscape") { Screen.lockOrientation(mode: Landscape) }
+            Button("All") { Screen.lockOrientation(mode: All) }
+        }
+    }
+}"#,
+    )
+    .expect("orientation fixture should be written");
+
+    let ios = temp.join("orientation-ios");
+    nexa_cli::generate_project(&entry, "ios", &ios, "NexaOrientation")
+        .expect("iOS orientation project should generate");
+    let swift = swift_sources(&ios.join("ios/NexaOrientation"))
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Swift source"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(swift.contains("import UIKit"));
+    assert!(swift.contains("NexaScreen.lockOrientation(\"Portrait\")"));
+    assert!(swift.contains("NexaScreen.lockOrientation(\"Landscape\")"));
+    assert!(swift.contains("NexaScreen.lockOrientation(\"All\")"));
+    assert!(swift.contains("requestGeometryUpdate(.iOS(interfaceOrientations: mask))"));
+    let plist = fs::read_to_string(ios.join("ios/NexaOrientation/Info.plist"))
+        .expect("read generated iOS Info.plist");
+    assert!(plist.contains("UIInterfaceOrientationLandscapeLeft"));
+    assert!(plist.contains("UIInterfaceOrientationLandscapeRight"));
+    if let Some(sdk) = Toolchain::ios_simulator_sdk_path() {
+        let sources = swift_sources(&ios.join("ios/NexaOrientation"));
+        let built = Command::new("xcrun")
+            .args([
+                "--sdk",
+                "iphonesimulator",
+                "swiftc",
+                "-typecheck",
+                "-sdk",
+                sdk,
+                "-target",
+                "arm64-apple-ios17.0-simulator",
+            ])
+            .args(&sources)
+            .output()
+            .expect("Swift compiler should start for the orientation host");
+        assert!(
+            built.status.success(),
+            "iOS orientation host failed to type-check:\n{}\n{}",
+            String::from_utf8_lossy(&built.stdout),
+            String::from_utf8_lossy(&built.stderr)
+        );
+    }
+
+    let android = temp.join("orientation-android");
+    nexa_cli::generate_project(&entry, "android", &android, "NexaOrientation")
+        .expect("Android orientation project should generate");
+    let kotlin = kotlin_sources(&android.join("android/app/src/main/java"))
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Kotlin source"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(kotlin.contains("NexaRuntimeCore.lockOrientation(\"Portrait\")"));
+    assert!(kotlin.contains("NexaRuntimeCore.lockOrientation(\"Landscape\")"));
+    assert!(kotlin.contains("NexaRuntimeCore.lockOrientation(\"All\")"));
+    assert!(kotlin.contains("import androidx.compose.ui.platform.LocalContext"));
+    assert!(kotlin.contains("NexaRuntime.bind(LocalContext.current)"));
+    let core_runtime = fs::read_to_string(
+        android.join("android/app/src/main/java/dev/nexa/core/NexaRuntimeCore.kt"),
+    )
+    .expect("read generated Android core runtime");
+    assert!(core_runtime.contains("lockOrientation(mode: String)"));
+    assert!(core_runtime.contains("SCREEN_ORIENTATION_SENSOR_LANDSCAPE"));
+}
+
+#[test]
 fn generated_android_example_hosts_build_with_gradle_when_available() {
     if !Toolchain::should_run_native_builds() {
         eprintln!(

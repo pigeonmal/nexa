@@ -477,6 +477,10 @@ fn native_call(
         );
     }
     match (namespace, name) {
+        ("Screen", "lockOrientation") => format!(
+            "NexaScreen.lockOrientation({})",
+            rendered.first().map(String::as_str).unwrap_or("\"All\"")
+        ),
         ("Network", "isOnline") => "NexaNetwork.isOnline()".to_owned(),
         ("Network", "upload") => format!(
             "NexaNetwork.upload(url: {}, file: {}, fields: {})",

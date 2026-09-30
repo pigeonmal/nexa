@@ -414,6 +414,10 @@ fn native_call(
         );
     }
     match (namespace, name) {
+        ("Screen", "lockOrientation") => format!(
+            "dev.nexa.core.NexaRuntimeCore.lockOrientation({})",
+            rendered.first().map(String::as_str).unwrap_or("\"All\"")
+        ),
         ("Network", "isOnline") => "NexaNetwork.isOnline(NexaRuntime.context())".to_owned(),
         ("Network", "upload") => format!(
             "NexaNetwork.upload(NexaRuntime.context(), {}, {}, {})",

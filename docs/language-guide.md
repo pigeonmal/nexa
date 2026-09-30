@@ -452,6 +452,16 @@ Button("Save") {
 
 Release builds call UIKit feedback generators on iOS and Android view haptic feedback constants on Android. DevRuntime supports all three calls, so adding them to app source can hot reload without rebuilding the host. Android uses the foreground activity's decor view and does not request the vibration permission.
 
+## Screen orientation
+
+Use `Screen.lockOrientation(mode:)` to request `Portrait`, `Landscape`, or `All`. On iOS, the active scene receives a geometry request; on Android, Nexa updates the foreground activity's requested orientation. The generated host declares the orientations these modes can select. The API is available in DevRuntime, so adding or changing the call supports hot reload.
+
+```nexa
+OnAppear {
+    Screen.lockOrientation(mode: Landscape)
+}
+```
+
 ## Keyboard
 
 `Keyboard.dismiss()` hides the software keyboard while leaving the focused input intact. Use `TextInput`'s `autofill` option to identify username, password, or one-time-code fields, and `returnKeyType` to choose Done, Search, Send, or Next. On Android the autofill hint is expressed through Compose semantics; on iOS it uses the native text content type.

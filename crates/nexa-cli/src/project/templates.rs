@@ -30,11 +30,12 @@ pub(super) fn root_readme(app_name: &str, targets: &[&str]) -> String {
     readme
 }
 
-pub(super) fn ios_info_plist_with_dev_runtime(
+pub(super) fn ios_info_plist_with_orientation(
     app_name: &str,
     config: &ProjectConfig,
     plugins: &[PluginPackage],
     dev_runtime: bool,
+    supports_screen_orientation: bool,
 ) -> Result<String, String> {
     let mut usage_descriptions = std::collections::BTreeMap::<String, String>::new();
     for (permission, description) in config.permissions() {
@@ -117,8 +118,16 @@ pub(super) fn ios_info_plist_with_dev_runtime(
             xml_escape(&config.ios_bundle_identifier)
         )
     };
+    // Scene geometry requests can only select orientations the host declares
+    // as supported. Keep phone landscape available for `Screen.lockOrientation`
+    // and allow every interface orientation on iPad.
+    let interface_orientations = if supports_screen_orientation {
+        "<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array><key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>"
+    } else {
+        ""
+    };
     Ok(format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleExecutable</key><string>{app_name}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string><key>LSRequiresIPhoneOS</key><true/>{splash}{dev_network}{url_types}{background_modes}{entries}</dict></plist>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleDisplayName</key><string>{}</string><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleExecutable</key><string>{app_name}</string><key>CFBundleName</key><string>{app_name}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>{}</string><key>CFBundleVersion</key><string>{}</string><key>LSRequiresIPhoneOS</key><true/>{splash}{interface_orientations}{dev_network}{url_types}{background_modes}{entries}</dict></plist>\n",
         xml_escape(&config.display_name),
         xml_escape(&config.ios_bundle_identifier),
         xml_escape(&config.version),

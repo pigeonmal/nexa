@@ -705,6 +705,7 @@ fn generated_unit_names(plan: &ProjectPlan, dev_runtime: bool) -> Vec<String> {
 struct PreparedIos {
     source_units: Vec<nexa_codegen::SourceUnit>,
     privacy_manifest: Option<String>,
+    supports_screen_orientation: bool,
     /// Whether the app bundle carries images, icons, or a splash screen.
     has_assets: bool,
     /// Swift files staged from plugin packages, relative to the app directory.
@@ -735,6 +736,7 @@ fn prepare_ios(
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let (source_units, project_features) = ios_source_units(module, plugins, config, dev_runtime)?;
     let privacy_manifest = templates::ios_privacy_manifest(project_features);
+    let supports_screen_orientation = project_features.uses_screen_orientation_api;
     copy_config_icons(root, app_name, config)?;
     let ios_icon = config.ios_icon.as_ref().or(config.icon_source.as_ref());
     let has_project_images = assets::copy_ios_project_images(source_root, root, app_name)?;
@@ -755,6 +757,7 @@ fn prepare_ios(
     Ok(PreparedIos {
         source_units,
         privacy_manifest,
+        supports_screen_orientation,
         has_assets,
         plugin_sources,
         cpp_sources,
@@ -893,7 +896,13 @@ fn ios_plan(
         )
         .with_file(
             format!("{directory}/Info.plist"),
-            templates::ios_info_plist_with_dev_runtime(app_name, config, plugins, dev_runtime)?,
+            templates::ios_info_plist_with_orientation(
+                app_name,
+                config,
+                plugins,
+                dev_runtime,
+                dev_runtime || prepared.supports_screen_orientation,
+            )?,
         );
     if config.splash_source.is_some() {
         plan = plan.with_file(

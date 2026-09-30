@@ -1135,16 +1135,56 @@ fn native_haptics_calls_are_ready_for_hot_reload_on_both_platforms() {
     assert!(ios.contains("if namespace == \"Haptics\""));
     assert!(ios.contains("UIImpactFeedbackGenerator(style: style).impactOccurred()"));
     assert!(ios.contains("UISelectionFeedbackGenerator().selectionChanged()"));
+    assert!(ios.contains("private func nexaDevLockOrientation"));
+    assert!(ios.contains("if namespace == \"Screen\", name == \"lockOrientation\""));
 
     let android = read_android_dev_runtime(&output);
     assert!(android.contains("private fun nexaDevPerformHaptics"));
     assert!(android.contains("if (namespace == \"Haptics\")"));
     assert!(android.contains("NexaRuntimeCore.performHapticFeedback(constant)"));
+    assert!(android.contains("namespace == \"Screen\" && name == \"lockOrientation\""));
     let core_runtime = fs::read_to_string(
         output.join("android/app/src/main/java/dev/nexa/core/NexaRuntimeCore.kt"),
     )
     .expect("Android Dev host should include its haptics runtime helper");
     assert!(core_runtime.contains("performHapticFeedback(feedbackConstant: Int)"));
+    assert!(core_runtime.contains("lockOrientation(mode: String)"));
+}
+
+#[test]
+fn screen_orientation_calls_are_ready_for_hot_reload_on_both_platforms() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    fs::write(
+        &entry,
+        "app OrientationHotReload { body { Text(\"ready\") } }\n",
+    )
+    .expect("write app without orientation calls");
+    let output = root.join("build");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "RuntimeSmoke",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Dev hosts before Screen is used by app source");
+
+    let ios = read_ios_dev_runtime(&output);
+    assert!(ios.contains("private func nexaDevLockOrientation"));
+    assert!(ios.contains("if namespace == \"Screen\", name == \"lockOrientation\""));
+    assert!(ios.contains("requestGeometryUpdate(.iOS(interfaceOrientations: mask))"));
+
+    let android = read_android_dev_runtime(&output);
+    assert!(android.contains("namespace == \"Screen\" && name == \"lockOrientation\""));
+    let core_runtime = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/core/NexaRuntimeCore.kt"),
+    )
+    .expect("Android Dev host should include its orientation runtime helper");
+    assert!(core_runtime.contains("lockOrientation(mode: String)"));
+    assert!(core_runtime.contains("SCREEN_ORIENTATION_FULL_USER"));
 }
 
 #[test]
