@@ -415,6 +415,12 @@ fn native_call(
     }
     match (namespace, name) {
         ("Network", "isOnline") => "NexaNetwork.isOnline(NexaRuntime.context())".to_owned(),
+        ("Network", "upload") => format!(
+            "NexaNetwork.upload(NexaRuntime.context(), {}, {}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("\"\""),
+            rendered.get(2).map(String::as_str).unwrap_or("emptyMap()"),
+        ),
         ("Haptics", "impact") => {
             let style = arguments
                 .iter()
@@ -708,6 +714,32 @@ mod tests {
         assert_eq!(
             expression(&call),
             "NexaNetwork.isOnline(NexaRuntime.context())"
+        );
+    }
+
+    #[test]
+    fn network_upload_is_rendered_as_a_suspending_native_call() {
+        let call = Expr::NativeCall {
+            receiver: None,
+            namespace: "Network".to_owned(),
+            name: "upload".to_owned(),
+            arguments: vec![
+                (
+                    "url".to_owned(),
+                    Expr::String("https://example.com".to_owned()),
+                ),
+                ("file".to_owned(), Expr::String("receipt.pdf".to_owned())),
+                ("fields".to_owned(), Expr::Map(Vec::new())),
+            ],
+            codecs: Vec::new(),
+            return_type: Type::NetworkResponse,
+            is_async: true,
+            is_throwing: true,
+        };
+
+        assert_eq!(
+            expression(&Expr::TryAwait(Box::new(call))),
+            "NexaNetwork.upload(NexaRuntime.context(), \"https://example.com\", \"receipt.pdf\", mapOf())"
         );
     }
 

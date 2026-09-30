@@ -16,6 +16,18 @@ fn parses_plugin_import_alias_before_app_declaration() {
 }
 
 #[test]
+fn parses_top_level_async_function_declaration() {
+    let program = nexa_syntax::parse_program(
+        r#"async fn readReceipt() -> Int32 { return 1 }
+        app Demo { body { Text("ready") } }"#,
+    )
+    .expect("top-level async functions should parse");
+
+    assert_eq!(program.functions.len(), 1);
+    assert!(program.functions[0].is_async);
+}
+
+#[test]
 fn parses_qualified_native_class_component_parameter_types() {
     let app = nexa_syntax::parse(
         r#"

@@ -674,8 +674,6 @@ impl Parser {
             } else if self.word_is("component") {
                 components.push(self.component_decl()?);
             } else if self.word_is("async") {
-                self.advance();
-                self.expect_word("fn")?;
                 functions.push(self.function_decl(true)?);
             } else if self.word_is("fn") {
                 functions.push(self.function_decl(false)?);

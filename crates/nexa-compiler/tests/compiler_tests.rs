@@ -568,6 +568,68 @@ fn network_status_subscription_lowers_a_typed_boolean_callback() {
 }
 
 #[test]
+fn multipart_upload_lowers_to_an_async_typed_network_call() {
+    let module = compile(
+        r#"
+        app MultipartUpload {
+            state statusCode: Int32 = 0
+            body {
+                Text("Ready")
+                OnAppear async {
+                    try {
+                        statusCode = (await Network.upload(
+                            url: "https://api.example.com/receipts",
+                            file: "receipt.bin",
+                            fields: ["kind": "receipt"]
+                        )).statusCode
+                    } catch { }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("multipart upload should compile with a typed response");
+
+    let Some([Action::TryCatch { body, .. }]) = module.on_appear.as_deref() else {
+        panic!("expected the async upload's error handling action");
+    };
+    let [Action::Assign { value, .. }] = body.as_slice() else {
+        panic!("expected to assign the upload response status");
+    };
+    let Expr::Member {
+        base,
+        name,
+        field_type: Type::Numeric(NumericType::Int32),
+        ..
+    } = value
+    else {
+        panic!("expected typed statusCode access on the upload response");
+    };
+    assert_eq!(name, "statusCode");
+    let Expr::TryAwait(call) = base.as_ref() else {
+        panic!("expected the async upload call to propagate errors");
+    };
+    assert!(matches!(
+        call.as_ref(),
+        Expr::NativeCall {
+            receiver: None,
+            namespace,
+            name,
+            arguments,
+            return_type: Type::NetworkResponse,
+            is_async: true,
+            is_throwing: true,
+            ..
+        } if namespace == "Network"
+            && name == "upload"
+            && arguments.iter().map(|(argument, _)| argument.as_str()).collect::<Vec<_>>() == ["url", "file", "fields"]
+    ));
+    let capabilities = nexa_ir::capabilities::analyze(&module);
+    assert!(capabilities.uses_network_api);
+    assert!(capabilities.uses_network_transport());
+}
+
+#[test]
 fn haptics_calls_lower_to_validated_typed_core_calls() {
     let module = compile(
         r#"

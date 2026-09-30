@@ -269,7 +269,7 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
             else -> error("Unsupported permission call $name")
         }
     }
-    require(namespace == "Network" && (name == "fetch" || name == "download")) {
+    require(namespace == "Network" && (name == "fetch" || name == "download" || name == "upload")) {
         "Unsupported async native call $namespace.$name"
     }
     val rawHeaders = options["headers"] as? Map<*, *> ?: emptyMap<Any?, Any?>()
@@ -283,6 +283,21 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
     val useCache = options["useCache"] as? Boolean ?: true
     val followRedirects = options["followRedirects"] as? Boolean ?: true
     val maxResponseBytes = numberOption("maxResponseBytes", 67_108_864.0).toLong()
+    if (name == "upload") {
+        val rawFields = options["fields"] as? Map<*, *> ?: emptyMap<Any?, Any?>()
+        val fields = rawFields.entries.associate { stringify(it.key ?: JSONObject.NULL) to stringify(it.value ?: JSONObject.NULL) }
+        val response = NexaNetwork.upload(
+            context = context,
+            url = url,
+            filePath = stringOption("file"),
+            fields = fields,
+        )
+        return mapOf(
+            "statusCode" to response.statusCode,
+            "headers" to response.headers,
+            "body" to response.text,
+        )
+    }
     if (name == "download") {
         return NexaNetwork.download(
             context = context,

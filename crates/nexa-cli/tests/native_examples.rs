@@ -51,6 +51,96 @@ fn generate_example(project: &TestProject, example: &str, target: &str) -> PathB
     output
 }
 
+#[test]
+fn multipart_upload_generates_native_streaming_calls() {
+    let temp = TestProject::new("nexa-multipart-upload-codegen");
+    let entry = temp.join("Upload.nx");
+    fs::write(
+        &entry,
+        r#"app Upload {
+    state statusCode: Int32 = 0
+    body {
+        Text("Upload")
+        OnAppear async {
+            try {
+                statusCode = (await Network.upload(
+                    url: "https://example.com/upload",
+                    file: "/tmp/receipt.pdf",
+                    fields: ["kind": "receipt"]
+                )).statusCode
+            } catch {
+                statusCode = -1
+            }
+        }
+    }
+}"#,
+    )
+    .expect("upload fixture should be written");
+
+    let ios = temp.join("upload-ios");
+    nexa_cli::generate_project(&entry, "ios", &ios, "NexaUpload")
+        .expect("iOS upload project should generate");
+    let swift = swift_sources(&ios.join("ios/NexaUpload"))
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Swift source"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(swift.contains("try await NexaNetwork.upload("));
+    assert!(swift.contains("fromFile: uploadURL"));
+
+    let android = temp.join("upload-android");
+    nexa_cli::generate_project(&entry, "android", &android, "NexaUpload")
+        .expect("Android upload project should generate");
+    let kotlin = kotlin_sources(&android.join("android/app/src/main/java"))
+        .iter()
+        .map(|path| fs::read_to_string(path).expect("read generated Kotlin source"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(kotlin.contains("NexaNetwork.upload(NexaRuntime.context()"));
+    assert!(kotlin.contains("NexaMultipartUploadProvider"));
+
+    if let Some(sdk) = Toolchain::ios_simulator_sdk_path() {
+        let built = Command::new("xcrun")
+            .args([
+                "--sdk",
+                "iphonesimulator",
+                "swiftc",
+                "-typecheck",
+                "-sdk",
+                sdk,
+                "-target",
+                "arm64-apple-ios16.0-simulator",
+            ])
+            .args(swift_sources(&ios.join("ios/NexaUpload")))
+            .output()
+            .expect("Swift compiler should start for the iOS upload host");
+        assert!(
+            built.status.success(),
+            "iOS upload host failed to type-check:\n{}\n{}",
+            String::from_utf8_lossy(&built.stdout),
+            String::from_utf8_lossy(&built.stderr)
+        );
+    }
+
+    if Toolchain::should_run_native_builds() {
+        if let (Some(gradle), Some(sdk)) = (Toolchain::gradle(), Toolchain::android_sdk()) {
+            if sdk.join("platforms/android-36/android.jar").is_file() {
+                let built = Command::new(gradle)
+                    .args([":app:assembleDebug"])
+                    .current_dir(android.join("android"))
+                    .output()
+                    .expect("Gradle should start for the Android upload host");
+                assert!(
+                    built.status.success(),
+                    "Android upload host failed to compile:\n{}\n{}",
+                    String::from_utf8_lossy(&built.stdout),
+                    String::from_utf8_lossy(&built.stderr)
+                );
+            }
+        }
+    }
+}
+
 fn copy_generated_kotlin(source: &Path, destination: &Path) {
     copy_generated_kotlin_from(source, source, destination);
 }

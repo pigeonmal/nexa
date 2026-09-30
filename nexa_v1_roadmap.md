@@ -16,7 +16,7 @@ This matrix verifies that Nexa 1.0 has zero missing dependencies for all 8 targe
 | ------------------------------ | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | **1. To-Do App**               | `Column`, `Row`, `FastList`, `TextInput`, `Button`, `Switch`, `Badge`, `Divider`      | `Storage`, `SecureStorage`, `Time`                                               | None (100% Core)                                               |
 | **2. E-Commerce Store**        | `FastList(Grid)`, `Image(url:)`, `BottomSheet`, `Badge`, `Slider`, `SegmentedControl` | `Network.fetch`, `Json.parse`, `Number.formatCurrency`, `MediaPicker`            | None (100% Core)                                               |
-| **3. Chat App**                | `FastList` (reverse anchor), `TextInput` (send), `Avatar`, `Badge`                    | `WebSocket`, `Network.isOnline`, `Clipboard`, `Haptics`, `SecureStorage`         | None (100% Core)                                               |
+| **3. Chat App**                | `FastList` (reverse anchor), `TextInput` (send), `Avatar`, `Badge`                    | `Network.isOnline`, `Clipboard`, `Haptics`, `SecureStorage`                      | `@nexa/websocket` (long-lived real-time connection)             |
 | **4. Weather Dashboard**       | `RefreshControl`, `Stack`, `ProgressRing`, `Text`, `Spacer`                           | `Permissions.request(Location)`, `Network.fetch`, `Json.parse`, `BackgroundTask` | None (100% Core)                                               |
 | **5. Spotify-Style Music App** | `FastList` (virtualized tracks), `Slider` (scrubber), `BottomSheet`, `.sharedElement` | `Storage`, `Haptics`, `AudioSession`                                             | `@nexa/audio-player` (Background media, lock screen)           |
 | **6. Netflix-Style Video App** | `FastList(Horizontal)` inside `FastList(Vertical)`, `Stack`, `Spacer`                 | `Screen.lockOrientation(Landscape)`, `Network.fetch`, `Json.parse`               | `@nexa/video-player` (HLS/DASH streaming, video surface)       |
@@ -36,7 +36,7 @@ graph TD
     end
 
     subgraph CoreLibraries["Core Standard Library (Built into Nexa)"]
-        NetComms["Network, WebSocket & Connectivity<br/>(URLSession / Cronet, NWPathMonitor)"]
+        NetComms["HTTP Network & Connectivity<br/>(URLSession / Cronet, NWPathMonitor)"]
         Security["SecureStorage & Crypto<br/>(Keychain / Keystore, CryptoKit / MessageDigest)"]
         MediaHardware["MediaPicker, Screen & Haptics<br/>(PHPicker / PhotoPicker, Orientation, Vibrator)"]
         FormatUtils["Time, Currency, Json, Random<br/>(NumberFormatter, Codable / Serializer)"]
@@ -191,22 +191,23 @@ I want be able to do tasks in Task or couroutines or custom thread
 
 #### 4.2 Real-Time WebSockets & Network Connectivity
 
-- **`WebSocket` API**:
+- **`@nexa/websocket` plugin**:
 
   ```nexa
-  let socket = WebSocket("wss://chat.example.com/ws")
+  let socket = WebSocket.connect("wss://chat.example.com/ws")
   socket.onMessage { msg in ... }
   socket.send("hello")
   socket.close()
   ```
 
   - Swift: `URLSessionWebSocketTask`.
-  - Kotlin: Cronet's `BidirectionalStream` WebSocket framing (strictly zero OkHttp dependency, adhering to Nexa's single-networking-stack invariant).
+  - Android: OkHttp WebSocket client 5.5.0 (Apache-2.0), isolated to this plugin. Cronet remains the HTTP transport; its request streams do not expose a WebSocket upgrade API.
+  - Keep socket creation, callbacks, cancellation, and close behavior scoped to the plugin instance. Do not add a custom C++/JNI WebSocket framing layer.
 
 - **`Network.isOnline: Bool`** and **`Network.onStatusChange { isOnline in ... }`**:
   - Swift: `NWPathMonitor`.
   - Kotlin: `ConnectivityManager.NetworkCallback`.
-- **Multipart Upload**: `Network.upload(url: String, file: String, fields: Map<String, String>)`.
+- [x] **Multipart Upload**: `Network.upload(url: String, file: String, fields: Map<String, String>)` streams the file with native transport and bounds request-body memory.
 
 #### 4.3 Security: `SecureStorage` & `Crypto`
 

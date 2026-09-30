@@ -2082,6 +2082,19 @@ fn lower_native_call(
     {
         "Network.fetch" => (Type::NetworkResponse, true, network_specs(span, false)),
         "Network.download" => (Type::Bool, true, network_specs(span, true)),
+        "Network.upload" => (
+            Type::NetworkResponse,
+            true,
+            vec![
+                ("url", Type::String, None),
+                ("file", Type::String, None),
+                (
+                    "fields",
+                    Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                    Some(ast::Expr::Map(Vec::new(), span)),
+                ),
+            ],
+        ),
         "Path.documents" | "Path.caches" | "Path.temporary" | "Path.appSupport" => {
             (Type::String, false, Vec::new())
         }
@@ -2325,6 +2338,20 @@ fn native_plan(
         "Network.download" => Ok(Expr::NetworkDownload {
             destination: Box::new(take("destinationPath")?),
             request: Box::new(network_request()?),
+        }),
+        "Network.upload" => Ok(Expr::NativeCall {
+            receiver: None,
+            namespace: "Network".to_owned(),
+            name: "upload".to_owned(),
+            arguments: vec![
+                ("url".to_owned(), take("url")?),
+                ("file".to_owned(), take("file")?),
+                ("fields".to_owned(), take("fields")?),
+            ],
+            codecs: Vec::new(),
+            return_type: Type::NetworkResponse,
+            is_async: true,
+            is_throwing: true,
         }),
         "Path.documents" | "Path.caches" | "Path.temporary" | "Path.appSupport" => {
             let Some((namespace, name)) = qualified_name.split_once('.') else {
@@ -3403,7 +3430,7 @@ pub(super) fn infer_expr_type(
         ast::Expr::QualifiedCall {
             namespace, name, ..
         } => match (namespace.as_str(), name.as_str()) {
-            ("Network", "fetch") => Some(Type::NetworkResponse),
+            ("Network", "fetch" | "upload") => Some(Type::NetworkResponse),
             ("Network", "download")
             | ("File", "writeText")
             | ("File", "delete")

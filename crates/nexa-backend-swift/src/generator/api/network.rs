@@ -110,6 +110,7 @@ public enum NexaNetworkError: Error {
     case invalidResponse
     case httpStatus(Int)
     case responseTooLarge
+    case invalidUploadField
 }
 
 public struct NexaNetworkResponse {
@@ -347,6 +348,78 @@ public enum NexaNetwork {
         try FileManager.default.moveItem(at: temporaryURL, to: destination)
         return true
     }
+
+    public static func upload(
+        url: String,
+        file: String,
+        fields: [String: String] = [:]
+    ) async throws -> NexaNetworkResponse {
+        guard let url = URL(string: url) else { throw NexaNetworkError.invalidURL }
+        let sourceURL = URL(fileURLWithPath: file)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+
+        let boundary = "Nexa-\(UUID().uuidString)"
+        let uploadURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nexa-upload-\(UUID().uuidString).multipart")
+        guard FileManager.default.createFile(atPath: uploadURL.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        defer { try? FileManager.default.removeItem(at: uploadURL) }
+
+        let output = try FileHandle(forWritingTo: uploadURL)
+        defer { try? output.close() }
+        for (name, value) in fields.sorted(by: { $0.key < $1.key }) {
+            try output.write(contentsOf: Data("--\(boundary)\r\n".utf8))
+            try output.write(contentsOf: Data(
+                "Content-Disposition: form-data; name=\"\(dispositionParameter(name))\"\r\n\r\n".utf8
+            ))
+            try output.write(contentsOf: Data(value.utf8))
+            try output.write(contentsOf: Data("\r\n".utf8))
+        }
+        try output.write(contentsOf: Data("--\(boundary)\r\n".utf8))
+        try output.write(contentsOf: Data(
+            "Content-Disposition: form-data; name=\"file\"; filename=\"\(dispositionParameter(sourceURL.lastPathComponent))\"\r\n".utf8
+        ))
+        try output.write(contentsOf: Data("Content-Type: application/octet-stream\r\n\r\n".utf8))
+
+        let input = try FileHandle(forReadingFrom: sourceURL)
+        defer { try? input.close() }
+        while let chunk = try input.read(upToCount: 1024 * 1024), !chunk.isEmpty {
+            try output.write(contentsOf: chunk)
+        }
+        try output.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
+        try output.close()
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await NexaURLSessionSupport.sharedSession.upload(
+            for: request,
+            fromFile: uploadURL
+        )
+        guard let response = response as? HTTPURLResponse else {
+            throw NexaNetworkError.invalidResponse
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            throw NexaNetworkError.httpStatus(response.statusCode)
+        }
+        let headers = Dictionary(grouping: response.allHeaderFields.compactMap { key, value -> (String, String)? in
+            guard let key = key as? String else { return nil }
+            return (key, String(describing: value))
+        }, by: { $0.0 }).mapValues { $0.map(\.1) }
+        return NexaNetworkResponse(statusCode: Int32(response.statusCode), headers: headers, body: data)
+    }
+
+    private static func dispositionParameter(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "%5C")
+            .replacingOccurrences(of: "\"", with: "%22")
+            .replacingOccurrences(of: "\r", with: "%0D")
+            .replacingOccurrences(of: "\n", with: "%0A")
+    }
 }
 
 "#,
@@ -572,5 +645,16 @@ mod tests {
         assert!(output.contains("public static func isOnline() -> Bool"));
         assert!(output.contains("public static func onStatusChange("));
         assert!(!output.contains("public static func fetch("));
+    }
+
+    #[test]
+    fn multipart_upload_uses_urlsession_file_upload_and_cleans_up_temporary_body() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, false, false, false, false, false);
+
+        assert!(output.contains("public static func upload("));
+        assert!(output.contains("async throws -> NexaNetworkResponse"));
+        assert!(output.contains("fromFile: uploadURL"));
+        assert!(output.contains("defer { try? FileManager.default.removeItem(at: uploadURL) }"));
     }
 }

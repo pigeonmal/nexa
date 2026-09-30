@@ -478,6 +478,12 @@ fn native_call(
     }
     match (namespace, name) {
         ("Network", "isOnline") => "NexaNetwork.isOnline()".to_owned(),
+        ("Network", "upload") => format!(
+            "NexaNetwork.upload(url: {}, file: {}, fields: {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\""),
+            rendered.get(1).map(String::as_str).unwrap_or("\"\""),
+            rendered.get(2).map(String::as_str).unwrap_or("[:]"),
+        ),
         ("Haptics", "impact") => {
             let style = arguments
                 .iter()
@@ -731,6 +737,32 @@ mod tests {
         };
 
         assert_eq!(expression(&call), "NexaNetwork.isOnline()");
+    }
+
+    #[test]
+    fn network_upload_is_rendered_as_a_throwing_async_native_call() {
+        let call = Expr::NativeCall {
+            receiver: None,
+            namespace: "Network".to_owned(),
+            name: "upload".to_owned(),
+            arguments: vec![
+                (
+                    "url".to_owned(),
+                    Expr::String("https://example.com".to_owned()),
+                ),
+                ("file".to_owned(), Expr::String("receipt.pdf".to_owned())),
+                ("fields".to_owned(), Expr::Map(Vec::new())),
+            ],
+            codecs: Vec::new(),
+            return_type: Type::NetworkResponse,
+            is_async: true,
+            is_throwing: true,
+        };
+
+        assert_eq!(
+            expression(&Expr::TryAwait(Box::new(call))),
+            "try await NexaNetwork.upload(url: \"https://example.com\", file: \"receipt.pdf\", fields: [:])"
+        );
     }
 
     #[test]

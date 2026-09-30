@@ -284,7 +284,7 @@ extension NexaDevStateStore {
             }
             return String(describing: status)
         }
-        guard namespace == "Network", name == "fetch" || name == "download" else {
+        guard namespace == "Network", name == "fetch" || name == "download" || name == "upload" else {
             throw NSError(
                 domain: "NexaDevRuntime",
                 code: 1,
@@ -300,6 +300,19 @@ extension NexaDevStateStore {
         let useCache = options["useCache"] as? Bool ?? true
         let followRedirects = options["followRedirects"] as? Bool ?? true
         let maxResponseBytes = Int(numberOption("maxResponseBytes", 67_108_864))
+        if name == "upload" {
+            let rawFields = options["fields"] as? [String: String] ?? [:]
+            let response = try await NexaNetwork.upload(
+                url: url,
+                file: stringOption("file"),
+                fields: rawFields
+            )
+            return [
+                "statusCode": response.statusCode,
+                "headers": response.headers,
+                "body": response.text
+            ]
+        }
         if name == "download" {
             return try await NexaNetwork.download(
                 url: url,

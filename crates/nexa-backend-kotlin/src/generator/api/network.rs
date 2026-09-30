@@ -226,6 +226,102 @@ private class NexaUploadProvider(private val payload: ByteArray) : UploadDataPro
     }
 }
 
+private class NexaMultipartUploadProvider(
+    private val file: File,
+    fields: Map<String, String>,
+    private val boundary: String,
+) : UploadDataProvider() {
+    private val fieldParts = fields.toSortedMap().map { (name, value) ->
+        "--$boundary\r\nContent-Disposition: form-data; name=\"${nexaDispositionParameter(name)}\"\r\n\r\n$value\r\n"
+            .toByteArray(Charsets.UTF_8)
+    }
+    private val fileHeader = (
+        "--$boundary\r\nContent-Disposition: form-data; name=\"file\"; " +
+            "filename=\"${nexaDispositionParameter(file.name)}\"\r\n" +
+            "Content-Type: application/octet-stream\r\n\r\n"
+        ).toByteArray(Charsets.UTF_8)
+    private val suffix = "\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8)
+    private val fileLength = file.length()
+    private val uploadLength = fieldParts.sumOf { it.size.toLong() } +
+        fileHeader.size + fileLength + suffix.size
+    private var channel: java.nio.channels.FileChannel? = null
+    private var phase = 0
+    private var fieldPartIndex = 0
+    private var textOffset = 0
+
+    override fun getLength(): Long = uploadLength
+
+    override fun read(uploadDataSink: UploadDataSink, byteBuffer: ByteBuffer) {
+        try {
+            while (byteBuffer.hasRemaining()) {
+                when (phase) {
+                    0 -> {
+                        if (fieldPartIndex >= fieldParts.size) {
+                            phase = 1
+                            continue
+                        }
+                        if (copyText(fieldParts[fieldPartIndex], byteBuffer)) {
+                            fieldPartIndex += 1
+                            textOffset = 0
+                        }
+                    }
+                    1 -> if (copyText(fileHeader, byteBuffer)) {
+                        phase = 2
+                        textOffset = 0
+                    }
+                    2 -> {
+                        val input = channel ?: java.io.FileInputStream(file).channel.also { channel = it }
+                        when (input.read(byteBuffer)) {
+                            -1 -> phase = 3
+                            0 -> break
+                        }
+                    }
+                    3 -> if (copyText(suffix, byteBuffer)) {
+                        phase = 4
+                        textOffset = 0
+                    }
+                    else -> break
+                }
+            }
+            uploadDataSink.onReadSucceeded(phase == 4)
+        } catch (error: Exception) {
+            uploadDataSink.onReadError(error)
+        }
+    }
+
+    override fun rewind(uploadDataSink: UploadDataSink) {
+        try {
+            channel?.position(0L)
+            phase = 0
+            fieldPartIndex = 0
+            textOffset = 0
+            uploadDataSink.onRewindSucceeded()
+        } catch (error: Exception) {
+            uploadDataSink.onRewindError(error)
+        }
+    }
+
+    override fun close() {
+        channel?.close()
+        channel = null
+    }
+
+    private fun copyText(bytes: ByteArray, destination: ByteBuffer): Boolean {
+        val count = minOf(destination.remaining(), bytes.size - textOffset)
+        if (count > 0) {
+            destination.put(bytes, textOffset, count)
+            textOffset += count
+        }
+        return textOffset >= bytes.size
+    }
+}
+
+private fun nexaDispositionParameter(value: String): String = value
+    .replace("\\", "%5C")
+    .replace("\"", "%22")
+    .replace("\r", "%0D")
+    .replace("\n", "%0A")
+
 private class NexaCronetRequestClient(
     private val engine: CronetEngine,
 ) {
@@ -239,6 +335,7 @@ private class NexaCronetRequestClient(
         followRedirects: Boolean,
         useCache: Boolean = true,
         sink: OutputStream? = null,
+        uploadProvider: UploadDataProvider? = null,
     ): NexaNetworkResponse = suspendCancellableCoroutine { continuation ->
         val output = if (sink == null) ByteArrayOutputStream() else null
         var receivedBytes = 0L
@@ -304,8 +401,14 @@ private class NexaCronetRequestClient(
             .setHttpMethod(method)
         if (!useCache) builder.disableCache()
         for ((name, value) in headers) builder.addHeader(name, value)
+        if (body != null && uploadProvider != null) {
+            fail(IllegalArgumentException("request body must have one source"))
+            return@suspendCancellableCoroutine
+        }
         if (body != null) {
             builder.setUploadDataProvider(NexaUploadProvider(body), NexaCronetRuntime.executor())
+        } else if (uploadProvider != null) {
+            builder.setUploadDataProvider(uploadProvider, NexaCronetRuntime.executor())
         }
         request = builder.build()
         continuation.invokeOnCancellation {
@@ -483,6 +586,35 @@ public object NexaNetwork {
         }
         return true
     }
+
+    public suspend fun upload(
+        context: Context,
+        url: String,
+        filePath: String,
+        fields: Map<String, String> = emptyMap(),
+        timeoutMillis: Long = 60_000L,
+        maxResponseBytes: Long = 64L * 1024L * 1024L,
+    ): NexaNetworkResponse {
+        val source = File(filePath)
+        require(source.isFile) { "upload file does not exist: $filePath" }
+        val boundary = "Nexa-${java.util.UUID.randomUUID()}"
+        val response = withTimeout(timeoutMillis) {
+            NexaCronetRequestClient(NexaCronetRuntime.engine(context)).execute(
+                url = url,
+                method = "POST",
+                headers = mapOf("Content-Type" to "multipart/form-data; boundary=$boundary"),
+                body = null,
+                maxResponseBytes = maxResponseBytes,
+                followRedirects = true,
+                useCache = false,
+                uploadProvider = NexaMultipartUploadProvider(source, fields, boundary),
+            )
+        }
+        if (response.statusCode !in 200..299) {
+            throw NexaNetworkException("HTTP ${response.statusCode}")
+        }
+        return response
+    }
 }
 
 "#,
@@ -648,5 +780,18 @@ mod tests {
         assert!(output.contains("public fun onStatusChange(context: Context"));
         assert!(output.contains("registerDefaultNetworkCallback"));
         assert!(!output.contains("Cronet"));
+    }
+
+    #[test]
+    fn multipart_upload_streams_file_and_multipart_parts_through_cronet() {
+        let mut output = SourceWriter::new();
+        render(&mut output, true, false, false, false, false, false);
+
+        assert!(output.contains("public suspend fun upload("));
+        assert!(output.contains("NexaMultipartUploadProvider(source, fields, boundary)"));
+        assert!(output.contains("input.read(byteBuffer)"));
+        assert!(output.contains("uploadDataSink.onReadSucceeded(phase == 4)"));
+        assert!(!output.contains("writeMultipartBody"));
+        assert!(!output.contains("nexa-upload-"));
     }
 }

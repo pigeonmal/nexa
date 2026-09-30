@@ -315,6 +315,29 @@ app ConnectionExample {
 
 The property gives an immediate path check. `Network.onStatusChange` subscribes to later changes and passes the new Boolean value to its callback. Neither API guarantees that a particular server is reachable.
 
+`Network.upload(url:file:fields:)` sends a local file and string fields as a `multipart/form-data` POST and returns the normal `NetworkResponse`. Both platform clients stream the file without assembling the full request body in memory. Android streams multipart segments directly through Cronet; iOS uses a temporary body file with URLSession and removes it after the request completes.
+
+```nexa
+app ReceiptUploader {
+    state statusCode: Int32 = 0
+
+    body {
+        Text("Receipt upload")
+        OnAppear async {
+            try {
+                statusCode = (await Network.upload(
+                    url: "https://api.example.com/receipts",
+                    file: "/local/path/receipt.pdf",
+                    fields: ["kind": "receipt"]
+                )).statusCode
+            } catch {
+                statusCode = -1
+            }
+        }
+    }
+}
+```
+
 ## Time
 
 `Time` is a core API, available on every target without a plugin:
