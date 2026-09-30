@@ -60,7 +60,7 @@ graph TD
         Camera["@nexa/camera — planned (CameraX / AVCaptureSession)"]
         Maps["@nexa/maps — planned (MapKit / Google Maps)"]
         SQLite["@nexa/sqlite — planned (Relational database with migrations)"]
-        Biometrics["@nexa/biometrics — planned (Face ID / BiometricPrompt)"]
+        Biometrics["@nexa/biometrics — implemented (Face ID / Touch ID / BiometricPrompt)"]
         WebView["@nexa/webview (WKWebView / WebView)"]
         Sensors["@nexa/sensors (CoreMotion / SensorManager)"]
         Notifications["@nexa/notifications — planned (local / APNs / FCM)"]
@@ -309,7 +309,7 @@ graph TD
 4. [ ] `@nexa/camera`: Photo/video capture and QR/barcode scanning (`AVCaptureSession` / `CameraX`), including a defined efficient image-stream API.
 5. [ ] `@nexa/maps`: Apple Maps (`MapKit`) and Google Maps SDK for Android.
 6. [ ] `@nexa/sqlite`: Relational SQLite database with migrations and transactions.
-7. [ ] `@nexa/biometrics`: Face ID, Touch ID, and Android BiometricPrompt.
+7. [x] `@nexa/biometrics`: Face ID, Touch ID, and Android BiometricPrompt (`plugins/biometrics`).
 8. [x] `@nexa/webview`: Embedded `WKWebView` and Android `WebView` with HTTPS-only navigation and origin-gated two-way string messaging (`plugins/webview`).
 9. [ ] `@nexa/notifications`: Local notifications and APNs/FCM push notifications.
 10. [x] `@nexa/sensors`: Accelerometer, gyroscope, and pedometer on iOS and Android, with typed readings/errors, runtime motion permission handling, and explicit stream disposal.
