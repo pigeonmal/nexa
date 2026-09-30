@@ -33,11 +33,39 @@ pub(super) fn generate_units(module: &Module) -> GeneratedSources {
     generate_with_analysis(module, features)
 }
 
+pub(super) fn generate_units_with_project_features(
+    module: &Module,
+) -> (GeneratedSources, crate::SwiftProjectFeatures) {
+    let features = features::Features::analyze(module);
+    let project_features = project_features_from_analysis(&features);
+    (generate_with_analysis(module, features), project_features)
+}
+
+fn project_features_from_analysis(features: &features::Features) -> crate::SwiftProjectFeatures {
+    crate::SwiftProjectFeatures {
+        requires_user_defaults_reason: features.facts.capabilities.uses_storage_api,
+        // The feature-gated NexaNetwork helper contains its download operation,
+        // which inspects the downloaded file's size with FileManager.
+        requires_file_timestamp_reason: features.uses_network_api,
+    }
+}
+
 /// Generates release units with the generic codec runtime needed by native
 /// plugin contracts, including when the app only calls a non-generic method.
 pub(super) fn generate_units_with_plugin_value_runtime(module: &Module) -> GeneratedSources {
     let features = features::Features::analyze(module);
     generate_with_analysis_mode(module, features, false, true)
+}
+
+pub(super) fn generate_units_with_plugin_value_runtime_and_project_features(
+    module: &Module,
+) -> (GeneratedSources, crate::SwiftProjectFeatures) {
+    let features = features::Features::analyze(module);
+    let project_features = project_features_from_analysis(&features);
+    (
+        generate_with_analysis_mode(module, features, false, true),
+        project_features,
+    )
 }
 
 fn generate_with_analysis(module: &Module, features: features::Features) -> GeneratedSources {
@@ -245,6 +273,9 @@ fn generate_with_analysis_mode(
             api::secure_storage::render(out);
         });
     }
+    if features.facts.capabilities.uses_storage_api {
+        units.write("storage", api::storage::render);
+    }
     if features.facts.capabilities.uses_clipboard_api {
         units.write("clipboard", api::clipboard::render);
     }
@@ -270,6 +301,12 @@ pub(super) fn generate_for_dev(module: &Module) -> String {
 
 /// Generates the development host source as separate compile units.
 pub(super) fn generate_for_dev_units(module: &Module) -> GeneratedSources {
+    generate_for_dev_units_with_project_features(module).0
+}
+
+pub(super) fn generate_for_dev_units_with_project_features(
+    module: &Module,
+) -> (GeneratedSources, crate::SwiftProjectFeatures) {
     let mut features = features::Features::analyze(module);
     // Calls to Nexa's async native APIs can appear after the dev host has been
     // built. Keep the same URLSession adapter as release output in that host.
@@ -286,6 +323,7 @@ pub(super) fn generate_for_dev_units(module: &Module) -> GeneratedSources {
     // SecureStorage calls can be added after the dev host is built, so the
     // Keychain adapter must already be part of every development host.
     features.facts.capabilities.uses_secure_storage_api = true;
+    features.facts.capabilities.uses_storage_api = true;
     features.uses_permissions = true;
     features.uses_permission_request = true;
     features.dynamic_permission = true;
@@ -303,7 +341,11 @@ pub(super) fn generate_for_dev_units(module: &Module) -> GeneratedSources {
     .collect();
     features.expose_permissions_to_dev_runtime = true;
     features.uses_native_library = true;
-    generate_with_analysis_mode(module, features, true, false)
+    let project_features = project_features_from_analysis(&features);
+    (
+        generate_with_analysis_mode(module, features, true, false),
+        project_features,
+    )
 }
 
 fn module_has_native_object_state(module: &Module) -> bool {

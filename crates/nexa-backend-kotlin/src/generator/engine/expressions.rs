@@ -478,6 +478,20 @@ fn native_call(
             rendered.first().map(String::as_str).unwrap_or("\"\"")
         ),
         ("SecureStorage", "clear") => "NexaSecureStorage.clear(NexaRuntime.context())".to_owned(),
+        ("Storage", "getString") => format!(
+            "NexaStorage.getString(NexaRuntime.context(), {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Storage", "setString") => format!(
+            "NexaStorage.setString(NexaRuntime.context(), {}, {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"").to_owned(),
+            rendered.get(1).map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Storage", "delete") => format!(
+            "NexaStorage.delete(NexaRuntime.context(), {})",
+            rendered.first().map(String::as_str).unwrap_or("\"\"")
+        ),
+        ("Storage", "clear") => "NexaStorage.clear(NexaRuntime.context())".to_owned(),
         ("Clipboard", "setText") => format!(
             "NexaClipboard.setText(NexaRuntime.context(), {})",
             rendered.first().map(String::as_str).unwrap_or("\"\"")
@@ -667,6 +681,53 @@ mod tests {
         assert_eq!(
             expression(&call("hasText", Vec::new(), Type::Bool)),
             "NexaClipboard.hasText(NexaRuntime.context())"
+        );
+    }
+
+    #[test]
+    fn app_storage_calls_use_direct_native_helpers() {
+        let call =
+            |name: &str, arguments: Vec<(String, Expr)>, return_type: Type| Expr::NativeCall {
+                receiver: None,
+                namespace: "Storage".to_owned(),
+                name: name.to_owned(),
+                arguments,
+                codecs: Vec::new(),
+                return_type,
+                is_async: false,
+                is_throwing: false,
+            };
+
+        assert_eq!(
+            expression(&call(
+                "getString",
+                vec![("key".to_owned(), Expr::String("theme".to_owned()))],
+                Type::Optional(Box::new(Type::String)),
+            )),
+            "NexaStorage.getString(NexaRuntime.context(), \"theme\")"
+        );
+        assert_eq!(
+            expression(&call(
+                "setString",
+                vec![
+                    ("key".to_owned(), Expr::String("theme".to_owned())),
+                    ("value".to_owned(), Expr::String("dark".to_owned())),
+                ],
+                Type::Void,
+            )),
+            "NexaStorage.setString(NexaRuntime.context(), \"theme\", \"dark\")"
+        );
+        assert_eq!(
+            expression(&call(
+                "delete",
+                vec![("key".to_owned(), Expr::String("theme".to_owned()))],
+                Type::Void,
+            )),
+            "NexaStorage.delete(NexaRuntime.context(), \"theme\")"
+        );
+        assert_eq!(
+            expression(&call("clear", Vec::new(), Type::Void)),
+            "NexaStorage.clear(NexaRuntime.context())"
         );
     }
 

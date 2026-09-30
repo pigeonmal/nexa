@@ -106,6 +106,26 @@ extension NexaDevStateStore {
                 )
             }
         }
+        if namespace == "Storage" {
+            switch name {
+            case "getString": return (NexaStorage.getString(options["key"] as? String ?? "") as Any?) ?? NSNull()
+            case "setString":
+                NexaStorage.setString(options["key"] as? String ?? "", options["value"] as? String ?? "")
+                return NSNull()
+            case "delete":
+                NexaStorage.delete(options["key"] as? String ?? "")
+                return NSNull()
+            case "clear":
+                NexaStorage.clear()
+                return NSNull()
+            default:
+                throw NSError(
+                    domain: "NexaDevRuntime",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Unsupported storage call \\(name)"]
+                )
+            }
+        }
         if namespace == "Haptics" {
             nexaDevPerformHaptics(name, options: options)
             return NSNull()
@@ -345,6 +365,21 @@ extension NexaDevStateStore {
                 return NSNull()
             case "getText": return (UIPasteboard.general.string as Any?) ?? NSNull()
             case "hasText": return UIPasteboard.general.hasStrings
+            default: return NSNull()
+            }
+        }
+        if namespace == "Storage" {
+            switch name {
+            case "getString": return (NexaStorage.getString(options["key"] as? String ?? "") as Any?) ?? NSNull()
+            case "setString":
+                NexaStorage.setString(options["key"] as? String ?? "", options["value"] as? String ?? "")
+                return NSNull()
+            case "delete":
+                NexaStorage.delete(options["key"] as? String ?? "")
+                return NSNull()
+            case "clear":
+                NexaStorage.clear()
+                return NSNull()
             default: return NSNull()
             }
         }

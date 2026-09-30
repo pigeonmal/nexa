@@ -39,6 +39,7 @@ pub(crate) fn render(features: &Features) -> String {
     crate::generator::api::clipboard::imports(features, &mut imports);
     crate::generator::api::permissions::imports(features, &mut imports);
     crate::generator::api::secure_storage::imports(features, &mut imports);
+    crate::generator::api::storage::imports(features, &mut imports);
     crate::generator::api::time::imports(features, &mut imports);
     imports.add(
         features.facts.capabilities.uses_keyboard_api
@@ -69,6 +70,17 @@ mod tests {
         assert_eq!(imports.matches("import UIKit\n").count(), 1);
         assert!(imports.contains("import SwiftUI\n"));
         assert!(!render(&Features::default()).contains("import UIKit\n"));
+    }
+
+    #[test]
+    fn storage_imports_foundation_only_when_the_api_is_reachable() {
+        let mut features = Features::default();
+        features.facts.capabilities.uses_storage_api = true;
+        let imports = render(&features);
+
+        assert!(imports.contains("import Foundation\n"));
+        assert!(!imports.contains("import UIKit\n"));
+        assert!(!render(&Features::default()).contains("import Foundation\n"));
     }
 
     #[test]

@@ -88,6 +88,7 @@ pub(super) fn generate_for_dev_units_with_project_features(
     // SecureStorage calls can be added after the dev host is built, so the
     // Android Keystore adapter must already be part of every development host.
     features.facts.capabilities.uses_secure_storage_api = true;
+    features.facts.capabilities.uses_storage_api = true;
     features.uses_permissions = true;
     features.uses_permission_request = true;
     features.dynamic_permission = true;
@@ -298,6 +299,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                 || features.facts.capabilities.uses_keyboard_api
                 || features.facts.capabilities.uses_clipboard_api
                 || features.facts.capabilities.uses_haptics_api
+                || features.facts.capabilities.uses_storage_api
                 || !module.plugins.is_empty()
             {
                 out.push_str("    NexaRuntime.bind(LocalContext.current)\n");
@@ -387,6 +389,7 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
         || features.facts.capabilities.uses_keyboard_api
         || features.facts.capabilities.uses_haptics_api
         || features.facts.capabilities.uses_secure_storage_api
+        || features.facts.capabilities.uses_storage_api
         || features.facts.capabilities.uses_clipboard_api
         || !module.plugins.is_empty()
     {
@@ -410,6 +413,9 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
         units.write("secure-storage", |out| {
             api::secure_storage::render(out);
         });
+    }
+    if features.facts.capabilities.uses_storage_api {
+        units.write("storage", api::storage::render);
     }
     if features.facts.capabilities.uses_clipboard_api {
         units.write("clipboard", api::clipboard::render);

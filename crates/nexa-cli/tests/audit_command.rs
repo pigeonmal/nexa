@@ -57,6 +57,25 @@ fn check_audit_flag_prints_the_capability_report() {
 }
 
 #[test]
+fn audit_command_reports_reachable_storage_capability() {
+    let project = TestProject::new("nexa-audit-storage");
+    project.write_app(
+        "app Demo { state theme: String = Storage.getString(key: \"theme\") ?? \"system\" body { Text(theme) } }\n",
+    );
+
+    let output = nexa_command()
+        .args(["audit", "App.nx", "--target", "ios", "--out", "audit.json"])
+        .current_dir(project.path())
+        .output()
+        .expect("run storage capability audit");
+    assert_output_success(&output);
+
+    let report: serde_json::Value =
+        serde_json::from_str(&project.read("audit.json")).expect("parse audit report");
+    assert_eq!(report["targets"][0]["capabilities"]["storage"], true);
+}
+
+#[test]
 fn audit_help_is_available_from_the_root_command() {
     let output = nexa_command()
         .args(["audit", "--help"])

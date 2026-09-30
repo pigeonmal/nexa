@@ -125,6 +125,32 @@ pub(super) fn ios_info_plist_with_dev_runtime(
     ))
 }
 
+pub(super) fn ios_privacy_manifest(
+    features: nexa_backend_swift::SwiftProjectFeatures,
+) -> Option<String> {
+    let mut api_types = Vec::new();
+    if features.requires_file_timestamp_reason {
+        api_types.push(("NSPrivacyAccessedAPICategoryFileTimestamp", "C617.1"));
+    }
+    if features.requires_user_defaults_reason {
+        api_types.push(("NSPrivacyAccessedAPICategoryUserDefaults", "CA92.1"));
+    }
+    if api_types.is_empty() {
+        return None;
+    }
+    let accessed_apis = api_types
+        .into_iter()
+        .map(|(api_type, reason)| {
+            format!(
+                "<dict><key>NSPrivacyAccessedAPIType</key><string>{api_type}</string><key>NSPrivacyAccessedAPITypeReasons</key><array><string>{reason}</string></array></dict>"
+            )
+        })
+        .collect::<String>();
+    Some(format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>NSPrivacyAccessedAPITypes</key><array>{accessed_apis}</array></dict></plist>\n"
+    ))
+}
+
 pub(super) fn ios_launch_storyboard() -> String {
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?><document type=\"com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB\" version=\"3.0\" toolsVersion=\"23094\" targetRuntime=\"iOS.CocoaTouch\" useAutolayout=\"YES\" launchScreen=\"YES\" useTraitCollections=\"YES\"><scenes><scene sceneID=\"launch-scene\"><objects><viewController id=\"launch-controller\" sceneMemberID=\"viewController\"><view key=\"view\" contentMode=\"scaleToFill\" id=\"launch-view\"><rect key=\"frame\" x=\"0.0\" y=\"0.0\" width=\"393\" height=\"852\"/><subviews><imageView contentMode=\"scaleAspectFit\" image=\"NexaSplash\" translatesAutoresizingMaskIntoConstraints=\"NO\" id=\"launch-image\"><rect key=\"frame\" x=\"136\" y=\"366\" width=\"120\" height=\"120\"/></imageView></subviews><constraints><constraint firstItem=\"launch-image\" firstAttribute=\"centerX\" secondItem=\"launch-view\" secondAttribute=\"centerX\" id=\"center-x\"/><constraint firstItem=\"launch-image\" firstAttribute=\"centerY\" secondItem=\"launch-view\" secondAttribute=\"centerY\" id=\"center-y\"/><constraint firstItem=\"launch-image\" firstAttribute=\"width\" constant=\"120\" id=\"image-width\"/><constraint firstItem=\"launch-image\" firstAttribute=\"height\" constant=\"120\" id=\"image-height\"/></constraints><color key=\"backgroundColor\" systemColor=\"systemBackgroundColor\"/><viewLayoutGuide key=\"safeArea\" id=\"safe-area\"/></view></viewController><placeholder placeholderIdentifier=\"IBFirstResponder\" id=\"first-responder\" sceneMemberID=\"firstResponder\"/></objects></scene></scenes><resources><image name=\"NexaSplash\"/></resources></document>\n".to_owned()
 }
@@ -346,6 +372,7 @@ pub(super) fn ios_project_file_with_config(
     app_name: &str,
     has_assets: bool,
     has_plugin_resources: bool,
+    has_privacy_manifest: bool,
     generated_sources: &[String],
     plugin_sources: &[String],
     cpp_sources: &[String],
@@ -436,6 +463,16 @@ pub(super) fn ios_project_file_with_config(
     let asset_build_id = alloc.id("build:assets")?;
     let resources_reference_id = alloc.id("file:plugin-resources")?;
     let resources_build_id = alloc.id("build:plugin-resources")?;
+    let privacy_reference_id = if has_privacy_manifest {
+        Some(alloc.id("file:privacy-manifest")?)
+    } else {
+        None
+    };
+    let privacy_build_id = if has_privacy_manifest {
+        Some(alloc.id("build:privacy-manifest")?)
+    } else {
+        None
+    };
     let icon_reference_id = alloc.id("file:icon")?;
     let icon_build_id = alloc.id("build:icon")?;
     let splash_reference_id = alloc.id("file:splash")?;
@@ -469,6 +506,9 @@ pub(super) fn ios_project_file_with_config(
     if has_plugin_resources {
         app_children.push(resources_reference_id.clone());
     }
+    if let Some(privacy_reference_id) = &privacy_reference_id {
+        app_children.push(privacy_reference_id.clone());
+    }
     let mut main_children = vec![app_group_id.clone(), products_group_id.clone()];
     main_children.extend(framework_reference_ids.clone());
 
@@ -496,6 +536,9 @@ pub(super) fn ios_project_file_with_config(
     }
     if has_plugin_resources {
         resource_files.push(resources_build_id.clone());
+    }
+    if let Some(privacy_build_id) = &privacy_build_id {
+        resource_files.push(privacy_build_id.clone());
     }
 
     // Target build phases.
@@ -747,6 +790,23 @@ pub(super) fn ios_project_file_with_config(
         pbx.insert(
             resources_build_id,
             build_file_object(&resources_reference_id),
+        )?;
+    }
+    if let (Some(privacy_reference_id), Some(privacy_build_id)) =
+        (&privacy_reference_id, &privacy_build_id)
+    {
+        pbx.insert(
+            privacy_reference_id.clone(),
+            file_reference_object(
+                "text.plist.xml",
+                "PrivacyInfo.xcprivacy",
+                "\"<group>\"",
+                None,
+            ),
+        )?;
+        pbx.insert(
+            privacy_build_id.clone(),
+            build_file_object(privacy_reference_id),
         )?;
     }
     if has_icon_composer {

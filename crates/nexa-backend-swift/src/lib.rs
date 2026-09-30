@@ -2,6 +2,13 @@ mod generator;
 
 pub use nexa_codegen::{GeneratedSources, SourceUnit};
 
+/// Native metadata consumed by iOS host project generation.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SwiftProjectFeatures {
+    pub requires_user_defaults_reason: bool,
+    pub requires_file_timestamp_reason: bool,
+}
+
 pub struct SwiftBackend;
 
 impl SwiftBackend {
@@ -19,9 +26,25 @@ impl SwiftBackend {
         generator::generate_for_dev_units(module)
     }
 
+    /// Generate development units and metadata for APIs preloaded in the host.
+    pub fn generate_for_dev_units_with_project_features(
+        &self,
+        module: &nexa_ir::Module,
+    ) -> (GeneratedSources, SwiftProjectFeatures) {
+        generator::generate_for_dev_units_with_project_features(module)
+    }
+
     /// Generate the release host as one source unit per compile file.
     pub fn generate_units(&self, module: &nexa_ir::Module) -> GeneratedSources {
         generator::generate_units(module)
+    }
+
+    /// Generate release units together with metadata required by the iOS host.
+    pub fn generate_units_with_project_features(
+        &self,
+        module: &nexa_ir::Module,
+    ) -> (GeneratedSources, SwiftProjectFeatures) {
+        generator::generate_units_with_project_features(module)
     }
 
     /// Generate release units with the value codec runtime required by a
@@ -31,6 +54,14 @@ impl SwiftBackend {
         module: &nexa_ir::Module,
     ) -> GeneratedSources {
         generator::generate_units_with_plugin_value_runtime(module)
+    }
+
+    /// Generate plugin-value runtime units together with iOS host metadata.
+    pub fn generate_units_with_plugin_value_runtime_and_project_features(
+        &self,
+        module: &nexa_ir::Module,
+    ) -> (GeneratedSources, SwiftProjectFeatures) {
+        generator::generate_units_with_plugin_value_runtime_and_project_features(module)
     }
 }
 

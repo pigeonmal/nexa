@@ -371,8 +371,14 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
     }
 
     let entry = input.canonicalize().unwrap_or(input.clone());
+    let has_ios_privacy_manifest = generated_targets.contains(&"ios")
+        && output
+            .join("ios")
+            .join(&app_name)
+            .join("PrivacyInfo.xcprivacy")
+            .is_file();
     let manifest = format!(
-        "{{\n  \"format\": 1,\n  \"entry\": \"{}\",\n  \"name\": \"{}\",\n  \"targets\": [{}],\n  \"sourceManifest\": \"nexa.sources.json\",\n  \"cacheKey\": \"{}\"\n}}\n",
+        "{{\n  \"format\": 1,\n  \"entry\": \"{}\",\n  \"name\": \"{}\",\n  \"targets\": [{}],\n  \"sourceManifest\": \"nexa.sources.json\",\n  \"iosPrivacyManifest\": {},\n  \"cacheKey\": \"{}\"\n}}\n",
         json_escape(&entry.display().to_string()),
         json_escape(&app_name),
         generated_targets
@@ -380,6 +386,7 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
             .map(|target| format!("\"{target}\""))
             .collect::<Vec<_>>()
             .join(", "),
+        has_ios_privacy_manifest,
         cache_key,
     );
     write_if_changed(&output.join("nexa.project.json"), &manifest)?;
@@ -511,7 +518,12 @@ fn collect_source_units(
         } else if path
             .extension()
             .and_then(|value| value.to_str())
-            .is_some_and(|extension| matches!(extension, "swift" | "kt" | "xml" | "plist" | "json"))
+            .is_some_and(|extension| {
+                matches!(
+                    extension,
+                    "swift" | "kt" | "xml" | "plist" | "json" | "xcprivacy"
+                )
+            })
             || path
                 .components()
                 .any(|component| component.as_os_str() == "Assets.xcassets")
@@ -673,6 +685,7 @@ fn generated_unit_names(plan: &ProjectPlan, dev_runtime: bool) -> Vec<String> {
 /// Facts gathered by the filesystem work, which the Xcode project references.
 struct PreparedIos {
     source_units: Vec<nexa_codegen::SourceUnit>,
+    privacy_manifest: Option<String>,
     /// Whether the app bundle carries images, icons, or a splash screen.
     has_assets: bool,
     /// Swift files staged from plugin packages, relative to the app directory.
@@ -701,7 +714,8 @@ fn prepare_ios(
 ) -> Result<PreparedIos, String> {
     let directory = root.join("ios").join(app_name);
     fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
-    let source_units = ios_source_units(module, plugins, config, dev_runtime)?;
+    let (source_units, project_features) = ios_source_units(module, plugins, config, dev_runtime)?;
+    let privacy_manifest = templates::ios_privacy_manifest(project_features);
     copy_config_icons(root, app_name, config)?;
     let ios_icon = config.ios_icon.as_ref().or(config.icon_source.as_ref());
     let has_project_images = assets::copy_ios_project_images(source_root, root, app_name)?;
@@ -721,6 +735,7 @@ fn prepare_ios(
     let resources = plugins::stage_ios_plugin_resources(root, app_name, plugins)?;
     Ok(PreparedIos {
         source_units,
+        privacy_manifest,
         has_assets,
         plugin_sources,
         cpp_sources,
@@ -765,6 +780,17 @@ fn ios_plan(
     let mut plan = ProjectPlan::ios(app_name)
         .with_source_directory(directory.clone())
         .with_source_units(prepared.source_units.clone());
+    match &prepared.privacy_manifest {
+        Some(contents) => {
+            plan = plan.with_file(
+                format!("{directory}/PrivacyInfo.xcprivacy"),
+                contents.clone(),
+            );
+        }
+        None => {
+            plan = plan.with_removal(format!("{directory}/PrivacyInfo.xcprivacy"));
+        }
+    }
     for copy in &prepared.artifacts {
         plan = plan.with_copy(copy.clone());
     }
@@ -837,6 +863,7 @@ fn ios_plan(
                 app_name,
                 prepared.has_assets,
                 prepared.resources.present,
+                prepared.privacy_manifest.is_some(),
                 &generated_names,
                 &prepared.plugin_sources,
                 &prepared.cpp_sources,
@@ -1261,14 +1288,20 @@ fn ios_source_units(
     plugins: &[plugin_package::PluginPackage],
     config: &ProjectConfig,
     dev_runtime: bool,
-) -> Result<Vec<nexa_codegen::SourceUnit>, String> {
+) -> Result<
+    (
+        Vec<nexa_codegen::SourceUnit>,
+        nexa_backend_swift::SwiftProjectFeatures,
+    ),
+    String,
+> {
     let plugin_value_runtime = !dev_runtime && plugin_packages_require_value_runtime(plugins)?;
-    let mut sources = if dev_runtime {
-        SwiftBackend.generate_for_dev_units(module)
+    let (mut sources, project_features) = if dev_runtime {
+        SwiftBackend.generate_for_dev_units_with_project_features(module)
     } else if plugin_value_runtime {
-        SwiftBackend.generate_units_with_plugin_value_runtime(module)
+        SwiftBackend.generate_units_with_plugin_value_runtime_and_project_features(module)
     } else {
-        SwiftBackend.generate_units(module)
+        SwiftBackend.generate_units_with_project_features(module)
     };
     if dev_runtime {
         let contracts = dev_plugin_contracts(plugins)?;
@@ -1278,11 +1311,14 @@ fn ios_source_units(
         });
     }
     if module.plugins.is_empty() && (!dev_runtime || plugins.is_empty()) {
-        return Ok(sources.into_files(&[], ""));
+        return Ok((sources.into_files(&[], ""), project_features));
     }
     let plugin_config = plugins::render_swift_plugin_config(plugins, config);
     // Plugin bindings add an import every generated file must see.
-    Ok(sources.into_files(&["import Foundation"], &plugin_config))
+    Ok((
+        sources.into_files(&["import Foundation"], &plugin_config),
+        project_features,
+    ))
 }
 
 fn dev_plugin_contracts(
@@ -1400,6 +1436,15 @@ fn project_cache_is_current(
             if !path.is_file() {
                 return false;
             }
+        }
+        if manifest.contains("\"iosPrivacyManifest\": true")
+            && !output
+                .join("ios")
+                .join(app_name)
+                .join("PrivacyInfo.xcprivacy")
+                .is_file()
+        {
+            return false;
         }
     }
     if needs_android {

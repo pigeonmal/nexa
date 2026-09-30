@@ -43,6 +43,7 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     imports.add(
         context.uses_plugins
             || context.features.facts.capabilities.uses_clipboard_api
+            || context.features.facts.capabilities.uses_storage_api
             || context.features.facts.capabilities.uses_haptics_api,
         "androidx.compose.ui.platform.LocalContext",
     );
@@ -70,6 +71,7 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     crate::generator::api::json::imports(context.features, &mut imports);
     crate::generator::api::clipboard::imports(context.features, &mut imports);
     crate::generator::api::permissions::imports(context.features, &mut imports);
+    crate::generator::api::storage::imports(context.features, &mut imports);
     crate::generator::engine::state::imports(context.features, &mut imports);
     crate::generator::engine::expressions::imports(context.features, &mut imports);
 
@@ -125,6 +127,17 @@ mod tests {
         assert!(imports.contains("import android.content.ClipboardManager\n"));
         assert!(imports.contains("import androidx.compose.ui.platform.LocalContext\n"));
         assert!(!render_features(&Features::default()).contains("ClipboardManager"));
+    }
+
+    #[test]
+    fn storage_imports_context_only_when_the_api_is_reachable() {
+        let mut features = Features::default();
+        features.facts.capabilities.uses_storage_api = true;
+        let imports = render_features(&features);
+
+        assert!(imports.contains("import android.content.Context\n"));
+        assert!(imports.contains("import androidx.compose.ui.platform.LocalContext\n"));
+        assert!(!render_features(&Features::default()).contains("LocalContext"));
     }
 
     #[test]

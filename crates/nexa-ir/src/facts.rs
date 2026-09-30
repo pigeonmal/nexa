@@ -919,7 +919,10 @@ fn observe_expr(
     // `NativeCall` spelling; match both so lowering shapes cannot hide
     // platform API usage from capability analysis.
     match expression {
-        Expr::NetworkFetch(_) | Expr::NetworkDownload { .. } => {
+        Expr::NetworkFetch(_) => {
+            capabilities.uses_network_api = true;
+        }
+        Expr::NetworkDownload { .. } => {
             capabilities.uses_network_api = true;
         }
         Expr::FileReadText { .. } | Expr::FileWriteText { .. } | Expr::FileDelete { .. } => {
@@ -943,7 +946,9 @@ fn observe_expr(
     } = expression
     {
         match namespace.as_str() {
-            "Network" => capabilities.uses_network_api = true,
+            "Network" => {
+                capabilities.uses_network_api = true;
+            }
             "Path" => capabilities.uses_path_api = true,
             "File" => {
                 capabilities.uses_file_api = true;
@@ -954,6 +959,7 @@ fn observe_expr(
             "Json" => capabilities.uses_json_api = true,
             "Crypto" => capabilities.uses_crypto_api = true,
             "SecureStorage" => capabilities.uses_secure_storage_api = true,
+            "Storage" => capabilities.uses_storage_api = true,
             "Clipboard" => capabilities.uses_clipboard_api = true,
             "Haptics" => capabilities.uses_haptics_api = true,
             _ => {}

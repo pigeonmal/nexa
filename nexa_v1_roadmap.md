@@ -231,6 +231,7 @@ I want be able to do tasks in Task or couroutines or custom thread
 
 - **`Number.formatCurrency(amount: Float64, currencyCode: String) -> String`**: Locale-aware currency formatting.
 - **`Json.parse<T>(raw: String) -> Result<T, JsonError>`** and **`Json.stringify(value: T) -> String`**: Zero-reflection parsing.
+- [x] **`Storage`**: App-private string preferences with `getString`, `setString`, `delete`, and `clear` on both native platforms and DevRuntime.
 - [x] **`Clipboard`**: `setText`, `getText`, and `hasText` on both native platforms and DevRuntime.
 - [x] **`Haptics`**: `.impact(Light|Medium|Heavy)`, `.notification(Success|Error)`, `.selection()` on both native backends and DevRuntime.
 - **`BackgroundTask`**: Periodic background execution (iOS `BGTaskScheduler`, Android `WorkManager`).
@@ -242,7 +243,7 @@ I want be able to do tasks in Task or couroutines or custom thread
 
 #### 4.7 Automated Apple Privacy Manifest
 
-- Automated emission of `PrivacyInfo.xcprivacy` based on reachable API usage (UserDefaults/Storage, Keychain, file timestamps), ensuring hassle-free App Store submission.
+- [x] Emit `PrivacyInfo.xcprivacy` for reachable required-reason APIs: app-private `UserDefaults` (`CA92.1`) and app-container file metadata (`C617.1`). SecureStorage's Keychain calls do not map to a required-reason API category and therefore do not add a fabricated reason entry.
 
 ---
 

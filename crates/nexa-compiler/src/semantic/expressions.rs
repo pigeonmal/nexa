@@ -2047,6 +2047,18 @@ fn lower_native_call(
         ),
         "SecureStorage.delete" => (Type::Void, true, vec![("key", Type::String, None)]),
         "SecureStorage.clear" => (Type::Void, true, Vec::new()),
+        "Storage.getString" => (
+            Type::Optional(Box::new(Type::String)),
+            false,
+            vec![("key", Type::String, None)],
+        ),
+        "Storage.setString" => (
+            Type::Void,
+            false,
+            vec![("key", Type::String, None), ("value", Type::String, None)],
+        ),
+        "Storage.delete" => (Type::Void, false, vec![("key", Type::String, None)]),
+        "Storage.clear" => (Type::Void, false, Vec::new()),
         "Clipboard.setText" => (Type::Void, false, vec![("text", Type::String, None)]),
         "Clipboard.getText" => (Type::Optional(Box::new(Type::String)), false, Vec::new()),
         "Clipboard.hasText" => (Type::Bool, false, Vec::new()),
@@ -2338,6 +2350,35 @@ fn native_plan(
                 is_throwing: true,
             })
         }
+        "Storage.getString" | "Storage.setString" | "Storage.delete" | "Storage.clear" => {
+            let arguments = match qualified_name {
+                "Storage.getString" | "Storage.delete" => {
+                    vec![("key".to_owned(), take("key")?)]
+                }
+                "Storage.setString" => vec![
+                    ("key".to_owned(), take("key")?),
+                    ("value".to_owned(), take("value")?),
+                ],
+                _ => Vec::new(),
+            };
+            let (namespace, name) = qualified_name
+                .split_once('.')
+                .ok_or_else(|| CompileError::new(span, "invalid storage API"))?;
+            Ok(Expr::NativeCall {
+                receiver: None,
+                namespace: namespace.to_owned(),
+                name: name.to_owned(),
+                arguments,
+                codecs: Vec::new(),
+                return_type: if name == "getString" {
+                    Type::Optional(Box::new(Type::String))
+                } else {
+                    Type::Void
+                },
+                is_async: false,
+                is_throwing: false,
+            })
+        }
         "Clipboard.setText" | "Clipboard.getText" | "Clipboard.hasText" => {
             let Some((namespace, name)) = qualified_name.split_once('.') else {
                 return Err(CompileError::new(span, "invalid clipboard API"));
@@ -2420,6 +2461,7 @@ fn is_core_native_namespace(namespace: &str) -> bool {
             | "Json"
             | "Crypto"
             | "SecureStorage"
+            | "Storage"
             | "Clipboard"
             | "Haptics"
     )
@@ -3233,6 +3275,8 @@ pub(super) fn infer_expr_type(
             ("Clipboard", "getText") => Some(Type::Optional(Box::new(Type::String))),
             ("Clipboard", "hasText") => Some(Type::Bool),
             ("Clipboard", "setText") => Some(Type::Void),
+            ("Storage", "getString") => Some(Type::Optional(Box::new(Type::String))),
+            ("Storage", "setString" | "delete" | "clear") => Some(Type::Void),
             ("Haptics", "impact" | "notification" | "selection") => Some(Type::Void),
             ("Time", "now") | ("Time", "monotonic") => Some(Type::Numeric(NumericType::Int64)),
             ("Time", "sleep") => Some(Type::Void),

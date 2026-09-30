@@ -1124,6 +1124,47 @@ fn native_haptics_calls_are_ready_for_hot_reload_on_both_platforms() {
 }
 
 #[test]
+fn native_storage_calls_are_ready_for_hot_reload_on_both_platforms() {
+    let root = temporary_project();
+    let entry = root.join("App.nx");
+    fs::write(
+        &entry,
+        "app StorageHotReload { body { Text(\"ready\") } }\n",
+    )
+    .expect("write app without storage calls");
+    let output = root.join("build");
+
+    nexa_cli::generate_dev_project(
+        &entry,
+        "all",
+        &output,
+        "RuntimeSmoke",
+        "ws://127.0.0.1:43210",
+        "0123456789abcdef0123456789abcdef",
+    )
+    .expect("generate Dev hosts before Storage is used by app source");
+
+    let ios = read_ios_dev_runtime(&output);
+    assert!(ios.contains("if namespace == \"Storage\" {"));
+    assert!(ios.contains("case \"getString\":"));
+    assert!(ios.contains("NexaStorage.setString("));
+    let ios_storage =
+        fs::read_to_string(output.join("ios/RuntimeSmoke/NexaGenerated_storage.swift"))
+            .expect("iOS Dev host should preload the storage helper");
+    assert!(ios_storage.contains("enum NexaStorage"));
+
+    let android = read_android_dev_runtime(&output);
+    assert!(android.contains("if (namespace == \"Storage\") {"));
+    assert!(android.contains("\"getString\" ->"));
+    assert!(android.contains("NexaStorage.setString("));
+    let android_storage = fs::read_to_string(
+        output.join("android/app/src/main/java/dev/nexa/runtimesmoke/NexaGenerated_storage.kt"),
+    )
+    .expect("Android Dev host should preload the storage helper");
+    assert!(android_storage.contains("internal object NexaStorage"));
+}
+
+#[test]
 fn development_module_preserves_app_lifecycle_callbacks_for_the_native_runtime() {
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dev_lifecycle.nx");

@@ -441,6 +441,69 @@ fn clipboard_calls_lower_to_typed_core_calls() {
 }
 
 #[test]
+fn app_storage_calls_lower_to_typed_synchronous_core_calls() {
+    let module = compile(
+        r#"
+        app StorageExample {
+            state saved: String = Storage.getString(key: "theme") ?? "system"
+
+            body {
+                Text(saved)
+                Button("Save") { Storage.setString(key: "theme", value: saved) }
+                Button("Delete") { Storage.delete(key: "theme") }
+                Button("Clear") { Storage.clear() }
+            }
+        }
+        "#,
+    )
+    .expect("typed app-private storage calls should compile");
+
+    assert!(matches!(
+        &module.states[0].initial,
+        Expr::Coalesce(left, _)
+            if matches!(left.as_ref(), Expr::NativeCall {
+                namespace,
+                name,
+                arguments,
+                return_type: Type::Optional(inner),
+                is_async: false,
+                is_throwing: false,
+                ..
+            } if namespace == "Storage"
+                && name == "getString"
+                && **inner == Type::String
+                && matches!(arguments.as_slice(), [(key, Expr::String(value))]
+                    if key == "key" && value == "theme"))
+    ));
+
+    for (index, name, expected_arguments) in [
+        (1, "setString", &["key", "value"][..]),
+        (2, "delete", &["key"][..]),
+        (3, "clear", &[][..]),
+    ] {
+        let Node::Button { actions, .. } = &module.body[index] else {
+            panic!("expected a storage action button");
+        };
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::Expression(Expr::NativeCall {
+                namespace,
+                name: actual_name,
+                arguments,
+                return_type: Type::Void,
+                is_async: false,
+                is_throwing: false,
+                ..
+            })]
+                if namespace == "Storage"
+                    && actual_name == name
+                    && arguments.iter().map(|(argument, _)| argument.as_str()).collect::<Vec<_>>() == expected_arguments
+        ));
+    }
+    assert!(nexa_ir::capabilities::analyze(&module).uses_storage_api);
+}
+
+#[test]
 fn haptics_calls_lower_to_validated_typed_core_calls() {
     let module = compile(
         r#"

@@ -94,6 +94,28 @@ internal suspend fun NexaDevStateStore.invokeNativeAsync(
             else -> error("Unsupported clipboard call $name")
         }
     }
+    if (namespace == "Storage") {
+        return when (name) {
+            "getString" -> NexaStorage.getString(context, options["key"] as? String ?: "") ?: JSONObject.NULL
+            "setString" -> {
+                NexaStorage.setString(
+                    context,
+                    options["key"] as? String ?: "",
+                    options["value"] as? String ?: "",
+                )
+                JSONObject.NULL
+            }
+            "delete" -> {
+                NexaStorage.delete(context, options["key"] as? String ?: "")
+                JSONObject.NULL
+            }
+            "clear" -> {
+                NexaStorage.clear(context)
+                JSONObject.NULL
+            }
+            else -> error("Unsupported storage call $name")
+        }
+    }
     fun stringOption(key: String, fallback: String = ""): String =
         options[key] as? String ?: (options[key] as? CharSequence)?.toString() ?: fallback
     fun numberOption(key: String, fallback: Double): Double =
@@ -284,6 +306,28 @@ internal fun NexaDevStateStore.invokeNativeSync(call: JSONObject, locals: Map<St
                     description?.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_HTML) == true
             }
             else -> error("Unsupported clipboard call $name")
+        }
+    }
+    if (namespace == "Storage") {
+        return when (name) {
+            "getString" -> NexaStorage.getString(context, options["key"] as? String ?: "") ?: JSONObject.NULL
+            "setString" -> {
+                NexaStorage.setString(
+                    context,
+                    options["key"] as? String ?: "",
+                    options["value"] as? String ?: "",
+                )
+                JSONObject.NULL
+            }
+            "delete" -> {
+                NexaStorage.delete(context, options["key"] as? String ?: "")
+                JSONObject.NULL
+            }
+            "clear" -> {
+                NexaStorage.clear(context)
+                JSONObject.NULL
+            }
+            else -> error("Unsupported storage call $name")
         }
     }
     fun stringOption(key: String): String =

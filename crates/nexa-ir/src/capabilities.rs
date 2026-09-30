@@ -21,6 +21,7 @@ pub struct Capabilities {
     pub uses_keyboard_api: bool,
     pub uses_crypto_api: bool,
     pub uses_secure_storage_api: bool,
+    pub uses_storage_api: bool,
     pub uses_clipboard_api: bool,
     pub uses_haptics_api: bool,
 }

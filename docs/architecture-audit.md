@@ -5,6 +5,7 @@ previous compiler output.
 
 ## Cache schema
 
+- `build-v122`: adds typed app-private string storage to both native backends and DevRuntime, and emits iOS required-reason privacy metadata for generated UserDefaults and file-metadata APIs.
 - `build-v121`: adds statically generated JSON codecs to AOT apps and typed JSON dispatch/codecs to both DevRuntime hosts.
 - `build-v120`: decodes nullable generic Android plugin collection inputs before dispatch.
 - `build-v119`: makes Android launcher orientation follow the user's current orientation policy at startup.

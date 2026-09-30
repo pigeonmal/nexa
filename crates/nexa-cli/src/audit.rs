@@ -197,13 +197,14 @@ fn target_report(
     dependencies: &[String],
 ) -> String {
     let mut output = format!(
-        "    {{\n      \"target\": \"{target}\",\n      \"app\": \"{}\",\n      \"generatedSourceBytes\": {generated_bytes},\n      \"capabilities\": {{\n        \"remoteImage\": {},\n        \"network\": {},\n        \"path\": {},\n        \"file\": {},\n        \"fileAsync\": {},\n        \"secureStorage\": {}\n      }},\n      \"dependencies\": [",
+        "    {{\n      \"target\": \"{target}\",\n      \"app\": \"{}\",\n      \"generatedSourceBytes\": {generated_bytes},\n      \"capabilities\": {{\n        \"remoteImage\": {},\n        \"network\": {},\n        \"path\": {},\n        \"file\": {},\n        \"fileAsync\": {},\n        \"storage\": {},\n        \"secureStorage\": {}\n      }},\n      \"dependencies\": [",
         json_escape(&module.app_name),
         capabilities.uses_remote_image,
         capabilities.uses_network_api,
         capabilities.uses_path_api,
         capabilities.uses_file_api,
         capabilities.uses_file_async,
+        capabilities.uses_storage_api,
         capabilities.uses_secure_storage_api,
     );
     for (index, dependency) in dependencies.iter().enumerate() {

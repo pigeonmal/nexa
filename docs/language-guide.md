@@ -352,6 +352,25 @@ The implementation uses CryptoKit and Security on iOS, and `MessageDigest`, `Mac
 
 `Clipboard.setText(text: String)` writes plain text to the system clipboard. `Clipboard.getText()` returns the current plain text as `String?`, and `Clipboard.hasText()` reports whether the clipboard contains text. The API uses `UIPasteboard` on iOS and the Android clipboard service; iOS may show its system paste permission prompt when an app reads clipboard content. Clipboard calls added to `.nx` code are available through DevRuntime hot reload.
 
+## Storage
+
+Use `Storage` for small, app-private string preferences. `getString(key:)` returns `String?`, `setString(key:value:)` stores a string, `delete(key:)` removes one entry, and `clear()` removes entries written through this API:
+
+```nexa
+app Preferences {
+    state theme: String = Storage.getString(key: "theme") ?? "system"
+
+    body {
+        Button("Dark theme") {
+            theme = "dark"
+            Storage.setString(key: "theme", value: theme)
+        }
+    }
+}
+```
+
+The iOS implementation uses the app's `UserDefaults` domain and the Android implementation uses a dedicated private `SharedPreferences` file. Calls are synchronous and available through DevRuntime hot reload. Use `SecureStorage` for credentials and other secrets; ordinary `Storage` is not encrypted.
+
 ## Haptics
 
 Use `Haptics.impact(style:)` for light, medium, or heavy impact feedback; `Haptics.notification(kind:)` for success or error feedback; and `Haptics.selection()` for selection changes. The style values are `Light`, `Medium`, and `Heavy`; notification values are `Success` and `Error`.

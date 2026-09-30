@@ -260,10 +260,36 @@ mod template_generation {
     use crate::templates;
     use crate::templates::*;
 
+    #[allow(clippy::too_many_arguments)]
     fn ios_project_file(
         app_name: &str,
         has_assets: bool,
         has_plugin_resources: bool,
+        generated_sources: &[String],
+        plugin_sources: &[String],
+        cpp_sources: &[String],
+        xcframeworks: &[String],
+        plugins: &[crate::plugin_package::PluginPackage],
+    ) -> Result<String, String> {
+        ios_project_file_with_privacy_manifest(
+            app_name,
+            has_assets,
+            has_plugin_resources,
+            false,
+            generated_sources,
+            plugin_sources,
+            cpp_sources,
+            xcframeworks,
+            plugins,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn ios_project_file_with_privacy_manifest(
+        app_name: &str,
+        has_assets: bool,
+        has_plugin_resources: bool,
+        has_privacy_manifest: bool,
         generated_sources: &[String],
         plugin_sources: &[String],
         cpp_sources: &[String],
@@ -275,6 +301,7 @@ mod template_generation {
             app_name,
             has_assets,
             has_plugin_resources,
+            has_privacy_manifest,
             generated_sources,
             plugin_sources,
             cpp_sources,
@@ -285,11 +312,66 @@ mod template_generation {
     }
 
     #[test]
+    fn ios_privacy_manifest_is_feature_gated_and_uses_app_only_reasons() {
+        let storage = templates::ios_privacy_manifest(nexa_backend_swift::SwiftProjectFeatures {
+            requires_user_defaults_reason: true,
+            requires_file_timestamp_reason: false,
+        })
+        .expect("storage uses a required-reason API");
+        assert!(storage.contains("NSPrivacyAccessedAPICategoryUserDefaults"));
+        assert!(storage.contains("CA92.1"));
+        assert!(!storage.contains("NSPrivacyAccessedAPICategoryFileTimestamp"));
+        assert!(
+            templates::ios_privacy_manifest(nexa_backend_swift::SwiftProjectFeatures::default())
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn ios_project_includes_privacy_manifest_as_a_resource_only_when_needed() {
+        let sources = ["NexaGenerated.swift".to_owned()];
+        let with_manifest = ios_project_file_with_privacy_manifest(
+            "PrivacyDemo",
+            false,
+            false,
+            true,
+            &sources,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .expect("privacy-enabled project should render");
+        assert!(with_manifest.contains("path = PrivacyInfo.xcprivacy;"));
+        let privacy_build_file = pbx_build_file_for_path(&with_manifest, "PrivacyInfo.xcprivacy");
+        let resource_phase = with_manifest
+            .lines()
+            .find(|line| line.contains("isa = PBXResourcesBuildPhase;"))
+            .expect("project should contain a resource phase");
+        assert!(resource_phase.contains(&privacy_build_file));
+
+        let without_manifest = ios_project_file_with_privacy_manifest(
+            "PrivacyDemo",
+            false,
+            false,
+            false,
+            &sources,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .expect("privacy-free project should render");
+        assert!(!without_manifest.contains("PrivacyInfo.xcprivacy"));
+    }
+
+    #[test]
     fn ios_architecture_is_applied_to_debug_and_release() {
         let mut config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
         config.ios_arch = Some(vec!["arm64".to_owned(), "x86_64".to_owned()]);
         let project = ios_project_file_with_config(
             "Demo",
+            false,
             false,
             false,
             &["NexaGenerated.swift".to_owned()],
@@ -442,6 +524,7 @@ mod template_generation {
             "Demo",
             true,
             true,
+            false,
             &generated,
             &plugin_sources,
             &cpp_sources,
@@ -457,6 +540,7 @@ mod template_generation {
             "Demo",
             true,
             true,
+            false,
             &generated,
             &plugin_sources,
             &cpp_sources,
@@ -536,6 +620,7 @@ mod template_generation {
                 "Demo",
                 true,
                 true,
+                false,
                 &generated,
                 &plugin_sources,
                 &cpp_sources,
@@ -592,6 +677,7 @@ mod template_generation {
 
         let project = ios_project_file_with_config(
             "Demo",
+            false,
             false,
             false,
             &["NexaGenerated.swift".to_owned()],
@@ -1106,6 +1192,7 @@ mod template_generation {
         ));
         let xcode_project = ios_project_file_with_config(
             "DeepLinkDemo",
+            false,
             false,
             false,
             &[],
