@@ -70,14 +70,14 @@ Edit `App.nx` for app UI and `nexa.config.nx` for app identity, SDK versions, pe
 
 ## Configure app identity and assets
 
-The scaffold defaults to iOS 16.0, Android minSdk 24, and Android targetSdk 36. Keep the app ID unique before distributing the app:
+The scaffold defaults to iOS 16.0, Android minSdk 23, and Android targetSdk 36. A native plugin may require a higher `minSdk`; Nexa reports that requirement during `nexa check` and asks you to raise the app's configured minimum. Keep the app ID unique before distributing the app:
 
 ```nexa
 config {
     app { displayName: "Hello World", version: "1.0.0", buildNumber: 1 }
     ios { minVersion: "16.0", bundleIdentifier: "dev.example.hello" }
     android {
-        minSdk: 24,
+        minSdk: 23,
         targetSdk: 36,
         applicationId: "dev.example.hello",
         cronet { provider: "play-services", diskCacheSizeMb: 64 }

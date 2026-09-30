@@ -448,6 +448,9 @@ impl Parser {
             }
             self.consume(TokenKind::Comma);
         }
+        if android && platform.min_sdk == Some(0) {
+            return self.error("Android plugin minSdk must be greater than zero");
+        }
         Ok(())
     }
 
@@ -1431,6 +1434,12 @@ mod tests {
         )
         .expect_err("Android permission names must be validated");
         assert!(android_error.contains("android.permission.NAME"));
+
+        let min_sdk_error = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" sources { native: "native.nxid" } android { minSdk: 0 } }"#,
+        )
+        .expect_err("Android plugin minSdk must be a valid API level");
+        assert!(min_sdk_error.contains("Android plugin minSdk must be greater than zero"));
     }
 
     #[test]

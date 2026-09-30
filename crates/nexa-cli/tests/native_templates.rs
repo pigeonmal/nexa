@@ -717,25 +717,84 @@ mod template_generation {
     }
 
     #[test]
-    fn android_host_uses_configurable_minimum_and_fixed_target_sdk_36() {
+    fn android_host_uses_api_23_by_default_in_dev_and_release() {
         let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
+        for dev_runtime in [false, true] {
+            let gradle = android_app_gradle_with_dev_runtime(
+                "dev.nexa.demo",
+                nexa_backend_kotlin::KotlinProjectFeatures::default(),
+                &[],
+                &[],
+                &config,
+                dev_runtime,
+            )
+            .expect("Android app Gradle file should render");
+
+            assert!(gradle.contains("minSdk = 23"));
+            assert!(gradle.contains("targetSdk = 36"));
+        }
+
+        let mut configured = config;
+        configured.android_min_sdk = 26;
         let gradle = android_app_gradle_with_dev_runtime(
             "dev.nexa.demo",
             nexa_backend_kotlin::KotlinProjectFeatures::default(),
             &[],
             &[],
-            &config,
+            &configured,
             false,
         )
-        .expect("Android app Gradle file should render");
-
-        assert!(gradle.contains("minSdk = 24"));
-        assert!(gradle.contains("targetSdk = 36"));
+        .expect("configured Android app minSdk should render");
+        assert!(gradle.contains("minSdk = 26"));
     }
 
     #[test]
-    fn android_rejects_plugin_minimum_above_target_sdk() {
+    fn android_rejects_plugin_minimum_above_app_minimum() {
         let mut plugin = plugin("NewPlatformApi");
+        plugin.artifacts.android_min_sdk = Some(24);
+        let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
+
+        let error = android_app_gradle_with_dev_runtime(
+            "dev.nexa.demo",
+            nexa_backend_kotlin::KotlinProjectFeatures::default(),
+            &[plugin],
+            &[],
+            &config,
+            false,
+        )
+        .expect_err("a plugin cannot raise the app minimum implicitly");
+
+        assert!(
+            error.contains("plugin `NewPlatformApi` requires minSdk 24"),
+            "{error}"
+        );
+        assert!(error.contains("android.minSdk to 23"), "{error}");
+        assert!(error.contains("Increase `android.minSdk`"), "{error}");
+    }
+
+    #[test]
+    fn android_keeps_the_app_minimum_when_plugin_requires_less() {
+        let mut plugin = plugin("OlderPlatformApi");
+        plugin.artifacts.android_min_sdk = Some(21);
+        let mut config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
+        config.android_min_sdk = 26;
+
+        let gradle = android_app_gradle_with_dev_runtime(
+            "dev.nexa.demo",
+            nexa_backend_kotlin::KotlinProjectFeatures::default(),
+            &[plugin],
+            &[],
+            &config,
+            false,
+        )
+        .expect("a lower plugin minimum should not change the app minimum");
+
+        assert!(gradle.contains("minSdk = 26"));
+    }
+
+    #[test]
+    fn android_rejects_plugin_minimum_above_supported_target_sdk() {
+        let mut plugin = plugin("FuturePlatformApi");
         plugin.artifacts.android_min_sdk = Some(37);
         let config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
 
@@ -747,10 +806,10 @@ mod template_generation {
             &config,
             false,
         )
-        .expect_err("a plugin cannot require an SDK above the app target SDK");
+        .expect_err("a plugin requiring a newer target API cannot be built");
 
-        assert!(error.contains("minSdk to 37"), "{error}");
-        assert!(error.contains("targetSdk (36)"), "{error}");
+        assert!(error.contains("requires minSdk 37"), "{error}");
+        assert!(error.contains("above the app targetSdk 36"), "{error}");
     }
 
     #[test]
@@ -848,11 +907,15 @@ mod template_generation {
             1
         );
 
-        let android = android_app_gradle(
+        let mut android_config = ProjectConfig::from_defaults(&[], "Demo").unwrap();
+        android_config.android_min_sdk = 29;
+        let android = android_app_gradle_with_dev_runtime(
             "com.example.demo",
             nexa_backend_kotlin::KotlinProjectFeatures::default(),
             &plugins,
             &["NexaPlugin0_media.aar".to_owned()],
+            &android_config,
+            false,
         )
         .expect("Maven metadata should render");
         assert!(android.contains("minSdk = 29"));

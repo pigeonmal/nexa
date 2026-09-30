@@ -22,7 +22,7 @@ mod assets;
 pub mod plan;
 use self::plan::ProjectPlan;
 mod pbxproj;
-mod plugin_package;
+pub(crate) mod plugin_package;
 mod plugins;
 mod templates;
 pub mod writers;
@@ -344,6 +344,16 @@ fn run_with_summary(args: &[String], print_summary: bool) -> Result<(), String> 
             ProjectTarget::All => "all",
         };
         project_config.set_arch_override(arch, target)?;
+    }
+
+    for (compile_target, _, packages) in &compiled {
+        if *compile_target == Target::Kotlin {
+            let requirements = packages
+                .iter()
+                .map(|plugin| (plugin.namespace.as_str(), plugin.artifacts.android_min_sdk))
+                .collect::<Vec<_>>();
+            project_config.validate_android_plugin_minimums(&requirements)?;
+        }
     }
 
     fs::create_dir_all(&output).map_err(|error| format!("{}: {error}", output.display()))?;

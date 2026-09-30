@@ -217,7 +217,7 @@ impl ProjectConfig {
         let android_min_sdk = android
             .as_ref()
             .and_then(|android| android.min_sdk)
-            .unwrap_or(24);
+            .unwrap_or(23);
         let android_arch = android
             .as_ref()
             .and_then(|android| android.arch.clone())
@@ -319,7 +319,7 @@ impl ProjectConfig {
             plugins,
             ios_min_version: "16.0".to_owned(),
             ios_arch: None,
-            android_min_sdk: 24,
+            android_min_sdk: 23,
             android_arch: None,
             android_cronet_provider: AndroidCronetProvider::PlayServices,
             android_cronet_disk_cache_size_mb: 64,
@@ -340,6 +340,30 @@ impl ProjectConfig {
 
     pub(super) fn plugins(&self) -> impl Iterator<Item = &PluginConfig> {
         self.plugins.iter()
+    }
+
+    pub(super) fn validate_android_plugin_minimums(
+        &self,
+        requirements: &[(&str, Option<u32>)],
+    ) -> Result<(), String> {
+        for (namespace, required_min_sdk) in requirements {
+            let Some(required_min_sdk) = required_min_sdk else {
+                continue;
+            };
+            if *required_min_sdk > self.android_target_sdk {
+                return Err(format!(
+                    "Android plugin `{namespace}` requires minSdk {required_min_sdk}, above the app targetSdk {}. Nexa currently requires targetSdk 36, so this plugin cannot be used by this app.",
+                    self.android_target_sdk
+                ));
+            }
+            if *required_min_sdk > self.android_min_sdk {
+                return Err(format!(
+                    "Android plugin `{namespace}` requires minSdk {required_min_sdk}, but the app config sets android.minSdk to {}. Increase `android.minSdk` in `nexa.config.nx` to at least {required_min_sdk}.",
+                    self.android_min_sdk
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn render(&self) -> String {
@@ -825,7 +849,7 @@ fn collect_plugin_declarations(
 
 pub(super) fn render_template(plugin_definitions: &[PluginDefinition]) -> String {
     let mut output = String::from(
-        "config {\n    app { stagingSuffix: \"staging\" }\n    ios { minVersion: \"16.0\" }\n    android { minSdk: 24, targetSdk: 36, cronet { provider: \"play-services\", diskCacheSizeMb: 64 } }\n    permissions {}\n",
+        "config {\n    app { stagingSuffix: \"staging\" }\n    ios { minVersion: \"16.0\" }\n    android { minSdk: 23, targetSdk: 36, cronet { provider: \"play-services\", diskCacheSizeMb: 64 } }\n    permissions {}\n",
     );
     let configured_plugins = plugin_definitions
         .iter()

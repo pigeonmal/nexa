@@ -1215,15 +1215,15 @@ pub(super) fn android_app_gradle_with_dev_runtime(
     dev_runtime: bool,
 ) -> Result<String, String> {
     let maven_dependencies = merge_maven_dependencies(plugins)?;
-    let minimum_sdk = plugins
+    let plugin_minimums = plugins
         .iter()
-        .filter_map(|plugin| plugin.artifacts.android_min_sdk)
-        .max()
-        .unwrap_or(config.android_min_sdk)
-        .max(config.android_min_sdk);
+        .map(|plugin| (plugin.namespace.as_str(), plugin.artifacts.android_min_sdk))
+        .collect::<Vec<_>>();
+    config.validate_android_plugin_minimums(&plugin_minimums)?;
+    let minimum_sdk = config.android_min_sdk;
     if minimum_sdk == 0 || minimum_sdk > config.android_target_sdk {
         return Err(format!(
-            "Android plugin requirements raise minSdk to {minimum_sdk}, which must be between 1 and targetSdk ({})",
+            "Android app minSdk {minimum_sdk} must be between 1 and targetSdk ({})",
             config.android_target_sdk
         ));
     }

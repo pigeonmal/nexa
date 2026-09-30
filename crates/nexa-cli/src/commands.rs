@@ -152,9 +152,11 @@ fn check_project(args: &[String]) -> Result<(), String> {
     let resolved = crate::dependencies::resolve(&root, &dependencies)?;
     crate::dependencies::sync_lock(&root, !dependencies.is_empty(), &resolved.lock_file, locked)?;
     let definitions = crate::config::load_plugin_definitions(&entry, &resolved.plugin_roots)?;
-    if config_path.is_file() {
-        crate::config::ProjectConfig::parse_file(&config_path, &definitions, &app_name)?;
-    }
+    let project_config = if config_path.is_file() {
+        crate::config::ProjectConfig::parse_file(&config_path, &definitions, &app_name)?
+    } else {
+        crate::config::ProjectConfig::from_defaults(&[], &app_name)?
+    };
 
     let targets = match platform.as_str() {
         "ios" => vec![nexa_compiler::Target::Swift],
@@ -168,7 +170,18 @@ fn check_project(args: &[String]) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
     let mut warnings = std::collections::BTreeSet::new();
-    for compilation in compilations {
+    for (target, compilation) in targets.iter().copied().zip(compilations) {
+        if target == nexa_compiler::Target::Kotlin {
+            let packages = crate::project::plugin_package::packages_for_module(
+                &compilation.plugins,
+                &compilation.module,
+            );
+            let requirements = packages
+                .iter()
+                .map(|plugin| (plugin.namespace.as_str(), plugin.artifacts.android_min_sdk))
+                .collect::<Vec<_>>();
+            project_config.validate_android_plugin_minimums(&requirements)?;
+        }
         for warning in compilation.warnings {
             warnings.insert(warning.to_string());
         }
@@ -1566,7 +1579,7 @@ fn starter_config(name: &str) -> String {
         .collect::<String>()
         .to_ascii_lowercase();
     format!(
-        "config {{\n    app {{ displayName: \"{name}\", version: \"1.0.0\", buildNumber: 1, deepLinks: [] }}\n    flavors {{ staging {{ suffix: \"staging\" }} }}\n    ios {{ minVersion: \"16.0\", bundleIdentifier: \"dev.nexa.{id}\" }}\n    android {{ minSdk: 24, targetSdk: 36, applicationId: \"dev.nexa.{id}\", cronet {{ provider: \"play-services\", diskCacheSizeMb: 64 }} }}\n    permissions {{}}\n}}\n"
+        "config {{\n    app {{ displayName: \"{name}\", version: \"1.0.0\", buildNumber: 1, deepLinks: [] }}\n    flavors {{ staging {{ suffix: \"staging\" }} }}\n    ios {{ minVersion: \"16.0\", bundleIdentifier: \"dev.nexa.{id}\" }}\n    android {{ minSdk: 23, targetSdk: 36, applicationId: \"dev.nexa.{id}\", cronet {{ provider: \"play-services\", diskCacheSizeMb: 64 }} }}\n    permissions {{}}\n}}\n"
     )
 }
 
