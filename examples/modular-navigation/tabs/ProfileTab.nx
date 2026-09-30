@@ -1,0 +1,7 @@
+component ProfileTab() {
+    body {
+        Column {
+            Text("Profile tab")
+        }
+    }
+}

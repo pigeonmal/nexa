@@ -1,0 +1,13 @@
+import "screens/Home.nx"
+import "screens/Details.nx"
+import "tabs/HomeTab.nx"
+import "tabs/ProfileTab.nx"
+
+app ModularNavigation {
+    state currentTab: Int32 = 0
+    state visits: Int32 = 0
+
+    body {
+        NavigationStack(root: Home)
+    }
+}

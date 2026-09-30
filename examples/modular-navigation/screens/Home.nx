@@ -1,0 +1,21 @@
+screen Home {
+    Column(spacing: 12) {
+        Text("App visits: $visits")
+        Button("Add app visit") {
+            visits = visits + 1
+        }
+
+        AppBottomBar(selected: currentTab) {
+            Tab(index: 0, label: "Home", icon: "house") {
+                HomeTab()
+            }
+            Tab(index: 1, label: "Profile", icon: "person") {
+                ProfileTab()
+            }
+        }
+
+        NavigationLink(destination: Details) {
+            Text("Open details")
+        }
+    }
+}

@@ -1,0 +1,12 @@
+screen Details {
+    state localCount: Int32 = 0
+
+    Column(spacing: 12) {
+        Text("App visits: $visits")
+        Text("Screen taps: $localCount")
+
+        Button("Add screen tap") {
+            localCount = localCount + 1
+        }
+    }
+}

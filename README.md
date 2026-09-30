@@ -134,6 +134,7 @@ Explore real-world examples in [`examples/`](examples/):
 - [`virtual_list.nx`](examples/virtual_list.nx): Ultra-high-performance virtualized list of 50,000 items with zero `AnyView` overhead.
 - [`showcase.nx`](examples/showcase.nx): Component catalog covering inputs, switches, cards, and gestures.
 - [`navigation.nx`](examples/navigation.nx): Multi-screen routing with navigation stacks and route parameters.
+- [`modular-navigation/`](examples/modular-navigation/): Screens and tab views split across imported `.nx` files.
 - [`plugins/fast-math/`](examples/plugins/fast-math/): Modern C++ (`c++20`) plugin demonstrating typed native bindings.
 
 Official plugin packages are maintained separately in

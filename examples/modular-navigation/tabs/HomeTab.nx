@@ -1,0 +1,13 @@
+component HomeTab() {
+    state taps: Int32 = 0
+
+    body {
+        Column(spacing: 8) {
+            Text("Home tab")
+            Text("Tab taps: $taps")
+            Button("Add tab tap") {
+                taps = taps + 1
+            }
+        }
+    }
+}
