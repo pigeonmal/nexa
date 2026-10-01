@@ -57,7 +57,7 @@ graph TD
         Video["@nexa/video-player (AVPlayer / Media3 ExoPlayer)"]
         Audio["@nexa/audio-player (MediaSession / NowPlaying)"]
         MMKV["@nexa/mmkv (High-performance mmap KV)"]
-        Camera["@nexa/camera — planned (CameraX / AVCaptureSession)"]
+        Camera["@nexa/camera — implemented (CameraX / AVCaptureSession)"]
         Maps["@nexa/maps — planned (MapKit / Google Maps)"]
         SQLite["@nexa/sqlite — planned (Relational database with migrations)"]
         Biometrics["@nexa/biometrics — implemented (Face ID / Touch ID / BiometricPrompt)"]
