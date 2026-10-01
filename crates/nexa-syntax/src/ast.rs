@@ -112,6 +112,8 @@ pub struct Program {
 #[derive(Clone, Debug)]
 pub struct TestDecl {
     pub name: String,
+    /// Optional custom component instantiated by a headless behavior test.
+    pub component: Option<Expr>,
     pub statements: Vec<TestStatement>,
     pub span: Span,
     pub source_file: Option<String>,
@@ -128,6 +130,14 @@ pub enum TestStatement {
     Assert {
         condition: Expr,
         message: Option<Expr>,
+        span: Span,
+    },
+    Tap {
+        label: Expr,
+        span: Span,
+    },
+    AssertText {
+        value: Expr,
         span: Span,
     },
 }

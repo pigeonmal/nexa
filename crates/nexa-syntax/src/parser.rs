@@ -716,6 +716,12 @@ impl Parser {
         if name.trim().is_empty() {
             return Err(CompileError::new(token.span, "a test name cannot be empty"));
         }
+        let component = if self.word_is("for") {
+            self.advance();
+            Some(self.expr()?)
+        } else {
+            None
+        };
         self.expect(Kind::LBrace, "expected `{` after test name")?;
         let mut statements = Vec::new();
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
@@ -756,15 +762,42 @@ impl Parser {
                 self.optional_semicolon();
                 continue;
             }
-            return self
-                .error_here("test blocks support only `let` declarations and `assert(...)`");
+            if self.word_is("tap") {
+                let statement_span = self.advance().span;
+                self.expect(Kind::LParen, "expected `(` after `tap`")?;
+                let label = self.expr()?;
+                self.expect(Kind::RParen, "expected `)` after tap target")?;
+                statements.push(TestStatement::Tap {
+                    label,
+                    span: statement_span,
+                });
+                self.optional_semicolon();
+                continue;
+            }
+            if self.word_is("assertText") {
+                let statement_span = self.advance().span;
+                self.expect(Kind::LParen, "expected `(` after `assertText`")?;
+                let value = self.expr()?;
+                self.expect(Kind::RParen, "expected `)` after expected text")?;
+                statements.push(TestStatement::AssertText {
+                    value,
+                    span: statement_span,
+                });
+                self.optional_semicolon();
+                continue;
+            }
+            return self.error_here(
+                "test blocks support `let`, `assert(...)`, `tap(...)`, and `assertText(...)`",
+            );
         }
         self.expect(Kind::RBrace, "expected `}` to close test block")?;
         self.optional_semicolon();
-        if statements
-            .iter()
-            .all(|statement| !matches!(statement, TestStatement::Assert { .. }))
-        {
+        if statements.iter().all(|statement| {
+            !matches!(
+                statement,
+                TestStatement::Assert { .. } | TestStatement::AssertText { .. }
+            )
+        }) {
             return Err(CompileError::new(
                 span,
                 format!("test `{name}` must contain at least one assertion"),
@@ -772,6 +805,7 @@ impl Parser {
         }
         Ok(TestDecl {
             name,
+            component,
             statements,
             span,
             source_file: None,

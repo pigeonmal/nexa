@@ -1,7 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use nexa_diagnostics::CompileError;
-use nexa_ir::{FunctionLocal, Type};
+use nexa_ir::{Component, FunctionLocal, Type};
 use nexa_syntax::ast;
 
 use super::{
@@ -20,6 +20,7 @@ pub(super) fn lower_tests(
     functions: &[ast::FunctionDecl],
     struct_declarations: &[ast::StructDecl],
     enum_declarations: &[ast::EnumDecl],
+    components: &[Component],
 ) -> Result<TestSuite, CompileError> {
     if tests.is_empty() {
         return Ok(TestSuite::default());
@@ -76,6 +77,10 @@ pub(super) fn lower_tests(
 
     let mut signatures = collect_function_signatures(functions, &structs)?;
     add_struct_constructors(&mut signatures, &ir_structs);
+    let components_by_name = components
+        .iter()
+        .map(|component| (component.name.as_str(), component))
+        .collect::<std::collections::HashMap<_, _>>();
 
     let mut names = HashSet::with_capacity(tests.len());
     let mut lowered_tests = Vec::with_capacity(tests.len());
@@ -90,6 +95,49 @@ pub(super) fn lower_tests(
             ));
         }
         let mut symbols = enum_values.clone();
+        let mounted_component = test
+            .component
+            .as_ref()
+            .map(|component| {
+                lower_test_component(
+                    component,
+                    &components_by_name,
+                    &symbols,
+                    &signatures,
+                    &structs,
+                    &enum_names,
+                )
+            })
+            .transpose()
+            .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+        if let Some(mount) = &mounted_component {
+            let component = components_by_name[mount.name.as_str()];
+            for binding in component
+                .parameters
+                .iter()
+                .map(|parameter| (parameter.name.as_str(), &parameter.ty, false))
+                .chain(
+                    component
+                        .states
+                        .iter()
+                        .map(|state| (state.name.as_str(), &state.ty, state.mutable)),
+                )
+            {
+                let (name, ty, mutable) = binding;
+                if symbols.contains_key(name) || signatures.contains_key(name) {
+                    return Err(with_test_source(
+                        CompileError::new(
+                            test.span,
+                            format!(
+                                "mounted component binding `{name}` conflicts with a test value"
+                            ),
+                        ),
+                        test.source_file.as_deref(),
+                    ));
+                }
+                symbols.insert(name.to_owned(), (ty.clone(), mutable));
+            }
+        }
         let mut statements = Vec::with_capacity(test.statements.len());
         for statement in test.statements {
             match statement {
@@ -179,19 +227,182 @@ pub(super) fn lower_tests(
                         span,
                     });
                 }
+                ast::TestStatement::Tap { label, span } => {
+                    if mounted_component.is_none() {
+                        return Err(with_test_source(
+                            CompileError::new(
+                                span,
+                                "`tap(...)` requires a component target: add `for Component()` to the test",
+                            ),
+                            test.source_file.as_deref(),
+                        ));
+                    }
+                    let label = lower_expr(
+                        &label,
+                        Some(&Type::String),
+                        &ExprContext::with_types(
+                            &symbols,
+                            &signatures,
+                            false,
+                            &structs,
+                            &enum_names,
+                        ),
+                    )
+                    .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    statements.push(TestStatement::Tap { label, span });
+                }
+                ast::TestStatement::AssertText { value, span } => {
+                    if mounted_component.is_none() {
+                        return Err(with_test_source(
+                            CompileError::new(
+                                span,
+                                "`assertText(...)` requires a component target: add `for Component()` to the test",
+                            ),
+                            test.source_file.as_deref(),
+                        ));
+                    }
+                    let value = lower_expr(
+                        &value,
+                        Some(&Type::String),
+                        &ExprContext::with_types(
+                            &symbols,
+                            &signatures,
+                            false,
+                            &structs,
+                            &enum_names,
+                        ),
+                    )
+                    .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    statements.push(TestStatement::AssertText { value, span });
+                }
             }
         }
         lowered_tests.push(TestCase {
             name: test.name,
             source_file: test.source_file,
             span: test.span,
+            component: mounted_component,
             statements,
         });
     }
 
     Ok(TestSuite {
         functions: Vec::new(),
+        components: components.to_vec(),
         tests: lowered_tests,
+    })
+}
+
+fn lower_test_component(
+    expression: &ast::Expr,
+    components: &std::collections::HashMap<&str, &Component>,
+    symbols: &HashMap<String, (Type, bool)>,
+    signatures: &FunctionSignatures,
+    structs: &super::expressions::StructTypes,
+    enum_names: &HashSet<String>,
+) -> Result<crate::testing::TestComponentMount, CompileError> {
+    let (name, positional, named, type_arguments) = match expression {
+        ast::Expr::Call(name, type_arguments, arguments, span) => {
+            if !type_arguments.is_empty() {
+                return Err(CompileError::new(
+                    *span,
+                    "headless component mounts do not accept type arguments",
+                ));
+            }
+            (name.as_str(), Some(arguments.as_slice()), None, *span)
+        }
+        ast::Expr::CallNamed {
+            name,
+            type_arguments,
+            arguments,
+            span,
+        } => {
+            if !type_arguments.is_empty() {
+                return Err(CompileError::new(
+                    *span,
+                    "headless component mounts do not accept type arguments",
+                ));
+            }
+            (name.as_str(), None, Some(arguments), *span)
+        }
+        other => {
+            return Err(CompileError::new(
+                other.span(),
+                "test component target must be a custom component call such as `Counter()`",
+            ));
+        }
+    };
+    let component = components.get(name).ok_or_else(|| {
+        CompileError::new(
+            type_arguments,
+            format!("`{name}` is not a custom component available to headless tests"),
+        )
+    })?;
+
+    let mut raw_arguments =
+        HashMap::<String, &ast::Expr>::with_capacity(component.parameters.len());
+    if let Some(positional) = positional {
+        if positional.len() != component.parameters.len() {
+            return Err(CompileError::new(
+                type_arguments,
+                format!(
+                    "component `{name}` expects {} argument(s), got {}",
+                    component.parameters.len(),
+                    positional.len()
+                ),
+            ));
+        }
+        for (parameter, value) in component.parameters.iter().zip(positional) {
+            raw_arguments.insert(parameter.name.clone(), value);
+        }
+    } else {
+        if let Some(named) = named {
+            raw_arguments.extend(named.iter().map(|(name, value)| (name.clone(), value)));
+        }
+    }
+    if raw_arguments.len() != component.parameters.len() {
+        return Err(CompileError::new(
+            type_arguments,
+            format!(
+                "component `{name}` expects {} named argument(s), got {}",
+                component.parameters.len(),
+                raw_arguments.len()
+            ),
+        ));
+    }
+
+    let mut arguments = Vec::with_capacity(component.parameters.len());
+    for parameter in &component.parameters {
+        let value = raw_arguments.get(&parameter.name).ok_or_else(|| {
+            CompileError::new(
+                type_arguments,
+                format!(
+                    "component `{name}` is missing argument `{}`",
+                    parameter.name
+                ),
+            )
+        })?;
+        arguments.push(lower_expr(
+            value,
+            Some(&parameter.ty),
+            &ExprContext::with_types(symbols, signatures, false, structs, enum_names),
+        )?);
+    }
+    if let Some(unknown) = raw_arguments.keys().find(|name| {
+        !component
+            .parameters
+            .iter()
+            .any(|parameter| &parameter.name == *name)
+    }) {
+        return Err(CompileError::new(
+            type_arguments,
+            format!("component `{name}` has no parameter `{unknown}`"),
+        ));
+    }
+
+    Ok(crate::testing::TestComponentMount {
+        name: name.to_owned(),
+        arguments,
     })
 }
 

@@ -220,6 +220,34 @@ test "cart item calculation" {
 }
 ```
 
+Tests can also exercise a custom component without launching a simulator. Add
+`for Component(arguments)` to mount one component, use `tap("Button label")`
+to run the first matching visible `Button` or text-labeled `Pressable` action,
+assert its state by name, and check exact visible text with `assertText`:
+
+```nexa
+component Counter(start: Int32) {
+    state count: Int32 = start
+    body {
+        Text("Count: $count")
+        Button("Increment") { count += 1 }
+    }
+}
+
+test "counter increments" for Counter(start: 4) {
+    assert(count == 4)
+    assertText("Count: 4")
+    tap("Increment")
+    assert(count == 5)
+    assertText("Count: 5")
+}
+```
+
+Headless tests currently render layouts, text, conditionals, and custom
+components, and execute state assignments, expressions, and conditional
+actions. Native plugin components and platform-backed controls are not
+simulated; use native host tests for those behaviors.
+
 `nexa test` evaluates these typed, deterministic checks before compiling the
 native test hosts. Use `nexa test --unit-only` to run them without Xcode or the
 Android toolchain. Test blocks are host-side compiler input and are omitted

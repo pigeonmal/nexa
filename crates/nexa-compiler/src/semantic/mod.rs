@@ -252,6 +252,7 @@ fn lower_with_warnings_in_mode(
         &app.functions,
         &app.structs,
         &app.enums,
+        &components,
     )?;
     let functions = lower_functions(
         std::mem::take(&mut app.functions),

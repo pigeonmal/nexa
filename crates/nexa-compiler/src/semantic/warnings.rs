@@ -75,9 +75,14 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
                 .iter()
                 .filter_map(|statement| match statement {
                     ast::TestStatement::Let { name, .. } => Some(name.clone()),
-                    ast::TestStatement::Assert { .. } => None,
+                    ast::TestStatement::Assert { .. }
+                    | ast::TestStatement::Tap { .. }
+                    | ast::TestStatement::AssertText { .. } => None,
                 }),
         );
+        if let Some(component) = &test.component {
+            walk_expression(component, &test_names, &mut used_functions);
+        }
         for statement in &test.statements {
             match statement {
                 ast::TestStatement::Let { initial, .. } => {
@@ -90,6 +95,10 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
                     if let Some(message) = message {
                         walk_expression(message, &test_names, &mut used_functions);
                     }
+                }
+                ast::TestStatement::Tap { label, .. }
+                | ast::TestStatement::AssertText { value: label, .. } => {
+                    walk_expression(label, &test_names, &mut used_functions);
                 }
             }
         }
@@ -178,7 +187,9 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
             .iter()
             .filter_map(|statement| match statement {
                 ast::TestStatement::Let { name, .. } => Some(name.clone()),
-                ast::TestStatement::Assert { .. } => None,
+                ast::TestStatement::Assert { .. }
+                | ast::TestStatement::Tap { .. }
+                | ast::TestStatement::AssertText { .. } => None,
             })
             .collect::<HashSet<_>>();
         let names = function_names
@@ -187,6 +198,9 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
             .cloned()
             .collect::<HashSet<_>>();
         let mut used = HashSet::new();
+        if let Some(component) = &test.component {
+            walk_expression(component, &names, &mut used);
+        }
         for statement in &test.statements {
             match statement {
                 ast::TestStatement::Let { initial, .. } => {
@@ -199,6 +213,10 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
                     if let Some(message) = message {
                         walk_expression(message, &names, &mut used);
                     }
+                }
+                ast::TestStatement::Tap { label, .. }
+                | ast::TestStatement::AssertText { value: label, .. } => {
+                    walk_expression(label, &names, &mut used);
                 }
             }
         }

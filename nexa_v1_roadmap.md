@@ -266,7 +266,8 @@ graph TD
 - [x] `nexa doctor`: Diagnoses the host development environment (Xcode, Swift, Android SDK, JDK, Gradle, and adb).
 - [x] `nexa check`: Verifies `.nx` syntax, semantics, types, and plugin contracts; `--audit` adds reachability and capability inspection.
 - [x] `nexa test`: Runs supported `.nx` unit tests and compiles native test hosts.
-- [ ] Add headless component behavior tests to `nexa test`; current in-language tests evaluate pure synchronous app-local functions only.
+- [x] Add initial headless component behavior tests to `nexa test`: mount custom components, tap visible buttons, and assert component state and rendered text.
+- [ ] Expand headless component behavior tests to cover forms, platform-backed controls, native plugin components, and broader action semantics.
 - [x] `nexa audit`: Reports release footprint data and can build/measure `.app`, `.apk`, and `.aab` artifacts with `--release-sizes`.
 
 #### 5.2 In-Language Test Runner (`nexa test`)
