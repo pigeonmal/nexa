@@ -286,6 +286,10 @@ pub enum Expr {
         ty: NumericType,
     },
     State(String, Type),
+    /// A floating-point state read used for presentation in Compose. The
+    /// logical state remains the source of truth and action expressions keep
+    /// using `State` directly.
+    AnimatedState(String, Type),
     EnumValue {
         enum_name: String,
         case_name: String,
@@ -582,6 +586,8 @@ pub enum Node {
     },
     Slider {
         state: String,
+        /// Read the presentation value through Compose's native animator.
+        animated: bool,
         min: f64,
         max: f64,
         step: f64,
@@ -1229,6 +1235,12 @@ pub enum Action {
     },
     TaskCancel {
         handle: String,
+    },
+    /// Runs state updates in one native animation transaction.
+    WithAnimation {
+        animation: AnimationSpec,
+        animated_states: Vec<String>,
+        actions: Vec<Action>,
     },
     If {
         condition: Expr,

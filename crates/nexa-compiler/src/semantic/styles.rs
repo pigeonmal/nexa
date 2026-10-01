@@ -253,7 +253,7 @@ fn validate_bounds(
     Ok(())
 }
 
-fn parse_animation(expr: ast::Expr) -> Result<AnimationSpec, CompileError> {
+pub(super) fn parse_animation(expr: ast::Expr) -> Result<AnimationSpec, CompileError> {
     match expr {
         ast::Expr::Name(name, span) => match name.as_str() {
             "Spring" => Ok(AnimationSpec::Spring {

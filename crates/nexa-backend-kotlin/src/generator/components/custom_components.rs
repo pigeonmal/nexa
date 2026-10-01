@@ -76,6 +76,8 @@ fn render_component(
         out.push_str("    val nexaHapticView = LocalView.current\n");
     }
     render_component_states(&component.states, 1, out);
+    let animated_targets = state::animated_state_targets(&component.body);
+    state::render_animated_state_aliases(&component.states, &animated_targets, 1, out);
     crate::generator::components::lifecycle::render_task_cancellation_on_dispose(
         &component.states,
         1,

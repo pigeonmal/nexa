@@ -2072,6 +2072,11 @@ impl Parser {
     fn statements_after_open(&mut self, allow_return: bool) -> Result<Vec<Stmt>, CompileError> {
         let mut stmts = Vec::new();
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            if self.word_is("withAnimation") {
+                stmts.push(self.with_animation_statement()?);
+                self.optional_semicolon();
+                continue;
+            }
             if self.word_is("Task") {
                 stmts.push(self.task_statement()?);
                 self.optional_semicolon();
@@ -3523,6 +3528,19 @@ impl Parser {
         Ok(Stmt::TaskLaunch {
             handle,
             executor,
+            body,
+            span,
+        })
+    }
+
+    fn with_animation_statement(&mut self) -> Result<Stmt, CompileError> {
+        let span = self.advance().span;
+        self.expect(Kind::LParen, "expected `(` after `withAnimation`")?;
+        let animation = self.expr()?;
+        self.expect(Kind::RParen, "expected `)` after animation spec")?;
+        let body = self.block_stmts()?;
+        Ok(Stmt::WithAnimation {
+            animation,
             body,
             span,
         })

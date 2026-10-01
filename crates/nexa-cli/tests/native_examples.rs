@@ -75,6 +75,58 @@ fn build_android_debug_if_available(android_project: &Path, host: &str) {
 }
 
 #[test]
+fn imperative_animation_aot_hosts_compile_when_native_toolchains_are_available() {
+    let temp = TestProject::new("nexa-imperative-animation-aot");
+    let entry = temp.join("AnimatedProgress.nx");
+    fs::write(
+        &entry,
+        r#"app AnimatedProgress {
+    state progress: Float64 = 0.0
+    body {
+        Button("Complete") {
+            withAnimation(Spring(response: 0.35, damping: 0.8)) {
+                progress = 1.0
+            }
+        }
+        ProgressBar(progress: progress)
+    }
+}"#,
+    )
+    .expect("animation fixture should be written");
+
+    let ios = temp.join("animated-progress-ios");
+    nexa_cli::generate_project(&entry, "ios", &ios, "NexaAnimatedProgress")
+        .expect("iOS animation host should generate");
+    if let Some(sdk) = Toolchain::ios_simulator_sdk_path() {
+        let built = Command::new("xcrun")
+            .args([
+                "--sdk",
+                "iphonesimulator",
+                "swiftc",
+                "-typecheck",
+                "-sdk",
+                sdk,
+                "-target",
+                "arm64-apple-ios16.0-simulator",
+            ])
+            .args(swift_sources(&ios.join("ios/NexaAnimatedProgress")))
+            .output()
+            .expect("Swift compiler should start for the animation host");
+        assert!(
+            built.status.success(),
+            "iOS animation host failed to type-check:\n{}\n{}",
+            String::from_utf8_lossy(&built.stdout),
+            String::from_utf8_lossy(&built.stderr)
+        );
+    }
+
+    let android = temp.join("animated-progress-android");
+    nexa_cli::generate_project(&entry, "android", &android, "NexaAnimatedProgress")
+        .expect("Android animation host should generate");
+    build_android_debug_if_available(&android, "Android animation host");
+}
+
+#[test]
 fn multipart_upload_generates_native_streaming_calls() {
     let temp = TestProject::new("nexa-multipart-upload-codegen");
     let entry = temp.join("Upload.nx");

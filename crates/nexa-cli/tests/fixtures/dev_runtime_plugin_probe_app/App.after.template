@@ -32,6 +32,7 @@ app DevRuntimeProbe {
 
     let probe = DevProbe.Probe()
     let byteSetProbe = DevProbe.ProbeByteSet()
+    state animationProgress: Float64 = 0.0
     state asyncSum: Int32 = 0
     state foregroundMainTask: TaskHandle? = null
     state foregroundBackgroundTask: TaskHandle? = null
@@ -61,6 +62,10 @@ app DevRuntimeProbe {
 
     body {
         OnAppear async {
+            withAnimation(Spring(response: 0.35, damping: 0.8)) {
+                animationProgress = 1.0
+            }
+            Log.info(message: "DEVRT_WITH_ANIMATION_PASS")
             Task.launch(handle: foregroundMainTask, executor: TaskExecutor.Main) {
                 Log.info(message: "DEVRT_TASK_MAIN_PASS")
             }
@@ -202,6 +207,7 @@ app DevRuntimeProbe {
             }
         }
 
+        ProgressBar(progress: animationProgress)
         DevProbe.ProbeByteSetCard(values: byteSetProbe.values)
             .onSelected { values ->
                 if values.count == 1 {

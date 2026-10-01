@@ -36,6 +36,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     internal val eventScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     internal val foregroundTasks = ConcurrentHashMap<String, Job>()
     internal val values = mutableStateMapOf<String, Any>()
+    internal val animationSpecs = mutableStateMapOf<String, androidx.compose.animation.core.AnimationSpec<Float>>()
     internal var typeSignatures = mutableMapOf<String, String>()
     internal var functions = mutableMapOf<String, JSONObject>()
     internal var structs = mutableMapOf<String, JSONArray>()
@@ -65,7 +66,10 @@ internal class NexaDevStateStore(internal val context: Context) {
 
     fun install(next: JSONObject) {
         val isHotReplacement = hasInstalledModule
-        if (isHotReplacement) clearNativeTasks()
+        if (isHotReplacement) {
+            clearNativeTasks()
+            animationSpecs.clear()
+        }
         val screens = next.optJSONArray("screens") ?: JSONArray()
         val states = next.optJSONArray("states") ?: JSONArray()
         val nextFunctions = next.optJSONArray("functions") ?: JSONArray()
@@ -173,6 +177,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     fun hotRestart() {
         clearNativeTasks()
         clearNativeEventSubscriptions()
+        animationSpecs.clear()
         activeScreenParameters.clear()
         val current = module ?: return
         val states = current.optJSONArray("states") ?: JSONArray()
@@ -320,6 +325,45 @@ internal class NexaDevStateStore(internal val context: Context) {
         values[target] = value
     }
 
+    fun setAnimationSpec(name: String, raw: Any?, scope: String) {
+        animationSpecs[animationStateKey(name, scope)] = devAnimationSpec(raw)
+    }
+
+    fun animationSpec(name: String, scope: String): androidx.compose.animation.core.AnimationSpec<Float> =
+        animationSpecs[animationStateKey(name, scope)] ?: androidx.compose.animation.core.snap()
+
+    fun clearAnimationSpec(name: String, scope: String) {
+        animationSpecs.remove(animationStateKey(name, scope))
+    }
+
+    private fun animationStateKey(name: String, scope: String): String =
+        if (values.containsKey("$scope/state/$name") || !scope.startsWith("screen/")) {
+            "$scope/state/$name"
+        } else {
+            "app/state/$name"
+        }
+
+    private fun devAnimationSpec(raw: Any?): androidx.compose.animation.core.AnimationSpec<Float> {
+        val tagged = raw as? JSONObject
+        val kind = raw as? String
+            ?: tagged?.keys()?.asSequence()?.firstOrNull()
+            ?: return androidx.compose.animation.core.spring()
+        val fields = tagged?.optJSONObject(kind) ?: JSONObject()
+        return when (kind) {
+            "Spring" -> {
+                val response = fields.optDouble("response", 0.5).coerceAtLeast(0.0001)
+                val damping = fields.optDouble("damping", 0.825).toFloat().coerceAtLeast(0.0001f)
+                val stiffness = (100.0 / (response * response)).toFloat()
+                androidx.compose.animation.core.spring(dampingRatio = damping, stiffness = stiffness)
+            }
+            "EaseIn" -> androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.FastOutLinearInEasing)
+            "EaseOut" -> androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+            "EaseInOut" -> androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.FastOutSlowInEasing)
+            "Linear" -> androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.LinearEasing)
+            else -> androidx.compose.animation.core.spring()
+        }
+    }
+
     fun locals(scope: String, parameters: Map<String, Any>): Map<String, Any> {
         return parameters
     }
@@ -389,7 +433,7 @@ internal class NexaDevStateStore(internal val context: Context) {
                     evaluate(array.opt(2), locals, scope),
                 )
             }
-            "State" -> {
+            "State", "AnimatedState" -> {
                 val name = (payload as? JSONArray)?.optString(0) ?: payload?.toString() ?: ""
                 locals[name] ?: state(name, scope)
             }

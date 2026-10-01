@@ -154,7 +154,7 @@ graph TD
 #### 3.1 Custom & Spring Animations (very optimized animation for 120+ fps)
 
 - [x] Spring animation configuration through `Spring(response: Float64, damping: Float64)`.
-- [ ] Add scoped imperative animation execution such as `withAnimation(Spring(...)) { ... }`; current animation support is declarative on layouts and conditional content.
+- [x] Add scoped imperative animation execution such as `withAnimation(Spring(...)) { ... }`; animate mutable `Float32` and `Float64` state assignments through SwiftUI transactions or Compose presentation values. Empty blocks and unrelated side effects are rejected.
 - [x] Conditional view transitions: `.transition(.fade)`, `.transition(.slide(from: .bottom))`, and `.transition(.scale)`.
 
 #### 3.2 Shared Element Hero Transitions

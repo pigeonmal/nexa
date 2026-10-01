@@ -113,6 +113,25 @@ Text styles can be chained after a component call. For example, `Text("Hi").font
 
 Layout `animation` accepts `Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`. Customize spring response time in seconds and damping ratio with `Spring(response: 0.35, damping: 0.8)`; omitted values use `0.5` seconds and `0.825`. Response and damping must be finite and greater than zero. SwiftUI receives these values directly. Compose uses the damping ratio directly and maps response to a native spring stiffness, so the motion is platform-native and approximate rather than frame-for-frame identical.
 
+Use `withAnimation` to animate mutable floating-point state updates made by one synchronous action block:
+
+```nexa
+app AnimatedProgress {
+    state progress: Float64 = 0.0
+
+    body {
+        Button("Complete") {
+            withAnimation(Spring(response: 0.35, damping: 0.8)) {
+                progress = 1.0
+            }
+        }
+        ProgressBar(progress: progress)
+    }
+}
+```
+
+`withAnimation` blocks contain mutable `Float32` or `Float64` state assignments, optionally inside control flow. Empty blocks, unrelated side effects, other state types, collection mutations, asynchronous work, and deferred event or task registration are rejected. SwiftUI uses a native animation transaction; Compose animates the rendered floating-point value while the stored state changes immediately.
+
 Conditional view blocks accept `.transition(.fade)`, `.transition(.scale)`, or `.transition(.slide(from: .bottom))`. The transition runs when an `if` branch or `when` case changes. The current slide syntax supports `.bottom`:
 
 ```nexa

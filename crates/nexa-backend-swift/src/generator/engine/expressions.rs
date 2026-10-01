@@ -43,8 +43,12 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             NumericType::Float64 => format!("Double({raw})"),
             _ => raw.clone(),
         },
-        Expr::State(name, _) if locals.iter().any(|local| local == name) => name.clone(),
-        Expr::State(name, _) => state_name(name),
+        Expr::State(name, _) | Expr::AnimatedState(name, _)
+            if locals.iter().any(|local| local == name) =>
+        {
+            name.clone()
+        }
+        Expr::State(name, _) | Expr::AnimatedState(name, _) => state_name(name),
         Expr::EnumValue {
             enum_name,
             case_name,

@@ -882,6 +882,12 @@ fn walk_actions(
                     used.insert(handle.clone());
                 }
             }
+            ast::Stmt::WithAnimation {
+                animation, body, ..
+            } => {
+                walk_expression(animation, names, used);
+                walk_actions(body, names, used, target, file, warnings);
+            }
             ast::Stmt::If {
                 condition,
                 then_branch,
@@ -998,6 +1004,9 @@ fn actions_reference_name(actions: &[ast::Stmt], name: &str) -> bool {
             handle == name || actions_reference_name(body, name)
         }
         ast::Stmt::TaskCancel { handle, .. } => handle == name,
+        ast::Stmt::WithAnimation {
+            animation, body, ..
+        } => expression_references_name(animation, name) || actions_reference_name(body, name),
         ast::Stmt::If {
             condition,
             then_branch,

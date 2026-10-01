@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
-use nexa_ir::walk::{IrFolder, IrVisitor, fold_expr_children, fold_node_children};
+use nexa_ir::walk::{
+    IrFolder, IrVisitor, fold_expr_children, fold_node_children, walk_action_children,
+};
 use nexa_ir::{
     Action, ArithmeticOp, BinaryOp, CollectionUtilityKind, Expr, LayoutKind, Module, Node,
     NumericType, ViewStyle,
@@ -75,6 +77,252 @@ pub(crate) fn optimize(module: &mut Module) {
     prune_unused_states(module);
     prune_unused_structs(module);
     prune_unused_plugins(module);
+    mark_animated_presentation_reads(module);
+}
+
+fn mark_animated_presentation_reads(module: &mut Module) {
+    let mut app_targets = HashSet::new();
+    collect_animated_targets(&module.body, &mut app_targets);
+    collect_actions_targets(
+        [
+            module.on_appear.as_deref(),
+            module.on_disappear.as_deref(),
+            module.on_active.as_deref(),
+            module.on_inactive.as_deref(),
+            module.on_background.as_deref(),
+        ]
+        .into_iter()
+        .flatten(),
+        &mut app_targets,
+    );
+
+    let app_state_names = module
+        .states
+        .iter()
+        .map(|state| state.name.as_str())
+        .collect::<HashSet<_>>();
+    let mut screen_app_targets = HashSet::new();
+    for screen in &module.screens {
+        let mut targets = HashSet::new();
+        collect_animated_targets(&screen.body, &mut targets);
+        collect_actions_targets(
+            [screen.on_appear.as_deref(), screen.on_disappear.as_deref()]
+                .into_iter()
+                .flatten(),
+            &mut targets,
+        );
+        screen_app_targets.extend(
+            targets
+                .iter()
+                .filter(|name| app_state_names.contains(name.as_str()))
+                .cloned(),
+        );
+    }
+    app_targets.extend(screen_app_targets);
+    mark_nodes(&mut module.body, &app_targets);
+    let mut app_reads = animated_presentation_reads(&module.body);
+
+    for screen in &mut module.screens {
+        let mut screen_targets = app_targets.clone();
+        collect_animated_targets(&screen.body, &mut screen_targets);
+        collect_actions_targets(
+            [screen.on_appear.as_deref(), screen.on_disappear.as_deref()]
+                .into_iter()
+                .flatten(),
+            &mut screen_targets,
+        );
+        mark_nodes(&mut screen.body, &screen_targets);
+        let reads = animated_presentation_reads(&screen.body);
+        app_reads.extend(
+            reads
+                .iter()
+                .filter(|name| app_state_names.contains(name.as_str()))
+                .cloned(),
+        );
+        screen_targets.retain(|name| reads.contains(name));
+        filter_node_animation_targets(&mut screen.body, &screen_targets);
+        for actions in [&mut screen.on_appear, &mut screen.on_disappear]
+            .into_iter()
+            .flatten()
+        {
+            filter_animation_targets(actions, &screen_targets);
+        }
+    }
+    app_targets.retain(|name| app_reads.contains(name));
+    filter_node_animation_targets(&mut module.body, &app_targets);
+    for actions in [
+        &mut module.on_appear,
+        &mut module.on_disappear,
+        &mut module.on_active,
+        &mut module.on_inactive,
+        &mut module.on_background,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        filter_animation_targets(actions, &app_targets);
+    }
+
+    for component in &mut module.components {
+        let mut targets = HashSet::new();
+        collect_animated_targets(&component.body, &mut targets);
+        mark_nodes(&mut component.body, &targets);
+        let reads = animated_presentation_reads(&component.body);
+        targets.retain(|name| reads.contains(name));
+        filter_node_animation_targets(&mut component.body, &targets);
+    }
+}
+
+fn collect_animated_targets(nodes: &[Node], targets: &mut HashSet<String>) {
+    struct Collector<'a>(&'a mut HashSet<String>);
+    impl IrVisitor for Collector<'_> {
+        fn visit_action(&mut self, action: &Action) {
+            if let Action::WithAnimation {
+                animated_states, ..
+            } = action
+            {
+                self.0.extend(animated_states.iter().cloned());
+            }
+            walk_action_children(action, self);
+        }
+    }
+    Collector(targets).visit_nodes(nodes);
+}
+
+fn collect_actions_targets<'a>(
+    action_groups: impl IntoIterator<Item = &'a [Action]>,
+    targets: &mut HashSet<String>,
+) {
+    struct Collector<'a>(&'a mut HashSet<String>);
+    impl IrVisitor for Collector<'_> {
+        fn visit_action(&mut self, action: &Action) {
+            if let Action::WithAnimation {
+                animated_states, ..
+            } = action
+            {
+                self.0.extend(animated_states.iter().cloned());
+            }
+            walk_action_children(action, self);
+        }
+    }
+    let mut collector = Collector(targets);
+    for actions in action_groups {
+        collector.visit_actions(actions);
+    }
+}
+
+fn mark_nodes(nodes: &mut Vec<Node>, targets: &HashSet<String>) {
+    struct Marker<'a>(&'a HashSet<String>);
+    impl IrFolder for Marker<'_> {
+        fn fold_node(&mut self, node: Node) -> Option<Node> {
+            match node {
+                Node::Slider {
+                    state,
+                    min,
+                    max,
+                    step,
+                    ..
+                } if self.0.contains(&state) => Some(Node::Slider {
+                    state,
+                    animated: true,
+                    min,
+                    max,
+                    step,
+                }),
+                node => fold_node_children(node, self),
+            }
+        }
+
+        fn fold_expr(&mut self, expr: Expr) -> Expr {
+            match expr {
+                Expr::State(name, ty) if self.0.contains(&name) => Expr::AnimatedState(name, ty),
+                expr => fold_expr_children(expr, self),
+            }
+        }
+
+        fn fold_action(&mut self, action: Action) -> Option<Action> {
+            Some(action)
+        }
+    }
+    *nodes = Marker(targets).fold_nodes(std::mem::take(nodes));
+}
+
+fn animated_presentation_reads(nodes: &[Node]) -> HashSet<String> {
+    struct Reads(HashSet<String>);
+    impl IrVisitor for Reads {
+        fn visit_node(&mut self, node: &Node) {
+            if let Node::Slider { state, .. } = node {
+                self.0.insert(state.clone());
+            }
+            nexa_ir::walk::walk_node_children(node, self);
+        }
+
+        fn visit_expr(&mut self, expr: &Expr) {
+            if let Expr::AnimatedState(name, _) = expr {
+                self.0.insert(name.clone());
+            }
+            nexa_ir::walk::walk_expr_children(expr, self);
+        }
+    }
+    let mut reads = Reads(HashSet::new());
+    reads.visit_nodes(nodes);
+    reads.0
+}
+
+fn filter_node_animation_targets(nodes: &mut Vec<Node>, targets: &HashSet<String>) {
+    struct Filter<'a>(&'a HashSet<String>);
+    impl IrFolder for Filter<'_> {
+        fn fold_expr(&mut self, expr: Expr) -> Expr {
+            expr
+        }
+
+        fn fold_action(&mut self, action: Action) -> Option<Action> {
+            match action {
+                Action::WithAnimation {
+                    animation,
+                    mut animated_states,
+                    actions,
+                } => {
+                    animated_states.retain(|name| self.0.contains(name));
+                    Some(Action::WithAnimation {
+                        animation,
+                        animated_states,
+                        actions: self.fold_actions(actions),
+                    })
+                }
+                action => nexa_ir::walk::fold_action_children(action, self),
+            }
+        }
+    }
+    *nodes = Filter(targets).fold_nodes(std::mem::take(nodes));
+}
+
+fn filter_animation_targets(actions: &mut Vec<Action>, targets: &HashSet<String>) {
+    struct Filter<'a>(&'a HashSet<String>);
+    impl IrFolder for Filter<'_> {
+        fn fold_expr(&mut self, expr: Expr) -> Expr {
+            expr
+        }
+
+        fn fold_action(&mut self, action: Action) -> Option<Action> {
+            match action {
+                Action::WithAnimation {
+                    animation,
+                    mut animated_states,
+                    actions,
+                } => {
+                    animated_states.retain(|name| self.0.contains(name));
+                    Some(Action::WithAnimation {
+                        animation,
+                        animated_states,
+                        actions: self.fold_actions(actions),
+                    })
+                }
+                action => nexa_ir::walk::fold_action_children(action, self),
+            }
+        }
+    }
+    *actions = Filter(targets).fold_actions(std::mem::take(actions));
 }
 
 fn prune_unused_function_locals(function: &mut nexa_ir::Function) {
@@ -98,7 +346,7 @@ struct StateNameCollector<'a> {
 impl IrVisitor for StateNameCollector<'_> {
     fn visit_expr(&mut self, expr: &Expr) {
         match expr {
-            Expr::State(name, _) => {
+            Expr::State(name, _) | Expr::AnimatedState(name, _) => {
                 self.names.insert(name.clone());
             }
             Expr::Closure { parameters, body } => {
@@ -221,6 +469,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
         | Expr::EnumValue { .. }
         | Expr::PluginEnumValue { .. }
         | Expr::State(_, _)
+        | Expr::AnimatedState(_, _)
         | Expr::Null(_)
         | Expr::IsRegularWidth
         | Expr::IsCompactWidth
@@ -623,7 +872,9 @@ fn collect_expression_struct_names(expression: &Expr, used: &mut HashSet<String>
 
 fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<String>) {
     match expression {
-        Expr::State(_, ty) | Expr::Null(ty) => collect_type_struct_names(ty, used),
+        Expr::State(_, ty) | Expr::AnimatedState(_, ty) | Expr::Null(ty) => {
+            collect_type_struct_names(ty, used)
+        }
         Expr::Call { return_type, .. } => collect_type_struct_names(return_type, used),
         Expr::NativeCall { return_type, .. } => collect_type_struct_names(return_type, used),
         Expr::TimeCall { return_type, .. } => collect_type_struct_names(return_type, used),

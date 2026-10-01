@@ -150,6 +150,19 @@ pub(crate) fn render_navigation_stack(
         for state in &screen.states {
             render_screen_state(state, depth + 2, out);
         }
+        let mut animated_targets = crate::generator::state::animated_state_targets(&screen.body);
+        for actions in [screen.on_appear.as_deref(), screen.on_disappear.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            crate::generator::state::add_animated_state_targets(actions, &mut animated_targets);
+        }
+        crate::generator::state::render_animated_state_aliases(
+            &screen.states,
+            &animated_targets,
+            depth + 2,
+            out,
+        );
         let focus_bindings = features
             .facts
             .focus_bindings

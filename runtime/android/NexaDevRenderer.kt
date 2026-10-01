@@ -150,6 +150,33 @@ internal fun nexaDevNodeObject(rawNode: Any?): JSONObject = when (rawNode) {
     else -> JSONObject()
 }
 
+@Composable
+internal fun NexaDevStateStore.evaluatePresented(
+    raw: Any?,
+    locals: Map<String, Any>,
+    scope: String,
+): Any {
+    val tagged = raw as? JSONObject ?: return evaluate(raw, locals, scope)
+    val payload = tagged.optJSONArray("AnimatedState") ?: return evaluate(raw, locals, scope)
+    val name = payload.optString(0)
+    if (name.isEmpty()) return evaluate(raw, locals, scope)
+    val animation = animatedFloatState(name, scope)
+    val type = payload.optJSONObject(1)?.optString("Numeric")
+    return if (type == "Float64") animation.toDouble() else animation
+}
+
+@Composable
+internal fun NexaDevStateStore.animatedFloatState(name: String, scope: String): Float {
+    val target = (state(name, scope) as? Number)?.toFloat() ?: 0f
+    val animation = androidx.compose.animation.core.animateFloatAsState(
+        targetValue = target,
+        animationSpec = animationSpec(name, scope),
+        finishedListener = { clearAnimationSpec(name, scope) },
+        label = name,
+    )
+    return animation.value
+}
+
 internal fun openNexaUrl(context: Context, value: String) {
     val uri = Uri.parse(value)
     if (uri.scheme !in setOf("https", "http", "mailto", "tel")) return
@@ -229,7 +256,7 @@ internal fun NexaDevNode(
                 val argument = arguments.optJSONArray(index) ?: continue
                 val parameter = argument.optString(0)
                 if (parameter.isNotEmpty()) {
-                    parameters[parameter] = store.evaluate(argument.opt(1), locals, scope)
+                    parameters[parameter] = store.evaluatePresented(argument.opt(1), locals, scope)
                 }
             }
             val slot = NexaDevContentSlot(
@@ -256,7 +283,7 @@ internal fun NexaDevNode(
                 val argument = rawArguments.optJSONArray(index) ?: continue
                 val argumentName = argument.optString(0)
                 if (argumentName.isNotEmpty()) {
-                    arguments[argumentName] = store.evaluate(argument.opt(1), locals, scope)
+                    arguments[argumentName] = store.evaluatePresented(argument.opt(1), locals, scope)
                 }
             }
             val events = mutableMapOf<String, (List<Any>) -> Unit>()
@@ -389,7 +416,7 @@ internal fun NexaDevNode(
                 else -> null
             }
             val content: @Composable () -> Unit = {
-                val text = store.stringify(store.evaluate(fields.opt("value"), locals, scope))
+                val text = store.stringify(store.evaluatePresented(fields.opt("value"), locals, scope))
                 val fontSize = if (style.has("font_size") && !style.isNull("font_size")) style.getDouble("font_size").sp else androidx.compose.ui.unit.TextUnit.Unspecified
                 val maxLines = if (style.has("line_limit") && !style.isNull("line_limit")) style.getInt("line_limit") else Int.MAX_VALUE
                 val letterSpacing = if (style.has("letter_spacing") && !style.isNull("letter_spacing")) style.getDouble("letter_spacing").sp else androidx.compose.ui.unit.TextUnit.Unspecified
@@ -448,10 +475,10 @@ internal fun NexaDevNode(
             thickness = (fields.optDouble("thickness", 1.0)).dp,
         )
         "Button" -> Button(onClick = { store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals) }) {
-            Text(store.stringify(store.evaluate(fields.opt("label"), locals, scope)))
+            Text(store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope)))
         }
         "Pressable" -> {
-            val disabled = store.evaluate(fields.opt("disabled"), locals, scope) as? Boolean ?: false
+            val disabled = store.evaluatePresented(fields.opt("disabled"), locals, scope) as? Boolean ?: false
             val doubleTapActions = fields.optJSONArray("double_tap_actions") ?: JSONArray()
             val longPressActions = fields.optJSONArray("long_press_actions") ?: JSONArray()
             val dragParameters = fields.optJSONArray(NexaDevKeys.DRAG_PARAMETERS) ?: JSONArray()
@@ -561,7 +588,7 @@ internal fun NexaDevNode(
             if (longPressActions.length() == 0) {
                 pressableContent()
             } else {
-                val longPressDurationMs = (store.evaluate(
+                val longPressDurationMs = (store.evaluatePresented(
                     fields.opt(NexaDevKeys.LONG_PRESS_DURATION_MS),
                     locals,
                     scope,
@@ -666,10 +693,10 @@ internal fun NexaDevNode(
             val countExpression = source?.opt("Count")
             val itemSource = source?.optJSONObject("Items")
             val itemExpression = itemSource?.opt("collection")
-            val sourceItems = itemExpression?.let { store.evaluate(it, locals, scope) as? List<*> }
+            val sourceItems = itemExpression?.let { store.evaluatePresented(it, locals, scope) as? List<*> }
             val sectionSource = source?.optJSONObject("Sections")
             val sectionExpression = sectionSource?.opt("collection")
-            val sourceSections = sectionExpression?.let { store.evaluate(it, locals, scope) as? List<*> }
+            val sourceSections = sectionExpression?.let { store.evaluatePresented(it, locals, scope) as? List<*> }
             val axisValue = fields.opt("axis")
             val gridColumns = (axisValue as? JSONObject)
                 ?.optJSONObject("Grid")
@@ -684,7 +711,7 @@ internal fun NexaDevNode(
                 Text("FastList source could not be evaluated.")
             } else {
                 val itemCount = countExpression?.let {
-                    (store.evaluate(it, locals, scope) as? Number)?.toInt()?.coerceAtLeast(0) ?: 0
+                    (store.evaluatePresented(it, locals, scope) as? Number)?.toInt()?.coerceAtLeast(0) ?: 0
                 } ?: sourceItems?.size ?: 0
                 val count = sourceSections?.sumOf { (it as? List<*>)?.size ?: 0 } ?: itemCount
                 val indexName = fields.optString("index", "index")
@@ -831,26 +858,34 @@ internal fun NexaDevNode(
             val max = fields.optDouble("max").toFloat()
             val step = fields.optDouble("step").toFloat()
             val intervals = if (step > 0f) ((max - min) / step).roundToInt().coerceAtLeast(1) else 1
-            val value = (store.state(state, scope) as? Number)?.toFloat()?.coerceIn(min, max) ?: min
+            val rawValue = if (fields.optBoolean("animated")) {
+                store.animatedFloatState(state, scope)
+            } else {
+                (store.state(state, scope) as? Number)?.toFloat() ?: min
+            }
+            val value = rawValue.coerceIn(min, max)
             Slider(
                 value = value,
-                onValueChange = { store.setState(state, it.toDouble(), scope) },
+                onValueChange = {
+                    store.clearAnimationSpec(state, scope)
+                    store.setState(state, it.toDouble(), scope)
+                },
                 valueRange = min..max,
                 steps = intervals - 1,
             )
         }
         "ProgressBar" -> {
-            val progress = (store.evaluate(fields.opt("progress"), locals, scope) as? Number)?.toFloat() ?: 0f
+            val progress = (store.evaluatePresented(fields.opt("progress"), locals, scope) as? Number)?.toFloat() ?: 0f
             LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) })
         }
         "ProgressRing" -> {
-            val progress = (store.evaluate(fields.opt("progress"), locals, scope) as? Number)?.toFloat() ?: 0f
+            val progress = (store.evaluatePresented(fields.opt("progress"), locals, scope) as? Number)?.toFloat() ?: 0f
             CircularProgressIndicator(progress = { progress.coerceIn(0f, 1f) })
         }
         "SegmentedControl" -> {
             val state = fields.optString("state")
             val selected = store.state(state, scope) as? String ?: ""
-            val options = (store.evaluate(fields.opt("items"), locals, scope) as? List<*>)
+            val options = (store.evaluatePresented(fields.opt("items"), locals, scope) as? List<*>)
                 ?.filterIsInstance<String>()
                 ?: emptyList()
             SingleChoiceSegmentedButtonRow {
@@ -868,7 +903,7 @@ internal fun NexaDevNode(
         "Picker" -> {
             val state = fields.optString("state")
             val selected = store.state(state, scope) as? String ?: ""
-            val options = (store.evaluate(fields.opt("items"), locals, scope) as? List<*>)
+            val options = (store.evaluatePresented(fields.opt("items"), locals, scope) as? List<*>)
                 ?.filterIsInstance<String>()
                 ?: emptyList()
             val expanded = remember(state, scope) { mutableStateOf(false) }
@@ -899,7 +934,7 @@ internal fun NexaDevNode(
             val placeholder = fields.optString("placeholder").takeIf(String::isNotEmpty)
             val sharedElementExpression = fields.opt("shared_element")
             val renderedModifier = if (sharedElementExpression != null && sharedElementExpression != JSONObject.NULL) {
-                modifier.then(nexaSharedElementModifier(store.evaluate(sharedElementExpression, locals, scope) ?: ""))
+                modifier.then(nexaSharedElementModifier(store.evaluatePresented(sharedElementExpression, locals, scope) ?: ""))
             } else {
                 modifier
             }
@@ -914,7 +949,7 @@ internal fun NexaDevNode(
                     Text(placeholder ?: "Image unavailable", modifier = renderedModifier)
                 }
             } else if (remoteExpression != null && remoteExpression != JSONObject.NULL) {
-                val url = store.stringify(store.evaluate(remoteExpression, locals, scope))
+                val url = store.stringify(store.evaluatePresented(remoteExpression, locals, scope))
                 val context = LocalContext.current
                 val placeholderId = remember(placeholder) {
                     placeholder?.let { context.resources.getIdentifier(it, "drawable", context.packageName) } ?: 0
@@ -948,7 +983,7 @@ internal fun NexaDevNode(
             }
         }
         "If" -> {
-            val condition = store.evaluate(fields.opt("condition"), locals, scope) as? Boolean ?: false
+            val condition = store.evaluatePresented(fields.opt("condition"), locals, scope) as? Boolean ?: false
             val transition = fields.optString("transition")
             if (transition.isEmpty()) {
                 RenderChildren(fields.optJSONArray(if (condition) "then_body" else "else_body") ?: JSONArray(), module, store, locals, scope)
@@ -970,7 +1005,7 @@ internal fun NexaDevNode(
             }
         }
         "When" -> {
-            val value = store.stringify(store.evaluate(fields.opt("value"), locals, scope))
+            val value = store.stringify(store.evaluatePresented(fields.opt("value"), locals, scope))
             val transition = fields.optString("transition")
             if (transition.isEmpty()) {
                 renderWhenTarget(value, fields, module, store, locals, scope)
@@ -993,16 +1028,16 @@ internal fun NexaDevNode(
         }
         "Link" -> {
             val context = LocalContext.current
-            val url = store.stringify(store.evaluate(fields.opt("url"), locals, scope))
+            val url = store.stringify(store.evaluatePresented(fields.opt("url"), locals, scope))
             val children = fields.optJSONArray("children") ?: JSONArray()
             Column(Modifier.clickable { openNexaUrl(context, url) }) {
                 RenderChildren(children, module, store, locals, scope)
             }
         }
         "Accessibility" -> {
-            val label = store.stringify(store.evaluate(fields.opt("label"), locals, scope))
+            val label = store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope))
             val hintValue = fields.opt("hint")
-            val hint = if (hintValue == null || hintValue == JSONObject.NULL) null else store.stringify(store.evaluate(hintValue, locals, scope))
+            val hint = if (hintValue == null || hintValue == JSONObject.NULL) null else store.stringify(store.evaluatePresented(hintValue, locals, scope))
             val role = when (fields.optString("role")) {
                 "Button" -> SemanticsRole.Button
                 "Image" -> SemanticsRole.Image
@@ -1074,8 +1109,8 @@ internal fun NexaDevNode(
         "Dialog" -> {
             val state = fields.optString("state")
             if (store.state(state, scope) as? Boolean == true) {
-                val title = store.stringify(store.evaluate(fields.opt("title"), locals, scope))
-                val message = store.stringify(store.evaluate(fields.opt("message"), locals, scope))
+                val title = store.stringify(store.evaluatePresented(fields.opt("title"), locals, scope))
+                val message = store.stringify(store.evaluatePresented(fields.opt("message"), locals, scope))
                 AlertDialog(
                     onDismissRequest = { store.setState(state, false, scope) },
                     title = { Text(title) },
@@ -1092,7 +1127,7 @@ internal fun NexaDevNode(
             val destination = screens.optJSONObject(fields.optInt("destination", -1))
             val children = fields.optJSONArray("children") ?: JSONArray()
             val guard = fields.opt("guard")
-            val enabled = guard == null || guard == JSONObject.NULL || store.evaluate(guard, locals, scope) as? Boolean == true
+            val enabled = guard == null || guard == JSONObject.NULL || store.evaluatePresented(guard, locals, scope) as? Boolean == true
             if (destination == null || !enabled) {
                 RenderChildren(children, module, store, locals, scope)
             } else {
@@ -1104,7 +1139,7 @@ internal fun NexaDevNode(
             }
         }
         "NavigationBack" -> {
-            val label = store.stringify(store.evaluate(fields.opt("label"), locals, scope))
+            val label = store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope))
             val controller = LocalNexaDevNavController.current
             androidx.compose.material3.TextButton(onClick = { controller?.popBackStack() }) {
                 Text(label)

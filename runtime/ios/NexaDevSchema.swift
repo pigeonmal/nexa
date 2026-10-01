@@ -7,7 +7,7 @@ public enum NexaDevSchema {
     public static let protocolVersion: Int = 10
 
     /// Format version of the Dev IR payload.
-    public static let devIRFormatVersion: Int = 18
+    public static let devIRFormatVersion: Int = 19
 
     /// Platform identifier for iOS dev runtimes.
     public static let targetPlatform = "ios"
@@ -152,6 +152,7 @@ public enum NexaDevActionKind {
     public static let breakAction = "Break"
     public static let continueAction = "Continue"
     public static let nativeCall = "NativeCall"
+    public static let withAnimation = "WithAnimation"
 }
 
 /// Known collection mutation kinds in Nexa Dev IR.
@@ -177,6 +178,7 @@ public enum NexaDevExprKind {
     public static let triple = "Triple"
     public static let enumValue = "EnumValue"
     public static let state = "State"
+    public static let animatedState = "AnimatedState"
     public static let interpolation = "Interpolation"
     public static let add = "Add"
     public static let concat = "Concat"

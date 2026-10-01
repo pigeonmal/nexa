@@ -1105,6 +1105,118 @@ fn spring_animation_lowers_custom_physics_and_rejects_nonpositive_values() {
 }
 
 #[test]
+fn imperative_animation_is_typed_scoped_and_marks_presentation_reads() {
+    let module = compile(
+        r#"app ImperativeAnimation {
+            state progress: Float64 = 0.0
+            body {
+                Button("Animate") {
+                    withAnimation(Spring(response: 0.35, damping: 0.8)) {
+                        progress = 1.0
+                    }
+                }
+                ProgressBar(progress: progress)
+            }
+        }"#,
+    )
+    .expect("float state assignments should support imperative animation");
+
+    let Node::Button { actions, .. } = module
+        .body
+        .iter()
+        .find(|node| matches!(node, Node::Button { .. }))
+        .expect("animation button should remain in the app body")
+    else {
+        panic!("expected animation button");
+    };
+    assert!(matches!(
+        actions.as_slice(),
+        [Action::WithAnimation {
+            animation: nexa_ir::AnimationSpec::Spring { response, damping },
+            animated_states,
+            actions: inner,
+        }] if *response == 0.35
+            && *damping == 0.8
+            && animated_states == &["progress"]
+            && matches!(inner.as_slice(), [Action::Assign { name, .. }] if name == "progress")
+    ));
+    assert!(matches!(
+        module.body.iter().find(|node| matches!(node, Node::ProgressBar { .. })).expect("progress bar should remain in the app body"),
+        Node::ProgressBar {
+            progress: Expr::AnimatedState(name, Type::Numeric(NumericType::Float64))
+        } if name == "progress"
+    ));
+
+    let invalid = compile(
+        r#"app InvalidAnimation {
+            state count: Int32 = 0
+            body {
+                Button("Animate") {
+                    withAnimation(EaseIn) { count = 1 }
+                }
+            }
+        }"#,
+    )
+    .expect_err("integer state cannot bind to the Float presentation animator");
+    assert!(invalid.to_string().contains("Float32 or Float64"));
+
+    let unobserved = compile(
+        r#"app UnobservedAnimation {
+            state progress: Float64 = 0.0
+            body {
+                Button("Complete") {
+                    withAnimation(EaseIn) { progress = 1.0 }
+                }
+            }
+        }"#,
+    )
+    .expect("unobserved float state updates should still compile");
+    let Node::Button { actions, .. } = &unobserved.body[0] else {
+        panic!("expected the unobserved animation button");
+    };
+    assert!(matches!(
+        actions.as_slice(),
+        [Action::WithAnimation {
+            animated_states, ..
+        }] if animated_states.is_empty()
+    ));
+
+    let empty = compile(
+        r#"app EmptyAnimation {
+            state progress: Float64 = 0.0
+            body {
+                Button("Animate") {
+                    withAnimation(EaseIn) { }
+                }
+            }
+        }"#,
+    )
+    .expect_err("empty animation blocks should be rejected");
+    assert!(empty.to_string().contains("must contain at least one"));
+
+    let side_effect = compile(
+        r#"app AnimationSideEffect {
+            state progress: Float64 = 0.0
+            body {
+                Button("Animate") {
+                    withAnimation(EaseIn) {
+                        Log.info(message: "not an animated state update")
+                        progress = 1.0
+                    }
+                }
+            }
+        }"#,
+    )
+    .expect_err("unrelated side effects should not be hidden in animation blocks");
+    assert!(
+        side_effect
+            .to_string()
+            .contains("only supports floating-point state assignments"),
+        "unexpected diagnostic: {side_effect}"
+    );
+}
+
+#[test]
 fn conditional_transitions_lower_to_typed_ir() {
     let module = compile(
         r#"app ConditionalTransitions {
@@ -1485,7 +1597,9 @@ fn slider_lowers_a_mutable_float64_binding_and_static_range() {
 
     assert!(matches!(
         &module.body[0],
-        Node::Slider { state, min, max, step }
+        Node::Slider {
+            state, min, max, step, ..
+        }
             if state == "volume" && *min == 0.0 && *max == 1.0 && *step == 0.1
     ));
 

@@ -300,6 +300,11 @@
         "android": "covered"
       },
       {
+        "name": "AnimatedState",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "EnumValue",
         "ios": "covered",
         "android": "covered"
@@ -1152,6 +1157,11 @@
         "android": "covered"
       },
       {
+        "name": "WithAnimation",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "CollectionMutation",
         "ios": "covered",
         "android": "covered"
@@ -1590,6 +1600,13 @@
       "semantic_probe_markers": [
         "DEVRT_TASK_MAIN_PASS",
         "DEVRT_TASK_BACKGROUND_PASS"
+      ]
+    },
+    "scoped_imperative_animation": {
+      "ios": "covered",
+      "android": "covered",
+      "semantic_probe_markers": [
+        "DEVRT_WITH_ANIMATION_PASS"
       ]
     },
     "typed_plugin_error_catches": {

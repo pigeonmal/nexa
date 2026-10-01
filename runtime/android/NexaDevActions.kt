@@ -154,6 +154,12 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
             cancelNativeTask(scope, taskCancel.optString("handle"))
             continue
         }
+        val withAnimation = action.optJSONObject("WithAnimation")
+        if (withAnimation != null) {
+            val flow = performWithAnimation(withAnimation, scope, locals)
+            if (flow != NexaDevActionFlow.Normal) return flow
+            continue
+        }
         val mutation = action.optJSONObject("CollectionMutation")
         if (mutation != null) {
             mutateCollection(mutation, scope, locals)
@@ -695,6 +701,12 @@ internal suspend fun NexaDevStateStore.performAsync(
             cancelNativeTask(scope, taskCancel.optString("handle"))
             continue
         }
+        val withAnimation = action.optJSONObject("WithAnimation")
+        if (withAnimation != null) {
+            val flow = performWithAnimation(withAnimation, scope, locals)
+            if (flow != NexaDevActionFlow.Normal) return flow
+            continue
+        }
         val branch = action.optJSONObject("If")
         if (branch != null) {
             val conditionValue = evaluateAsync(branch.opt("condition"), locals, scope)
@@ -777,6 +789,32 @@ internal suspend fun NexaDevStateStore.performAsync(
         if (action.has("Continue")) return NexaDevActionFlow.Continue
     }
     return NexaDevActionFlow.Normal
+}
+
+private fun NexaDevStateStore.performWithAnimation(
+    block: JSONObject,
+    scope: String,
+    locals: Map<String, Any>,
+): NexaDevActionFlow {
+    val targets = block.optJSONArray("animated_states") ?: JSONArray()
+    val names = (0 until targets.length()).mapNotNull { targets.optString(it).takeIf(String::isNotEmpty) }
+    if (names.isEmpty()) {
+        return performActions(block.optJSONArray("actions") ?: JSONArray(), scope, locals)
+    }
+    val previous = names.associateWith { state(it, scope) }
+    for (name in names) setAnimationSpec(name, block.opt("animation"), scope)
+    val flow = performActions(block.optJSONArray("actions") ?: JSONArray(), scope, locals)
+    for (name in names) {
+        val before = previous[name]
+        val after = state(name, scope)
+        val unchanged = if (before is Number && after is Number) {
+            before.toDouble() == after.toDouble()
+        } else {
+            before == after
+        }
+        if (unchanged) clearAnimationSpec(name, scope)
+    }
+    return flow
 }
 
 internal fun NexaDevStateStore.performPluginFailureCatch(

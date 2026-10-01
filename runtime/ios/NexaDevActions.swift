@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Flow control signal for synchronous Nexa dev action execution loops.
 enum NexaDevActionFlow: Equatable {
@@ -190,6 +191,18 @@ extension NexaDevStateStore {
             } else if let task = tagged["TaskCancel"] as? [String: Any],
                       let handle = task["handle"] as? String {
                 cancelNativeTask(handle: handle, scope: scope)
+            } else if let animated = tagged["WithAnimation"] as? [String: Any] {
+                let actions = animated["actions"] as? [Any] ?? []
+                let targets = animated["animated_states"] as? [String] ?? []
+                let flow: NexaDevActionFlow
+                if targets.isEmpty {
+                    flow = performActions(actions, scope: scope, locals: locals)
+                } else {
+                    flow = withAnimation(nexaDevAnimation(animated["animation"])) {
+                        performActions(actions, scope: scope, locals: locals)
+                    }
+                }
+                if flow != .normal { return flow }
             } else if let mutation = tagged["CollectionMutation"] as? [String: Any],
                       let name = mutation["name"] as? String {
                 performCollectionMutation(mutation, name: name, scope: scope, locals: locals)
@@ -669,6 +682,18 @@ extension NexaDevStateStore {
             } else if let task = tagged["TaskCancel"] as? [String: Any],
                       let handle = task["handle"] as? String {
                 cancelNativeTask(handle: handle, scope: scope)
+            } else if let animated = tagged["WithAnimation"] as? [String: Any] {
+                let actions = animated["actions"] as? [Any] ?? []
+                let targets = animated["animated_states"] as? [String] ?? []
+                let flow: NexaDevActionFlow
+                if targets.isEmpty {
+                    flow = performActions(actions, scope: scope, locals: locals)
+                } else {
+                    flow = withAnimation(nexaDevAnimation(animated["animation"])) {
+                        performActions(actions, scope: scope, locals: locals)
+                    }
+                }
+                if flow != .normal { return flow }
             } else if let branch = tagged["If"] as? [String: Any],
                       let condition = branch["condition"] {
                 let value = try await evaluateAsync(condition, locals: locals, scope: scope)
@@ -796,4 +821,25 @@ extension NexaDevStateStore {
         }
         return nil
     }
+}
+
+private func nexaDevAnimation(_ value: Any?) -> Animation? {
+    if let kind = value as? String {
+        switch kind {
+        case "EaseIn": return .easeIn
+        case "EaseOut": return .easeOut
+        case "EaseInOut": return .easeInOut
+        case "Linear": return .linear
+        default: return .default
+        }
+    }
+    guard let tagged = value as? [String: Any], let (kind, payload) = tagged.first else {
+        return .default
+    }
+    if kind == "Spring", let fields = payload as? [String: Any] {
+        let response = fields["response"] as? Double ?? 0.5
+        let damping = fields["damping"] as? Double ?? 0.825
+        return .spring(response: response, dampingFraction: damping)
+    }
+    return nexaDevAnimation(kind)
 }

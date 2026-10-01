@@ -278,7 +278,7 @@ final class NexaDevStateStore: ObservableObject {
             }
         case "EnumValue", "PluginEnumValue":
             return (payload as? [String: Any])?["case_name"] as? String ?? ""
-        case "State":
+        case "State", "AnimatedState":
             let parts = payload as? [Any] ?? []
             guard let name = parts.first as? String else { return NSNull() }
             return locals[name] ?? value(name, scope: scope)

@@ -1,7 +1,8 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
-    Action, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node, TaskExecutor,
+    Action, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node,
+    TaskExecutor,
 };
 
 use crate::generator::{
@@ -511,6 +512,23 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
             Action::TaskCancel { handle } => {
                 out.line_at(depth, format_args!("{}?.cancel()", state_name(handle)));
             }
+            Action::WithAnimation {
+                animation,
+                animated_states,
+                actions,
+            } => {
+                if animated_states.is_empty() {
+                    render_actions(actions, depth, out);
+                    continue;
+                }
+                indent(out, depth);
+                out.push_str("withAnimation(");
+                out.push_str(&swift_animation(*animation));
+                out.push_str(") {\n");
+                render_actions(actions, depth + 1, out);
+                indent(out, depth);
+                out.push_str("}\n");
+            }
             Action::CollectionMutation {
                 name,
                 operation,
@@ -615,6 +633,18 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                 out.push_str("continue\n");
             }
         }
+    }
+}
+
+fn swift_animation(animation: AnimationSpec) -> String {
+    match animation {
+        AnimationSpec::Spring { response, damping } => {
+            format!(".spring(response: {response}, dampingFraction: {damping})")
+        }
+        AnimationSpec::EaseIn => ".easeIn".to_owned(),
+        AnimationSpec::EaseOut => ".easeOut".to_owned(),
+        AnimationSpec::EaseInOut => ".easeInOut".to_owned(),
+        AnimationSpec::Linear => ".linear".to_owned(),
     }
 }
 

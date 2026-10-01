@@ -114,6 +114,7 @@ dev_pid=$!
 
 wait_for_marker "$dev_log" "Nexa $target_name dev runtime connected."
 for marker in \
+  DEVRT_WITH_ANIMATION_PASS \
   DEVRT_ASYNC_NESTED_EXPRESSION_PASS \
   DEVRT_TASK_MAIN_PASS \
   DEVRT_TASK_BACKGROUND_PASS \

@@ -96,10 +96,11 @@ pub(crate) fn render_node(
         Node::Switch { state, label } => controls::render_switch(state, label, depth, out),
         Node::Slider {
             state,
+            animated,
             min,
             max,
             step,
-        } => controls::render_slider(state, *min, *max, *step, depth, out),
+        } => controls::render_slider(state, *animated, *min, *max, *step, depth, out),
         Node::ProgressBar { progress } => controls::render_progress_bar(progress, depth, out),
         Node::ProgressRing { progress } => controls::render_progress_ring(progress, depth, out),
         Node::SegmentedControl { items, state } => {

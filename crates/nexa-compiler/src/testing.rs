@@ -659,6 +659,9 @@ fn run_actions(
             Action::Expression(expression) => {
                 let _ = eval_expr(expression, environment, functions, depth + 1)?;
             }
+            Action::WithAnimation { actions, .. } => {
+                run_actions(actions, environment, functions, depth + 1)?;
+            }
             Action::If {
                 condition,
                 then_branch,

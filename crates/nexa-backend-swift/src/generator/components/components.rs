@@ -156,6 +156,7 @@ pub(crate) fn render_node(
             min,
             max,
             step,
+            ..
         } => controls::render_slider(state, *min, *max, *step, depth, out),
         Node::ProgressBar { progress } => controls::render_progress_bar(progress, depth, out),
         Node::ProgressRing { progress } => controls::render_progress_ring(progress, depth, out),

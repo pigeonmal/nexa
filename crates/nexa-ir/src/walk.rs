@@ -303,7 +303,8 @@ fn walk_nested_callback_actions(actions: &[Action], visit: &mut impl FnMut(&[Act
         match action {
             Action::NativeEventSubscribe { actions, .. }
             | Action::NetworkStatusSubscribe { actions, .. }
-            | Action::TaskLaunch { actions, .. } => {
+            | Action::TaskLaunch { actions, .. }
+            | Action::WithAnimation { actions, .. } => {
                 visit(actions);
                 walk_nested_callback_actions(actions, visit);
             }
@@ -502,6 +503,7 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
         | Expr::Bool(_)
         | Expr::Number { .. }
         | Expr::State(_, _)
+        | Expr::AnimatedState(_, _)
         | Expr::EnumValue { .. }
         | Expr::PluginEnumValue { .. }
         | Expr::Null(_)
@@ -621,7 +623,9 @@ pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
                     walk_expression(argument, visit);
                 }
             }
-            Action::TaskLaunch { actions, .. } => walk_actions(actions, visit),
+            Action::TaskLaunch { actions, .. } | Action::WithAnimation { actions, .. } => {
+                walk_actions(actions, visit)
+            }
             Action::TaskCancel { .. } => {}
             Action::If {
                 condition,
@@ -673,7 +677,8 @@ pub fn walk_action_tree(actions: &[Action], visit: &mut impl FnMut(&Action)) {
         match action {
             Action::NativeEventSubscribe { actions, .. }
             | Action::NetworkStatusSubscribe { actions, .. }
-            | Action::TaskLaunch { actions, .. } => walk_action_tree(actions, visit),
+            | Action::TaskLaunch { actions, .. }
+            | Action::WithAnimation { actions, .. } => walk_action_tree(actions, visit),
             Action::If {
                 then_branch,
                 else_branch,
@@ -741,7 +746,10 @@ pub fn walk_callback_expressions(actions: &[Action], visit: &mut impl FnMut(&Exp
                 walk_expression(value, visit);
             }
             Action::NativeEventSubscribe { receiver, .. } => walk_expression(receiver, visit),
-            Action::TaskLaunch { .. } | Action::TaskCancel { .. } => {}
+            Action::TaskLaunch { actions, .. } | Action::WithAnimation { actions, .. } => {
+                walk_callback_expressions(actions, visit)
+            }
+            Action::TaskCancel { .. } => {}
             Action::NetworkStatusSubscribe { .. } => {}
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {
@@ -1195,6 +1203,7 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
         | Expr::Bool(_)
         | Expr::Number { .. }
         | Expr::State(_, _)
+        | Expr::AnimatedState(_, _)
         | Expr::EnumValue { .. }
         | Expr::PluginEnumValue { .. }
         | Expr::Null(_)
@@ -1227,7 +1236,9 @@ pub fn walk_action_children<V: IrVisitor>(action: &Action, visitor: &mut V) {
                 visitor.visit_expr(argument);
             }
         }
-        Action::TaskLaunch { actions, .. } => visitor.visit_actions(actions),
+        Action::TaskLaunch { actions, .. } | Action::WithAnimation { actions, .. } => {
+            visitor.visit_actions(actions)
+        }
         Action::TaskCancel { .. } => {}
         Action::If {
             condition,
@@ -1919,6 +1930,7 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
         | Expr::Bool(_)
         | Expr::Number { .. }
         | Expr::State(_, _)
+        | Expr::AnimatedState(_, _)
         | Expr::EnumValue { .. }
         | Expr::PluginEnumValue { .. }
         | Expr::Null(_)
@@ -1981,6 +1993,15 @@ pub fn fold_action_children<F: IrFolder>(action: Action, folder: &mut F) -> Opti
         } => Some(Action::TaskLaunch {
             handle,
             executor,
+            actions: folder.fold_actions(actions),
+        }),
+        Action::WithAnimation {
+            animation,
+            animated_states,
+            actions,
+        } => Some(Action::WithAnimation {
+            animation,
+            animated_states,
             actions: folder.fold_actions(actions),
         }),
         Action::TaskCancel { .. } => Some(action),

@@ -20,7 +20,7 @@ use super::{
     },
     styles::{
         lower_opacity, lower_style, lower_view_effects, optional_color, optional_dimension,
-        parse_color_literal,
+        parse_animation, parse_color_literal,
     },
 };
 use crate::Target;
@@ -580,6 +580,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             }
             Ok(Node::Slider {
                 state,
+                animated: false,
                 min,
                 max,
                 step,
@@ -2955,6 +2956,27 @@ fn lower_actions_with_disposal_state(
                 }
                 lowered.push(Action::TaskCancel { handle });
             }
+            ast::Stmt::WithAnimation {
+                animation,
+                body,
+                span,
+            } => {
+                let animation = parse_animation(animation)?;
+                let actions = lower_actions_with_aliases(
+                    body,
+                    symbols,
+                    functions,
+                    false,
+                    native_aliases,
+                    registries,
+                )?;
+                let animated_states = collect_animation_targets(&actions, symbols, span)?;
+                lowered.push(Action::WithAnimation {
+                    animation,
+                    animated_states,
+                    actions,
+                });
+            }
             ast::Stmt::If {
                 condition,
                 then_branch,
@@ -3354,6 +3376,112 @@ fn lower_actions_with_disposal_state(
     Ok(lowered)
 }
 
+fn collect_animation_targets(
+    actions: &[Action],
+    symbols: &HashMap<String, (Type, bool)>,
+    span: Span,
+) -> Result<Vec<String>, CompileError> {
+    fn collect(
+        actions: &[Action],
+        symbols: &HashMap<String, (Type, bool)>,
+        span: Span,
+        targets: &mut Vec<String>,
+        seen: &mut HashSet<String>,
+    ) -> Result<(), CompileError> {
+        for action in actions {
+            match action {
+                Action::Assign { name, .. } => {
+                    let Some((ty, mutable)) = symbols.get(name) else {
+                        return Err(CompileError::new(
+                            span,
+                            format!("unknown state `{name}` in `withAnimation`"),
+                        ));
+                    };
+                    if !mutable
+                        || !matches!(
+                            ty,
+                            Type::Numeric(NumericType::Float32 | NumericType::Float64)
+                        )
+                    {
+                        return Err(CompileError::new(
+                            span,
+                            format!(
+                                "`withAnimation` currently supports assignments to mutable Float32 or Float64 state; `{name}` has type `{}`",
+                                type_name(ty)
+                            ),
+                        ));
+                    }
+                    if seen.insert(name.clone()) {
+                        targets.push(name.clone());
+                    }
+                }
+                Action::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    collect(then_branch, symbols, span, targets, seen)?;
+                    if let Some(else_branch) = else_branch {
+                        collect(else_branch, symbols, span, targets, seen)?;
+                    }
+                }
+                Action::For { body, .. }
+                | Action::ForMap { body, .. }
+                | Action::While { body, .. } => collect(body, symbols, span, targets, seen)?,
+                Action::TryCatch {
+                    body,
+                    error_catches,
+                    catch_body,
+                } => {
+                    collect(body, symbols, span, targets, seen)?;
+                    for arm in error_catches {
+                        collect(&arm.body, symbols, span, targets, seen)?;
+                    }
+                    if let Some(catch_body) = catch_body {
+                        collect(catch_body, symbols, span, targets, seen)?;
+                    }
+                }
+                Action::WithAnimation { actions, .. } => {
+                    collect(actions, symbols, span, targets, seen)?;
+                }
+                Action::TaskLaunch { .. }
+                | Action::TaskCancel { .. }
+                | Action::NativeEventSubscribe { .. }
+                | Action::NetworkStatusSubscribe { .. } => {
+                    return Err(CompileError::new(
+                        span,
+                        "`withAnimation` only supports floating-point state assignments and control flow around them",
+                    ));
+                }
+                Action::CollectionMutation { .. } => {
+                    return Err(CompileError::new(
+                        span,
+                        "`withAnimation` supports floating-point state assignments, not collection mutations",
+                    ));
+                }
+                Action::Expression(_) | Action::NativePropertyAssign { .. } => {
+                    return Err(CompileError::new(
+                        span,
+                        "`withAnimation` only supports floating-point state assignments and control flow around them",
+                    ));
+                }
+                Action::Break | Action::Continue => {}
+            }
+        }
+        Ok(())
+    }
+
+    let mut targets = Vec::new();
+    collect(actions, symbols, span, &mut targets, &mut HashSet::new())?;
+    if targets.is_empty() {
+        return Err(CompileError::new(
+            span,
+            "`withAnimation` must contain at least one mutable Float32 or Float64 state assignment",
+        ));
+    }
+    Ok(targets)
+}
+
 pub(super) fn class_has_dispose_method(ty: &Type, functions: &FunctionSignatures) -> bool {
     let Type::Plugin { name, .. } = ty else {
         return false;
@@ -3462,7 +3590,7 @@ fn validate_typed_error_recovery(
 fn task_actions_touch_state(actions: &[Action]) -> bool {
     let mut reads_state = false;
     nexa_ir::walk::walk_actions(actions, &mut |expression| {
-        reads_state |= matches!(expression, Expr::State(_, _));
+        reads_state |= matches!(expression, Expr::State(_, _) | Expr::AnimatedState(_, _));
     });
     reads_state || actions_mutate_or_subscribe(actions)
 }
@@ -3476,6 +3604,7 @@ fn actions_mutate_or_subscribe(actions: &[Action]) -> bool {
         | Action::CollectionMutation { .. }
         | Action::TaskLaunch { .. }
         | Action::TaskCancel { .. } => true,
+        Action::WithAnimation { actions, .. } => actions_mutate_or_subscribe(actions),
         Action::If {
             then_branch,
             else_branch,
@@ -3524,7 +3653,9 @@ fn visit_action_expressions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
             Action::NativeEventSubscribe { receiver, .. } => {
                 nexa_ir::walk::walk_expression(receiver, visit);
             }
-            Action::TaskLaunch { actions, .. } => visit_action_expressions(actions, visit),
+            Action::TaskLaunch { actions, .. } | Action::WithAnimation { actions, .. } => {
+                visit_action_expressions(actions, visit)
+            }
             Action::TaskCancel { .. } => {}
             Action::NetworkStatusSubscribe { .. } => {}
             Action::CollectionMutation { arguments, .. } => {

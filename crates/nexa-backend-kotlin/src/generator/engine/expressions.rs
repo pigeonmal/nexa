@@ -49,6 +49,11 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
         Expr::Number { raw, ty } => kotlin_number(raw, *ty),
         Expr::State(name, _) if locals.iter().any(|local| local == name) => name.clone(),
         Expr::State(name, _) => state_name(name),
+        Expr::AnimatedState(name, Type::Numeric(NumericType::Float64)) => {
+            format!("{}Animated.toDouble()", state_name(name))
+        }
+        Expr::AnimatedState(name, _) if locals.iter().any(|local| local == name) => name.clone(),
+        Expr::AnimatedState(name, _) => format!("{}Animated", state_name(name)),
         Expr::EnumValue {
             enum_name,
             case_name,

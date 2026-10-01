@@ -1,7 +1,8 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
 use nexa_ir::{
-    Action, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node, TaskExecutor,
+    Action, AnimationSpec, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node,
+    TaskExecutor,
 };
 
 use crate::generator::{
@@ -217,6 +218,7 @@ pub(crate) fn render_switch(state: &str, label: &str, depth: usize, out: &mut So
 
 pub(crate) fn render_slider(
     state: &str,
+    animated: bool,
     min: f64,
     max: f64,
     step: f64,
@@ -224,11 +226,15 @@ pub(crate) fn render_slider(
     out: &mut SourceWriter,
 ) {
     let intervals = ((max - min) / step).round() as i32;
+    let value = if animated {
+        format!("{}Animated", state_name(state))
+    } else {
+        state_name(state)
+    };
     out.line_at(
         depth,
         format_args!(
-            "Slider(value = {}.toFloat(), onValueChange = {{ {} = it.toDouble() }}, valueRange = {}f..{}f, steps = {})",
-            state_name(state),
+            "Slider(value = {value}.toFloat(), onValueChange = {{ {} = it.toDouble() }}, valueRange = {}f..{}f, steps = {})",
             state_name(state),
             min as f32,
             max as f32,
@@ -742,6 +748,20 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
             Action::TaskCancel { handle } => {
                 out.line_at(depth, format_args!("{}?.cancel()", state_name(handle)));
             }
+            Action::WithAnimation {
+                animation,
+                animated_states,
+                actions,
+            } => {
+                let spec = kotlin_animation(*animation);
+                for state in animated_states {
+                    out.line_at(
+                        depth,
+                        format_args!("{}AnimationSpec = {spec}", state_name(state)),
+                    );
+                }
+                render_actions(actions, depth, out);
+            }
             Action::CollectionMutation {
                 name,
                 operation,
@@ -856,6 +876,21 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
     }
 }
 
+fn kotlin_animation(animation: AnimationSpec) -> String {
+    match animation {
+        AnimationSpec::Spring { response, damping } => {
+            let stiffness = (100.0 / f64::from(response).powi(2)) as f32;
+            format!(
+                "androidx.compose.animation.core.spring(dampingRatio = {damping}f, stiffness = {stiffness}f)"
+            )
+        }
+        AnimationSpec::EaseIn => "androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.FastOutLinearInEasing)".to_owned(),
+        AnimationSpec::EaseOut => "androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.LinearOutSlowInEasing)".to_owned(),
+        AnimationSpec::EaseInOut => "androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.FastOutSlowInEasing)".to_owned(),
+        AnimationSpec::Linear => "androidx.compose.animation.core.tween(easing = androidx.compose.animation.core.LinearEasing)".to_owned(),
+    }
+}
+
 fn render_kotlin_error_catches(
     catches: &[ErrorCatchArm],
     catch_all: Option<&[Action]>,
@@ -934,7 +969,7 @@ mod tests {
     #[test]
     fn renders_slider_as_a_compose_float_binding_with_static_steps() {
         let mut output = SourceWriter::new();
-        render_slider("volume", 0.0, 1.0, 0.1, 0, &mut output);
+        render_slider("volume", false, 0.0, 1.0, 0.1, 0, &mut output);
         assert_eq!(
             output.as_str(),
             "Slider(value = nexa_volume.toFloat(), onValueChange = { nexa_volume = it.toDouble() }, valueRange = 0f..1f, steps = 9)\n"

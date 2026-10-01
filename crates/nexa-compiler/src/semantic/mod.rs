@@ -1728,6 +1728,7 @@ fn lower_functions(
                     | ast::Stmt::CollectionMutation { span, .. }
                     | ast::Stmt::TaskLaunch { span, .. }
                     | ast::Stmt::TaskCancel { span, .. }
+                    | ast::Stmt::WithAnimation { span, .. }
                     | ast::Stmt::If { span, .. }
                     | ast::Stmt::For { span, .. }
                     | ast::Stmt::ForMap { span, .. }

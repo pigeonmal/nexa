@@ -33,7 +33,8 @@ fn project_features_from_analysis(
         uses_permission_request: features.uses_permission_request,
         uses_navigation: !module.screens.is_empty(),
         uses_compose_animation: features.uses_conditional_transition
-            || features.uses_shared_elements,
+            || features.uses_shared_elements
+            || state::module_uses_scoped_animation(module),
         uses_compose_graphics: features.uses_color
             || features.uses_asset
             || features.uses_tab_icon
@@ -350,6 +351,13 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                     ));
                 }
             }
+            let animated_targets = state::app_animated_state_targets(module);
+            state::render_animated_state_aliases(
+                &module.states,
+                &animated_targets,
+                1,
+                out,
+            );
             if !focus_bindings.is_empty() {
                 for binding in &focus_bindings {
                     out.push_str(&format!(

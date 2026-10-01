@@ -770,6 +770,12 @@ pub enum Stmt {
         handle: String,
         span: Span,
     },
+    /// Applies a native animation transaction to floating-point state writes.
+    WithAnimation {
+        animation: Expr,
+        body: Vec<Stmt>,
+        span: Span,
+    },
     If {
         condition: Expr,
         then_branch: Vec<Stmt>,

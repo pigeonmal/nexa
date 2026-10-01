@@ -6,7 +6,7 @@ package __NEXA_PACKAGE__
  */
 internal object NexaDevSchema {
     const val PROTOCOL_VERSION: Int = 10
-    const val DEV_IR_FORMAT_VERSION: Int = 18
+    const val DEV_IR_FORMAT_VERSION: Int = 19
     const val TARGET_PLATFORM: String = "android"
 }
 
@@ -149,6 +149,7 @@ internal object NexaDevActionKind {
     const val BREAK = "Break"
     const val CONTINUE = "Continue"
     const val NATIVE_CALL = "NativeCall"
+    const val WITH_ANIMATION = "WithAnimation"
 }
 
 internal object NexaDevCollectionMutationKind {
@@ -172,6 +173,7 @@ internal object NexaDevExprKind {
     const val TRIPLE = "Triple"
     const val ENUM_VALUE = "EnumValue"
     const val STATE = "State"
+    const val ANIMATED_STATE = "AnimatedState"
     const val INTERPOLATION = "Interpolation"
     const val ADD = "Add"
     const val CONCAT = "Concat"
