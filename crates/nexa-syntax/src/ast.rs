@@ -140,6 +140,38 @@ pub enum TestStatement {
         value: Expr,
         span: Span,
     },
+    TypeText {
+        placeholder: Expr,
+        value: Expr,
+        span: Span,
+    },
+    Toggle {
+        label: Expr,
+        span: Span,
+    },
+    Slide {
+        state: Expr,
+        value: Expr,
+        span: Span,
+    },
+    Select {
+        state: Expr,
+        value: Expr,
+        span: Span,
+    },
+    Submit {
+        placeholder: Expr,
+        span: Span,
+    },
+    AssertComponent {
+        name: Expr,
+        span: Span,
+    },
+    Emit {
+        component: Expr,
+        event: Expr,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Debug)]

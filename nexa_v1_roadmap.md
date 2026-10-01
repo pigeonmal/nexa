@@ -6,6 +6,8 @@ Nexa is an Ahead-Of-Time (AOT) transpiler that compiles declarative `.nx` mobile
 
 This document is the **Nexa 1.0 implementation roadmap and status source**. The archetypes below describe target applications; they are not a claim that every capability or end-to-end scenario is finished. Every actionable roadmap item has a checkbox: `[ ]` means remaining, and `[x]` means implemented and verified. Informational architecture and archetype descriptions are not task items.
 
+Status reviewed: 2026-10-01.
+
 ---
 
 ## The 8 App Archetypes: Target Capability Matrix
@@ -269,7 +271,7 @@ graph TD
 - [x] `nexa check`: Verifies `.nx` syntax, semantics, types, and plugin contracts; `--audit` adds reachability and capability inspection.
 - [x] `nexa test`: Runs supported `.nx` unit tests and compiles native test hosts.
 - [x] Add initial headless component behavior tests to `nexa test`: mount custom components, tap visible buttons, and assert component state and rendered text.
-- [ ] Expand headless component behavior tests to cover forms, platform-backed controls, native plugin components, and broader action semantics.
+- [x] Expand headless component behavior tests to cover TextInput submission, Switch/Slider/Picker/SegmentedControl interactions, native plugin component events, loops, collection expressions, and collection mutations.
 - [x] `nexa audit`: Reports release footprint data and can build/measure `.app`, `.apk`, and `.aab` artifacts with `--release-sizes`.
 
 #### 5.2 In-Language Test Runner (`nexa test`)

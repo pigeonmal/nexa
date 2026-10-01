@@ -1,4 +1,9 @@
-use nexa_compiler::{compile_with_warnings, testing::run_tests};
+use std::fs;
+
+use nexa_compiler::{
+    Target, compile_file_with_warnings_for_target, compile_with_warnings, testing::run_tests,
+};
+use nexa_testkit::TestProject;
 
 #[test]
 fn evaluates_named_nexa_test_blocks_through_typed_functions() {
@@ -24,6 +29,33 @@ test "cart item calculation" {
     assert_eq!(compilation.tests.functions.len(), 1);
     let report = run_tests(&compilation.tests);
     assert_eq!(report.passed, 1);
+    assert!(report.failures.is_empty());
+}
+
+#[test]
+fn evaluates_typed_collection_expressions_in_headless_tests() {
+    let compilation = compile_with_warnings(
+        r#"
+app CollectionExpressions {
+    body { Text("Collections") }
+}
+
+test "typed collection expressions" {
+    let values: Array<Int32> = [1, 2, 3]
+    let doubled: Array<Int32> = values.map { value -> value * 2 }
+    let evens: Array<Int32> = doubled.filter { value -> value % 2 == 0 }
+    let total: Int32 = evens.reduce(0) { sum, value -> sum + value }
+    assert(values.count == 3)
+    assert(2 in values)
+    assert(doubled[1] == 4)
+    assert(total == 12)
+}
+"#,
+    )
+    .expect("compile a headless collection expression test");
+
+    let report = run_tests(&compilation.tests);
+    assert_eq!(report.passed, 1, "{:?}", report.failures);
     assert!(report.failures.is_empty());
 }
 
@@ -196,6 +228,163 @@ test "nested counter pressable" for CounterScreen() {
     )
     .expect("compile a nested headless component test");
 
+    let report = run_tests(&compilation.tests);
+    assert_eq!(report.passed, 1, "{:?}", report.failures);
+    assert!(report.failures.is_empty());
+}
+
+#[test]
+fn headless_component_tests_cover_forms_and_platform_backed_controls() {
+    let compilation = compile_with_warnings(
+        r#"
+component Preferences() {
+    state name: String = ""
+    state submitted: String = ""
+    state enabled: Bool = false
+    state volume: Float64 = 0.0
+    state choice: String = "First"
+    body {
+        TextInput(value: name, placeholder: "Name") {
+            submitted = name
+        }
+        Switch(value: enabled, label: "Enabled")
+        Slider(value: volume, min: 0.0, max: 1.0, step: 0.25)
+        SegmentedControl(items: ["First", "Second"], selected: choice)
+        Text("Name: $name")
+        Text("Submitted: $submitted")
+        Text(enabled ? "Enabled" : "Disabled")
+        Text("Volume: $volume")
+        Text("Choice: $choice")
+    }
+}
+
+app PreferencesDemo {
+    body { Preferences() }
+}
+
+test "form and control interactions" for Preferences() {
+    typeText("Name", "Ada")
+    submit("Name")
+    toggle("Enabled")
+    slide("volume", 0.74)
+    select("choice", "Second")
+    assert(name == "Ada")
+    assert(submitted == "Ada")
+    assert(enabled)
+    assert(volume == 0.75)
+    assert(choice == "Second")
+    assertText("Name: Ada")
+    assertText("Submitted: Ada")
+    assertText("Enabled")
+    assertText("Volume: 0.75")
+    assertText("Choice: Second")
+}
+"#,
+    )
+    .expect("compile headless form and control interactions");
+
+    let report = run_tests(&compilation.tests);
+    assert_eq!(report.passed, 1, "{:?}", report.failures);
+    assert!(report.failures.is_empty());
+}
+
+#[test]
+fn headless_component_tests_execute_loops_and_collection_mutations() {
+    let compilation = compile_with_warnings(
+        r#"
+component CollectionEditor() {
+    state values: Array<Int32> = [1, 2, 3]
+    state total: Int32 = 0
+    state steps: Int32 = 0
+    body {
+        Text("Total: $total")
+        Text("Steps: $steps")
+        Text("Items: $values")
+        Button("Process") {
+            for value in values {
+                total += value
+            }
+            values.append(4)
+            values.remove(0)
+            while steps < 2 {
+                steps += 1
+            }
+        }
+    }
+}
+
+app CollectionDemo {
+    body { CollectionEditor() }
+}
+
+test "collection actions" for CollectionEditor() {
+    tap("Process")
+    assert(total == 6)
+    assert(steps == 2)
+    assert(values.count == 3)
+    assert(values[0] == 2)
+    assertText("Total: 6")
+    assertText("Steps: 2")
+    assertText("Items: [2, 3, 4]")
+}
+"#,
+    )
+    .expect("compile headless collection actions");
+
+    let report = run_tests(&compilation.tests);
+    assert_eq!(report.passed, 1, "{:?}", report.failures);
+    assert!(report.failures.is_empty());
+}
+
+#[test]
+fn headless_component_tests_mount_and_emit_native_plugin_events() {
+    let project = TestProject::new("nexa-test-native-component");
+    let plugin = project.join("widget");
+    fs::create_dir_all(&plugin).expect("plugin directory should be created");
+    fs::write(
+        plugin.join("plugin.config.nx"),
+        "plugin { schema: 2 id: \"dev.test.widget\" version: \"1.0.0\" sources { native: \"native.nxid\" } }\n",
+    )
+    .expect("plugin manifest should be written");
+    fs::write(
+        plugin.join("native.nxid"),
+        "native component Widget { event completed() }\n",
+    )
+    .expect("native component contract should be written");
+    let entry = project.join("App.nx");
+    fs::write(
+        &entry,
+        r#"
+plugin "widget" as Widget
+
+component EventDemo() {
+    state completed: Bool = false
+    body {
+        Widget.Widget().onCompleted {
+            completed = true
+        }
+        if completed {
+            Text("Completed")
+        }
+    }
+}
+
+app Demo {
+    body { EventDemo() }
+}
+
+test "native component event" for EventDemo() {
+    assertComponent("Widget.Widget")
+    emit("Widget.Widget", "onCompleted")
+    assert(completed)
+    assertText("Completed")
+}
+"#,
+    )
+    .expect("app source should be written");
+
+    let compilation = compile_file_with_warnings_for_target(&entry, Target::Swift)
+        .expect("compile headless native component test");
     let report = run_tests(&compilation.tests);
     assert_eq!(report.passed, 1, "{:?}", report.failures);
     assert!(report.failures.is_empty());

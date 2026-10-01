@@ -275,6 +275,134 @@ pub(super) fn lower_tests(
                     .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
                     statements.push(TestStatement::AssertText { value, span });
                 }
+                ast::TestStatement::TypeText {
+                    placeholder,
+                    value,
+                    span,
+                } => {
+                    require_component_target(mounted_component.as_ref(), span, "typeText")?;
+                    let context = ExprContext::with_types(
+                        &symbols,
+                        &signatures,
+                        false,
+                        &structs,
+                        &enum_names,
+                    );
+                    let placeholder = lower_expr(&placeholder, Some(&Type::String), &context)
+                        .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    let value = lower_expr(&value, Some(&Type::String), &context)
+                        .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    statements.push(TestStatement::TypeText {
+                        placeholder,
+                        value,
+                        span,
+                    });
+                }
+                ast::TestStatement::Toggle { label, span } => {
+                    require_component_target(mounted_component.as_ref(), span, "toggle")?;
+                    let label = lower_expr(
+                        &label,
+                        Some(&Type::String),
+                        &ExprContext::with_types(
+                            &symbols,
+                            &signatures,
+                            false,
+                            &structs,
+                            &enum_names,
+                        ),
+                    )
+                    .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    statements.push(TestStatement::Toggle { label, span });
+                }
+                ast::TestStatement::Slide { state, value, span } => {
+                    require_component_target(mounted_component.as_ref(), span, "slide")?;
+                    let context = ExprContext::with_types(
+                        &symbols,
+                        &signatures,
+                        false,
+                        &structs,
+                        &enum_names,
+                    );
+                    let state = lower_expr(&state, Some(&Type::String), &context)
+                        .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    let value = lower_expr(
+                        &value,
+                        Some(&Type::Numeric(nexa_ir::NumericType::Float64)),
+                        &context,
+                    )
+                    .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    statements.push(TestStatement::Slide { state, value, span });
+                }
+                ast::TestStatement::Select { state, value, span } => {
+                    require_component_target(mounted_component.as_ref(), span, "select")?;
+                    let context = ExprContext::with_types(
+                        &symbols,
+                        &signatures,
+                        false,
+                        &structs,
+                        &enum_names,
+                    );
+                    let state = lower_expr(&state, Some(&Type::String), &context)
+                        .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    let value = lower_expr(&value, Some(&Type::String), &context)
+                        .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    statements.push(TestStatement::Select { state, value, span });
+                }
+                ast::TestStatement::Submit { placeholder, span } => {
+                    require_component_target(mounted_component.as_ref(), span, "submit")?;
+                    let placeholder = lower_expr(
+                        &placeholder,
+                        Some(&Type::String),
+                        &ExprContext::with_types(
+                            &symbols,
+                            &signatures,
+                            false,
+                            &structs,
+                            &enum_names,
+                        ),
+                    )
+                    .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    statements.push(TestStatement::Submit { placeholder, span });
+                }
+                ast::TestStatement::AssertComponent { name, span } => {
+                    require_component_target(mounted_component.as_ref(), span, "assertComponent")?;
+                    let name = lower_expr(
+                        &name,
+                        Some(&Type::String),
+                        &ExprContext::with_types(
+                            &symbols,
+                            &signatures,
+                            false,
+                            &structs,
+                            &enum_names,
+                        ),
+                    )
+                    .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    statements.push(TestStatement::AssertComponent { name, span });
+                }
+                ast::TestStatement::Emit {
+                    component,
+                    event,
+                    span,
+                } => {
+                    require_component_target(mounted_component.as_ref(), span, "emit")?;
+                    let context = ExprContext::with_types(
+                        &symbols,
+                        &signatures,
+                        false,
+                        &structs,
+                        &enum_names,
+                    );
+                    let component = lower_expr(&component, Some(&Type::String), &context)
+                        .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    let event = lower_expr(&event, Some(&Type::String), &context)
+                        .map_err(|error| with_test_source(error, test.source_file.as_deref()))?;
+                    statements.push(TestStatement::Emit {
+                        component,
+                        event,
+                        span,
+                    });
+                }
             }
         }
         lowered_tests.push(TestCase {
@@ -291,6 +419,23 @@ pub(super) fn lower_tests(
         components: components.to_vec(),
         tests: lowered_tests,
     })
+}
+
+fn require_component_target(
+    mount: Option<&crate::testing::TestComponentMount>,
+    span: nexa_diagnostics::Span,
+    operation: &str,
+) -> Result<(), CompileError> {
+    if mount.is_some() {
+        Ok(())
+    } else {
+        Err(CompileError::new(
+            span,
+            format!(
+                "`{operation}(...)` requires a component target: add `for Component()` to the test"
+            ),
+        ))
+    }
 }
 
 fn lower_test_component(

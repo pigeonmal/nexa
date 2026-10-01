@@ -786,8 +786,94 @@ impl Parser {
                 self.optional_semicolon();
                 continue;
             }
+            if self.word_is("typeText") {
+                let statement_span = self.advance().span;
+                self.expect(Kind::LParen, "expected `(` after `typeText`")?;
+                let placeholder = self.expr()?;
+                self.expect(Kind::Comma, "expected `,` after text input placeholder")?;
+                let value = self.expr()?;
+                self.expect(Kind::RParen, "expected `)` after text input value")?;
+                statements.push(TestStatement::TypeText {
+                    placeholder,
+                    value,
+                    span: statement_span,
+                });
+                self.optional_semicolon();
+                continue;
+            }
+            if self.word_is("toggle") || self.word_is("submit") {
+                let submit = self.word_is("submit");
+                let statement_span = self.advance().span;
+                self.expect(Kind::LParen, "expected `(` after test interaction")?;
+                let target = self.expr()?;
+                self.expect(Kind::RParen, "expected `)` after test interaction target")?;
+                statements.push(if submit {
+                    TestStatement::Submit {
+                        placeholder: target,
+                        span: statement_span,
+                    }
+                } else {
+                    TestStatement::Toggle {
+                        label: target,
+                        span: statement_span,
+                    }
+                });
+                self.optional_semicolon();
+                continue;
+            }
+            if self.word_is("slide") || self.word_is("select") {
+                let select = self.word_is("select");
+                let statement_span = self.advance().span;
+                self.expect(Kind::LParen, "expected `(` after control interaction")?;
+                let state = self.expr()?;
+                self.expect(Kind::Comma, "expected `,` after control state name")?;
+                let value = self.expr()?;
+                self.expect(Kind::RParen, "expected `)` after control value")?;
+                statements.push(if select {
+                    TestStatement::Select {
+                        state,
+                        value,
+                        span: statement_span,
+                    }
+                } else {
+                    TestStatement::Slide {
+                        state,
+                        value,
+                        span: statement_span,
+                    }
+                });
+                self.optional_semicolon();
+                continue;
+            }
+            if self.word_is("assertComponent") {
+                let statement_span = self.advance().span;
+                self.expect(Kind::LParen, "expected `(` after `assertComponent`")?;
+                let name = self.expr()?;
+                self.expect(Kind::RParen, "expected `)` after component name")?;
+                statements.push(TestStatement::AssertComponent {
+                    name,
+                    span: statement_span,
+                });
+                self.optional_semicolon();
+                continue;
+            }
+            if self.word_is("emit") {
+                let statement_span = self.advance().span;
+                self.expect(Kind::LParen, "expected `(` after `emit`")?;
+                let component = self.expr()?;
+                self.expect(Kind::Comma, "expected `,` after component name")?;
+                let event = self.expr()?;
+                self.expect(Kind::RParen, "expected `)` after event name")?;
+                statements.push(TestStatement::Emit {
+                    component,
+                    event,
+                    span: statement_span,
+                });
+                self.optional_semicolon();
+                continue;
+            }
             return self.error_here(
-                "test blocks support `let`, `assert(...)`, `tap(...)`, and `assertText(...)`",
+                "test blocks support assertions, `tap`, form/control interactions, and native component events",
             );
         }
         self.expect(Kind::RBrace, "expected `}` to close test block")?;
@@ -795,7 +881,9 @@ impl Parser {
         if statements.iter().all(|statement| {
             !matches!(
                 statement,
-                TestStatement::Assert { .. } | TestStatement::AssertText { .. }
+                TestStatement::Assert { .. }
+                    | TestStatement::AssertText { .. }
+                    | TestStatement::AssertComponent { .. }
             )
         }) {
             return Err(CompileError::new(

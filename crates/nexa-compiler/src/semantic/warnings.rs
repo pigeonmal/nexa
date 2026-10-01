@@ -77,7 +77,14 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
                     ast::TestStatement::Let { name, .. } => Some(name.clone()),
                     ast::TestStatement::Assert { .. }
                     | ast::TestStatement::Tap { .. }
-                    | ast::TestStatement::AssertText { .. } => None,
+                    | ast::TestStatement::AssertText { .. }
+                    | ast::TestStatement::TypeText { .. }
+                    | ast::TestStatement::Toggle { .. }
+                    | ast::TestStatement::Slide { .. }
+                    | ast::TestStatement::Select { .. }
+                    | ast::TestStatement::Submit { .. }
+                    | ast::TestStatement::AssertComponent { .. }
+                    | ast::TestStatement::Emit { .. } => None,
                 }),
         );
         if let Some(component) = &test.component {
@@ -99,6 +106,30 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
                 ast::TestStatement::Tap { label, .. }
                 | ast::TestStatement::AssertText { value: label, .. } => {
                     walk_expression(label, &test_names, &mut used_functions);
+                }
+                ast::TestStatement::TypeText {
+                    placeholder, value, ..
+                } => {
+                    walk_expression(placeholder, &test_names, &mut used_functions);
+                    walk_expression(value, &test_names, &mut used_functions);
+                }
+                ast::TestStatement::Toggle { label, .. }
+                | ast::TestStatement::Submit {
+                    placeholder: label, ..
+                }
+                | ast::TestStatement::AssertComponent { name: label, .. } => {
+                    walk_expression(label, &test_names, &mut used_functions);
+                }
+                ast::TestStatement::Slide { state, value, .. }
+                | ast::TestStatement::Select { state, value, .. } => {
+                    walk_expression(state, &test_names, &mut used_functions);
+                    walk_expression(value, &test_names, &mut used_functions);
+                }
+                ast::TestStatement::Emit {
+                    component, event, ..
+                } => {
+                    walk_expression(component, &test_names, &mut used_functions);
+                    walk_expression(event, &test_names, &mut used_functions);
                 }
             }
         }
@@ -189,7 +220,14 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
                 ast::TestStatement::Let { name, .. } => Some(name.clone()),
                 ast::TestStatement::Assert { .. }
                 | ast::TestStatement::Tap { .. }
-                | ast::TestStatement::AssertText { .. } => None,
+                | ast::TestStatement::AssertText { .. }
+                | ast::TestStatement::TypeText { .. }
+                | ast::TestStatement::Toggle { .. }
+                | ast::TestStatement::Slide { .. }
+                | ast::TestStatement::Select { .. }
+                | ast::TestStatement::Submit { .. }
+                | ast::TestStatement::AssertComponent { .. }
+                | ast::TestStatement::Emit { .. } => None,
             })
             .collect::<HashSet<_>>();
         let names = function_names
@@ -217,6 +255,30 @@ pub(super) fn analyze(app: &ast::App, target: Target) -> Vec<CompileWarning> {
                 ast::TestStatement::Tap { label, .. }
                 | ast::TestStatement::AssertText { value: label, .. } => {
                     walk_expression(label, &names, &mut used);
+                }
+                ast::TestStatement::TypeText {
+                    placeholder, value, ..
+                } => {
+                    walk_expression(placeholder, &names, &mut used);
+                    walk_expression(value, &names, &mut used);
+                }
+                ast::TestStatement::Toggle { label, .. }
+                | ast::TestStatement::Submit {
+                    placeholder: label, ..
+                }
+                | ast::TestStatement::AssertComponent { name: label, .. } => {
+                    walk_expression(label, &names, &mut used);
+                }
+                ast::TestStatement::Slide { state, value, .. }
+                | ast::TestStatement::Select { state, value, .. } => {
+                    walk_expression(state, &names, &mut used);
+                    walk_expression(value, &names, &mut used);
+                }
+                ast::TestStatement::Emit {
+                    component, event, ..
+                } => {
+                    walk_expression(component, &names, &mut used);
+                    walk_expression(event, &names, &mut used);
                 }
             }
         }

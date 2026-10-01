@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use nexa_diagnostics::Span;
 use nexa_ir::{
-    Action, ArithmeticOp, BinaryOp, Component, Expr, Function, FunctionLocal, Node, NumericType,
-    Type,
+    Action, ArithmeticOp, BinaryOp, CollectionMutation, CollectionTransform, CollectionUtilityKind,
+    Component, Expr, Function, FunctionLocal, MemberKind, Node, NumericType, TuplePosition, Type,
 };
 
 /// A statically typed `.nx` test body, evaluated only by the host CLI.
@@ -50,6 +50,38 @@ pub enum TestStatement {
     },
     AssertText {
         value: Expr,
+        span: Span,
+    },
+    TypeText {
+        placeholder: Expr,
+        value: Expr,
+        span: Span,
+    },
+    Toggle {
+        label: Expr,
+        span: Span,
+    },
+    Slide {
+        state: Expr,
+        value: Expr,
+        span: Span,
+    },
+    Select {
+        state: Expr,
+        value: Expr,
+        span: Span,
+    },
+    Submit {
+        placeholder: Expr,
+        span: Span,
+    },
+    AssertComponent {
+        name: Expr,
+        span: Span,
+    },
+    Emit {
+        component: Expr,
+        event: Expr,
         span: Span,
     },
 }
@@ -102,6 +134,7 @@ pub fn run_tests(suite: &TestSuite) -> TestRunReport {
 
 #[derive(Clone, Debug, PartialEq)]
 enum Value {
+    Null,
     Void,
     Bool(bool),
     String(String),
@@ -109,6 +142,11 @@ enum Value {
     Float(f64),
     Enum(String, String),
     Array(Vec<Value>),
+    Set(Vec<Value>),
+    Map(Vec<(Value, Value)>),
+    Pair(Box<Value>, Box<Value>),
+    Triple(Box<Value>, Box<Value>, Box<Value>),
+    Struct(String, Vec<(String, Value)>),
 }
 
 type Environment = HashMap<String, Value>;
@@ -175,11 +213,7 @@ fn run_test(
                     )
                 })?;
                 runtime.tap(&label).map_err(|message| (*span, message))?;
-                if let Some(root) = runtime.instances.get(ROOT_INSTANCE) {
-                    for (name, value) in &root.environment {
-                        environment.insert(name.clone(), value.clone());
-                    }
-                }
+                sync_root_environment(runtime, &mut environment);
             }
             TestStatement::AssertText { value, span } => {
                 let expected = eval_expr(value, &environment, functions, 0)
@@ -200,9 +234,128 @@ fn run_test(
                     .assert_text(&expected)
                     .map_err(|message| (*span, message))?;
             }
+            TestStatement::TypeText {
+                placeholder,
+                value,
+                span,
+            } => {
+                let placeholder = eval_test_string(placeholder, &environment, functions, *span)?;
+                let value = eval_test_string(value, &environment, functions, *span)?;
+                let runtime = runtime.as_mut().ok_or_else(|| {
+                    (
+                        *span,
+                        "`typeText(...)` requires a component target".to_owned(),
+                    )
+                })?;
+                runtime
+                    .type_text(&placeholder, value)
+                    .map_err(|message| (*span, message))?;
+                sync_root_environment(runtime, &mut environment);
+            }
+            TestStatement::Toggle { label, span } => {
+                let label = eval_test_string(label, &environment, functions, *span)?;
+                let runtime = runtime.as_mut().ok_or_else(|| {
+                    (
+                        *span,
+                        "`toggle(...)` requires a component target".to_owned(),
+                    )
+                })?;
+                runtime.toggle(&label).map_err(|message| (*span, message))?;
+                sync_root_environment(runtime, &mut environment);
+            }
+            TestStatement::Slide { state, value, span } => {
+                let state = eval_test_string(state, &environment, functions, *span)?;
+                let value = match eval_expr(value, &environment, functions, 0)
+                    .map_err(|message| (*span, message))?
+                {
+                    Value::Float(value) => value,
+                    _ => return Err((*span, "slider value is not floating point".to_owned())),
+                };
+                let runtime = runtime.as_mut().ok_or_else(|| {
+                    (*span, "`slide(...)` requires a component target".to_owned())
+                })?;
+                runtime
+                    .slide(&state, value)
+                    .map_err(|message| (*span, message))?;
+                sync_root_environment(runtime, &mut environment);
+            }
+            TestStatement::Select { state, value, span } => {
+                let state = eval_test_string(state, &environment, functions, *span)?;
+                let value = eval_test_string(value, &environment, functions, *span)?;
+                let runtime = runtime.as_mut().ok_or_else(|| {
+                    (
+                        *span,
+                        "`select(...)` requires a component target".to_owned(),
+                    )
+                })?;
+                runtime
+                    .select(&state, &value)
+                    .map_err(|message| (*span, message))?;
+                sync_root_environment(runtime, &mut environment);
+            }
+            TestStatement::Submit { placeholder, span } => {
+                let placeholder = eval_test_string(placeholder, &environment, functions, *span)?;
+                let runtime = runtime.as_mut().ok_or_else(|| {
+                    (
+                        *span,
+                        "`submit(...)` requires a component target".to_owned(),
+                    )
+                })?;
+                runtime
+                    .submit(&placeholder)
+                    .map_err(|message| (*span, message))?;
+                sync_root_environment(runtime, &mut environment);
+            }
+            TestStatement::AssertComponent { name, span } => {
+                let name = eval_test_string(name, &environment, functions, *span)?;
+                let runtime = runtime.as_mut().ok_or_else(|| {
+                    (
+                        *span,
+                        "`assertComponent(...)` requires a component target".to_owned(),
+                    )
+                })?;
+                runtime
+                    .assert_component(&name)
+                    .map_err(|message| (*span, message))?;
+            }
+            TestStatement::Emit {
+                component,
+                event,
+                span,
+            } => {
+                let component = eval_test_string(component, &environment, functions, *span)?;
+                let event = eval_test_string(event, &environment, functions, *span)?;
+                let runtime = runtime
+                    .as_mut()
+                    .ok_or_else(|| (*span, "`emit(...)` requires a component target".to_owned()))?;
+                runtime
+                    .emit(&component, &event)
+                    .map_err(|message| (*span, message))?;
+                sync_root_environment(runtime, &mut environment);
+            }
         }
     }
     Ok(())
+}
+
+fn eval_test_string(
+    expression: &Expr,
+    environment: &Environment,
+    functions: &FunctionMap<'_>,
+    span: Span,
+) -> Result<String, (Span, String)> {
+    match eval_expr(expression, environment, functions, 0).map_err(|message| (span, message))? {
+        Value::String(value) => Ok(value),
+        _ => Err((span, "expected a String test argument".to_owned())),
+    }
+}
+
+fn sync_root_environment(runtime: &HeadlessRuntime<'_>, environment: &mut Environment) {
+    if let Some(root) = runtime.instances.get(ROOT_INSTANCE) {
+        for (name, value) in &root.environment {
+            environment.insert(name.clone(), value.clone());
+        }
+    }
 }
 
 const ROOT_INSTANCE: &str = "root";
@@ -220,10 +373,42 @@ struct HeadlessButton {
     actions: Vec<Action>,
 }
 
+#[derive(Clone)]
+enum HeadlessControl {
+    TextInput {
+        placeholder: String,
+        state: String,
+        actions: Vec<Action>,
+    },
+    Switch {
+        label: String,
+        state: String,
+    },
+    Slider {
+        state: String,
+        min: f64,
+        max: f64,
+        step: f64,
+    },
+    Selection {
+        state: String,
+        values: Vec<String>,
+    },
+}
+
+#[derive(Clone)]
+struct HeadlessPluginComponent {
+    qualified_name: String,
+    instance: String,
+    event_handlers: Vec<nexa_ir::NativeComponentEventHandler>,
+}
+
 #[derive(Default)]
 struct RenderSnapshot {
     texts: Vec<String>,
     buttons: Vec<HeadlessButton>,
+    controls: Vec<(String, HeadlessControl)>,
+    plugin_components: Vec<HeadlessPluginComponent>,
 }
 
 struct HeadlessRuntime<'a> {
@@ -308,6 +493,172 @@ impl<'a> HeadlessRuntime<'a> {
             self.functions,
             0,
         )?;
+        Ok(())
+    }
+
+    fn type_text(&mut self, placeholder: &str, value: String) -> Result<(), String> {
+        let snapshot = self.render()?;
+        let (instance, control) = snapshot
+            .controls
+            .into_iter()
+            .find(|(_, control)| {
+                matches!(control, HeadlessControl::TextInput { placeholder: candidate, .. } if candidate == placeholder)
+            })
+            .ok_or_else(|| format!("no visible TextInput with placeholder `{placeholder}`"))?;
+        let HeadlessControl::TextInput { state, .. } = control else {
+            return Err("headless TextInput selection changed unexpectedly".to_owned());
+        };
+        self.set_instance_state(&instance, &state, Value::String(value))
+    }
+
+    fn toggle(&mut self, label: &str) -> Result<(), String> {
+        let snapshot = self.render()?;
+        let (instance, control) = snapshot
+            .controls
+            .into_iter()
+            .find(|(_, control)| {
+                matches!(control, HeadlessControl::Switch { label: candidate, .. } if candidate == label)
+            })
+            .ok_or_else(|| format!("no visible Switch labeled `{label}`"))?;
+        let HeadlessControl::Switch { state, .. } = control else {
+            return Err("headless Switch selection changed unexpectedly".to_owned());
+        };
+        let value = self
+            .instances
+            .get(&instance)
+            .and_then(|component| component.environment.get(&state))
+            .cloned()
+            .ok_or_else(|| format!("Switch state `{state}` is unavailable"))?;
+        let Value::Bool(value) = value else {
+            return Err(format!("Switch state `{state}` is not Boolean"));
+        };
+        self.set_instance_state(&instance, &state, Value::Bool(!value))
+    }
+
+    fn slide(&mut self, state: &str, value: f64) -> Result<(), String> {
+        if !value.is_finite() {
+            return Err("slider value must be finite".to_owned());
+        }
+        let snapshot = self.render()?;
+        let (instance, control) = snapshot
+            .controls
+            .into_iter()
+            .find(|(_, control)| {
+                matches!(control, HeadlessControl::Slider { state: candidate, .. } if candidate == state)
+            })
+            .ok_or_else(|| format!("no visible Slider bound to state `{state}`"))?;
+        let HeadlessControl::Slider { min, max, step, .. } = control else {
+            return Err("headless Slider selection changed unexpectedly".to_owned());
+        };
+        if value < min || value > max {
+            return Err(format!("slider value {value} is outside {min}..{max}"));
+        }
+        if !step.is_finite() || step <= 0.0 || min > max {
+            return Err("Slider has an invalid range or step".to_owned());
+        }
+        let steps = ((value - min) / step).round();
+        let stepped = (min + steps * step).clamp(min, max);
+        self.set_instance_state(&instance, state, Value::Float(stepped))
+    }
+
+    fn select(&mut self, state: &str, value: &str) -> Result<(), String> {
+        let snapshot = self.render()?;
+        let (instance, control) = snapshot
+            .controls
+            .into_iter()
+            .find(|(_, control)| {
+                matches!(control, HeadlessControl::Selection { state: candidate, .. } if candidate == state)
+            })
+            .ok_or_else(|| format!("no visible Picker or SegmentedControl bound to `{state}`"))?;
+        let HeadlessControl::Selection { values, .. } = control else {
+            return Err("headless selection control changed unexpectedly".to_owned());
+        };
+        if !values.iter().any(|item| item == value) {
+            return Err(format!(
+                "`{value}` is not an option for control state `{state}`"
+            ));
+        }
+        self.set_instance_state(&instance, state, Value::String(value.to_owned()))
+    }
+
+    fn submit(&mut self, placeholder: &str) -> Result<(), String> {
+        let snapshot = self.render()?;
+        let (instance, actions) = snapshot
+            .controls
+            .into_iter()
+            .find_map(|(instance, control)| match control {
+                HeadlessControl::TextInput {
+                    placeholder: candidate,
+                    actions,
+                    ..
+                } if candidate == placeholder => Some((instance, actions)),
+                _ => None,
+            })
+            .ok_or_else(|| format!("no visible TextInput with placeholder `{placeholder}`"))?;
+        let environment = &mut self
+            .instances
+            .get_mut(&instance)
+            .ok_or_else(|| "headless TextInput instance disappeared during submit".to_owned())?
+            .environment;
+        run_actions(&actions, environment, self.functions, 0)
+    }
+
+    fn assert_component(&mut self, qualified_name: &str) -> Result<(), String> {
+        let snapshot = self.render()?;
+        if snapshot
+            .plugin_components
+            .iter()
+            .any(|component| component.qualified_name == qualified_name)
+        {
+            Ok(())
+        } else {
+            Err(format!(
+                "native plugin component `{qualified_name}` is not visible"
+            ))
+        }
+    }
+
+    fn emit(&mut self, qualified_name: &str, property: &str) -> Result<(), String> {
+        let snapshot = self.render()?;
+        let component = snapshot
+            .plugin_components
+            .into_iter()
+            .find(|component| component.qualified_name == qualified_name)
+            .ok_or_else(|| format!("native plugin component `{qualified_name}` is not visible"))?;
+        let handler = component
+            .event_handlers
+            .iter()
+            .find(|handler| handler.property == property)
+            .ok_or_else(|| {
+                format!("native plugin component `{qualified_name}` has no `{property}` event")
+            })?;
+        if !handler.parameters.is_empty() {
+            return Err(format!(
+                "headless event injection for `{qualified_name}.{property}` requires a payload and is not supported"
+            ));
+        }
+        let environment = &mut self
+            .instances
+            .get_mut(&component.instance)
+            .ok_or_else(|| "native plugin component instance disappeared during event".to_owned())?
+            .environment;
+        run_actions(&handler.actions, environment, self.functions, 0)
+    }
+
+    fn set_instance_state(
+        &mut self,
+        instance: &str,
+        name: &str,
+        value: Value,
+    ) -> Result<(), String> {
+        let component = self
+            .instances
+            .get_mut(instance)
+            .ok_or_else(|| format!("headless component instance `{instance}` is missing"))?;
+        if !component.environment.contains_key(name) {
+            return Err(format!("headless state `{name}` is unavailable"));
+        }
+        component.environment.insert(name.to_owned(), value);
         Ok(())
     }
 
@@ -411,6 +762,90 @@ impl<'a> HeadlessRuntime<'a> {
                             actions: actions.clone(),
                         });
                     }
+                }
+                Node::TextInput {
+                    state,
+                    placeholder,
+                    actions,
+                    ..
+                } => {
+                    let text = match environment.get(state) {
+                        Some(Value::String(value)) if !value.is_empty() => value.clone(),
+                        Some(Value::String(_)) => placeholder.clone(),
+                        Some(_) => {
+                            return Err(format!("TextInput state `{state}` is not a String"));
+                        }
+                        None => {
+                            return Err(format!("TextInput state `{state}` is unavailable"));
+                        }
+                    };
+                    snapshot.texts.push(text);
+                    snapshot.controls.push((
+                        instance_path.to_owned(),
+                        HeadlessControl::TextInput {
+                            placeholder: placeholder.clone(),
+                            state: state.clone(),
+                            actions: actions.clone(),
+                        },
+                    ));
+                }
+                Node::Switch { state, label } => {
+                    if !matches!(environment.get(state), Some(Value::Bool(_))) {
+                        return Err(format!("Switch state `{state}` is not a Boolean"));
+                    }
+                    snapshot.texts.push(label.clone());
+                    snapshot.controls.push((
+                        instance_path.to_owned(),
+                        HeadlessControl::Switch {
+                            label: label.clone(),
+                            state: state.clone(),
+                        },
+                    ));
+                }
+                Node::Slider {
+                    state,
+                    min,
+                    max,
+                    step,
+                    ..
+                } => {
+                    if !matches!(environment.get(state), Some(Value::Float(_))) {
+                        return Err(format!("Slider state `{state}` is not a Float64"));
+                    }
+                    snapshot.controls.push((
+                        instance_path.to_owned(),
+                        HeadlessControl::Slider {
+                            state: state.clone(),
+                            min: *min,
+                            max: *max,
+                            step: *step,
+                        },
+                    ));
+                }
+                Node::SegmentedControl { items, state } | Node::Picker { items, state } => {
+                    let values = match eval_expr(items, environment, self.functions, 0)? {
+                        Value::Array(values) => values
+                            .into_iter()
+                            .map(|value| match value {
+                                Value::String(value) => Ok(value),
+                                _ => Err("selection control options must be Strings".to_owned()),
+                            })
+                            .collect::<Result<Vec<_>, _>>()?,
+                        _ => return Err("selection control options are not an Array".to_owned()),
+                    };
+                    if !matches!(environment.get(state), Some(Value::String(_))) {
+                        return Err(format!("selection control state `{state}` is not a String"));
+                    }
+                    for value in &values {
+                        snapshot.texts.push(value.clone());
+                    }
+                    snapshot.controls.push((
+                        instance_path.to_owned(),
+                        HeadlessControl::Selection {
+                            state: state.clone(),
+                            values,
+                        },
+                    ));
                 }
                 Node::Pressable {
                     disabled,
@@ -578,11 +1013,30 @@ impl<'a> HeadlessRuntime<'a> {
                 | Node::ProgressBar { .. }
                 | Node::ProgressRing { .. } => {}
                 Node::NativeComponentCall {
-                    namespace, name, ..
+                    namespace,
+                    name,
+                    arguments,
+                    children,
+                    event_handlers,
                 } => {
-                    return Err(format!(
-                        "native plugin component `{namespace}.{name}` cannot execute headlessly"
-                    ));
+                    for (_, value) in arguments {
+                        let _ = eval_expr(value, environment, self.functions, 0)?;
+                    }
+                    snapshot.plugin_components.push(HeadlessPluginComponent {
+                        qualified_name: format!("{namespace}.{name}"),
+                        instance: instance_path.to_owned(),
+                        event_handlers: event_handlers.clone(),
+                    });
+                    if let Some(children) = children {
+                        self.render_nodes(
+                            children,
+                            environment,
+                            instance_path,
+                            content,
+                            snapshot,
+                            depth + 1,
+                        )?;
+                    }
                 }
                 _ => {
                     return Err(format!(
@@ -644,6 +1098,27 @@ fn run_actions(
     functions: &FunctionMap<'_>,
     depth: usize,
 ) -> Result<(), String> {
+    match run_action_sequence(actions, environment, functions, depth)? {
+        HeadlessActionFlow::Normal => Ok(()),
+        HeadlessActionFlow::Break | HeadlessActionFlow::Continue => {
+            Err("loop control escaped its headless loop".to_owned())
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HeadlessActionFlow {
+    Normal,
+    Break,
+    Continue,
+}
+
+fn run_action_sequence(
+    actions: &[Action],
+    environment: &mut Environment,
+    functions: &FunctionMap<'_>,
+    depth: usize,
+) -> Result<HeadlessActionFlow, String> {
     if depth >= 128 {
         return Err("headless action depth exceeded".to_owned());
     }
@@ -660,36 +1135,223 @@ fn run_actions(
                 let _ = eval_expr(expression, environment, functions, depth + 1)?;
             }
             Action::WithAnimation { actions, .. } => {
-                run_actions(actions, environment, functions, depth + 1)?;
+                let flow = run_action_sequence(actions, environment, functions, depth + 1)?;
+                if flow != HeadlessActionFlow::Normal {
+                    return Ok(flow);
+                }
             }
             Action::If {
                 condition,
                 then_branch,
                 else_branch,
             } => match eval_expr(condition, environment, functions, depth + 1)? {
-                Value::Bool(true) => run_actions(then_branch, environment, functions, depth + 1)?,
+                Value::Bool(true) => {
+                    let flow = run_action_sequence(then_branch, environment, functions, depth + 1)?;
+                    if flow != HeadlessActionFlow::Normal {
+                        return Ok(flow);
+                    }
+                }
                 Value::Bool(false) => {
                     if let Some(else_branch) = else_branch {
-                        run_actions(else_branch, environment, functions, depth + 1)?;
+                        let flow =
+                            run_action_sequence(else_branch, environment, functions, depth + 1)?;
+                        if flow != HeadlessActionFlow::Normal {
+                            return Ok(flow);
+                        }
                     }
                 }
                 _ => return Err("headless action condition is not a Boolean".to_owned()),
             },
-            Action::Break
-            | Action::Continue
-            | Action::CollectionMutation { .. }
-            | Action::NativePropertyAssign { .. }
+            Action::For {
+                name,
+                iterable,
+                body,
+            } => {
+                let values = match eval_expr(iterable, environment, functions, depth + 1)? {
+                    Value::Array(values) | Value::Set(values) => values,
+                    _ => return Err("headless `for` iterable must be an Array or Set".to_owned()),
+                };
+                for value in values {
+                    let previous = environment.insert(name.clone(), value);
+                    let result = run_action_sequence(body, environment, functions, depth + 1);
+                    restore_binding(environment, name, previous);
+                    match result? {
+                        HeadlessActionFlow::Normal | HeadlessActionFlow::Continue => {}
+                        HeadlessActionFlow::Break => break,
+                    }
+                }
+            }
+            Action::ForMap {
+                key_name,
+                value_name,
+                iterable,
+                body,
+            } => {
+                let entries = match eval_expr(iterable, environment, functions, depth + 1)? {
+                    Value::Map(entries) => entries,
+                    _ => return Err("headless `for` map iterable must be a Map".to_owned()),
+                };
+                for (key, value) in entries {
+                    let previous_key = environment.insert(key_name.clone(), key);
+                    let previous_value = environment.insert(value_name.clone(), value);
+                    let result = run_action_sequence(body, environment, functions, depth + 1);
+                    restore_binding(environment, key_name, previous_key);
+                    restore_binding(environment, value_name, previous_value);
+                    match result? {
+                        HeadlessActionFlow::Normal | HeadlessActionFlow::Continue => {}
+                        HeadlessActionFlow::Break => break,
+                    }
+                }
+            }
+            Action::While { condition, body } => {
+                let mut iterations = 0usize;
+                loop {
+                    if iterations >= 10_000 {
+                        return Err("headless `while` loop exceeded 10,000 iterations".to_owned());
+                    }
+                    iterations += 1;
+                    match eval_expr(condition, environment, functions, depth + 1)? {
+                        Value::Bool(false) => break,
+                        Value::Bool(true) => {}
+                        _ => return Err("headless `while` condition is not a Boolean".to_owned()),
+                    }
+                    match run_action_sequence(body, environment, functions, depth + 1)? {
+                        HeadlessActionFlow::Normal | HeadlessActionFlow::Continue => {}
+                        HeadlessActionFlow::Break => break,
+                    }
+                }
+            }
+            Action::CollectionMutation {
+                name,
+                operation,
+                arguments,
+            } => mutate_collection(
+                name,
+                *operation,
+                arguments,
+                environment,
+                functions,
+                depth + 1,
+            )?,
+            Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            } => {
+                if !error_catches.is_empty() {
+                    return Err(
+                        "headless tests cannot synthesize typed native plugin failures".to_owned(),
+                    );
+                }
+                match run_action_sequence(body, environment, functions, depth + 1) {
+                    Ok(HeadlessActionFlow::Normal) => {}
+                    Ok(flow) => return Ok(flow),
+                    Err(_) => {
+                        if let Some(catch_body) = catch_body {
+                            let flow =
+                                run_action_sequence(catch_body, environment, functions, depth + 1)?;
+                            if flow != HeadlessActionFlow::Normal {
+                                return Ok(flow);
+                            }
+                        } else {
+                            return Err("headless action failed inside a try block".to_owned());
+                        }
+                    }
+                }
+            }
+            Action::Break => return Ok(HeadlessActionFlow::Break),
+            Action::Continue => return Ok(HeadlessActionFlow::Continue),
+            Action::NativePropertyAssign { .. }
             | Action::NativeEventSubscribe { .. }
             | Action::NetworkStatusSubscribe { .. }
             | Action::TaskLaunch { .. }
-            | Action::TaskCancel { .. }
-            | Action::For { .. }
-            | Action::ForMap { .. }
-            | Action::While { .. }
-            | Action::TryCatch { .. } => {
-                return Err("headless tests do not support this action yet".to_owned());
+            | Action::TaskCancel { .. } => {
+                return Err(
+                    "headless tests cannot execute this platform or async action".to_owned(),
+                );
             }
         }
+    }
+    Ok(HeadlessActionFlow::Normal)
+}
+
+fn restore_binding(environment: &mut Environment, name: &str, previous: Option<Value>) {
+    if let Some(previous) = previous {
+        environment.insert(name.to_owned(), previous);
+    } else {
+        environment.remove(name);
+    }
+}
+
+fn mutate_collection(
+    name: &str,
+    operation: CollectionMutation,
+    arguments: &[Expr],
+    environment: &mut Environment,
+    functions: &FunctionMap<'_>,
+    depth: usize,
+) -> Result<(), String> {
+    let values = arguments
+        .iter()
+        .map(|argument| eval_expr(argument, environment, functions, depth + 1))
+        .collect::<Result<Vec<_>, _>>()?;
+    let target = environment
+        .get_mut(name)
+        .ok_or_else(|| format!("headless collection state `{name}` is unavailable"))?;
+    match (operation, target) {
+        (CollectionMutation::ArrayAppend, Value::Array(items)) => match values.as_slice() {
+            [value] => items.push(value.clone()),
+            _ => return Err("headless Array.append expects one value".to_owned()),
+        },
+        (CollectionMutation::ArrayRemoveAt, Value::Array(items)) => {
+            let [Value::Integer(index)] = values.as_slice() else {
+                return Err("headless Array.remove expects one integer index".to_owned());
+            };
+            let index = usize::try_from(*index)
+                .map_err(|_| "headless Array.remove index is negative".to_owned())?;
+            if index >= items.len() {
+                return Err(format!(
+                    "headless Array.remove index {index} is out of bounds"
+                ));
+            }
+            items.remove(index);
+        }
+        (CollectionMutation::SetInsert, Value::Set(items)) => match values.as_slice() {
+            [value] if !items.contains(value) => items.push(value.clone()),
+            [_] => {}
+            _ => return Err("headless Set.insert expects one value".to_owned()),
+        },
+        (CollectionMutation::SetRemove, Value::Set(items)) => match values.as_slice() {
+            [value] => items.retain(|item| item != value),
+            _ => return Err("headless Set.remove expects one value".to_owned()),
+        },
+        (CollectionMutation::MapSet, Value::Map(items)) => match values.as_slice() {
+            [key, value] => {
+                if let Some((_, current)) = items.iter_mut().find(|(current, _)| current == key) {
+                    *current = value.clone();
+                } else {
+                    items.push((key.clone(), value.clone()));
+                }
+            }
+            _ => return Err("headless Map.set expects a key and value".to_owned()),
+        },
+        (CollectionMutation::MapRemove, Value::Map(items)) => match values.as_slice() {
+            [key] => items.retain(|(current, _)| current != key),
+            _ => return Err("headless Map.remove expects one key".to_owned()),
+        },
+        (CollectionMutation::Replace, Value::Array(items)) => match values.as_slice() {
+            [Value::Array(replacement)] => *items = replacement.clone(),
+            _ => return Err("headless Array replacement received a non-Array".to_owned()),
+        },
+        (CollectionMutation::Replace, Value::Set(items)) => match values.as_slice() {
+            [Value::Set(replacement)] => *items = replacement.clone(),
+            _ => return Err("headless Set replacement received a non-Set".to_owned()),
+        },
+        (CollectionMutation::Replace, Value::Map(items)) => match values.as_slice() {
+            [Value::Map(replacement)] => *items = replacement.clone(),
+            _ => return Err("headless Map replacement received a non-Map".to_owned()),
+        },
+        _ => return Err(format!("invalid headless collection mutation on `{name}`")),
     }
     Ok(())
 }
@@ -823,6 +1485,259 @@ fn eval_expr(
                 .map(|value| eval_expr(value, environment, functions, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?,
         )),
+        Expr::Set(values) => {
+            let mut items = Vec::with_capacity(values.len());
+            for value in values {
+                let value = eval_expr(value, environment, functions, depth + 1)?;
+                if !items.contains(&value) {
+                    items.push(value);
+                }
+            }
+            Ok(Value::Set(items))
+        }
+        Expr::Map(entries) => {
+            let mut items = Vec::with_capacity(entries.len());
+            for (key, value) in entries {
+                let key = eval_expr(key, environment, functions, depth + 1)?;
+                let value = eval_expr(value, environment, functions, depth + 1)?;
+                if let Some((_, current)) =
+                    items.iter_mut().find(|(candidate, _)| candidate == &key)
+                {
+                    *current = value;
+                } else {
+                    items.push((key, value));
+                }
+            }
+            Ok(Value::Map(items))
+        }
+        Expr::Pair(first, second) => Ok(Value::Pair(
+            Box::new(eval_expr(first, environment, functions, depth + 1)?),
+            Box::new(eval_expr(second, environment, functions, depth + 1)?),
+        )),
+        Expr::Triple(first, second, third) => Ok(Value::Triple(
+            Box::new(eval_expr(first, environment, functions, depth + 1)?),
+            Box::new(eval_expr(second, environment, functions, depth + 1)?),
+            Box::new(eval_expr(third, environment, functions, depth + 1)?),
+        )),
+        Expr::Contains {
+            value, collection, ..
+        } => {
+            let value = eval_expr(value, environment, functions, depth + 1)?;
+            let collection = eval_expr(collection, environment, functions, depth + 1)?;
+            let contains = match collection {
+                Value::Array(values) | Value::Set(values) => values.contains(&value),
+                Value::Map(entries) => entries.iter().any(|(key, _)| key == &value),
+                _ => return Err("membership requires an Array, Set, or Map".to_owned()),
+            };
+            Ok(Value::Bool(contains))
+        }
+        Expr::Index {
+            collection,
+            index,
+            optional,
+            collection_type,
+            ..
+        } => {
+            let collection = eval_expr(collection, environment, functions, depth + 1)?;
+            let index = eval_expr(index, environment, functions, depth + 1)?;
+            if matches!(collection, Value::Null) && *optional {
+                return Ok(Value::Null);
+            }
+            let is_map = matches!(collection_type, Type::Map(_, _));
+            let value = match (collection, index) {
+                (Value::Array(values), Value::Integer(index)) => usize::try_from(index)
+                    .ok()
+                    .and_then(|index| values.get(index).cloned()),
+                (Value::Map(entries), key) => entries
+                    .into_iter()
+                    .find_map(|(candidate, value)| (candidate == key).then_some(value)),
+                _ => {
+                    return Err(
+                        "headless indexing requires a valid Array index or Map key".to_owned()
+                    );
+                }
+            };
+            match value {
+                Some(value) => Ok(value),
+                None if *optional || is_map => Ok(Value::Null),
+                None => Err("headless collection index is out of bounds or missing".to_owned()),
+            }
+        }
+        Expr::Member {
+            base,
+            kind,
+            optional,
+            ..
+        } => {
+            let base = eval_expr(base, environment, functions, depth + 1)?;
+            let base = if matches!(base, Value::Null) {
+                return if *optional {
+                    Ok(Value::Null)
+                } else {
+                    Err("member access on null in headless test".to_owned())
+                };
+            } else {
+                base
+            };
+            match (kind, base) {
+                (MemberKind::CollectionCount, Value::Array(values) | Value::Set(values)) => {
+                    Ok(Value::Integer(values.len() as i128))
+                }
+                (MemberKind::CollectionCount, Value::Map(values)) => {
+                    Ok(Value::Integer(values.len() as i128))
+                }
+                (MemberKind::CollectionIsEmpty, Value::Array(values) | Value::Set(values)) => {
+                    Ok(Value::Bool(values.is_empty()))
+                }
+                (MemberKind::CollectionIsEmpty, Value::Map(values)) => {
+                    Ok(Value::Bool(values.is_empty()))
+                }
+                (MemberKind::TupleIndex(TuplePosition::First), Value::Pair(first, _))
+                | (MemberKind::TupleIndex(TuplePosition::First), Value::Triple(first, _, _)) => {
+                    Ok(*first)
+                }
+                (MemberKind::TupleIndex(TuplePosition::Second), Value::Pair(_, second))
+                | (MemberKind::TupleIndex(TuplePosition::Second), Value::Triple(_, second, _)) => {
+                    Ok(*second)
+                }
+                (MemberKind::TupleIndex(TuplePosition::Third), Value::Triple(_, _, third)) => {
+                    Ok(*third)
+                }
+                (MemberKind::StructField(field), Value::Struct(_, fields)) => fields
+                    .into_iter()
+                    .find_map(|(name, value)| (name == *field).then_some(value))
+                    .ok_or_else(|| format!("headless struct has no field `{field}`")),
+                (MemberKind::PluginField(field), _) => Err(format!(
+                    "headless tests cannot read native plugin property `{field}`"
+                )),
+                _ => Err("unsupported headless member access".to_owned()),
+            }
+        }
+        Expr::CollectionUtility {
+            operation,
+            collection,
+            start,
+            end,
+            inclusive,
+            ..
+        } => {
+            let Value::Array(mut values) =
+                eval_expr(collection, environment, functions, depth + 1)?
+            else {
+                return Err("headless collection utility requires an Array".to_owned());
+            };
+            match operation {
+                CollectionUtilityKind::First => Ok(values.first().cloned().unwrap_or(Value::Null)),
+                CollectionUtilityKind::Last => Ok(values.last().cloned().unwrap_or(Value::Null)),
+                CollectionUtilityKind::Reverse => {
+                    values.reverse();
+                    Ok(Value::Array(values))
+                }
+                CollectionUtilityKind::Slice => {
+                    let start =
+                        eval_range_bound(start.as_deref(), environment, functions, depth + 1)?;
+                    let end = eval_range_bound(end.as_deref(), environment, functions, depth + 1)?;
+                    let start = normalize_index(start, values.len())?;
+                    let mut end = normalize_index(end, values.len())?;
+                    if *inclusive {
+                        if end == values.len() {
+                            return Err("inclusive headless slice end is out of bounds".to_owned());
+                        }
+                        end += 1;
+                    }
+                    if start > end {
+                        return Err("headless slice start exceeds its end".to_owned());
+                    }
+                    Ok(Value::Array(
+                        values
+                            .get(start..end)
+                            .ok_or_else(|| "headless slice range is out of bounds".to_owned())?
+                            .to_vec(),
+                    ))
+                }
+                CollectionUtilityKind::Random | CollectionUtilityKind::Shuffled => Err(
+                    "randomized collection utilities are not deterministic in headless tests"
+                        .to_owned(),
+                ),
+            }
+        }
+        Expr::CollectionTransform {
+            operation,
+            collection,
+            initial,
+            closure,
+        } => {
+            let Value::Array(values) = eval_expr(collection, environment, functions, depth + 1)?
+            else {
+                return Err("headless collection transform requires an Array".to_owned());
+            };
+            let Expr::Closure { parameters, body } = closure.as_ref() else {
+                return Err("headless collection transform requires an inline closure".to_owned());
+            };
+            match operation {
+                CollectionTransform::Map | CollectionTransform::Filter => {
+                    let [parameter] = parameters.as_slice() else {
+                        return Err(
+                            "headless map/filter closure must take one parameter".to_owned()
+                        );
+                    };
+                    let mut result = Vec::with_capacity(values.len());
+                    for value in values {
+                        let mut scope = environment.clone();
+                        scope.insert(parameter.clone(), value.clone());
+                        let mapped = eval_expr(body, &scope, functions, depth + 1)?;
+                        match operation {
+                            CollectionTransform::Map => result.push(mapped),
+                            CollectionTransform::Filter => match mapped {
+                                Value::Bool(true) => result.push(value),
+                                Value::Bool(false) => {}
+                                _ => {
+                                    return Err(
+                                        "headless filter closure did not return Bool".to_owned()
+                                    );
+                                }
+                            },
+                            CollectionTransform::Reduce => {
+                                return Err("invalid headless transform dispatch".to_owned());
+                            }
+                        }
+                    }
+                    Ok(Value::Array(result))
+                }
+                CollectionTransform::Reduce => {
+                    let [accumulator_parameter, value_parameter] = parameters.as_slice() else {
+                        return Err("headless reduce closure must take two parameters".to_owned());
+                    };
+                    let mut accumulator = initial
+                        .as_deref()
+                        .ok_or_else(|| "headless reduce is missing its initial value".to_owned())
+                        .and_then(|initial| {
+                            eval_expr(initial, environment, functions, depth + 1)
+                        })?;
+                    for value in values {
+                        let mut scope = environment.clone();
+                        scope.insert(accumulator_parameter.clone(), accumulator);
+                        scope.insert(value_parameter.clone(), value);
+                        accumulator = eval_expr(body, &scope, functions, depth + 1)?;
+                    }
+                    Ok(accumulator)
+                }
+            }
+        }
+        Expr::Range {
+            start,
+            end,
+            inclusive,
+            step,
+        } => eval_integer_range(
+            start,
+            end,
+            *inclusive,
+            step.as_deref(),
+            environment,
+            functions,
+            depth + 1,
+        ),
         Expr::Call {
             name,
             arguments,
@@ -835,6 +1750,27 @@ fn eval_expr(
                 .map(|argument| eval_expr(argument, environment, functions, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
             if *is_constructor {
+                if let Type::Struct {
+                    name: struct_name,
+                    fields,
+                } = return_type
+                {
+                    if arguments.len() != fields.len() {
+                        return Err(format!(
+                            "struct constructor `{name}` expected {} field(s), got {}",
+                            fields.len(),
+                            arguments.len()
+                        ));
+                    }
+                    return Ok(Value::Struct(
+                        struct_name.clone(),
+                        fields
+                            .iter()
+                            .map(|(field, _)| field.clone())
+                            .zip(arguments)
+                            .collect(),
+                    ));
+                }
                 return Err(format!(
                     "value constructor `{name}` cannot run in a test expression"
                 ));
@@ -854,6 +1790,13 @@ fn eval_expr(
             Value::Bool(false) => eval_expr(else_value, environment, functions, depth + 1),
             _ => Err("conditional test expression has a non-Boolean condition".to_owned()),
         },
+        Expr::Null(_) => Ok(Value::Null),
+        Expr::Coalesce(value, fallback) => {
+            match eval_expr(value, environment, functions, depth + 1)? {
+                Value::Null => eval_expr(fallback, environment, functions, depth + 1),
+                value => Ok(value),
+            }
+        }
         Expr::Interpolation(parts) => {
             let mut output = String::new();
             for part in parts {
@@ -897,6 +1840,73 @@ fn eval_bool(
         Value::Bool(value) => Ok(value),
         _ => Err("headless component condition is not a Boolean".to_owned()),
     }
+}
+
+fn eval_range_bound(
+    expression: Option<&Expr>,
+    environment: &Environment,
+    functions: &FunctionMap<'_>,
+    depth: usize,
+) -> Result<i128, String> {
+    match expression {
+        Some(expression) => match eval_expr(expression, environment, functions, depth + 1)? {
+            Value::Integer(value) => Ok(value),
+            _ => Err("headless range bound is not an integer".to_owned()),
+        },
+        None => Ok(0),
+    }
+}
+
+fn normalize_index(index: i128, length: usize) -> Result<usize, String> {
+    let index =
+        usize::try_from(index).map_err(|_| "headless collection index is negative".to_owned())?;
+    if index > length {
+        return Err("headless collection index is out of bounds".to_owned());
+    }
+    Ok(index)
+}
+
+fn eval_integer_range(
+    start: &Expr,
+    end: &Expr,
+    inclusive: bool,
+    step: Option<&Expr>,
+    environment: &Environment,
+    functions: &FunctionMap<'_>,
+    depth: usize,
+) -> Result<Value, String> {
+    let start = eval_range_bound(Some(start), environment, functions, depth + 1)?;
+    let end = eval_range_bound(Some(end), environment, functions, depth + 1)?;
+    let step = match step {
+        Some(step) => eval_range_bound(Some(step), environment, functions, depth + 1)?,
+        None if start <= end => 1,
+        None => -1,
+    };
+    if step == 0 {
+        return Err("headless range step cannot be zero".to_owned());
+    }
+    let mut values = Vec::new();
+    let mut current = start;
+    while if step > 0 {
+        if inclusive {
+            current <= end
+        } else {
+            current < end
+        }
+    } else if inclusive {
+        current >= end
+    } else {
+        current > end
+    } {
+        if values.len() >= 100_000 {
+            return Err("headless range exceeded 100,000 values".to_owned());
+        }
+        values.push(Value::Integer(current));
+        current = current
+            .checked_add(step)
+            .ok_or_else(|| "headless range overflowed".to_owned())?;
+    }
+    Ok(Value::Array(values))
 }
 
 fn parse_number(raw: &str, ty: NumericType) -> Result<Value, String> {
@@ -1020,6 +2030,7 @@ fn cast_builtin(name: &str, arguments: Vec<Value>, return_type: &Type) -> Result
 
 fn display_value(value: Value) -> String {
     match value {
+        Value::Null => "null".to_owned(),
         Value::Void => "()".to_owned(),
         Value::Bool(value) => value.to_string(),
         Value::String(value) => value,
@@ -1031,6 +2042,44 @@ fn display_value(value: Value) -> String {
             values
                 .into_iter()
                 .map(display_value)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Value::Set(values) => format!(
+            "Set([{}])",
+            values
+                .into_iter()
+                .map(display_value)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Value::Map(values) => format!(
+            "[{}]",
+            values
+                .into_iter()
+                .map(|(key, value)| format!("{}: {}", display_value(key), display_value(value)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Value::Pair(first, second) => {
+            format!(
+                "Pair({}, {})",
+                display_value(*first),
+                display_value(*second)
+            )
+        }
+        Value::Triple(first, second, third) => format!(
+            "Triple({}, {}, {})",
+            display_value(*first),
+            display_value(*second),
+            display_value(*third)
+        ),
+        Value::Struct(name, fields) => format!(
+            "{}({})",
+            name,
+            fields
+                .into_iter()
+                .map(|(field, value)| format!("{field}: {}", display_value(value)))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),

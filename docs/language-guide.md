@@ -268,10 +268,25 @@ test "counter increments" for Counter(start: 4) {
 }
 ```
 
-Headless tests currently render layouts, text, conditionals, and custom
-components, and execute state assignments, expressions, and conditional
-actions. Native plugin components and platform-backed controls are not
-simulated; use native host tests for those behaviors.
+Headless component tests can interact with forms and native-backed controls
+without launching a simulator. Use `typeText("placeholder", "value")` and
+`submit("placeholder")` for `TextInput`, `toggle("label")` for `Switch`,
+`slide("state", value)` for `Slider`, and `select("state", "option")` for a
+`Picker` or `SegmentedControl`. `assertComponent("Namespace.Name")` verifies a
+native plugin component is rendered, and `emit("Namespace.Name",
+"onEventName")` invokes a declared zero-payload callback. Assertions can check
+component state and visible text after each interaction.
+
+Mounted component actions support state assignment, expressions, conditionals,
+`for` and `while` loops, loop control, deterministic collection mutations, and
+catch-all `try` actions. The evaluator handles typed collection literals,
+indexing, membership, member counts, tuple and struct fields, collection
+transforms, and deterministic collection utilities. Randomized collection
+utilities are rejected to keep host tests deterministic. Platform APIs,
+native plugin methods and property reads, payload-bearing native component
+events, typed native plugin failures, and asynchronous task or event
+registration remain outside the headless evaluator; use native host tests for
+those behaviors.
 
 `nexa test` evaluates these typed, deterministic checks before compiling the
 native test hosts. Use `nexa test --unit-only` to run them without Xcode or the
