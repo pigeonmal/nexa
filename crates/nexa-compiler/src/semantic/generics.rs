@@ -153,6 +153,7 @@ pub(super) fn mentions_type_parameter(ty: &Type) -> bool {
         | Type::Numeric(_)
         | Type::Enum(_)
         | Type::Plugin { .. }
+        | Type::TaskHandle
         | Type::NetworkResponse
         | Type::Struct { .. } => false,
     }
@@ -348,15 +349,17 @@ fn require_storable_shape(
                 "plugin value type for {context} must not be optional at the top level because Kotlin uses `null` for reader decode failure"
             ),
         )),
-        Type::Void | Type::TypeParam(_) | Type::Plugin { .. } | Type::NetworkResponse => {
-            Err(CompileError::new(
-                span,
-                format!(
-                    "plugin value type for {context} must be a scalar, `Bytes`, an enum, a struct, a `Result` with an enum error, a pair, a triple, or a collection of those; found {}",
-                    type_name(ty)
-                ),
-            ))
-        }
+        Type::Void
+        | Type::TypeParam(_)
+        | Type::Plugin { .. }
+        | Type::TaskHandle
+        | Type::NetworkResponse => Err(CompileError::new(
+            span,
+            format!(
+                "plugin value type for {context} must be a scalar, `Bytes`, an enum, a struct, a `Result` with an enum error, a pair, a triple, or a collection of those; found {}",
+                type_name(ty)
+            ),
+        )),
     }
 }
 
@@ -425,14 +428,16 @@ fn require_encodable(
             span,
             format!("unknown enum type `{name}` in plugin value type for {context}"),
         )),
-        Type::Void | Type::TypeParam(_) | Type::Plugin { .. } | Type::NetworkResponse => {
-            Err(CompileError::new(
-                span,
-                format!(
-                    "plugin value type for {context} must be a scalar, `Bytes`, an enum, a struct, a `Result` with an enum error, a pair, a triple, or a collection of those; found {}",
-                    type_name(ty)
-                ),
-            ))
-        }
+        Type::Void
+        | Type::TypeParam(_)
+        | Type::Plugin { .. }
+        | Type::TaskHandle
+        | Type::NetworkResponse => Err(CompileError::new(
+            span,
+            format!(
+                "plugin value type for {context} must be a scalar, `Bytes`, an enum, a struct, a `Result` with an enum error, a pair, a triple, or a collection of those; found {}",
+                type_name(ty)
+            ),
+        )),
     }
 }

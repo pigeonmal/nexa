@@ -446,6 +446,61 @@ fn async_expression_coverage_requires_log_only_semantic_device_evidence() {
 }
 
 #[test]
+fn foreground_task_hot_reload_has_log_only_semantic_device_evidence() {
+    let (root, fixture) = fixture();
+    let feature = &fixture["runtime_features"]["foreground_tasks"];
+    let script =
+        fs::read_to_string(root.join("../../scripts/test-dev-runtime-plugin-hot-reload.sh"))
+            .expect("read log-only DevRuntime probe");
+    let app = fs::read_to_string(root.join("tests/fixtures/dev_runtime_plugin_probe_app/App.nx"))
+        .expect("read foreground task probe app");
+    let template = fs::read_to_string(
+        root.join("tests/fixtures/dev_runtime_plugin_probe_app/App.after.template"),
+    )
+    .expect("read foreground task hot-reload app");
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevActions.swift"))
+        .expect("read iOS action evaluator");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevActions.kt"))
+        .expect("read Android action evaluator");
+
+    for platform in ["ios", "android"] {
+        assert_eq!(
+            feature[platform].as_str(),
+            Some("covered"),
+            "foreground tasks lack {platform} device-log evidence"
+        );
+    }
+    for marker in feature["semantic_probe_markers"]
+        .as_array()
+        .expect("foreground task semantic markers")
+    {
+        let marker = marker.as_str().expect("string semantic marker");
+        assert!(
+            script.contains(marker),
+            "device probe does not wait for {marker}"
+        );
+        assert!(app.contains(marker), "initial app does not emit {marker}");
+        assert!(
+            template.contains(marker),
+            "hot-reload app does not emit {marker}"
+        );
+    }
+    for (platform, source) in [("iOS", swift.as_str()), ("Android", kotlin.as_str())] {
+        for marker in [
+            "TaskLaunch",
+            "TaskCancel",
+            "launchNativeTask",
+            "clearNativeTasks",
+        ] {
+            assert!(
+                source.contains(marker),
+                "{platform} task runtime is missing {marker}"
+            );
+        }
+    }
+}
+
+#[test]
 fn pressable_double_tap_actions_are_consumed_by_both_dev_renderers() {
     let (root, _) = fixture();
     let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))

@@ -19,7 +19,7 @@ use self::{
         FunctionSignature, FunctionSignatures, StructTypes, collect_function_signatures,
         collect_plugin_components, collect_plugin_signatures, lower_expr, parse_type,
         record_native_alias, references_state, resolve_declaration_type, resolve_struct_type,
-        resolve_value_type,
+        resolve_value_type, validate_task_handle_state,
     },
     themes::lower_theme,
 };
@@ -323,6 +323,12 @@ fn lower_with_warnings_in_mode(
         }
         let ty =
             resolve_declaration_type(&declaration, &symbols, &function_signatures, &struct_types)?;
+        validate_task_handle_state(
+            &ty,
+            declaration.mutable,
+            matches!(&declaration.initial, ast::Expr::Null(_)),
+            declaration.span,
+        )?;
         let initial = lower_expr(
             &declaration.initial,
             Some(&ty),
@@ -419,6 +425,12 @@ fn lower_with_warnings_in_mode(
                 &screen_symbols,
                 &function_signatures,
                 &struct_types,
+            ));
+            screen_try!(validate_task_handle_state(
+                &ty,
+                declaration.mutable,
+                matches!(&declaration.initial, ast::Expr::Null(_)),
+                declaration.span,
             ));
             let initial = screen_try!(lower_expr(
                 &declaration.initial,
@@ -1065,6 +1077,7 @@ fn module_uses_json_error(module: &Module) -> bool {
             | Type::Numeric(_)
             | Type::TypeParam(_)
             | Type::Plugin { .. }
+            | Type::TaskHandle
             | Type::NetworkResponse => false,
         }
     }
@@ -1605,6 +1618,7 @@ fn validate_type_names(
         | Type::Numeric(_)
         | Type::Enum(_)
         | Type::Plugin { .. }
+        | Type::TaskHandle
         | Type::NetworkResponse => Ok(()),
     }
 }
@@ -1712,6 +1726,8 @@ fn lower_functions(
                     | ast::Stmt::NativePropertyAssign { span, .. }
                     | ast::Stmt::NativeEventSubscribe { span, .. }
                     | ast::Stmt::CollectionMutation { span, .. }
+                    | ast::Stmt::TaskLaunch { span, .. }
+                    | ast::Stmt::TaskCancel { span, .. }
                     | ast::Stmt::If { span, .. }
                     | ast::Stmt::For { span, .. }
                     | ast::Stmt::ForMap { span, .. }

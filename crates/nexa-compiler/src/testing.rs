@@ -678,6 +678,8 @@ fn run_actions(
             | Action::NativePropertyAssign { .. }
             | Action::NativeEventSubscribe { .. }
             | Action::NetworkStatusSubscribe { .. }
+            | Action::TaskLaunch { .. }
+            | Action::TaskCancel { .. }
             | Action::For { .. }
             | Action::ForMap { .. }
             | Action::While { .. }

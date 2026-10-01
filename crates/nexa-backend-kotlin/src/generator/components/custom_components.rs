@@ -66,6 +66,9 @@ fn render_component(
     }
     out.push_str(") {\n");
 
+    if features.uses_tasks {
+        out.push_str("    val nexaTaskScope = rememberCoroutineScope()\n");
+    }
     if features.component_uses_link(&component.name) {
         out.push_str("    val nexaLinkContext = LocalContext.current\n");
     }
@@ -73,6 +76,11 @@ fn render_component(
         out.push_str("    val nexaHapticView = LocalView.current\n");
     }
     render_component_states(&component.states, 1, out);
+    crate::generator::components::lifecycle::render_task_cancellation_on_dispose(
+        &component.states,
+        1,
+        out,
+    );
     let focus_bindings = features
         .facts
         .focus_bindings

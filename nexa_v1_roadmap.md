@@ -145,7 +145,7 @@ graph TD
 
 - [x] Support native async functions and async lifecycle actions.
 - [x] Support periodic app-scoped work through `BackgroundTask` (see §4.5).
-- [ ] Add a general-purpose API to create and cancel user tasks on native executors or custom threads, with defined lifecycle and error behavior.
+- [x] Add a general-purpose `TaskHandle?` API to create and cancel user tasks on native `Main` and `Background` executors; cancel handles when their app, screen, or component scope ends, and report uncaught task errors. Native host generation compiles, and hot-reloaded task launches in a newly added component pass log-only Android Emulator and iOS Simulator checks.
 
 ---
 

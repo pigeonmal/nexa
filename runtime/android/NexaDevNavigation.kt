@@ -143,6 +143,7 @@ internal fun NexaDevScreenLifecycle(
             }
             if (event == Lifecycle.Event.ON_PAUSE) {
                 store.clearNativeEventSubscriptions(scope)
+                store.clearNativeTasks(scope)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

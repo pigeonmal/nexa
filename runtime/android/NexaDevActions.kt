@@ -3,6 +3,10 @@ package __NEXA_PACKAGE__
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
 
@@ -134,6 +138,22 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
             }
             continue
         }
+        val taskLaunch = action.optJSONObject("TaskLaunch")
+        if (taskLaunch != null) {
+            launchNativeTask(
+                handle = taskLaunch.optString("handle"),
+                executor = taskLaunch.optString("executor"),
+                actions = taskLaunch.optJSONArray("actions") ?: JSONArray(),
+                scope = scope,
+                locals = locals,
+            )
+            continue
+        }
+        val taskCancel = action.optJSONObject("TaskCancel")
+        if (taskCancel != null) {
+            cancelNativeTask(scope, taskCancel.optString("handle"))
+            continue
+        }
         val mutation = action.optJSONObject("CollectionMutation")
         if (mutation != null) {
             mutateCollection(mutation, scope, locals)
@@ -171,6 +191,46 @@ internal fun NexaDevStateStore.performActions(actions: JSONArray, scope: String,
         if (action.has("Continue")) return NexaDevActionFlow.Continue
     }
     return NexaDevActionFlow.Normal
+}
+
+private fun NexaDevStateStore.launchNativeTask(
+    handle: String,
+    executor: String,
+    actions: JSONArray,
+    scope: String,
+    locals: Map<String, Any>,
+) {
+    if (handle.isEmpty()) return
+    val key = "$scope/task/$handle"
+    foregroundTasks.remove(key)?.cancel()
+    val dispatcher = if (executor == "Background") Dispatchers.Default else Dispatchers.Main.immediate
+    val exceptionHandler = CoroutineExceptionHandler { _, error ->
+        if (error !is CancellationException) {
+            android.util.Log.e("NexaDevRuntime", "Foreground task failed", error)
+        }
+    }
+    val job = eventScope.launch(context = dispatcher + exceptionHandler, start = CoroutineStart.LAZY) {
+        try {
+            performAsync(actions, scope, locals.toMap())
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Throwable) {
+            android.util.Log.e("NexaDevRuntime", "Foreground task failed", error)
+        }
+    }
+    foregroundTasks[key] = job
+    job.start()
+}
+
+private fun NexaDevStateStore.cancelNativeTask(scope: String, handle: String) {
+    if (handle.isEmpty()) return
+    foregroundTasks.remove("$scope/task/$handle")?.cancel()
+}
+
+internal fun NexaDevStateStore.clearNativeTasks(scope: String? = null) {
+    val prefix = scope?.let { "$it/task/" }
+    val selected = foregroundTasks.keys.filter { prefix == null || it.startsWith(prefix) }
+    for (key in selected) foregroundTasks.remove(key)?.cancel()
 }
 
 internal fun NexaDevStateStore.devNativeEventHandler(
@@ -617,6 +677,22 @@ internal suspend fun NexaDevStateStore.performAsync(
                     locals = locals,
                 )
             }
+            continue
+        }
+        val taskLaunch = action.optJSONObject("TaskLaunch")
+        if (taskLaunch != null) {
+            launchNativeTask(
+                handle = taskLaunch.optString("handle"),
+                executor = taskLaunch.optString("executor"),
+                actions = taskLaunch.optJSONArray("actions") ?: JSONArray(),
+                scope = scope,
+                locals = locals,
+            )
+            continue
+        }
+        val taskCancel = action.optJSONObject("TaskCancel")
+        if (taskCancel != null) {
+            cancelNativeTask(scope, taskCancel.optString("handle"))
             continue
         }
         val branch = action.optJSONObject("If")

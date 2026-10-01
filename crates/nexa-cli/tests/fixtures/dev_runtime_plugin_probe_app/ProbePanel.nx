@@ -1,10 +1,19 @@
 component ProbePanel(player: DevProbe.Probe) {
+    state importedMainTask: TaskHandle? = null
+    state importedBackgroundTask: TaskHandle? = null
+
     body {
         Column(spacing: 8) {
             DevProbe.ProbeCard(value: player.value)
                 .onSelected { selected ->
                     if selected.score > 0 {
                         Log.info(message: "DEVRT_IMPORTED_COMPONENT_PASS")
+                        Task.launch(handle: importedMainTask, executor: TaskExecutor.Main) {
+                            Log.info(message: "DEVRT_TASK_HOT_RELOAD_MAIN_PASS")
+                        }
+                        Task.launch(handle: importedBackgroundTask, executor: TaskExecutor.Background) {
+                            Log.info(message: "DEVRT_TASK_HOT_RELOAD_BACKGROUND_PASS")
+                        }
                     }
                 }
             Text("Imported plugin component")

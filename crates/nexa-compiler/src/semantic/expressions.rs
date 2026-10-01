@@ -2906,6 +2906,9 @@ fn validate_json_value_type(
         Type::Plugin { .. } => Err(unsupported(
             "native class instances cannot be represented as JSON values",
         )),
+        Type::TaskHandle => Err(unsupported(
+            "native task handles cannot be represented as JSON values",
+        )),
         Type::NetworkResponse => Err(unsupported(
             "`NetworkResponse` cannot be represented directly as a JSON value; decode its body string instead",
         )),
@@ -3436,7 +3439,11 @@ fn is_equatable_type(ty: &Type) -> bool {
         Type::Struct { fields, .. } => {
             !fields.is_empty() && fields.iter().all(|(_, field)| is_equatable_type(field))
         }
-        Type::Void | Type::Bytes | Type::Plugin { .. } | Type::NetworkResponse => false,
+        Type::Void
+        | Type::Bytes
+        | Type::Plugin { .. }
+        | Type::TaskHandle
+        | Type::NetworkResponse => false,
     }
 }
 
@@ -3905,6 +3912,7 @@ pub(super) fn resolve_struct_type(ty: &Type, structs: &StructTypes) -> Type {
         | Type::Bool
         | Type::Numeric(_)
         | Type::Plugin { .. }
+        | Type::TaskHandle
         | Type::NetworkResponse
         | Type::Struct { .. } => ty.clone(),
     }
@@ -3924,6 +3932,57 @@ pub(super) fn resolve_declaration_type(
         functions,
         structs,
     )
+}
+
+pub(super) fn validate_task_handle_state(
+    ty: &Type,
+    mutable: bool,
+    initialized_to_null: bool,
+    span: Span,
+) -> Result<(), CompileError> {
+    if type_contains_task_handle(ty) {
+        if ty != &Type::Optional(Box::new(Type::TaskHandle)) || !mutable || !initialized_to_null {
+            return Err(CompileError::new(
+                span,
+                "task handles must be declared as mutable `TaskHandle?` state initialized to `null`",
+            ));
+        }
+    } else if type_contains_task_handle(ty) {
+        return Err(CompileError::new(
+            span,
+            "task handles can only be stored directly as mutable `TaskHandle?` state",
+        ));
+    }
+    Ok(())
+}
+
+fn type_contains_task_handle(ty: &Type) -> bool {
+    match ty {
+        Type::TaskHandle => true,
+        Type::Optional(inner) | Type::Array(inner) | Type::Set(inner) => {
+            type_contains_task_handle(inner)
+        }
+        Type::Map(key, value) | Type::Pair(key, value) | Type::Result(key, value) => {
+            type_contains_task_handle(key) || type_contains_task_handle(value)
+        }
+        Type::Triple(first, second, third) => {
+            type_contains_task_handle(first)
+                || type_contains_task_handle(second)
+                || type_contains_task_handle(third)
+        }
+        Type::Struct { fields, .. } => fields
+            .iter()
+            .any(|(_, field)| type_contains_task_handle(field)),
+        Type::Void
+        | Type::String
+        | Type::Bytes
+        | Type::Bool
+        | Type::Numeric(_)
+        | Type::Enum(_)
+        | Type::TypeParam(_)
+        | Type::Plugin { .. }
+        | Type::NetworkResponse => false,
+    }
 }
 
 pub(super) fn resolve_value_type(
@@ -3980,6 +4039,7 @@ fn validate_type_constraints(ty: &Type, span: Span) -> Result<(), CompileError> 
         | Type::Numeric(_)
         | Type::Enum(_)
         | Type::Plugin { .. }
+        | Type::TaskHandle
         | Type::NetworkResponse
         | Type::Struct { .. } => Ok(()),
     }
@@ -4020,6 +4080,7 @@ fn parse_named_type(name: &str, _span: Span) -> Result<Type, CompileError> {
         // A byte buffer is a first-class value type: it can be a state, a
         // struct field, and a plugin parameter.
         "Bytes" => Type::Bytes,
+        "TaskHandle" => Type::TaskHandle,
         _ => Type::Enum(name.to_owned()),
     };
     Ok(ty)
@@ -4155,6 +4216,7 @@ pub(super) fn type_name(ty: &Type) -> String {
         Type::Plugin { namespace, name } => format!("{namespace}.{name}"),
         Type::TypeParam(name) => name.clone(),
         Type::NetworkResponse => "NetworkResponse".to_owned(),
+        Type::TaskHandle => "TaskHandle".to_owned(),
         Type::Struct { name, .. } => name.clone(),
         Type::Result(value, error) => {
             format!("Result<{}, {}>", type_name(value), type_name(error))

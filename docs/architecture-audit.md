@@ -5,6 +5,7 @@ previous compiler output.
 
 ## Cache schema
 
+- `build-v131`: adds typed foreground task launch/cancellation actions, native executor lowering, task lifecycle cleanup in both AOT backends and DevRuntime, and advances the Dev IR format.
 - `build-v130`: adds typed optional array `first()` and `last()` utilities to both AOT backends and DevRuntime; advances the Dev IR format.
 - `build-v129`: generates periodic OS background-task handlers and scheduling metadata for iOS and Android; advances the Dev IR format for task declarations.
 - `build-v128`: adds typed screen orientation requests to both AOT backends and DevRuntime, with iOS scene geometry support and generated interface-orientation declarations.

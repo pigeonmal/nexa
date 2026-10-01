@@ -141,6 +141,12 @@ pub(crate) fn render_navigation_stack(
                 );
             }
         }
+        if features.uses_tasks {
+            out.line_at(
+                depth + 2,
+                format_args!("val nexaTaskScope = rememberCoroutineScope()"),
+            );
+        }
         for state in &screen.states {
             render_screen_state(state, depth + 2, out);
         }
@@ -194,6 +200,11 @@ pub(crate) fn render_navigation_stack(
         );
         crate::generator::components::lifecycle::render_on_disappear(
             screen.on_disappear.as_deref(),
+            depth + 2,
+            out,
+        );
+        crate::generator::components::lifecycle::render_task_cancellation_on_dispose(
+            &screen.states,
             depth + 2,
             out,
         );

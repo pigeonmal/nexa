@@ -93,3 +93,68 @@ fn background_task_cannot_capture_ui_state() {
 
     assert!(error.contains("label"), "unexpected diagnostic: {error}");
 }
+
+#[test]
+fn lowers_foreground_tasks_and_cancellation_to_typed_ir() {
+    let module = compile(
+        "nexa-foreground-task-valid",
+        r#"app ForegroundTask {
+            state refreshTask: TaskHandle? = null
+            state finished: Bool = false
+
+            body {
+                Button("Start") {
+                    Task.launch(handle: refreshTask, executor: TaskExecutor.Main) {
+                        finished = true
+                    }
+                    Task.cancel(handle: refreshTask)
+                }
+            }
+        }"#,
+    )
+    .expect("typed task handles should lower");
+
+    assert!(
+        module
+            .states
+            .iter()
+            .any(|state| state.name == "refreshTask")
+    );
+    let nexa_ir::Node::Button { actions, .. } = &module.body[0] else {
+        panic!("task actions should remain in the button callback");
+    };
+    assert!(matches!(
+        actions.as_slice(),
+        [
+            nexa_ir::Action::TaskLaunch {
+                handle,
+                executor: nexa_ir::TaskExecutor::Main,
+                actions: body,
+            },
+            nexa_ir::Action::TaskCancel { handle: canceled },
+        ] if handle == "refreshTask"
+            && canceled == "refreshTask"
+            && matches!(body.as_slice(), [nexa_ir::Action::Assign { name, value: nexa_ir::Expr::Bool(true) }] if name == "finished")
+    ));
+}
+
+#[test]
+fn foreground_background_task_cannot_capture_ui_state() {
+    let error = compile(
+        "nexa-background-executor-state",
+        r#"app StateCapture {
+            state workerTask: TaskHandle? = null
+            state label: String = "ready"
+            body {
+                Button("Start") {
+                    Task.launch(handle: workerTask, executor: TaskExecutor.Background) {
+                        label = "working"
+                    }
+                }
+            }
+        }"#,
+    )
+    .expect_err("background execution must not capture UI-owned state");
+
+    assert!(error.contains("cannot read or mutate UI state"));
+}

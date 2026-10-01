@@ -7,10 +7,78 @@ enum NexaDevActionFlow: Equatable {
     case `continue`
 }
 
+private struct NexaDevTaskPayload: @unchecked Sendable {
+    let actions: [Any]
+    let scope: String
+    let locals: [String: Any]
+}
+
 @MainActor
 extension NexaDevStateStore {
     func perform(_ actions: [Any], scope: String, locals: [String: Any]) {
         _ = performActions(actions, scope: scope, locals: locals)
+    }
+
+    func launchNativeTask(
+        handle: String,
+        executor: String,
+        actions: [Any],
+        scope: String,
+        locals: [String: Any]
+    ) {
+        guard !handle.isEmpty else { return }
+        let key = "\(scope)/task/\(handle)"
+        foregroundTasks.removeValue(forKey: key)?.cancel()
+        let payload = NexaDevTaskPayload(actions: actions, scope: scope, locals: locals)
+        let task: Task<Void, Never>
+        if executor == "Background" {
+            task = Task.detached { [weak self, payload] in
+                guard let self else { return }
+                do {
+                    _ = try await self.performAsync(
+                        payload.actions,
+                        scope: payload.scope,
+                        locals: payload.locals
+                    )
+                } catch is CancellationError {
+                    return
+                } catch {
+                    NSLog("NexaDevRuntime background task failed: %@", String(describing: error))
+                }
+            }
+        } else {
+            task = Task { @MainActor [weak self, payload] in
+                guard let self else { return }
+                do {
+                    _ = try await self.performAsync(
+                        payload.actions,
+                        scope: payload.scope,
+                        locals: payload.locals
+                    )
+                } catch is CancellationError {
+                    return
+                } catch {
+                    NSLog("NexaDevRuntime foreground task failed: %@", String(describing: error))
+                }
+            }
+        }
+        foregroundTasks[key] = task
+    }
+
+    func cancelNativeTask(handle: String, scope: String) {
+        guard !handle.isEmpty else { return }
+        foregroundTasks.removeValue(forKey: "\(scope)/task/\(handle)")?.cancel()
+    }
+
+    func clearNativeTasks(scope: String? = nil) {
+        let prefix = scope.map { "\($0)/task/" }
+        let selected = foregroundTasks.keys.filter { key in
+            guard let prefix else { return true }
+            return key.hasPrefix(prefix)
+        }
+        for key in selected {
+            foregroundTasks.removeValue(forKey: key)?.cancel()
+        }
     }
 
     @discardableResult
@@ -110,6 +178,18 @@ extension NexaDevStateStore {
                     scope: scope,
                     locals: locals
                 )
+            } else if let task = tagged["TaskLaunch"] as? [String: Any],
+                      let handle = task["handle"] as? String {
+                launchNativeTask(
+                    handle: handle,
+                    executor: task["executor"] as? String ?? "Main",
+                    actions: task["actions"] as? [Any] ?? [],
+                    scope: scope,
+                    locals: locals
+                )
+            } else if let task = tagged["TaskCancel"] as? [String: Any],
+                      let handle = task["handle"] as? String {
+                cancelNativeTask(handle: handle, scope: scope)
             } else if let mutation = tagged["CollectionMutation"] as? [String: Any],
                       let name = mutation["name"] as? String {
                 performCollectionMutation(mutation, name: name, scope: scope, locals: locals)
@@ -577,6 +657,18 @@ extension NexaDevStateStore {
                     scope: scope,
                     locals: locals
                 )
+            } else if let task = tagged["TaskLaunch"] as? [String: Any],
+                      let handle = task["handle"] as? String {
+                launchNativeTask(
+                    handle: handle,
+                    executor: task["executor"] as? String ?? "Main",
+                    actions: task["actions"] as? [Any] ?? [],
+                    scope: scope,
+                    locals: locals
+                )
+            } else if let task = tagged["TaskCancel"] as? [String: Any],
+                      let handle = task["handle"] as? String {
+                cancelNativeTask(handle: handle, scope: scope)
             } else if let branch = tagged["If"] as? [String: Any],
                       let condition = branch["condition"] {
                 let value = try await evaluateAsync(condition, locals: locals, scope: scope)

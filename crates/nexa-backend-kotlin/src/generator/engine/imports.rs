@@ -181,6 +181,20 @@ mod tests {
     }
 
     #[test]
+    fn task_imports_are_gated_to_task_handle_usage() {
+        let baseline = render_features(&Features::default());
+        assert!(!baseline.contains("kotlinx.coroutines."));
+
+        let mut features = Features::default();
+        features.uses_tasks = true;
+        let imports = render_features(&features);
+        assert!(imports.contains("import kotlinx.coroutines.Job\n"));
+        assert!(imports.contains("import kotlinx.coroutines.launch\n"));
+        assert!(imports.contains("import kotlinx.coroutines.CoroutineStart\n"));
+        assert!(imports.contains("import androidx.compose.runtime.rememberCoroutineScope\n"));
+    }
+
+    #[test]
     fn remote_images_use_the_cronet_adapter_without_typed_upload_support() {
         let mut features = Features::default();
         features.uses_remote_image = true;

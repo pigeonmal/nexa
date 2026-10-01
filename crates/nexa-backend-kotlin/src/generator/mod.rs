@@ -27,6 +27,7 @@ fn project_features_from_analysis(
         uses_coroutines: features.uses_network_transport()
             || features.uses_file_async
             || features.uses_permission_request
+            || features.uses_tasks
             || features.facts.capabilities.uses_secure_storage_api
             || !module.background_tasks.is_empty(),
         uses_permission_request: features.uses_permission_request,
@@ -289,6 +290,9 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                 "@Composable\nfun {}() {{\n",
                 nexa_codegen::names::screen_name(&module.app_name)
             ));
+            if features.uses_tasks {
+                out.push_str("    val nexaTaskScope = rememberCoroutineScope()\n");
+            }
             if features.uses_adaptive_color {
                 out.push_str("    val nexaIsDarkTheme = isSystemInDarkTheme()\n");
             }
@@ -375,6 +379,11 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
                 body_depth,
                 out,
             );
+            components::lifecycle::render_task_cancellation_on_dispose(
+                &module.states,
+                body_depth,
+                out,
+            );
             components::lifecycle::render_app(module, body_depth, out);
             if module.body.len() == 1 {
                 component_renderer::render_node(&module.body[0], module, features, body_depth, out);
@@ -403,6 +412,11 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
     units.write("components", |out| {
         custom_components::render(module, features, out);
         out.push_str(COLLECTION_ITERATION_HELPERS);
+        if features.uses_tasks {
+            out.push_str(
+                "\ninternal val nexaTaskExceptionHandler = CoroutineExceptionHandler { _, error ->\n    android.util.Log.e(\"Nexa\", \"Unhandled task failure\", error)\n}\n",
+            );
+        }
     });
     if features.uses_network_api
         || features.uses_network_connectivity

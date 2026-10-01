@@ -2072,6 +2072,11 @@ impl Parser {
     fn statements_after_open(&mut self, allow_return: bool) -> Result<Vec<Stmt>, CompileError> {
         let mut stmts = Vec::new();
         while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+            if self.word_is("Task") {
+                stmts.push(self.task_statement()?);
+                self.optional_semicolon();
+                continue;
+            }
             if !allow_return && self.word_is("let") {
                 return self
                     .error_here("local `let` declarations are only allowed inside functions");
@@ -2780,7 +2785,9 @@ impl Parser {
                         _ => unreachable!("namespace checked above"),
                     };
                 }
-                if self.enum_names.contains(&value) && self.take(&Kind::Dot) {
+                if (self.enum_names.contains(&value) || value == "TaskExecutor")
+                    && self.take(&Kind::Dot)
+                {
                     let (case_name, case_span) = self.ident()?;
                     let span = Span {
                         end: case_span.end,
@@ -3439,6 +3446,83 @@ impl Parser {
         let body = self.block_stmts()?;
         Ok(Stmt::While {
             condition,
+            body,
+            span,
+        })
+    }
+
+    fn task_statement(&mut self) -> Result<Stmt, CompileError> {
+        let (namespace, span) = self.ident()?;
+        debug_assert_eq!(namespace, "Task");
+        self.expect(Kind::Dot, "expected `.` after `Task`")?;
+        let (method, method_span) = self.ident()?;
+        let span = Span {
+            end: method_span.end,
+            ..span
+        };
+        let allowed = match method.as_str() {
+            "launch" => &["handle", "executor"][..],
+            "cancel" => &["handle"][..],
+            _ => {
+                return Err(CompileError::new(
+                    method_span,
+                    "Task supports `launch(handle: ..., executor: ...)` and `cancel(handle: ...)`",
+                ));
+            }
+        };
+        self.expect(Kind::LParen, "expected `(` after Task method")?;
+        let mut arguments = self.named_args_contents(allowed)?;
+        self.expect(Kind::RParen, "expected `)` after Task arguments")?;
+        let handle = match arguments.remove("handle") {
+            Some(Expr::Name(name, _)) => name,
+            Some(value) => {
+                return Err(CompileError::new(
+                    value.span(),
+                    "Task `handle` must name a mutable `TaskHandle?` state",
+                ));
+            }
+            None => {
+                return Err(CompileError::new(
+                    span,
+                    "Task requires a `handle` state binding",
+                ));
+            }
+        };
+        if method == "cancel" {
+            return Ok(Stmt::TaskCancel { handle, span });
+        }
+        let executor = match arguments.remove("executor") {
+            Some(Expr::EnumCase {
+                enum_name,
+                case_name,
+                span,
+            }) if enum_name == "TaskExecutor" => match case_name.as_str() {
+                "Main" => TaskExecutor::Main,
+                "Background" => TaskExecutor::Background,
+                _ => {
+                    return Err(CompileError::new(
+                        span,
+                        "Task executor must be `TaskExecutor.Main` or `TaskExecutor.Background`",
+                    ));
+                }
+            },
+            Some(value) => {
+                return Err(CompileError::new(
+                    value.span(),
+                    "Task `executor` must be `TaskExecutor.Main` or `TaskExecutor.Background`",
+                ));
+            }
+            None => {
+                return Err(CompileError::new(
+                    span,
+                    "Task.launch requires an `executor`",
+                ));
+            }
+        };
+        let body = self.block_stmts()?;
+        Ok(Stmt::TaskLaunch {
+            handle,
+            executor,
             body,
             span,
         })

@@ -302,7 +302,8 @@ fn walk_nested_callback_actions(actions: &[Action], visit: &mut impl FnMut(&[Act
     for action in actions {
         match action {
             Action::NativeEventSubscribe { actions, .. }
-            | Action::NetworkStatusSubscribe { actions, .. } => {
+            | Action::NetworkStatusSubscribe { actions, .. }
+            | Action::TaskLaunch { actions, .. } => {
                 visit(actions);
                 walk_nested_callback_actions(actions, visit);
             }
@@ -336,6 +337,7 @@ fn walk_nested_callback_actions(actions: &[Action], visit: &mut impl FnMut(&[Act
             | Action::Assign { .. }
             | Action::NativePropertyAssign { .. }
             | Action::CollectionMutation { .. }
+            | Action::TaskCancel { .. }
             | Action::Break
             | Action::Continue => {}
         }
@@ -619,6 +621,8 @@ pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
                     walk_expression(argument, visit);
                 }
             }
+            Action::TaskLaunch { actions, .. } => walk_actions(actions, visit),
+            Action::TaskCancel { .. } => {}
             Action::If {
                 condition,
                 then_branch,
@@ -660,6 +664,53 @@ pub fn walk_actions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
     }
 }
 
+/// Visits every action in source order, including nested branches, callbacks,
+/// and native task bodies. This is for action-level analyses; expression-only
+/// consumers should prefer `walk_actions`.
+pub fn walk_action_tree(actions: &[Action], visit: &mut impl FnMut(&Action)) {
+    for action in actions {
+        visit(action);
+        match action {
+            Action::NativeEventSubscribe { actions, .. }
+            | Action::NetworkStatusSubscribe { actions, .. }
+            | Action::TaskLaunch { actions, .. } => walk_action_tree(actions, visit),
+            Action::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk_action_tree(then_branch, visit);
+                if let Some(else_branch) = else_branch {
+                    walk_action_tree(else_branch, visit);
+                }
+            }
+            Action::For { body, .. } | Action::ForMap { body, .. } | Action::While { body, .. } => {
+                walk_action_tree(body, visit);
+            }
+            Action::TryCatch {
+                body,
+                error_catches,
+                catch_body,
+            } => {
+                walk_action_tree(body, visit);
+                for arm in error_catches {
+                    walk_action_tree(&arm.body, visit);
+                }
+                if let Some(catch_body) = catch_body {
+                    walk_action_tree(catch_body, visit);
+                }
+            }
+            Action::Expression(_)
+            | Action::Assign { .. }
+            | Action::NativePropertyAssign { .. }
+            | Action::CollectionMutation { .. }
+            | Action::TaskCancel { .. }
+            | Action::Break
+            | Action::Continue => {}
+        }
+    }
+}
+
 /// Returns whether any action expression reads one of the named state/local
 /// bindings. The shared expression walk also covers nested actions and
 /// callback bodies.
@@ -690,6 +741,7 @@ pub fn walk_callback_expressions(actions: &[Action], visit: &mut impl FnMut(&Exp
                 walk_expression(value, visit);
             }
             Action::NativeEventSubscribe { receiver, .. } => walk_expression(receiver, visit),
+            Action::TaskLaunch { .. } | Action::TaskCancel { .. } => {}
             Action::NetworkStatusSubscribe { .. } => {}
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {
@@ -1175,6 +1227,8 @@ pub fn walk_action_children<V: IrVisitor>(action: &Action, visitor: &mut V) {
                 visitor.visit_expr(argument);
             }
         }
+        Action::TaskLaunch { actions, .. } => visitor.visit_actions(actions),
+        Action::TaskCancel { .. } => {}
         Action::If {
             condition,
             then_branch,
@@ -1920,6 +1974,16 @@ pub fn fold_action_children<F: IrFolder>(action: Action, folder: &mut F) -> Opti
                 .map(|arg| folder.fold_expr(arg))
                 .collect(),
         }),
+        Action::TaskLaunch {
+            handle,
+            executor,
+            actions,
+        } => Some(Action::TaskLaunch {
+            handle,
+            executor,
+            actions: folder.fold_actions(actions),
+        }),
+        Action::TaskCancel { .. } => Some(action),
         Action::If {
             condition,
             then_branch,

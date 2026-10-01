@@ -266,6 +266,9 @@ pub enum Type {
         namespace: String,
         name: String,
     },
+    /// A native cancellation handle: Swift `Task<Void, Never>` / Kotlin `Job`.
+    /// It is intentionally not a plugin codec or serializable app value.
+    TaskHandle,
     NetworkResponse,
     Struct {
         name: String,
@@ -1219,6 +1222,14 @@ pub enum Action {
         operation: CollectionMutation,
         arguments: Vec<Expr>,
     },
+    TaskLaunch {
+        handle: String,
+        executor: TaskExecutor,
+        actions: Vec<Action>,
+    },
+    TaskCancel {
+        handle: String,
+    },
     If {
         condition: Expr,
         then_branch: Vec<Action>,
@@ -1246,6 +1257,12 @@ pub enum Action {
     },
     Break,
     Continue,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TaskExecutor {
+    Main,
+    Background,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -37,12 +37,14 @@ final class NexaDevStateStore: ObservableObject {
     var focusBindings: [String: (scope: String, state: String?)] = [:]
     var nativeEventSubscriptions: [NexaDevNativeEventSubscription] = []
     var networkStatusSubscriptions: [NexaDevNetworkStatusSubscription] = []
+    var foregroundTasks: [String: Task<Void, Never>] = [:]
     var activeScreenParameters: [String: [String: Any]] = [:]
     var pendingPluginFailure: NexaDevPluginFailure?
     var hasInstalledModule = false
 
     func install(module: [String: Any]) {
         let isHotReplacement = hasInstalledModule
+        if isHotReplacement { clearNativeTasks() }
         let screens = module["screens"] as? [[String: Any]] ?? []
         let appStates = module["states"] as? [[String: Any]] ?? []
         functions = Dictionary(
@@ -134,6 +136,7 @@ final class NexaDevStateStore: ObservableObject {
     }
 
     func hotRestart(module: [String: Any]) {
+        clearNativeTasks()
         clearNativeEventSubscriptions()
         activeScreenParameters.removeAll(keepingCapacity: true)
         let screens = module["screens"] as? [[String: Any]] ?? []
@@ -190,6 +193,7 @@ final class NexaDevStateStore: ObservableObject {
     func screenDidDisappear(scope: String) {
         activeScreenParameters.removeValue(forKey: scope)
         clearNativeEventSubscriptions(scope: scope)
+        clearNativeTasks(scope: scope)
     }
 
     static func collectFocusBindings(

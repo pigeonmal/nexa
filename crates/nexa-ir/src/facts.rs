@@ -45,6 +45,7 @@ pub struct TypeFacts {
     pub mutable_set: bool,
     pub mutable_map: bool,
     pub native_class_instance: bool,
+    pub task_handle: bool,
     /// A screen route parameter is a `String` (navigation URI support).
     pub string_route_param: bool,
 }
@@ -576,6 +577,12 @@ impl ModuleFacts {
 /// Mutable state type shapes. Mirrors the backend state-kind derivation so
 /// every target classifies states identically.
 fn record_state(state: &State, types: &mut TypeFacts) {
+    if matches!(
+        &state.ty,
+        Type::Optional(inner) if matches!(inner.as_ref(), Type::TaskHandle)
+    ) {
+        types.task_handle = true;
+    }
     if state.is_native_class_instance_binding() {
         types.native_class_instance = true;
         return;

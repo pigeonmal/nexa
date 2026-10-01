@@ -58,6 +58,7 @@ pub(crate) fn swift_type(ty: &Type) -> String {
             name.clone()
         }
         Type::Plugin { name, .. } => name.clone(),
+        Type::TaskHandle => "Task<Void, Never>".to_owned(),
         Type::NetworkResponse => "NexaNetworkResponse".to_owned(),
         Type::Struct { name, .. } => struct_name(name),
     }

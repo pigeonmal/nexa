@@ -2,7 +2,7 @@ use nexa_codegen::SourceWriter;
 use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle, walk::walk_ir};
 
 use crate::generator::{
-    components::render_node, engine::types::swift_type, features::Features, layout,
+    components::render_node, engine::types::swift_type, features::Features, layout, lifecycle,
     render_immutable_state, render_native_object_state,
 };
 
@@ -124,6 +124,7 @@ fn render_component(
     out.push_str("    var body: some View {\n");
     render_immutable_state(&component.states, 2, out);
     render_body(&component.body, module, features, 2, out);
+    lifecycle::render_on_disappear(None, &lifecycle::task_handles(&component.states), 2, out);
     out.push_str("\n    }\n}\n");
 }
 

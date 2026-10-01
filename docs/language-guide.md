@@ -500,6 +500,33 @@ The interval must be at least 15 minutes so the declaration is valid on Android.
 
 Task handlers are AOT code. In a `nexa dev` session, editing a background task declaration or body causes the native host to rebuild and relaunch automatically; UI-only edits continue to hot reload. See [`background_task.nx`](../examples/background_task.nx).
 
+### Foreground tasks
+
+Use a `TaskHandle?` state to retain and cancel one native task. Launching into the same handle cancels its previous task first:
+
+```nexa
+app TaskExample {
+    state refreshTask: TaskHandle? = null
+    state status: String = "Ready"
+
+    body {
+        Button("Refresh") {
+            Task.launch(handle: refreshTask, executor: TaskExecutor.Main) {
+                status = "Updated"
+            }
+        }
+        Button("Cancel") {
+            Task.cancel(handle: refreshTask)
+        }
+        Text(status)
+    }
+}
+```
+
+`TaskExecutor.Main` uses Swift's main actor or Compose's main dispatcher. `TaskExecutor.Background` uses a native background executor and cannot read or mutate UI state. Tasks are canceled when their owning app, screen, or component leaves its native view lifecycle; cancellation is cooperative. Catch typed plugin failures inside the task body. On Android, an uncaught task failure is logged.
+
+Task launch and cancellation are part of DevRuntime IR, so task actions can hot reload after the development host has been built with this runtime. DevRuntime is an interpreter; use a release build when measuring native task throughput.
+
 ## Haptics
 
 Use `Haptics.impact(style:)` for light, medium, or heavy impact feedback; `Haptics.notification(kind:)` for success or error feedback; and `Haptics.selection()` for selection changes. The style values are `Light`, `Medium`, and `Heavy`; notification values are `Success` and `Error`.

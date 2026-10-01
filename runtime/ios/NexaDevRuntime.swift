@@ -124,6 +124,7 @@ public struct NexaDevRuntimeRoot: View {
             guard let module = runtime.module else { return }
             runtime.store.perform(module["on_disappear"] as? [Any] ?? [], scope: "app", locals: [:])
             runtime.store.clearNativeEventSubscriptions(scope: "app")
+            runtime.store.clearNativeTasks(scope: "app")
         }
         .task { runtime.connect() }
         .onChange(of: activeInput) { runtime.store.focusChanged(to: $0) }

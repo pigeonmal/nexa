@@ -871,6 +871,17 @@ fn walk_actions(
                     walk_expression(argument, names, used);
                 }
             }
+            ast::Stmt::TaskLaunch { handle, body, .. } => {
+                if names.contains(handle) {
+                    used.insert(handle.clone());
+                }
+                walk_actions(body, names, used, target, file, warnings);
+            }
+            ast::Stmt::TaskCancel { handle, .. } => {
+                if names.contains(handle) {
+                    used.insert(handle.clone());
+                }
+            }
             ast::Stmt::If {
                 condition,
                 then_branch,
@@ -983,6 +994,10 @@ fn actions_reference_name(actions: &[ast::Stmt], name: &str) -> bool {
                     .iter()
                     .any(|argument| expression_references_name(argument, name))
         }
+        ast::Stmt::TaskLaunch { handle, body, .. } => {
+            handle == name || actions_reference_name(body, name)
+        }
+        ast::Stmt::TaskCancel { handle, .. } => handle == name,
         ast::Stmt::If {
             condition,
             then_branch,

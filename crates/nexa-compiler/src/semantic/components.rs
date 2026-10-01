@@ -7,7 +7,8 @@ use nexa_ir::{
     DirectionConfig, DirectionStyle, Expr, FastListRefresh, FontWeight, HapticStyle, ImageScale,
     ImageSource, KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis, ListCommon, ListPlan,
     NativeComponentEventHandler, Node, NumericType, ReturnKeyType, ScreenId, SectionedListCommon,
-    StatusBarConfig, StatusBarStyle, TextStyle, Type, ViewTransition as IrViewTransition, WhenCase,
+    StatusBarConfig, StatusBarStyle, TaskExecutor as IrTaskExecutor, TextStyle, Type,
+    ViewTransition as IrViewTransition, WhenCase,
 };
 use nexa_syntax::{ast, catalog};
 
@@ -2896,6 +2897,64 @@ fn lower_actions_with_disposal_state(
                     arguments,
                 });
             }
+            ast::Stmt::TaskLaunch {
+                handle,
+                executor,
+                body,
+                span,
+            } => {
+                let Some((handle_type, mutable)) = symbols.get(&handle) else {
+                    return Err(CompileError::new(
+                        span,
+                        format!("unknown task handle state `{handle}`"),
+                    ));
+                };
+                if !mutable || handle_type != &Type::Optional(Box::new(Type::TaskHandle)) {
+                    return Err(CompileError::new(
+                        span,
+                        format!(
+                            "Task.launch requires `{handle}` to be a mutable `TaskHandle?` state initialized to `null`"
+                        ),
+                    ));
+                }
+                let actions = lower_actions_with_aliases(
+                    body,
+                    symbols,
+                    functions,
+                    true,
+                    native_aliases,
+                    registries,
+                )?;
+                if executor == ast::TaskExecutor::Background && task_actions_touch_state(&actions) {
+                    return Err(CompileError::new(
+                        span,
+                        "background tasks cannot read or mutate UI state; use `TaskExecutor.Main` for stateful work",
+                    ));
+                }
+                lowered.push(Action::TaskLaunch {
+                    handle,
+                    executor: match executor {
+                        ast::TaskExecutor::Main => IrTaskExecutor::Main,
+                        ast::TaskExecutor::Background => IrTaskExecutor::Background,
+                    },
+                    actions,
+                });
+            }
+            ast::Stmt::TaskCancel { handle, span } => {
+                let Some((handle_type, _)) = symbols.get(&handle) else {
+                    return Err(CompileError::new(
+                        span,
+                        format!("unknown task handle state `{handle}`"),
+                    ));
+                };
+                if handle_type != &Type::Optional(Box::new(Type::TaskHandle)) {
+                    return Err(CompileError::new(
+                        span,
+                        format!("Task.cancel requires `{handle}` to have type `TaskHandle?`"),
+                    ));
+                }
+                lowered.push(Action::TaskCancel { handle });
+            }
             ast::Stmt::If {
                 condition,
                 then_branch,
@@ -3400,6 +3459,53 @@ fn validate_typed_error_recovery(
     Ok(())
 }
 
+fn task_actions_touch_state(actions: &[Action]) -> bool {
+    let mut reads_state = false;
+    nexa_ir::walk::walk_actions(actions, &mut |expression| {
+        reads_state |= matches!(expression, Expr::State(_, _));
+    });
+    reads_state || actions_mutate_or_subscribe(actions)
+}
+
+fn actions_mutate_or_subscribe(actions: &[Action]) -> bool {
+    actions.iter().any(|action| match action {
+        Action::Assign { .. }
+        | Action::NativePropertyAssign { .. }
+        | Action::NativeEventSubscribe { .. }
+        | Action::NetworkStatusSubscribe { .. }
+        | Action::CollectionMutation { .. }
+        | Action::TaskLaunch { .. }
+        | Action::TaskCancel { .. } => true,
+        Action::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            actions_mutate_or_subscribe(then_branch)
+                || else_branch
+                    .as_deref()
+                    .is_some_and(actions_mutate_or_subscribe)
+        }
+        Action::For { body, .. } | Action::ForMap { body, .. } | Action::While { body, .. } => {
+            actions_mutate_or_subscribe(body)
+        }
+        Action::TryCatch {
+            body,
+            error_catches,
+            catch_body,
+        } => {
+            actions_mutate_or_subscribe(body)
+                || error_catches
+                    .iter()
+                    .any(|arm| actions_mutate_or_subscribe(&arm.body))
+                || catch_body
+                    .as_deref()
+                    .is_some_and(actions_mutate_or_subscribe)
+        }
+        Action::Expression(_) | Action::Break | Action::Continue => false,
+    })
+}
+
 fn visit_action_expressions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
     for action in actions {
         match action {
@@ -3418,6 +3524,8 @@ fn visit_action_expressions(actions: &[Action], visit: &mut impl FnMut(&Expr)) {
             Action::NativeEventSubscribe { receiver, .. } => {
                 nexa_ir::walk::walk_expression(receiver, visit);
             }
+            Action::TaskLaunch { actions, .. } => visit_action_expressions(actions, visit),
+            Action::TaskCancel { .. } => {}
             Action::NetworkStatusSubscribe { .. } => {}
             Action::CollectionMutation { arguments, .. } => {
                 for argument in arguments {

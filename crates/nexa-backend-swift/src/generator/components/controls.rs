@@ -1,6 +1,8 @@
 use nexa_codegen::SourceWriter;
 use nexa_codegen::names::state_name;
-use nexa_ir::{Action, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node};
+use nexa_ir::{
+    Action, CollectionMutation, ErrorCatchArm, Expr, HapticStyle, Module, Node, TaskExecutor,
+};
 
 use crate::generator::{
     components::render_children,
@@ -489,6 +491,26 @@ pub(crate) fn render_actions(actions: &[Action], depth: usize, out: &mut SourceW
                 indent(out, depth);
                 out.push_str("}\n");
             }
+            Action::TaskLaunch {
+                handle,
+                executor,
+                actions,
+            } => {
+                let handle = state_name(handle);
+                out.line_at(depth, format_args!("{handle}?.cancel()"));
+                indent(out, depth);
+                out.push_str(&format!("{handle} = "));
+                match executor {
+                    TaskExecutor::Main => out.push_str("Task { @MainActor in\n"),
+                    TaskExecutor::Background => out.push_str("Task.detached {\n"),
+                }
+                render_actions(actions, depth + 1, out);
+                indent(out, depth);
+                out.push_str("}\n");
+            }
+            Action::TaskCancel { handle } => {
+                out.line_at(depth, format_args!("{}?.cancel()", state_name(handle)));
+            }
             Action::CollectionMutation {
                 name,
                 operation,
@@ -662,7 +684,7 @@ fn render_swift_error_catches(
 #[cfg(test)]
 mod tests {
     use nexa_codegen::SourceWriter;
-    use nexa_ir::{Action, Expr, NumericType, Type};
+    use nexa_ir::{Action, Expr, NumericType, TaskExecutor, Type};
 
     use super::{render_actions, render_progress_bar, render_progress_ring, render_slider};
 
@@ -733,6 +755,38 @@ mod tests {
 
         assert!(output.contains("NexaNetwork.onStatusChange { nexa_online in"));
         assert!(output.contains("nexa_connected = nexa_online"));
+    }
+
+    #[test]
+    fn renders_task_launch_and_cancellation_on_the_selected_executor() {
+        let actions = [
+            Action::TaskLaunch {
+                handle: "refreshTask".to_owned(),
+                executor: TaskExecutor::Main,
+                actions: vec![Action::Assign {
+                    name: "finished".to_owned(),
+                    value: Expr::Bool(true),
+                }],
+            },
+            Action::TaskLaunch {
+                handle: "workerTask".to_owned(),
+                executor: TaskExecutor::Background,
+                actions: vec![Action::Expression(Expr::Bool(true))],
+            },
+            Action::TaskCancel {
+                handle: "refreshTask".to_owned(),
+            },
+        ];
+        let mut output = SourceWriter::new();
+
+        render_actions(&actions, 0, &mut output);
+
+        assert!(
+            output.contains("nexa_refreshTask?.cancel()\nnexa_refreshTask = Task { @MainActor in")
+        );
+        assert!(output.contains("nexa_finished = true"));
+        assert!(output.contains("nexa_workerTask = Task.detached {"));
+        assert!(output.ends_with("nexa_refreshTask?.cancel()\n"));
     }
 
     #[test]

@@ -80,6 +80,7 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
         onDispose {
             latestModule.value?.optJSONArray("on_disappear")?.let { store.perform(it, "app", emptyMap()) }
             store.clearNativeEventSubscriptions("app")
+            store.clearNativeTasks("app")
         }
     }
     var fps by remember { mutableIntStateOf(0) }

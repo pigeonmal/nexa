@@ -127,6 +127,7 @@ pub(crate) struct Features {
     pub(crate) uses_mutable_double_state: bool,
     pub(crate) uses_mutable_generic_state: bool,
     pub(crate) uses_result: bool,
+    pub(crate) uses_tasks: bool,
     /// Target-neutral facts from the single analysis pass. Renderers read
     /// per-scope data (such as focus bindings) from here instead of
     /// re-walking subtrees.
@@ -169,6 +170,7 @@ impl Features {
         self.uses_file_api = capabilities.uses_file_api;
         self.uses_file_async = capabilities.uses_file_async;
         self.uses_result = capabilities.uses_result;
+        self.uses_tasks = facts.used_types.task_handle;
         self.uses_permissions = facts.permissions.present;
         self.uses_permission_request = facts.permissions.request;
         self.used_permissions = facts.permissions.used.clone();

@@ -757,6 +757,19 @@ pub enum Stmt {
         arguments: Vec<Expr>,
         span: Span,
     },
+    /// Starts a view-scoped native task and stores its cancellation handle in
+    /// a mutable app, screen, or component state binding.
+    TaskLaunch {
+        handle: String,
+        executor: TaskExecutor,
+        body: Vec<Stmt>,
+        span: Span,
+    },
+    /// Requests cooperative cancellation of a task handle.
+    TaskCancel {
+        handle: String,
+        span: Span,
+    },
     If {
         condition: Expr,
         then_branch: Vec<Stmt>,
@@ -797,6 +810,12 @@ pub enum Stmt {
         value: Expr,
         span: Span,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskExecutor {
+    Main,
+    Background,
 }
 
 #[derive(Clone, Debug)]

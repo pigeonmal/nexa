@@ -601,6 +601,7 @@ fn collect_type_struct_names(ty: &nexa_ir::Type, used: &mut HashSet<String>) {
         | nexa_ir::Type::Numeric(_)
         | nexa_ir::Type::Enum(_)
         | nexa_ir::Type::Plugin { .. }
+        | nexa_ir::Type::TaskHandle
         | nexa_ir::Type::NetworkResponse => {}
     }
 }
@@ -820,6 +821,9 @@ impl IrVisitor for ActionBindingCollector<'_> {
             Action::Assign { name, .. } | Action::CollectionMutation { name, .. } => {
                 self.used.push(name.clone());
             }
+            Action::TaskLaunch { handle, .. } | Action::TaskCancel { handle } => {
+                self.used.push(handle.clone());
+            }
             _ => {}
         }
         nexa_ir::walk::walk_action_children(action, self);
@@ -846,6 +850,9 @@ impl IrVisitor for ActionStateRefCollector<'_> {
         match action {
             Action::Assign { name, .. } | Action::CollectionMutation { name, .. } => {
                 self.used.insert(name.clone());
+            }
+            Action::TaskLaunch { handle, .. } | Action::TaskCancel { handle } => {
+                self.used.insert(handle.clone());
             }
             _ => {}
         }

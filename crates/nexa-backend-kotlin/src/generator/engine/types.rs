@@ -55,6 +55,7 @@ pub(crate) fn kotlin_type(ty: &Type) -> String {
             name.clone()
         }
         Type::Plugin { name, .. } => name.clone(),
+        Type::TaskHandle => "kotlinx.coroutines.Job".to_owned(),
         Type::NetworkResponse => "NexaNetworkResponse".to_owned(),
         Type::Struct { name, .. } => struct_name(name),
     }

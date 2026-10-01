@@ -263,6 +263,11 @@
         "android": "covered"
       },
       {
+        "name": "TaskHandle",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "TypeParam",
         "ios": "covered",
         "android": "covered"
@@ -1137,6 +1142,16 @@
         "android": "covered"
       },
       {
+        "name": "TaskLaunch",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "TaskCancel",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "CollectionMutation",
         "ios": "covered",
         "android": "covered"
@@ -1173,6 +1188,18 @@
       },
       {
         "name": "Continue",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "TaskExecutor": [
+      {
+        "name": "Main",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Background",
         "ios": "covered",
         "android": "covered"
       }
@@ -1492,6 +1519,10 @@
       "ios": "covered",
       "android": "covered"
     },
+    "foreground_task_launch": {
+      "ios": "covered",
+      "android": "covered"
+    },
     "file_and_path_apis_hot_reload": {
       "ios": "covered",
       "android": "covered"
@@ -1551,6 +1582,14 @@
       "android": "covered",
       "semantic_probe_markers": [
         "DEVRT_ASYNC_NESTED_EXPRESSION_PASS"
+      ]
+    },
+    "foreground_tasks": {
+      "ios": "covered",
+      "android": "covered",
+      "semantic_probe_markers": [
+        "DEVRT_TASK_MAIN_PASS",
+        "DEVRT_TASK_BACKGROUND_PASS"
       ]
     },
     "typed_plugin_error_catches": {

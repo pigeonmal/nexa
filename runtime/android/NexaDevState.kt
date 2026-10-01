@@ -11,7 +11,9 @@ import org.json.JSONObject
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import java.util.concurrent.ConcurrentHashMap
 
 internal data class NexaDevNativeEventSubscription(
     val receiver: Any,
@@ -32,6 +34,7 @@ internal data class NexaDevNetworkStatusSubscription(
 
 internal class NexaDevStateStore(internal val context: Context) {
     internal val eventScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    internal val foregroundTasks = ConcurrentHashMap<String, Job>()
     internal val values = mutableStateMapOf<String, Any>()
     internal var typeSignatures = mutableMapOf<String, String>()
     internal var functions = mutableMapOf<String, JSONObject>()
@@ -62,6 +65,7 @@ internal class NexaDevStateStore(internal val context: Context) {
 
     fun install(next: JSONObject) {
         val isHotReplacement = hasInstalledModule
+        if (isHotReplacement) clearNativeTasks()
         val screens = next.optJSONArray("screens") ?: JSONArray()
         val states = next.optJSONArray("states") ?: JSONArray()
         val nextFunctions = next.optJSONArray("functions") ?: JSONArray()
@@ -167,6 +171,7 @@ internal class NexaDevStateStore(internal val context: Context) {
     }
 
     fun hotRestart() {
+        clearNativeTasks()
         clearNativeEventSubscriptions()
         activeScreenParameters.clear()
         val current = module ?: return

@@ -324,7 +324,12 @@ fn generate_with_analysis_mode(
         }
         direction::render(module.direction, 2, out);
         lifecycle::render_on_appear(module.on_appear.as_deref(), module.on_appear_async, 2, out);
-        lifecycle::render_on_disappear(module.on_disappear.as_deref(), 2, out);
+        lifecycle::render_on_disappear(
+            module.on_disappear.as_deref(),
+            &lifecycle::task_handles(&module.states),
+            2,
+            out,
+        );
         lifecycle::render_scene_phase(module, 2, out);
         status_bar::render(module.status_bar, 2, out);
         if features.uses_shared_elements {

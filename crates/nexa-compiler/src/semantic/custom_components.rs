@@ -10,6 +10,7 @@ use super::{
     expressions::{
         FunctionSignatures, StructTypes, lower_expr, parse_type, record_native_alias,
         references_state, resolve_declaration_type, resolve_struct_type,
+        validate_task_handle_state,
     },
     themes::ThemeSymbols,
 };
@@ -253,6 +254,12 @@ fn lower_component(
             ));
         }
         let ty = resolve_declaration_type(&state, &symbols, functions, structs)?;
+        validate_task_handle_state(
+            &ty,
+            state.mutable,
+            matches!(&state.initial, ast::Expr::Null(_)),
+            state.span,
+        )?;
         let initial = lower_expr(
             &state.initial,
             Some(&ty),

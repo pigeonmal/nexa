@@ -9,11 +9,29 @@ use crate::generator::{
 
 pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
     imports.add(
+        context.features.uses_tasks,
+        "androidx.compose.runtime.rememberCoroutineScope",
+    );
+    imports.add(
+        context.features.uses_tasks,
+        "kotlinx.coroutines.CoroutineExceptionHandler",
+    );
+    imports.add(
+        context.features.uses_tasks,
+        "kotlinx.coroutines.CoroutineStart",
+    );
+    imports.add(
+        context.features.uses_tasks,
+        "kotlinx.coroutines.Dispatchers",
+    );
+    imports.add(context.features.uses_tasks, "kotlinx.coroutines.Job");
+    imports.add(context.features.uses_tasks, "kotlinx.coroutines.launch");
+    imports.add(
         context.has_on_appear,
         "androidx.compose.runtime.LaunchedEffect",
     );
     imports.add(
-        context.has_on_disappear || context.has_lifecycle_events,
+        context.has_on_disappear || context.has_lifecycle_events || context.features.uses_tasks,
         "androidx.compose.runtime.DisposableEffect",
     );
     imports.add(
@@ -25,6 +43,35 @@ pub(crate) fn imports(context: &ImportContext<'_>, imports: &mut ImportSet) {
         context.has_lifecycle_events,
         "androidx.lifecycle.LifecycleEventObserver",
     );
+}
+
+pub(crate) fn render_task_cancellation_on_dispose(
+    states: &[nexa_ir::State],
+    depth: usize,
+    out: &mut SourceWriter,
+) {
+    let handles = states
+        .iter()
+        .filter(|state| {
+            state.mutable
+                && matches!(&state.ty, nexa_ir::Type::Optional(inner) if matches!(inner.as_ref(), nexa_ir::Type::TaskHandle))
+        })
+        .map(|state| nexa_codegen::names::state_name(&state.name))
+        .collect::<Vec<_>>();
+    if handles.is_empty() {
+        return;
+    }
+    utils::indent(out, depth);
+    out.push_str("DisposableEffect(Unit) {\n");
+    utils::indent(out, depth + 1);
+    out.push_str("onDispose {\n");
+    for handle in handles {
+        out.line_at(depth + 2, format_args!("{handle}?.cancel()"));
+    }
+    utils::indent(out, depth + 1);
+    out.push_str("}\n");
+    utils::indent(out, depth);
+    out.push_str("}\n");
 }
 
 pub(crate) fn render_on_appear(actions: Option<&[Action]>, depth: usize, out: &mut SourceWriter) {
@@ -122,4 +169,30 @@ fn render_lifecycle_case(
         out.push_str(&format!("{}Unit\n", "    ".repeat(depth + 1)));
     }
     out.push_str(&format!("{indent}}}\n"));
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_codegen::SourceWriter;
+    use nexa_ir::{Expr, State, Type};
+
+    use super::render_task_cancellation_on_dispose;
+
+    #[test]
+    fn task_jobs_cancel_when_their_composition_scope_is_disposed() {
+        let states = [State {
+            name: "refreshTask".to_owned(),
+            ty: Type::Optional(Box::new(Type::TaskHandle)),
+            initial: Expr::Null(Type::Optional(Box::new(Type::TaskHandle))),
+            mutable: true,
+        }];
+        let mut output = SourceWriter::new();
+
+        render_task_cancellation_on_dispose(&states, 1, &mut output);
+
+        assert!(output.contains(
+            "DisposableEffect(Unit) {\n        onDispose {\n            nexa_refreshTask?.cancel()"
+        ));
+        assert!(output.ends_with("    }\n"));
+    }
 }

@@ -1,5 +1,5 @@
 use nexa_codegen::SourceWriter;
-use nexa_ir::{Action, Module};
+use nexa_ir::{Action, Module, State, Type};
 
 use crate::generator::{controls, utils};
 
@@ -36,23 +36,40 @@ pub(crate) fn render_on_appear(
 
 pub(crate) fn render_on_disappear(
     actions: Option<&[Action]>,
+    task_handles: &[String],
     depth: usize,
     out: &mut SourceWriter,
 ) {
-    let Some(actions) = actions else {
+    if actions.is_none() && task_handles.is_empty() {
         return;
-    };
+    }
     out.push('\n');
     utils::indent(out, depth + 1);
     out.push_str(".onDisappear {");
-    if actions.is_empty() {
+    if actions.is_none_or(|actions| actions.is_empty()) && task_handles.is_empty() {
         out.push('}');
         return;
     }
     out.push('\n');
-    controls::render_actions(actions, depth + 2, out);
+    if let Some(actions) = actions {
+        controls::render_actions(actions, depth + 2, out);
+    }
+    for handle in task_handles {
+        out.line_at(depth + 2, format_args!("{handle}?.cancel()"));
+    }
     utils::indent(out, depth + 1);
     out.push('}');
+}
+
+pub(crate) fn task_handles(states: &[State]) -> Vec<String> {
+    states
+        .iter()
+        .filter(|state| {
+            state.mutable
+                && matches!(&state.ty, Type::Optional(inner) if matches!(inner.as_ref(), Type::TaskHandle))
+        })
+        .map(|state| nexa_codegen::names::state_name(&state.name))
+        .collect()
 }
 
 /// Renders the `onChange(of: scenePhase)` modifier that dispatches the app's
@@ -93,4 +110,29 @@ pub(crate) fn render_scene_phase(module: &Module, depth: usize, out: &mut Source
     out.push_str("}\n");
     utils::indent(out, depth + 1);
     out.push('}');
+}
+
+#[cfg(test)]
+mod tests {
+    use nexa_codegen::SourceWriter;
+    use nexa_ir::{Expr, State, Type};
+
+    use super::{render_on_disappear, task_handles};
+
+    #[test]
+    fn task_handles_cancel_when_their_view_scope_disappears() {
+        let states = [State {
+            name: "refreshTask".to_owned(),
+            ty: Type::Optional(Box::new(Type::TaskHandle)),
+            initial: Expr::Null(Type::Optional(Box::new(Type::TaskHandle))),
+            mutable: true,
+        }];
+        let handles = task_handles(&states);
+        let mut output = SourceWriter::new();
+
+        render_on_disappear(None, &handles, 1, &mut output);
+
+        assert_eq!(handles, ["nexa_refreshTask"]);
+        assert!(output.contains(".onDisappear {\n            nexa_refreshTask?.cancel()"));
+    }
 }
