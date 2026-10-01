@@ -749,6 +749,14 @@ fn eval_expr(
             enum_name,
             case_name,
         } => Ok(Value::Enum(enum_name.clone(), case_name.clone())),
+        Expr::PluginEnumValue {
+            namespace,
+            enum_name,
+            case_name,
+        } => Ok(Value::Enum(
+            format!("{namespace}.{enum_name}"),
+            case_name.clone(),
+        )),
         Expr::Add(left, right, ty) => {
             let left = eval_expr(left, environment, functions, depth + 1)?;
             let right = eval_expr(right, environment, functions, depth + 1)?;

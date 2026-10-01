@@ -66,6 +66,7 @@ fn lower_with_warnings_in_mode(
     let enum_declarations = lower_enum_declarations(&app.enums)?;
     let (struct_declarations, struct_types) = lower_struct_declarations(&app.structs)?;
     let mut enum_symbols = enum_symbols(&enum_declarations);
+    enum_symbols.extend(plugin_enum_symbols(&app.plugins));
     let mut enum_names = enum_declarations
         .iter()
         .map(|declaration| declaration.name.as_str())
@@ -1436,6 +1437,32 @@ fn enum_symbols(declarations: &[nexa_ir::EnumDecl]) -> HashMap<String, (nexa_ir:
                 format!("{}.{}", declaration.name, case),
                 (ty.clone(), false),
             );
+        }
+    }
+    symbols
+}
+
+fn plugin_enum_symbols(plugins: &[ast::PluginDecl]) -> HashMap<String, (nexa_ir::Type, bool)> {
+    let mut symbols = HashMap::new();
+    for plugin in plugins.iter().filter(|plugin| !plugin.pure) {
+        let Some(idl) = plugin.idl.as_ref() else {
+            continue;
+        };
+        for declaration in idl
+            .types
+            .iter()
+            .filter(|declaration| declaration.kind == nexa_plugin_idl::NamedTypeKind::Enum)
+        {
+            let ty = Type::Plugin {
+                namespace: plugin.namespace.clone(),
+                name: declaration.name.clone(),
+            };
+            for case in &declaration.cases {
+                symbols.insert(
+                    format!("{}.{}.{}", plugin.namespace, declaration.name, case.name),
+                    (ty.clone(), false),
+                );
+            }
         }
     }
     symbols

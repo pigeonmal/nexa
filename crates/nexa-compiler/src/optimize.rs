@@ -219,6 +219,7 @@ fn is_pure_expression(expression: &Expr) -> bool {
         | Expr::Bool(_)
         | Expr::Number { .. }
         | Expr::EnumValue { .. }
+        | Expr::PluginEnumValue { .. }
         | Expr::State(_, _)
         | Expr::Null(_)
         | Expr::IsRegularWidth
@@ -666,6 +667,7 @@ fn collect_expression_type_struct_names(expression: &Expr, used: &mut HashSet<St
         | Expr::Bool(_)
         | Expr::Number { .. }
         | Expr::EnumValue { .. }
+        | Expr::PluginEnumValue { .. }
         | Expr::Add(_, _, _)
         | Expr::Concat(_, _)
         | Expr::Arithmetic { .. }

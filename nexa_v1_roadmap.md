@@ -307,7 +307,7 @@ graph TD
 1. [x] `@nexa/video-player`: AVPlayer (iOS) & Media3 ExoPlayer 1.11.1 (Android). Adaptive HLS/DASH, PiP, playback controls, embedded Cronet networking, and an optional LGPL-only FFmpeg fallback controlled by `VideoView.softwareDecodingEnabled`.
 2. [x] `@nexa/audio-player`: Background audio playback, lock screen metadata (`MPNowPlayingInfoCenter`, `MediaSession`).
 3. [x] `@nexa/mmkv`: Tencent MMKV zero-copy memory-mapped storage. The Android arm64 Release conformance benchmark records 1,000 identical string writes in 0.170–0.288 ms with compare-before-set enabled and 1,000 reads in 0.158–0.182 ms; comparison-disabled writes are retained as a diagnostic.
-4. [ ] `@nexa/camera`: Photo/video capture and QR/barcode scanning (`AVCaptureSession` / `CameraX`), including a defined efficient image-stream API.
+4. [x] `@nexa/camera`: Photo/video capture and QR/barcode scanning (`AVCaptureSession` / `CameraX`), including a defined efficient I420 image-stream API. Android emulator logs confirmed photo, finalized video, and image-frame callbacks; Android and iOS native and DevRuntime hosts compile.
 5. [ ] `@nexa/maps`: Apple Maps (`MapKit`) and Google Maps SDK for Android.
 6. [ ] `@nexa/sqlite`: Relational SQLite database with migrations and transactions.
 7. [x] `@nexa/biometrics`: Face ID, Touch ID, and Android BiometricPrompt (`plugins/biometrics`).

@@ -53,6 +53,11 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             nexa_codegen::names::enum_name(enum_name),
             case_name
         ),
+        Expr::PluginEnumValue {
+            enum_name,
+            case_name,
+            ..
+        } => format!("{enum_name}.{case_name}"),
         Expr::Not(value) => format!("(!{})", render(value)),
         Expr::Null(_) => "nil".to_owned(),
         Expr::Coalesce(left, right) => {

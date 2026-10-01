@@ -261,7 +261,8 @@ final class NexaDevStateStore: ObservableObject {
             case "Float64": return Double(raw) ?? 0
             default: return raw.contains(".") ? (Double(raw) ?? 0) as Any : (Int64(raw) ?? 0) as Any
             }
-        case "EnumValue": return (payload as? [String: Any])?["case_name"] as? String ?? ""
+        case "EnumValue", "PluginEnumValue":
+            return (payload as? [String: Any])?["case_name"] as? String ?? ""
         case "State":
             let parts = payload as? [Any] ?? []
             guard let name = parts.first as? String else { return NSNull() }
@@ -546,6 +547,8 @@ final class NexaDevStateStore: ObservableObject {
             return NSNull()
         }
         switch kind {
+        case "EnumValue", "PluginEnumValue":
+            return (payload as? [String: Any])?["case_name"] as? String ?? ""
         case "Await", "TryAwait":
             return try await evaluateAsync(payload, locals: locals, scope: scope)
         case "TimeCall":

@@ -1263,6 +1263,18 @@ pub(super) fn lower_expr(
             span,
         } => {
             if !*optional
+                && let Some((namespace, enum_name)) = qualified_plugin_enum_path(base)
+                && let Some((ty @ Type::Plugin { .. }, _)) =
+                    ctx.symbols.get(&format!("{namespace}.{enum_name}.{name}"))
+            {
+                require_expected(expected, ty, *span)?;
+                return Ok(Expr::PluginEnumValue {
+                    namespace: namespace.to_owned(),
+                    enum_name: enum_name.to_owned(),
+                    case_name: name.clone(),
+                });
+            }
+            if !*optional
                 && name == "isOnline"
                 && matches!(base.as_ref(), ast::Expr::Name(namespace, _) if namespace == "Network")
             {
@@ -3521,6 +3533,12 @@ pub(super) fn infer_expr_type(
             ..
         } => {
             if !*optional
+                && let Some((namespace, enum_name)) = qualified_plugin_enum_path(base)
+                && let Some((ty, _)) = symbols.get(&format!("{namespace}.{enum_name}.{name}"))
+            {
+                return Some(ty.clone());
+            }
+            if !*optional
                 && name == "isOnline"
                 && matches!(base.as_ref(), ast::Expr::Name(namespace, _) if namespace == "Network")
             {
@@ -3703,6 +3721,22 @@ fn as_numeric_type(ty: &Type) -> Option<NumericType> {
         Type::Numeric(numeric_type) => Some(*numeric_type),
         _ => None,
     }
+}
+
+fn qualified_plugin_enum_path(expression: &ast::Expr) -> Option<(&str, &str)> {
+    let ast::Expr::Member {
+        base,
+        name: enum_name,
+        optional: false,
+        ..
+    } = expression
+    else {
+        return None;
+    };
+    let ast::Expr::Name(namespace, _) = base.as_ref() else {
+        return None;
+    };
+    Some((namespace, enum_name))
 }
 
 fn member_field_type(base_type: &Type, name: &str) -> Option<Type> {

@@ -501,6 +501,7 @@ pub fn walk_expression(expression: &Expr, visit: &mut impl FnMut(&Expr)) {
         | Expr::Number { .. }
         | Expr::State(_, _)
         | Expr::EnumValue { .. }
+        | Expr::PluginEnumValue { .. }
         | Expr::Null(_)
         | Expr::IsRegularWidth
         | Expr::IsCompactWidth
@@ -1143,6 +1144,7 @@ pub fn walk_expr_children<V: IrVisitor>(expr: &Expr, visitor: &mut V) {
         | Expr::Number { .. }
         | Expr::State(_, _)
         | Expr::EnumValue { .. }
+        | Expr::PluginEnumValue { .. }
         | Expr::Null(_)
         | Expr::IsRegularWidth
         | Expr::IsCompactWidth
@@ -1864,6 +1866,7 @@ pub fn fold_expr_children<F: IrFolder>(expr: Expr, folder: &mut F) -> Expr {
         | Expr::Number { .. }
         | Expr::State(_, _)
         | Expr::EnumValue { .. }
+        | Expr::PluginEnumValue { .. }
         | Expr::Null(_)
         | Expr::IsRegularWidth
         | Expr::IsCompactWidth

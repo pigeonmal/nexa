@@ -287,6 +287,12 @@ pub enum Expr {
         enum_name: String,
         case_name: String,
     },
+    /// A case declared by a native plugin enum contract.
+    PluginEnumValue {
+        namespace: String,
+        enum_name: String,
+        case_name: String,
+    },
     Add(Box<Expr>, Box<Expr>, NumericType),
     Concat(Box<Expr>, Box<Expr>),
     Arithmetic {

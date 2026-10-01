@@ -343,7 +343,7 @@ internal class NexaDevStateStore(internal val context: Context) {
                     else -> if (rawValue.contains('.')) rawValue.toDoubleOrNull() ?: 0.0 else rawValue.toLongOrNull() ?: 0L
                 }
             }
-            "EnumValue" -> (payload as? JSONObject)?.optString("case_name") ?: ""
+            "EnumValue", "PluginEnumValue" -> (payload as? JSONObject)?.optString("case_name") ?: ""
             "Array" -> {
                 val array = payload as? JSONArray ?: JSONArray()
                 (0 until array.length()).map { evaluate(array.opt(it), locals, scope) }
@@ -625,6 +625,7 @@ internal class NexaDevStateStore(internal val context: Context) {
         val kind = iterator.next()
         val payload = expression.opt(kind)
         return when (kind) {
+            "EnumValue", "PluginEnumValue" -> (payload as? JSONObject)?.optString("case_name") ?: ""
             "Await", "TryAwait" -> evaluateAsync(payload, locals, scope)
             "TimeCall" -> {
                 val call = payload as? JSONObject ?: JSONObject()

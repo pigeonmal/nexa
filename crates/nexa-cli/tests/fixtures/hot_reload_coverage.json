@@ -300,6 +300,11 @@
         "android": "covered"
       },
       {
+        "name": "PluginEnumValue",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Add",
         "ios": "covered",
         "android": "covered"
