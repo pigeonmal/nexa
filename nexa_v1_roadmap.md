@@ -86,7 +86,7 @@ graph TD
 
 - [x] Parse and type-check additive arithmetic (`+` for numbers and string concatenation, `-`), multiplicative arithmetic (`*`, `/`, `%`), compound assignment (`+=`, `-=`, `*=`, `/=`), and unary negation (`-expr`, `!expr`).
 - [x] Add allocation-free optional `first()` and `last()` accessors for typed arrays across Swift, Kotlin, and DevRuntime.
-- [ ] Audit and define any further standard member methods for primitive and collection types. Current typed collection support includes `count`, `isEmpty`, `random()`, `first()`, `last()`, `shuffled()`, `reverse()`, and `slice(start..end)`.
+- [x] Audit and define standard member methods for primitive and collection types. Arrays support `map`, `filter`, `reduce`, `random()`, `first()`, `last()`, `shuffled()`, `reverse()`, and `slice(start..end)`; arrays, sets, and maps expose `count`/`isEmpty`, and membership uses `in` (map keys included). No further primitive/collection methods were identified; no duplicate `contains()` or `String.length` API was added.
 - [x] Enforce operator precedence in `crates/nexa-syntax/src/parser.rs`.
 - [x] Constant-fold supported expressions and run dead-code elimination in `crates/nexa-compiler/src/optimize.rs`.
 - [x] Lower arithmetic to native Swift and Kotlin operators in both backends.

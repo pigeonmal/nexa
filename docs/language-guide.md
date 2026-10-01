@@ -107,6 +107,8 @@ app ArrayUtilities {
 
 `random()`, `first()`, and `last()` return an optional element because an empty array has no value to return. `first()` and `last()` access the existing array without creating a copy. `shuffled()`, `reverse()`, and `slice` return a new array. `slice` takes one unstepped range; `..` includes its upper index and `..<` excludes it. Indices must be valid for the source array.
 
+Arrays also support typed closure transforms with `map`, `filter`, and `reduce`. Use the infix `in` operator for collection membership: arrays and sets check scalar elements, while maps check scalar keys. There is no `.contains()` alias because it would duplicate `in`.
+
 Text styles can be chained after a component call. For example, `Text("Hi").fontSize(18).bold().padding(12)` is equivalent to setting `fontSize: 18`, `fontWeight: Bold`, and `padding: 12` in the `Text` arguments. `Text`, `Column`, `Row`, and `Stack` also accept `.opacity(value)`, `.scale(value)`, `.rotation(degrees)`, `.shadow(radius: 8, x: 0, y: 4, color: "#00000040")`, `.blur(radius)`, `.clip(shape: Rounded(radius))`, and `.zIndex(value)`.
 
 Layout `animation` accepts `Spring`, `EaseIn`, `EaseOut`, `EaseInOut`, or `Linear`. Customize spring response time in seconds and damping ratio with `Spring(response: 0.35, damping: 0.8)`; omitted values use `0.5` seconds and `0.825`. Response and damping must be finite and greater than zero. SwiftUI receives these values directly. Compose uses the damping ratio directly and maps response to a native spring stiffness, so the motion is platform-native and approximate rather than frame-for-frame identical.
