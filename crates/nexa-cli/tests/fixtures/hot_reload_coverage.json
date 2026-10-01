@@ -554,6 +554,16 @@
         "android": "covered"
       },
       {
+        "name": "First",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Last",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Shuffled",
         "ios": "covered",
         "android": "covered"

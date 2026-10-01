@@ -216,6 +216,20 @@ fn hot_reload_interpreter_variants_have_both_native_dispatches() {
 }
 
 #[test]
+fn module_initializers_resolve_prior_values_during_install_and_hot_restart() {
+    let (root, _) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))
+        .expect("read iOS dev state evaluator");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevState.kt"))
+        .expect("read Android dev state evaluator");
+
+    assert!(swift.contains("evaluate(initial, locals: initialLocals, scope: scope)"));
+    assert!(swift.contains("evaluate(initial, locals: initialLocals, scope: \"app\")"));
+    assert!(kotlin.contains("evaluate(declaration.get(\"initial\"), initialLocals, scope)"));
+    assert!(kotlin.contains("evaluate(state.get(\"initial\"), initialLocals, \"app\")"));
+}
+
+#[test]
 fn async_member_access_handles_tuple_positions_and_collection_size() {
     let (root, _) = fixture();
     let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevState.swift"))

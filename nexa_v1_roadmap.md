@@ -85,7 +85,8 @@ graph TD
 #### 1.1 Infix Arithmetic & String Operations
 
 - [x] Parse and type-check additive arithmetic (`+` for numbers and string concatenation, `-`), multiplicative arithmetic (`*`, `/`, `%`), compound assignment (`+=`, `-=`, `*=`, `/=`), and unary negation (`-expr`, `!expr`).
-- [ ] Define and implement any remaining standard member methods for primitive and collection types. Current typed collection support includes `count`, `isEmpty`, `random()`, `shuffled()`, `reverse()`, and `slice(start..end)`.
+- [x] Add allocation-free optional `first()` and `last()` accessors for typed arrays across Swift, Kotlin, and DevRuntime.
+- [ ] Audit and define any further standard member methods for primitive and collection types. Current typed collection support includes `count`, `isEmpty`, `random()`, `first()`, `last()`, `shuffled()`, `reverse()`, and `slice(start..end)`.
 - [x] Enforce operator precedence in `crates/nexa-syntax/src/parser.rs`.
 - [x] Constant-fold supported expressions and run dead-code elimination in `crates/nexa-compiler/src/optimize.rs`.
 - [x] Lower arithmetic to native Swift and Kotlin operators in both backends.
@@ -134,6 +135,7 @@ graph TD
 - [x] Add DevRuntime bridge adapters for plugin properties, method results, events, and components using `Set<Bytes>`; Kotlin byte arrays use content-based set semantics, verified from simulator/emulator logs.
 - [x] Support Android DevRuntime generic plugin reads with nullable type arguments using tagged read results; verify valid null decoding with semantic logs on Android Emulator and iOS Simulator.
 - [x] Verify awaited results nested in arithmetic, array literals/indexing, conditional branches, and short-circuit Boolean expressions with semantic log assertions on iOS Simulator and Android Emulator.
+- [x] Resolve app and screen state initializers against earlier initialized bindings during DevRuntime install and hot restart; verify optional array `first()`/`last()` values on both platforms using native logs only.
 
 #### 2.4 Accessibility
 

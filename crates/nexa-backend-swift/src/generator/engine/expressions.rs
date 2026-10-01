@@ -233,6 +233,8 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             let collection = render(collection);
             match operation {
                 CollectionUtilityKind::Random => format!("{collection}.randomElement()"),
+                CollectionUtilityKind::First => format!("{collection}.first"),
+                CollectionUtilityKind::Last => format!("{collection}.last"),
                 CollectionUtilityKind::Shuffled => format!("{collection}.shuffled()"),
                 CollectionUtilityKind::Reverse => format!("Array({collection}.reversed())"),
                 CollectionUtilityKind::Slice => {
@@ -876,6 +878,14 @@ mod tests {
         assert_eq!(
             expression(&utility(CollectionUtilityKind::Random, None, None, false)),
             "[1, 2].randomElement()"
+        );
+        assert_eq!(
+            expression(&utility(CollectionUtilityKind::First, None, None, false)),
+            "[1, 2].first"
+        );
+        assert_eq!(
+            expression(&utility(CollectionUtilityKind::Last, None, None, false)),
+            "[1, 2].last"
         );
         assert_eq!(
             expression(&utility(CollectionUtilityKind::Shuffled, None, None, false)),

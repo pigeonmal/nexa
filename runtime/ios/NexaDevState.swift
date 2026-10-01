@@ -68,6 +68,7 @@ final class NexaDevStateStore: ObservableObject {
         )
         var nextValues: [String: Any] = [:]
         var nextTypes: [String: String] = [:]
+        var initialLocals: [String: Any] = [:]
         let declarations = appStates.map { ("app", $0) } + screens.flatMap { screen in
             guard let name = screen["name"] as? String else { return [(String, [String: Any])]() }
             return (screen["states"] as? [[String: Any]] ?? []).map { ("screen/\(name)", $0) }
@@ -77,11 +78,16 @@ final class NexaDevStateStore: ObservableObject {
             let identity = "\(scope)/state/\(name)"
             let signature = Self.canonicalJSON(state["ty"])
             nextTypes[identity] = signature
+            let resolvedValue: Any
             if typeSignatures[identity] == signature, let value = values[identity] {
-                nextValues[identity] = value
+                resolvedValue = value
             } else if let initial = state["initial"] {
-                nextValues[identity] = evaluate(initial, locals: [:], scope: scope)
+                resolvedValue = evaluate(initial, locals: initialLocals, scope: scope)
+            } else {
+                continue
             }
+            nextValues[identity] = resolvedValue
+            initialLocals[name] = resolvedValue
         }
         values = nextValues
         typeSignatures = nextTypes
@@ -133,15 +139,20 @@ final class NexaDevStateStore: ObservableObject {
         let screens = module["screens"] as? [[String: Any]] ?? []
         let appStates = module["states"] as? [[String: Any]] ?? []
         var nextValues: [String: Any] = [:]
+        var initialLocals: [String: Any] = [:]
         for state in appStates {
             guard let name = state["name"] as? String, let initial = state["initial"] else { continue }
-            nextValues["app/state/\(name)"] = evaluate(initial, locals: [:], scope: "app")
+            let value = evaluate(initial, locals: initialLocals, scope: "app")
+            nextValues["app/state/\(name)"] = value
+            initialLocals[name] = value
         }
         for screen in screens {
             guard let screenName = screen["name"] as? String else { continue }
             for state in screen["states"] as? [[String: Any]] ?? [] {
                 guard let name = state["name"] as? String, let initial = state["initial"] else { continue }
-                nextValues["screen/\(screenName)/state/\(name)"] = evaluate(initial, locals: [:], scope: "screen/\(screenName)")
+                let value = evaluate(initial, locals: initialLocals, scope: "screen/\(screenName)")
+                nextValues["screen/\(screenName)/state/\(name)"] = value
+                initialLocals[name] = value
             }
         }
         values = nextValues
@@ -364,6 +375,8 @@ final class NexaDevStateStore: ObservableObject {
             else { return [] }
             switch fields["operation"] as? String {
             case "Random": return values.randomElement().map { $0 as Any } ?? NSNull()
+            case "First": return values.first.map { $0 as Any } ?? NSNull()
+            case "Last": return values.last.map { $0 as Any } ?? NSNull()
             case "Shuffled": return values.shuffled()
             case "Reverse": return Array(values.reversed())
             case "Slice":
@@ -884,6 +897,8 @@ final class NexaDevStateStore: ObservableObject {
             else { return [Any]() }
             switch fields["operation"] as? String {
             case "Random": return values.randomElement() ?? NSNull()
+            case "First": return values.first ?? NSNull()
+            case "Last": return values.last ?? NSNull()
             case "Shuffled": return values.shuffled()
             case "Reverse": return Array(values.reversed())
             case "Slice":

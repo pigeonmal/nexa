@@ -835,6 +835,8 @@ fn array_utilities_lower_to_typed_collection_ir() {
 
             body {
                 Text(values.random() ?? 0)
+                Text(values.first() ?? 0)
+                Text(values.last() ?? 0)
                 Text(values.shuffled().count)
                 Text(values.reverse().count)
                 Text(values.slice(1..<3).count)
@@ -860,7 +862,7 @@ fn array_utilities_lower_to_typed_collection_ir() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(utilities.len(), 4);
+    assert_eq!(utilities.len(), 6);
     assert!(matches!(
         utilities[0],
         Expr::CollectionUtility {
@@ -872,19 +874,35 @@ fn array_utilities_lower_to_typed_collection_ir() {
     assert!(matches!(
         utilities[1],
         Expr::CollectionUtility {
-            operation: nexa_ir::CollectionUtilityKind::Shuffled,
+            operation: nexa_ir::CollectionUtilityKind::First,
+            element_type: Type::Numeric(NumericType::Int32),
             ..
         }
     ));
     assert!(matches!(
         utilities[2],
         Expr::CollectionUtility {
-            operation: nexa_ir::CollectionUtilityKind::Reverse,
+            operation: nexa_ir::CollectionUtilityKind::Last,
+            element_type: Type::Numeric(NumericType::Int32),
             ..
         }
     ));
     assert!(matches!(
         utilities[3],
+        Expr::CollectionUtility {
+            operation: nexa_ir::CollectionUtilityKind::Shuffled,
+            ..
+        }
+    ));
+    assert!(matches!(
+        utilities[4],
+        Expr::CollectionUtility {
+            operation: nexa_ir::CollectionUtilityKind::Reverse,
+            ..
+        }
+    ));
+    assert!(matches!(
+        utilities[5],
         Expr::CollectionUtility {
             operation: nexa_ir::CollectionUtilityKind::Slice,
             start: Some(start),

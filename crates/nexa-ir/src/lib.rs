@@ -487,6 +487,8 @@ pub enum CollectionTransform {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CollectionUtilityKind {
     Random,
+    First,
+    Last,
     Shuffled,
     Reverse,
     Slice,

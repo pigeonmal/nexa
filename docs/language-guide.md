@@ -82,18 +82,22 @@ app CollectionExample {
 }
 ```
 
-Arrays also support `random()`, `shuffled()`, `reverse()`, and `slice(range)`:
+Arrays also support `random()`, `first()`, `last()`, `shuffled()`, `reverse()`, and `slice(range)`:
 
 ```nexa
 app ArrayUtilities {
     state values: Array<Int32> = [10, 20, 30, 40]
     state selected: Int32? = values.random()
+    state first: Int32? = values.first()
+    state last: Int32? = values.last()
     state randomized: Array<Int32> = values.shuffled()
     state reversed: Array<Int32> = values.reverse()
     state middle: Array<Int32> = values.slice(1..<3)
 
     body {
         Text(selected ?? 0)
+        Text(first ?? 0)
+        Text(last ?? 0)
         Text(randomized.count)
         Text(reversed.count)
         Text(middle.count)
@@ -101,7 +105,7 @@ app ArrayUtilities {
 }
 ```
 
-`random()` returns an optional element because an empty array has no value to choose. `shuffled()` and `reverse()` return a new array. `slice` takes one unstepped range; `..` includes its upper index and `..<` excludes it. Indices must be valid for the source array.
+`random()`, `first()`, and `last()` return an optional element because an empty array has no value to return. `first()` and `last()` access the existing array without creating a copy. `shuffled()`, `reverse()`, and `slice` return a new array. `slice` takes one unstepped range; `..` includes its upper index and `..<` excludes it. Indices must be valid for the source array.
 
 Text styles can be chained after a component call. For example, `Text("Hi").fontSize(18).bold().padding(12)` is equivalent to setting `fontSize: 18`, `fontWeight: Bold`, and `padding: 12` in the `Text` arguments. `Text`, `Column`, `Row`, and `Stack` also accept `.opacity(value)`, `.scale(value)`, `.rotation(degrees)`, `.shadow(radius: 8, x: 0, y: 4, color: "#00000040")`, `.blur(radius)`, `.clip(shape: Rounded(radius))`, and `.zIndex(value)`.
 

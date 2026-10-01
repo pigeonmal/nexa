@@ -1,0 +1,16 @@
+app ArrayInitializerSmoke {
+    let values: Array<Int32> = [10, 20, 30]
+    let firstValue: Int32 = values.first() ?? 0
+    let lastValue: Int32 = values.last() ?? 0
+
+    body {
+        Column {
+            Text(firstValue)
+            Text(lastValue)
+        }
+
+        OnAppear {
+            Log.info(message: "NEXA_ARRAY_INITIALIZER first=$firstValue last=$lastValue")
+        }
+    }
+}

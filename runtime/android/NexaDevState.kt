@@ -85,6 +85,7 @@ internal class NexaDevStateStore(internal val context: Context) {
         }.toMap().toMutableMap()
         val nextValues = mutableMapOf<String, Any>()
         val nextTypes = mutableMapOf<String, String>()
+        val initialLocals = mutableMapOf<String, Any>()
         val declarations = mutableListOf<Pair<String, JSONObject>>()
         for (index in 0 until states.length()) {
             states.optJSONObject(index)?.let { declarations += "app" to it }
@@ -104,11 +105,15 @@ internal class NexaDevStateStore(internal val context: Context) {
             nextTypes[identity] = typeSignature
             val previousType = typeSignatures[identity]
             val previousValue = values[identity]
-            if (previousType == typeSignature && previousValue != null) {
-                nextValues[identity] = previousValue
+            val resolvedValue = if (previousType == typeSignature && previousValue != null) {
+                previousValue
             } else if (declaration.has("initial")) {
-                nextValues[identity] = evaluate(declaration.get("initial"), emptyMap(), scope)
+                evaluate(declaration.get("initial"), initialLocals, scope)
+            } else {
+                continue
             }
+            nextValues[identity] = resolvedValue
+            initialLocals[name] = resolvedValue
         }
         values.clear()
         values.putAll(nextValues)
@@ -168,11 +173,14 @@ internal class NexaDevStateStore(internal val context: Context) {
         val states = current.optJSONArray("states") ?: JSONArray()
         val screens = current.optJSONArray("screens") ?: JSONArray()
         values.clear()
+        val initialLocals = mutableMapOf<String, Any>()
         for (index in 0 until states.length()) {
             val state = states.optJSONObject(index) ?: continue
             val name = state.optString("name")
             if (state.has("initial")) {
-                values["app/state/$name"] = evaluate(state.get("initial"), emptyMap(), "app")
+                val value = evaluate(state.get("initial"), initialLocals, "app")
+                values["app/state/$name"] = value
+                initialLocals[name] = value
             }
         }
         for (screenIndex in 0 until screens.length()) {
@@ -183,7 +191,9 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val state = screenStates.optJSONObject(stateIndex) ?: continue
                 val name = state.optString("name")
                 if (state.has("initial")) {
-                    values["screen/$screenName/state/$name"] = evaluate(state.get("initial"), emptyMap(), "screen/$screenName")
+                    val value = evaluate(state.get("initial"), initialLocals, "screen/$screenName")
+                    values["screen/$screenName/state/$name"] = value
+                    initialLocals[name] = value
                 }
             }
         }
@@ -478,6 +488,8 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val items = collection as? List<*> ?: emptyList<Any?>()
                 when (utility.optString("operation")) {
                     "Random" -> items.randomOrNull() ?: JSONObject.NULL
+                    "First" -> items.firstOrNull() ?: JSONObject.NULL
+                    "Last" -> items.lastOrNull() ?: JSONObject.NULL
                     "Shuffled" -> items.shuffled()
                     "Reverse" -> items.reversed()
                     "Slice" -> {
@@ -903,6 +915,8 @@ internal class NexaDevStateStore(internal val context: Context) {
                 val values = evaluateAsync(utility.opt("collection"), locals, scope) as? List<*> ?: return emptyList<Any>()
                 when (utility.optString("operation")) {
                     "Random" -> values.randomOrNull() ?: JSONObject.NULL
+                    "First" -> values.firstOrNull() ?: JSONObject.NULL
+                    "Last" -> values.lastOrNull() ?: JSONObject.NULL
                     "Shuffled" -> values.shuffled()
                     "Reverse" -> values.reversed()
                     "Slice" -> {

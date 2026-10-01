@@ -5,6 +5,7 @@ previous compiler output.
 
 ## Cache schema
 
+- `build-v130`: adds typed optional array `first()` and `last()` utilities to both AOT backends and DevRuntime; advances the Dev IR format.
 - `build-v129`: generates periodic OS background-task handlers and scheduling metadata for iOS and Android; advances the Dev IR format for task declarations.
 - `build-v128`: adds typed screen orientation requests to both AOT backends and DevRuntime, with iOS scene geometry support and generated interface-orientation declarations.
 - `build-v127`: preserves valid nullable values while decoding generic plugin returns in Android DevRuntime, including nullable elements in compound values.

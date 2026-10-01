@@ -1704,7 +1704,10 @@ fn lower_collection_transform(
 }
 
 fn is_collection_utility(name: &str) -> bool {
-    matches!(name, "random" | "shuffled" | "reverse" | "slice")
+    matches!(
+        name,
+        "random" | "first" | "last" | "shuffled" | "reverse" | "slice"
+    )
 }
 
 fn lower_collection_utility(
@@ -1717,6 +1720,8 @@ fn lower_collection_utility(
 ) -> Result<Expr, CompileError> {
     let operation = match name {
         "random" => CollectionUtilityKind::Random,
+        "first" => CollectionUtilityKind::First,
+        "last" => CollectionUtilityKind::Last,
         "shuffled" => CollectionUtilityKind::Shuffled,
         "reverse" => CollectionUtilityKind::Reverse,
         "slice" => CollectionUtilityKind::Slice,
@@ -1736,6 +1741,8 @@ fn lower_collection_utility(
 
     let (start, end, inclusive) = match operation {
         CollectionUtilityKind::Random
+        | CollectionUtilityKind::First
+        | CollectionUtilityKind::Last
         | CollectionUtilityKind::Shuffled
         | CollectionUtilityKind::Reverse => {
             if !arguments.is_empty() {
@@ -1799,6 +1806,8 @@ fn infer_collection_utility_type(
 ) -> Option<Type> {
     let operation = match name {
         "random" => CollectionUtilityKind::Random,
+        "first" => CollectionUtilityKind::First,
+        "last" => CollectionUtilityKind::Last,
         "shuffled" => CollectionUtilityKind::Shuffled,
         "reverse" => CollectionUtilityKind::Reverse,
         "slice" => CollectionUtilityKind::Slice,
@@ -1808,7 +1817,13 @@ fn infer_collection_utility_type(
         return None;
     };
     match operation {
-        CollectionUtilityKind::Random if arguments.is_empty() => Some(Type::Optional(element_type)),
+        CollectionUtilityKind::Random
+        | CollectionUtilityKind::First
+        | CollectionUtilityKind::Last
+            if arguments.is_empty() =>
+        {
+            Some(Type::Optional(element_type))
+        }
         CollectionUtilityKind::Shuffled | CollectionUtilityKind::Reverse
             if arguments.is_empty() =>
         {
@@ -1826,6 +1841,9 @@ fn infer_collection_utility_type(
 fn collection_utility_result_type(operation: CollectionUtilityKind, element_type: &Type) -> Type {
     match operation {
         CollectionUtilityKind::Random => Type::Optional(Box::new(element_type.clone())),
+        CollectionUtilityKind::First | CollectionUtilityKind::Last => {
+            Type::Optional(Box::new(element_type.clone()))
+        }
         CollectionUtilityKind::Shuffled
         | CollectionUtilityKind::Reverse
         | CollectionUtilityKind::Slice => Type::Array(Box::new(element_type.clone())),
