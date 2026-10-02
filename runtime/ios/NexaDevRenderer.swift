@@ -101,6 +101,8 @@ private func nexaDevTransition(_ raw: Any?) -> AnyTransition? {
     switch raw as? String {
     case "Fade": .opacity
     case "SlideFromBottom": .move(edge: .bottom)
+    case "SlideFromLeft": .move(edge: .leading)
+    case "SlideFromRight": .move(edge: .trailing)
     case "Scale": .scale
     default: nil
     }
@@ -160,6 +162,8 @@ enum NexaDevFastListAxis {
 struct NexaDevFastList: View {
     let count: Int
     let axis: NexaDevFastListAxis
+    let reverseLayout: Bool
+    let pageSnap: Bool
     let rowHeight: Double?
     let scrollPosition: Int?
     let sectionCounts: [Int]?
@@ -173,53 +177,99 @@ struct NexaDevFastList: View {
     let onRefresh: (() -> Void)?
     @State private var canUpdateScrollPosition = false
     @State private var didReachEnd = false
+    @State private var followsBottom = true
 
+    @ViewBuilder
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(axis.scrollAxis) {
-                listContent
+        if pageSnap {
+            GeometryReader { _ in
+                NexaDevPageSnapList(
+                    count: count,
+                    scrollPosition: scrollPosition,
+                    row: row,
+                    onScrollPositionChanged: onScrollPositionChanged,
+                    onScroll: onScroll,
+                    onEndReached: onEndReached
+                )
             }
-            .refreshable {
-                onRefresh?()
-            }
-            .coordinateSpace(name: "nexa-dev-fast-list")
-            .onAppear {
-                if let scrollPosition, (0..<count).contains(scrollPosition) {
+        } else {
+            GeometryReader { viewport in
+                ScrollViewReader { proxy in
+                ScrollView(axis.scrollAxis) {
+                    listContent
+                }
+                .refreshable {
+                    onRefresh?()
+                }
+                .coordinateSpace(name: "nexa-dev-fast-list")
+                .onAppear {
+                    if let scrollPosition, (0..<count).contains(scrollPosition) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            proxy.scrollTo(scrollPosition, anchor: axis.anchor)
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            canUpdateScrollPosition = true
+                        }
+                    } else if reverseLayout && count > 0 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            proxy.scrollTo(count - 1, anchor: .bottom)
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            canUpdateScrollPosition = true
+                        }
+                    } else {
+                        canUpdateScrollPosition = true
+                    }
+                }
+                .onChange(of: scrollPosition) { index in
+                    guard let index, (0..<count).contains(index) else { return }
+                    canUpdateScrollPosition = false
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        proxy.scrollTo(scrollPosition, anchor: axis.anchor)
+                        proxy.scrollTo(index, anchor: axis.anchor)
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         canUpdateScrollPosition = true
                     }
-                } else {
-                    canUpdateScrollPosition = true
                 }
-            }
-            .onChange(of: scrollPosition) { index in
-                guard let index, (0..<count).contains(index) else { return }
-                canUpdateScrollPosition = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    proxy.scrollTo(index, anchor: axis.anchor)
+                .onChange(of: reverseLayout) { isReversed in
+                    guard isReversed, count > 0 else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        proxy.scrollTo(count - 1, anchor: .bottom)
+                    }
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    canUpdateScrollPosition = true
-                }
-            }
-            .onPreferenceChange(NexaDevListPositionPreference.self) { offsets in
-                let visibleRows = offsets.filter { $0.value >= 0 }
-                guard let visibleIndex = visibleRows
-                    .min(by: { abs($0.value) < abs($1.value) })?.key
-                else { return }
-                onScroll?(visibleIndex)
-                if canUpdateScrollPosition { onScrollPositionChanged(visibleIndex) }
-                if visibleIndex >= count - 10, !didReachEnd {
-                    didReachEnd = true
-                    onEndReached?(visibleIndex)
-                } else if visibleIndex < count - 1 {
+                .onChange(of: count) { newCount in
                     didReachEnd = false
+                    guard reverseLayout, followsBottom, newCount > 0 else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        proxy.scrollTo(newCount - 1, anchor: .bottom)
+                    }
+                }
+                .onPreferenceChange(NexaDevListPositionPreference.self) { offsets in
+                    let visibleRows = offsets.filter {
+                        $0.value >= 0 && $0.value <= viewport.size.height
+                    }
+                    guard let visibleIndex = visibleRows
+                        .min(by: { abs($0.value) < abs($1.value) })?.key
+                    else {
+                        followsBottom = false
+                        return
+                    }
+                    if reverseLayout {
+                        followsBottom = offsets[count - 1].map {
+                            $0 >= 0 && $0 <= viewport.size.height
+                        } ?? false
+                    }
+                    onScroll?(visibleIndex)
+                    if canUpdateScrollPosition { onScrollPositionChanged(visibleIndex) }
+                    if (reverseLayout ? visibleIndex == 0 : visibleIndex >= count - 10), !didReachEnd {
+                        didReachEnd = true
+                        onEndReached?(visibleIndex)
+                    } else if (reverseLayout ? visibleIndex > 0 : visibleIndex < count - 1) {
+                        didReachEnd = false
+                    }
+                }
                 }
             }
-            .onChange(of: count) { _ in didReachEnd = false }
         }
     }
 
@@ -274,7 +324,7 @@ struct NexaDevFastList: View {
             .frame(maxWidth: horizontal ? nil : .infinity, alignment: .leading)
             .id(index)
             .onAppear {
-                guard index >= count - 1, !didReachEnd else { return }
+                guard (reverseLayout ? index == 0 : index >= count - 1), !didReachEnd else { return }
                 didReachEnd = true
                 onEndReached?(index)
             }
@@ -285,6 +335,194 @@ struct NexaDevFastList: View {
                     value: [index: axis.tracksHorizontalOffset ? frame.minX : frame.minY]
                 )
             })
+    }
+}
+
+@MainActor
+private final class NexaDevPageSnapTableView: UITableView {
+    var onViewportSizeChanged: ((CGSize) -> Void)?
+    private var reportedBoundsSize = CGSize.zero
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.size != reportedBoundsSize else { return }
+        reportedBoundsSize = bounds.size
+        onViewportSizeChanged?(bounds.size)
+    }
+}
+
+@MainActor
+private struct NexaDevPageSnapList: UIViewRepresentable {
+    let count: Int
+    let scrollPosition: Int?
+    let row: (Int, Int, Int) -> AnyView
+    let onScrollPositionChanged: (Int) -> Void
+    let onScroll: ((Int) -> Void)?
+    let onEndReached: ((Int) -> Void)?
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            count: count,
+            scrollPosition: scrollPosition,
+            row: row,
+            onScrollPositionChanged: onScrollPositionChanged,
+            onScroll: onScroll,
+            onEndReached: onEndReached
+        )
+    }
+
+    func makeUIView(context: Context) -> UITableView {
+        let tableView = NexaDevPageSnapTableView(frame: .zero, style: .plain)
+        let coordinator = context.coordinator
+        tableView.onViewportSizeChanged = { [weak tableView, weak coordinator] size in
+            DispatchQueue.main.async {
+                guard let tableView, let coordinator else { return }
+                coordinator.updatePageHeight(size.height, in: tableView)
+            }
+        }
+        tableView.dataSource = coordinator
+        tableView.delegate = coordinator
+        tableView.isPagingEnabled = true
+        tableView.contentInsetAdjustmentBehavior = .never
+        tableView.separatorStyle = .none
+        tableView.allowsSelection = false
+        tableView.showsVerticalScrollIndicator = false
+        tableView.backgroundColor = .clear
+        tableView.rowHeight = 1
+        tableView.estimatedRowHeight = 1
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "NexaDevPageSnapCell")
+        tableView.reloadData()
+        return tableView
+    }
+
+    func updateUIView(_ tableView: UITableView, context: Context) {
+        let coordinator = context.coordinator
+        let previousCount = coordinator.count
+        let previousPosition = coordinator.scrollPosition
+        let previousPage = coordinator.currentPage(in: tableView)
+        coordinator.count = max(0, count)
+        coordinator.scrollPosition = scrollPosition
+        coordinator.row = row
+        coordinator.onScrollPositionChanged = onScrollPositionChanged
+        coordinator.onScroll = onScroll
+        coordinator.onEndReached = onEndReached
+        if previousCount != coordinator.count {
+            coordinator.lastEndReachedCount = nil
+            tableView.reloadData()
+            tableView.layoutIfNeeded()
+            let targetPage = scrollPosition ?? previousPage
+            coordinator.scrollToPage(targetPage, in: tableView)
+        }
+        if let scrollPosition, scrollPosition != previousPosition {
+            coordinator.scrollToPage(scrollPosition, in: tableView)
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
+        var count: Int
+        var scrollPosition: Int?
+        var pageHeight: CGFloat = 0
+        var row: (Int, Int, Int) -> AnyView
+        var onScrollPositionChanged: (Int) -> Void
+        var onScroll: ((Int) -> Void)?
+        var onEndReached: ((Int) -> Void)?
+        var lastReportedPage: Int?
+        var lastEndReachedCount: Int?
+
+        init(
+            count: Int,
+            scrollPosition: Int?,
+            row: @escaping (Int, Int, Int) -> AnyView,
+            onScrollPositionChanged: @escaping (Int) -> Void,
+            onScroll: ((Int) -> Void)?,
+            onEndReached: ((Int) -> Void)?
+        ) {
+            self.count = max(0, count)
+            self.scrollPosition = scrollPosition
+            self.row = row
+            self.onScrollPositionChanged = onScrollPositionChanged
+            self.onScroll = onScroll
+            self.onEndReached = onEndReached
+            self.lastReportedPage = nil
+            self.lastEndReachedCount = nil
+        }
+
+        func updatePageHeight(_ height: CGFloat, in tableView: UITableView) {
+            guard height > 0, abs(height - pageHeight) > 0.5 else { return }
+            let page = pageHeight > 0
+                ? currentPage(in: tableView)
+                : min(max(scrollPosition ?? 0, 0), max(0, count - 1))
+            pageHeight = height
+            tableView.rowHeight = height
+            tableView.estimatedRowHeight = height
+            tableView.reloadData()
+            tableView.layoutIfNeeded()
+            scrollToPage(page, in: tableView)
+        }
+
+        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+            count
+        }
+
+        func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: "NexaDevPageSnapCell",
+                for: indexPath
+            )
+            cell.selectionStyle = .none
+            cell.contentConfiguration = UIHostingConfiguration {
+                row(indexPath.row, 0, indexPath.row)
+            }
+            .margins(.all, 0)
+            return cell
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            reportSettledPage(in: scrollView)
+        }
+
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            if !decelerate { reportSettledPage(in: scrollView) }
+        }
+
+        func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+            reportSettledPage(in: scrollView)
+        }
+
+        func scrollToPage(_ requestedPage: Int, in tableView: UITableView) {
+            guard count > 0, pageHeight > 0 else { return }
+            let page = min(max(requestedPage, 0), count - 1)
+            let targetOffsetY = CGFloat(page) * pageHeight - tableView.adjustedContentInset.top
+            guard abs(tableView.contentOffset.y - targetOffsetY) > 1 else { return }
+            tableView.scrollToRow(
+                at: IndexPath(row: page, section: 0),
+                at: .top,
+                animated: false
+            )
+            lastReportedPage = page
+        }
+
+        func currentPage(in tableView: UITableView) -> Int {
+            guard pageHeight > 0, count > 0 else { return 0 }
+            let position = (tableView.contentOffset.y + tableView.adjustedContentInset.top) / pageHeight
+            return min(max(Int(position.rounded()), 0), count - 1)
+        }
+
+        private func reportSettledPage(in scrollView: UIScrollView) {
+            guard let tableView = scrollView as? UITableView, count > 0 else { return }
+            let page = currentPage(in: tableView)
+            guard page != lastReportedPage else { return }
+            lastReportedPage = page
+            onScrollPositionChanged(page)
+            onScroll?(page)
+            if page >= count - 1, lastEndReachedCount != count {
+                lastEndReachedCount = count
+                onEndReached?(page)
+            } else if page < count - 1 {
+                lastEndReachedCount = nil
+            }
+        }
     }
 }
 
@@ -552,6 +790,7 @@ struct NexaDevNodeList: View {
             let pinchParameter = fields[NexaDevKeys.pinchParameter] as? String
             let pinchActions = fields[NexaDevKeys.pinchActions] as? [Any] ?? []
             let disabled = fields["disabled"].map { store.truthy(store.evaluate($0, locals: locals, scope: scope)) } ?? false
+            let fillMaxSize = fields["fill_max_size"] as? Bool == true
             let haptic = fields["haptic"] as? String
             let content = NexaDevNodeList(nodes: children, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope)
             let button = Button {
@@ -603,12 +842,15 @@ struct NexaDevNodeList: View {
                     store.perform(longPressActions, scope: scope, locals: locals)
                 }))
             }
-            guard dragParameters.count == 4 || pinchParameter != nil else { return pressable }
+            let expandedPressable: AnyView = fillMaxSize
+                ? AnyView(pressable.frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle()))
+                : pressable
+            guard dragParameters.count == 4 || pinchParameter != nil else { return expandedPressable }
             var dragLocals = locals
             var pinchLocals = locals
             return AnyView(NexaDevDragGestureView(
                 enabled: !disabled,
-                content: pressable,
+                content: expandedPressable,
                 onDrag: dragParameters.count == 4 ? { translationX, translationY, velocityX, velocityY in
                     dragLocals[dragParameters[0]] = translationX
                     dragLocals[dragParameters[1]] = translationY
@@ -688,20 +930,35 @@ struct NexaDevNodeList: View {
             }
             return input
         case "FastList":
-            guard let source = fields["source"] as? [String: Any] else {
+            guard let plan = fields["plan"] as? [String: Any],
+                  let countPlan = plan["Count"] as? [String: Any]
+                    ?? plan["Items"] as? [String: Any]
+                    ?? plan["Sections"] as? [String: Any],
+                  let options = countPlan["common"] as? [String: Any] else {
                 return AnyView(Text("FastList source could not be evaluated."))
             }
-            let countExpression = source["Count"]
+            let countSource = plan["Count"] as? [String: Any]
+            let itemSource = plan["Items"] as? [String: Any]
+            let sectionSource = plan["Sections"] as? [String: Any]
+            var listFields = options
+            for (key, value) in countPlan where key != "common" {
+                listFields[key] = value
+            }
+            let countExpression = countSource?["count"]
+            let itemExpression = itemSource?["collection"]
             let sourceItems: [Any]?
-            if let itemSource = source["Items"] as? [String: Any],
-               let itemExpression = itemSource["collection"] {
+            if let itemExpression {
                 sourceItems = store.evaluate(itemExpression, locals: locals, scope: scope) as? [Any] ?? []
             } else {
                 sourceItems = nil
             }
-            let sourceSections: [[Any]]? = (source["Sections"] as? [String: Any])
-                .flatMap { $0["collection"] }
-                .flatMap { store.evaluate($0, locals: locals, scope: scope) as? [[Any]] }
+            let sectionExpression = sectionSource?["collection"]
+            let sourceSections: [[Any]]?
+            if let sectionExpression {
+                sourceSections = store.evaluate(sectionExpression, locals: locals, scope: scope) as? [[Any]] ?? []
+            } else {
+                sourceSections = nil
+            }
             guard countExpression != nil || sourceItems != nil || sourceSections != nil else {
                 return AnyView(Text("FastList source could not be evaluated."))
             }
@@ -710,28 +967,30 @@ struct NexaDevNodeList: View {
             } ?? (sourceItems?.count ?? 0)
             let count = sourceSections?.reduce(0) { $0 + $1.count } ?? itemCount
             let axis: NexaDevFastListAxis
-            if fields["axis"] as? String == "Horizontal" {
+            if listFields["axis"] as? String == "Horizontal" {
                 axis = .horizontal
-            } else if let grid = (fields["axis"] as? [String: Any])?["Grid"] as? [String: Any],
+            } else if let grid = (listFields["axis"] as? [String: Any])?["Grid"] as? [String: Any],
                       let columns = grid["columns"] as? Int {
                 axis = .grid(max(1, columns))
             } else {
                 axis = .vertical
             }
-            let indexName = fields["index"] as? String ?? "index"
-            let itemName = fields["item"] as? String
-            let sectionName = fields["section"] as? String ?? "section"
-            let children = fields["children"] as? [Any] ?? []
-            let itemExtent = fields["item_extent"] as? Double
-            let scrollPositionName = fields["scroll_position"] as? String
+            let reverseLayout = listFields[NexaDevKeys.reverseLayout] as? Bool ?? false
+            let pageSnap = listFields[NexaDevKeys.pageSnap] as? Bool ?? false
+            let indexName = listFields["index"] as? String ?? "index"
+            let itemName = listFields["item"] as? String
+            let sectionName = listFields["section"] as? String ?? "section"
+            let children = listFields["children"] as? [Any] ?? []
+            let itemExtent = listFields["item_extent"] as? Double
+            let scrollPositionName = listFields["scroll_position"] as? String
             let requestedIndex = scrollPositionName.flatMap { name in
                 (store.value(name, scope: scope) as? NSNumber)?.intValue
             }
-            let stickyHeaderNodes = fields["sticky_header"] as? [Any]
+            let stickyHeaderNodes = listFields["sticky_header"] as? [Any]
             let stickyHeader = stickyHeaderNodes.map { nodes in
                 AnyView(NexaDevNodeList(nodes: nodes, module: module, store: store, focusedField: focusedField, parameters: locals, stateScope: scope))
             }
-            let sectionHeaderNodes = fields["section_header"] as? [Any]
+            let sectionHeaderNodes = listFields["section_header"] as? [Any]
             let sectionHeader: ((Int) -> AnyView)? = sectionHeaderNodes.map { nodes in
                 { sectionIndex in
                     AnyView(NexaDevNodeList(
@@ -744,14 +1003,16 @@ struct NexaDevNodeList: View {
                     ))
                 }
             }
-            let onScrollActions = fields["on_scroll"] as? [Any]
-            let onEndReachedActions = fields["on_end_reached"] as? [Any]
-            let refresh = fields["refresh"] as? [String: Any]
+            let onScrollActions = listFields["on_scroll"] as? [Any]
+            let onEndReachedActions = listFields["on_end_reached"] as? [Any]
+            let refresh = listFields["refresh"] as? [String: Any]
             let refreshState = refresh?["state"] as? String
             let refreshActions = refresh?["actions"] as? [Any] ?? []
             return AnyView(NexaDevFastList(
                 count: count,
                 axis: axis,
+                reverseLayout: reverseLayout,
+                pageSnap: pageSnap,
                 rowHeight: itemExtent,
                 scrollPosition: requestedIndex,
                 sectionCounts: sourceSections?.map(\.count),
@@ -837,6 +1098,58 @@ struct NexaDevNodeList: View {
                     Text(item).tag(item)
                 }
             }.pickerStyle(.menu).labelsHidden())
+        case "SystemIcon":
+            let symbol: String = switch fields["icon"] as? String {
+            case "home": "house.fill"
+            case "search": "magnifyingglass"
+            case "inbox": "tray"
+            case "profile": "person"
+            case "heart": "heart"
+            case "heart_filled": "heart.fill"
+            case "comment": "bubble.right"
+            case "comment_filled": "bubble.right.fill"
+            case "bookmark": "bookmark"
+            case "bookmark_filled": "bookmark.fill"
+            case "share": "arrowshape.turn.up.right"
+            case "music": "music.note"
+            case "back": "chevron.left"
+            case "screen": "tv"
+            case "layers": "rectangle.on.rectangle"
+            case "plus": "plus"
+            case "close": "xmark"
+            case "checkmark": "checkmark"
+            case "send": "paperplane"
+            case "volume": "speaker.wave.2.fill"
+            case "volume_muted": "speaker.slash.fill"
+            default: "questionmark"
+            }
+            let description = fields["description"] as? String ?? ""
+            let size = fields["size"] as? Double ?? 24
+            let tint = devColor(fields["tint"], isDark: colorScheme == .dark) ?? .white
+            return AnyView(
+                Image(systemName: symbol)
+                    .font(.system(size: size))
+                    .foregroundStyle(tint)
+                    .accessibilityLabel(description)
+                    .accessibilityHidden(description.isEmpty)
+            )
+        case "LinearGradient":
+            let start = devColor(fields["start_color"], isDark: colorScheme == .dark) ?? .clear
+            let end = devColor(fields["end_color"], isDark: colorScheme == .dark) ?? .clear
+            let direction = fields["direction"] as? String ?? "TopToBottom"
+            let points: (UnitPoint, UnitPoint) = switch direction {
+            case "BottomToTop": (.bottom, .top)
+            case "LeadingToTrailing": (.leading, .trailing)
+            case "TrailingToLeading": (.trailing, .leading)
+            default: (.top, .bottom)
+            }
+            let height = fields["height"] as? Double ?? 180
+            return AnyView(
+                LinearGradient(colors: [start, end], startPoint: points.0, endPoint: points.1)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: height)
+                    .allowsHitTesting(false)
+            )
         case "Image":
             let source = fields["source"] as? [String: Any] ?? [:]
             let description = fields["description"] as? String ?? ""

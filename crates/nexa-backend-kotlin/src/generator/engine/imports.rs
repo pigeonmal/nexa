@@ -40,6 +40,8 @@ impl ImportSet {
 pub(crate) fn render(context: ImportContext<'_>) -> String {
     let mut imports = ImportSet::default();
     imports.add(true, "androidx.compose.runtime.Composable");
+    imports.add(true, "androidx.compose.runtime.CompositionLocalProvider");
+    imports.add(true, "androidx.compose.material3.LocalRippleConfiguration");
     imports.add(
         context.uses_plugins
             || context.features.facts.capabilities.uses_clipboard_api
@@ -64,6 +66,7 @@ pub(crate) fn render(context: ImportContext<'_>) -> String {
     crate::generator::components::controls::imports(context.features, &mut imports);
     crate::generator::components::dialogs::imports(context.features, &mut imports);
     crate::generator::components::images::imports(context.features, &mut imports);
+    crate::generator::components::system_icons::imports(context.features, &mut imports);
     crate::generator::components::input::imports(context.features, &mut imports);
     crate::generator::components::keyboard::imports(context.features, &mut imports);
     crate::generator::components::layout::imports(context.features, &mut imports);
@@ -102,11 +105,11 @@ mod tests {
     }
 
     #[test]
-    fn minimal_app_imports_only_the_compose_entry_annotation() {
-        assert_eq!(
-            render_features(&Features::default()),
-            "import androidx.compose.runtime.Composable\n\n"
-        );
+    fn minimal_app_scopes_native_default_ripple_suppression() {
+        let imports = render_features(&Features::default());
+        assert!(imports.contains("import androidx.compose.material3.LocalRippleConfiguration\n"));
+        assert!(imports.contains("import androidx.compose.runtime.Composable\n"));
+        assert!(imports.contains("import androidx.compose.runtime.CompositionLocalProvider\n"));
     }
 
     #[test]

@@ -120,6 +120,11 @@ A method may declare value type parameters. Every call site binds them, and the
 bound type selects one generated value codec, so a plugin implements the method
 once instead of once per value type:
 
+Plugin IDL value structs also have positional constructors in `.nx`, qualified
+with the plugin alias (for example, `SQLite.SQLiteValue(...)`). This constructs
+the generated Swift/Kotlin value directly and does not pass through a codec or
+runtime registry. Their fields are immutable and can be read as direct members.
+
 ```nxid
 native class Store {
     init(instanceID: String)
@@ -187,6 +192,13 @@ On Android the writer and reader live in the generated `dev.nexa.core` package,
 which also holds the application context, because a Kotlin plugin is generated
 into the plugin's own package and has no other way to reach either.
 
+The generated `dev.nexa.core.NexaRuntimeCore` exposes `context()` for the
+application context and `currentActivity()` for the nullable, weakly held host
+activity. Plugins that need to present platform UI should obtain the activity
+only for the duration of that operation and handle the `null` case; they must
+not retain it. For example, Google Play Billing requires a foreground
+`Activity` to launch its purchase sheet.
+
 ## Plugin host metadata
 
 Platform declarations can request host configuration that the native
@@ -205,6 +217,25 @@ The iOS mode is added to `UIBackgroundModes`. Android adds the foreground
 service permissions and declares the named Media3 service with its
 `MediaSessionService` intent action and `mediaPlayback` foreground type.
 Service names must be fully qualified Java or Kotlin class names.
+
+Android plugins may also contribute `<application>` metadata. Values may be
+literal strings or one complete environment placeholder. Nexa emits matching
+Gradle `manifestPlaceholders` assignments from the build environment:
+
+```nexa
+android {
+    applicationMetadata {
+        "com.google.android.geo.API_KEY": "${NEXA_MAPS_API_KEY}"
+    }
+}
+```
+
+Set `NEXA_MAPS_API_KEY` when building the app. The value is packaged in the
+application manifest, so an API key must be restricted to the app's package
+name and signing certificate; environment injection keeps it out of checked-in
+source but does not make a mobile API key secret. If multiple plugins declare
+the same metadata name, they must use the same value. An unset environment
+placeholder becomes an empty string.
 
 ---
 

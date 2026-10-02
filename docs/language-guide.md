@@ -132,7 +132,7 @@ app AnimatedProgress {
 
 `withAnimation` blocks contain mutable `Float32` or `Float64` state assignments, optionally inside control flow. Empty blocks, unrelated side effects, other state types, collection mutations, asynchronous work, and deferred event or task registration are rejected. SwiftUI uses a native animation transaction; Compose animates the rendered floating-point value while the stored state changes immediately.
 
-Conditional view blocks accept `.transition(.fade)`, `.transition(.scale)`, or `.transition(.slide(from: .bottom))`. The transition runs when an `if` branch or `when` case changes. The current slide syntax supports `.bottom`:
+Conditional view blocks accept `.transition(.fade)`, `.transition(.scale)`, or `.transition(.slide(from: .bottom))`, `.transition(.slide(from: .left))`, and `.transition(.slide(from: .right))`. The transition runs when an `if` branch or `when` case changes. Use opposite horizontal edges on neighboring branches to animate a selection marker between them:
 
 ```nexa
 app ConditionalTransitions {

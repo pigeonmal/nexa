@@ -1,13 +1,170 @@
 use std::{fs, path::Path};
 
 use nexa_ir::{
-    AccessibilityRole, Action, ArithmeticOp, AutofillType, Expr, MemberKind, Node, NumericType,
-    ReturnKeyType, Type,
+    AccessibilityRole, Action, ArithmeticOp, AutofillType, Expr, ListPlan, MemberKind, Node,
+    NumericType, ReturnKeyType, Type,
     walk::{walk_actions, walk_ir},
 };
 
 use nexa_compiler::{Target, compile, compile_file_with_warnings_for_target};
 use nexa_testkit::TestProject;
+
+#[test]
+fn fast_list_reverse_layout_is_typed_for_flat_vertical_lists() {
+    let module = compile(
+        r#"
+        app ReverseList {
+            body {
+                FastList(count: 3, reverseLayout: true) { index in
+                    Text(index)
+                }
+            }
+        }
+        "#,
+    )
+    .expect("a flat vertical FastList may use reverseLayout");
+
+    let Some(Node::FastList {
+        plan: ListPlan::Count { common, .. },
+    }) = module.body.first()
+    else {
+        panic!("expected the count-backed FastList plan");
+    };
+    assert!(common.reverse_layout);
+
+    let horizontal = compile(
+        r#"
+        app InvalidReverseAxis {
+            body {
+                FastList(count: 3, axis: Horizontal, reverseLayout: true) { index in
+                    Text(index)
+                }
+            }
+        }
+        "#,
+    )
+    .expect_err("reverseLayout is supported only on vertical lists");
+    assert!(
+        horizontal
+            .to_string()
+            .contains("supported only for vertical lists")
+    );
+}
+
+#[test]
+fn fast_list_page_snap_is_typed_and_requires_viewport_sized_vertical_rows() {
+    let module = compile(
+        r#"
+        app PagedFeed {
+            body {
+                FastList(count: 3, pageSnap: true) { index in
+                    Text(index)
+                }
+            }
+        }
+        "#,
+    )
+    .expect("a flat vertical FastList may use pageSnap");
+
+    let Some(Node::FastList {
+        plan: ListPlan::Count { common, .. },
+    }) = module.body.first()
+    else {
+        panic!("expected the count-backed FastList plan");
+    };
+    assert!(common.page_snap);
+    assert!(
+        nexa_ir::facts::ModuleFacts::analyze(&module)
+            .ui
+            .lists
+            .page_snap
+    );
+
+    let horizontal = compile(
+        r#"
+        app InvalidPagedAxis {
+            body {
+                FastList(count: 3, axis: Horizontal, pageSnap: true) { index in
+                    Text(index)
+                }
+            }
+        }
+        "#,
+    )
+    .expect_err("pageSnap is restricted to vertical lists");
+    assert!(
+        horizontal
+            .to_string()
+            .contains("pageSnap` is supported only for vertical lists")
+    );
+
+    let fixed_height = compile(
+        r#"
+        app InvalidPagedHeight {
+            body {
+                FastList(count: 3, rowHeight: 80, pageSnap: true) { index in
+                    Text(index)
+                }
+            }
+        }
+        "#,
+    )
+    .expect_err("pageSnap determines row height from the viewport");
+    assert!(fixed_height.to_string().contains("omit `rowHeight`"));
+}
+
+#[test]
+fn fast_list_member_keys_lower_in_the_row_binding_scope() {
+    let module = compile(
+        r#"
+        struct VideoClip {
+            id: String,
+            title: String,
+        }
+
+        app VideoFeed {
+            let clips: Array<VideoClip> = [
+                VideoClip("first", "First"),
+                VideoClip("second", "Second"),
+            ]
+            state currentPage: Int32 = 0
+
+            body {
+                FastList(clips, key: .id, pageSnap: true, scrollPosition: currentPage) { clip, index in
+                    Text(clip.title)
+                }
+            }
+        }
+        "#,
+    )
+    .expect("FastList member keys resolve from the row binding type");
+
+    let Some(Node::FastList {
+        plan: ListPlan::Items { common, .. },
+    }) = module.body.first()
+    else {
+        panic!("expected the collection-backed FastList plan");
+    };
+    assert!(matches!(common.key.as_ref(), Some(Expr::Member { .. })));
+}
+
+#[test]
+fn numeric_coalesce_values_can_be_used_in_collection_mutations() {
+    compile(
+        r#"
+        app IncrementMapValue {
+            state counts: Map<String, Int32> = ["first": 1]
+
+            body {
+                Button("Increment") {
+                    counts.set("first", (counts["first"] ?? 0) + 1)
+                }
+            }
+        }
+        "#,
+    )
+    .expect("a numeric fallback keeps its type through arithmetic and map mutation");
+}
 
 #[test]
 fn in_memory_compile_merges_top_level_screens_into_the_app() {
@@ -1964,12 +2121,18 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components() {
         let mut component_event_handlers = Vec::new();
         let mut component_controls = Vec::new();
         let mut component_children = Vec::new();
+        let mut generic_pressable_tap_handlers = 0;
         for nodes in std::iter::once(&module.body)
             .chain(module.components.iter().map(|component| &component.body))
         {
             walk_ir(
                 nodes,
                 &mut |node| {
+                    if let nexa_ir::Node::Pressable { actions, .. } = node
+                        && !actions.is_empty()
+                    {
+                        generic_pressable_tap_handlers += 1;
+                    }
                     if let nexa_ir::Node::NativeComponentCall {
                         namespace,
                         name,
@@ -2020,9 +2183,11 @@ fn plugin_package_calls_lower_to_typed_instances_and_qualified_components() {
         assert_eq!(component_controls, vec![Some(false), Some(true)]);
         assert_eq!(component_children, vec![true, true]);
         assert_eq!(component_event_handlers.len(), 2);
-        assert!(component_event_handlers.iter().all(|handlers| {
-            handlers.len() == 1 && handlers[0].0 == "onTapped" && handlers[0].1
-        }));
+        assert!(component_event_handlers.iter().all(Vec::is_empty));
+        assert_eq!(
+            generic_pressable_tap_handlers, 2,
+            "tap behavior belongs to reusable Pressable, not the video component"
+        );
 
         let handled_prepares = module
             .on_appear

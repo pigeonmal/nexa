@@ -408,13 +408,34 @@ fn swift_named_type(ty: &BridgeNamedType) -> String {
                 .map(|field| format!("        self.{} = {}", field.name, field.name))
                 .collect::<Vec<_>>()
                 .join("\n");
-            format!(
-                "public struct {} {{\n{}\n\n    public init({}) {{\n{}\n    }}\n}}",
+            let mut definition = format!(
+                "public struct {} {{\n{}\n\n    public init({}) {{\n{}\n    }}",
                 ty.name,
                 fields.join("\n"),
                 parameters,
                 assignments
-            )
+            );
+            if !ty.fields.is_empty() {
+                let positional_parameters = ty
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .map(|(index, field)| format!("_ nexaArg{index}: {}", swift_type(&field.ty)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let positional_assignments = ty
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .map(|(index, field)| format!("        self.{} = nexaArg{index}", field.name))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                definition.push_str(&format!(
+                    "\n\n    public init({positional_parameters}) {{\n{positional_assignments}\n    }}"
+                ));
+            }
+            definition.push_str("\n}");
+            definition
         }
     }
 }
@@ -1012,6 +1033,8 @@ mod tests {
         assert!(swift.contains("public struct Playlist"));
         assert!(swift.contains("public let titles: [String]"));
         assert!(swift.contains("public let selected: Int32?"));
+        assert!(swift.contains("public init(_ nexaArg0: [String], _ nexaArg1: Int32?)"));
+        assert!(swift.contains("self.titles = nexaArg0"));
         assert!(swift.contains("var current: Playlist? { get }"));
         assert!(swift.contains("var volume: Double { get set }"));
 

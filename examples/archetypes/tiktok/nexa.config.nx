@@ -1,0 +1,14 @@
+config {
+    app { displayName: "TikTokArchetype", version: "1.0.0", buildNumber: 1 }
+    ios { minVersion: "17.0", bundleIdentifier: "dev.nexa.archetypes.tiktok" }
+    android {
+        minSdk: 23,
+        targetSdk: 36,
+        applicationId: "dev.nexa.archetypes.tiktok",
+        cronet {
+            provider: "embedded",
+            diskCacheSizeMb: 64,
+        },
+    }
+    permissions {}
+}

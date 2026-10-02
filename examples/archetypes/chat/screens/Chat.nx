@@ -1,0 +1,68 @@
+import "../../shared/Avatar.nx"
+
+screen Chat {
+    let socket = WebSocket("wss://echo.websocket.events")
+    state draft: String = ""
+    state messages: Array<String> = ["Welcome to the Nexa chat."]
+    state connection: String = "Connecting"
+    state failure: String = ""
+
+    OnAppear async {
+        socket.messageReceived { message ->
+            messages.append(message)
+        }
+        socket.stateChanged { current ->
+            connection = "Connection state updated"
+        }
+        socket.failed { message ->
+            failure = message
+        }
+        try {
+            await socket.connect()
+        } catch {
+            case WebSocket.WebSocketError.invalidUrl {
+                connection = "Invalid WebSocket URL"
+            }
+            case WebSocket.WebSocketError.alreadyConnected {
+                connection = "Socket already connected"
+            }
+        }
+    }
+
+    OnDisappear {
+        socket.dispose()
+    }
+
+    Column(spacing: 12, padding: 16) {
+            Row(spacing: 10) {
+                Avatar(initials: "NX")
+                Column(spacing: 2) {
+                    Text("Nexa Chat")
+                    Text(connection)
+                }
+            }
+
+            FastList(count: messages.count, rowHeight: 60, reverseLayout: true) { index in
+                Row(spacing: 10, padding: 8) {
+                    Avatar(initials: "NX")
+                    Text(messages[index])
+                }
+            }
+
+            Text(failure)
+            Row(spacing: 8) {
+                TextInput(value: draft, placeholder: "Message")
+                Button("Send") {
+                    if draft != "" {
+                        if (socket.send(draft)) {
+                            messages.append(draft)
+                            draft = ""
+                            Haptics.selection()
+                        } else {
+                            failure = "Message was not queued. Check the connection and try again."
+                        }
+                    }
+                }
+            }
+    }
+}

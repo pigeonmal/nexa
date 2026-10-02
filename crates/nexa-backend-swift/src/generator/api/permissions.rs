@@ -65,7 +65,7 @@ pub(crate) fn render(
     out.push_str("}\n\n");
     out.push_str(visibility);
     out.push_str(
-        r#" enum NexaPermissionStatus {
+        r#" enum NexaPermissionStatus: Sendable {
     case granted
     case denied
     case restricted
@@ -168,7 +168,7 @@ fn status_case(permission: Permission) -> &'static str {
         }
         Permission::Location => {
             r#"        case .Location:
-            switch CLLocationManager.authorizationStatus() {
+            switch CLLocationManager().authorizationStatus {
             case .authorizedAlways, .authorizedWhenInUse: return .granted
             case .denied: return .denied
             case .restricted: return .restricted
@@ -347,7 +347,7 @@ fn location_requester() -> &'static str {
     private var continuation: CheckedContinuation<NexaPermissionStatus, Never>?
 
     func request() async -> NexaPermissionStatus {
-        let current = Self.status()
+        let current = Self.status(of: manager)
         if current != .notDetermined {
             return current
         }
@@ -367,7 +367,7 @@ fn location_requester() -> &'static str {
     }
 
     private func finish() {
-        let current = Self.status()
+        let current = Self.status(of: manager)
         guard current != .notDetermined, let continuation else {
             return
         }
@@ -375,8 +375,8 @@ fn location_requester() -> &'static str {
         continuation.resume(returning: current)
     }
 
-    private static func status() -> NexaPermissionStatus {
-        switch CLLocationManager.authorizationStatus() {
+    private static func status(of manager: CLLocationManager) -> NexaPermissionStatus {
+        switch manager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse: return .granted
         case .denied: return .denied
         case .restricted: return .restricted

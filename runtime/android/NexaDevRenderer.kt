@@ -12,6 +12,8 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -27,6 +29,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.snapping.SnapPosition
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -66,6 +70,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.Icon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -91,6 +103,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
@@ -100,6 +113,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -474,6 +488,55 @@ internal fun NexaDevNode(
             color = nexaDevColor(fields.optJSONObject("color"), isSystemInDarkTheme()) ?: Color.Gray,
             thickness = (fields.optDouble("thickness", 1.0)).dp,
         )
+        "SystemIcon" -> {
+            val icon = when (fields.optString("icon")) {
+                "home" -> Icons.Filled.Home
+                "search" -> Icons.Filled.Search
+                "inbox" -> Icons.Filled.Inbox
+                "profile" -> Icons.Filled.Person
+                "heart" -> Icons.Outlined.FavoriteBorder
+                "heart_filled" -> Icons.Filled.Favorite
+                "comment" -> Icons.Outlined.ChatBubbleOutline
+                "comment_filled" -> Icons.Filled.ChatBubble
+                "bookmark" -> Icons.Outlined.BookmarkBorder
+                "bookmark_filled" -> Icons.Filled.Bookmark
+                "share" -> Icons.Filled.Share
+                "music" -> Icons.Filled.MusicNote
+                "back" -> Icons.AutoMirrored.Filled.ArrowBack
+                "screen" -> Icons.Filled.Tv
+                "layers" -> Icons.Filled.Layers
+                "plus" -> Icons.Filled.Add
+                "close" -> Icons.Filled.Close
+                "checkmark" -> Icons.Filled.Check
+                "send" -> Icons.AutoMirrored.Filled.Send
+                "volume" -> Icons.AutoMirrored.Filled.VolumeUp
+                "volume_muted" -> Icons.AutoMirrored.Filled.VolumeOff
+                else -> Icons.Filled.Home
+            }
+            Icon(
+                imageVector = icon,
+                contentDescription = fields.optString("description").takeIf(String::isNotEmpty),
+                modifier = modifier.size(fields.optDouble("size", 24.0).dp),
+                tint = nexaDevColor(fields.optJSONObject("tint"), isSystemInDarkTheme()) ?: Color.White,
+            )
+        }
+        "LinearGradient" -> {
+            val start = nexaDevColor(fields.optJSONObject("start_color"), isSystemInDarkTheme()) ?: Color.Transparent
+            val end = nexaDevColor(fields.optJSONObject("end_color"), isSystemInDarkTheme()) ?: Color.Transparent
+            val direction = fields.optString("direction", "TopToBottom")
+            val colors = if (direction == "BottomToTop" || direction == "TrailingToLeading") listOf(end, start) else listOf(start, end)
+            val brush = if (direction == "LeadingToTrailing" || direction == "TrailingToLeading") {
+                Brush.horizontalGradient(colors)
+            } else {
+                Brush.verticalGradient(colors)
+            }
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(fields.optDouble("height", 180.0).dp)
+                    .background(brush),
+            )
+        }
         "Button" -> Button(onClick = { store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals) }) {
             Text(store.stringify(store.evaluatePresented(fields.opt("label"), locals, scope)))
         }
@@ -486,6 +549,7 @@ internal fun NexaDevNode(
             val pinchParameter = fields.optString(NexaDevKeys.PINCH_PARAMETER).takeIf(String::isNotEmpty)
             val pinchActions = fields.optJSONArray(NexaDevKeys.PINCH_ACTIONS) ?: JSONArray()
             val hapticStyle = fields.optString("haptic").takeIf(String::isNotEmpty)
+            val fillMaxSize = fields.optBoolean("fill_max_size", false)
             val haptic = LocalHapticFeedback.current
             val hapticType = when (hapticStyle) {
                 "Light" -> HapticFeedbackType.TextHandleMove
@@ -567,9 +631,12 @@ internal fun NexaDevNode(
             } else {
                 Modifier
             }
+            val pressableModifier = if (fillMaxSize) dragModifier.fillMaxSize() else dragModifier
             val pressableContent: @Composable () -> Unit = {
-                Box(dragModifier.combinedClickable(
+                Box(pressableModifier.combinedClickable(
                     enabled = !disabled,
+                    interactionSource = null,
+                    indication = null,
                     onClick = {
                         if (hapticType != null) haptic.performHapticFeedback(hapticType)
                         store.perform(fields.optJSONArray("actions") ?: JSONArray(), scope, locals)
@@ -689,15 +756,18 @@ internal fun NexaDevNode(
             )
         }
         "FastList" -> {
-            val source = fields.optJSONObject("source")
-            val countExpression = source?.opt("Count")
-            val itemSource = source?.optJSONObject("Items")
-            val itemExpression = itemSource?.opt("collection")
+            val plan = fields.optJSONObject("plan")
+            val countPlan = plan?.optJSONObject("Count")
+            val itemPlan = plan?.optJSONObject("Items")
+            val sectionPlan = plan?.optJSONObject("Sections")
+            val listPlan = countPlan ?: itemPlan ?: sectionPlan
+            val options = listPlan?.optJSONObject("common")
+            val countExpression = countPlan?.opt("count")
+            val itemExpression = itemPlan?.opt("collection")
             val sourceItems = itemExpression?.let { store.evaluatePresented(it, locals, scope) as? List<*> }
-            val sectionSource = source?.optJSONObject("Sections")
-            val sectionExpression = sectionSource?.opt("collection")
+            val sectionExpression = sectionPlan?.opt("collection")
             val sourceSections = sectionExpression?.let { store.evaluatePresented(it, locals, scope) as? List<*> }
-            val axisValue = fields.opt("axis")
+            val axisValue = options?.opt("axis")
             val gridColumns = (axisValue as? JSONObject)
                 ?.optJSONObject("Grid")
                 ?.optInt("columns", 0)
@@ -707,30 +777,35 @@ internal fun NexaDevNode(
                 gridColumns != null -> "Grid"
                 else -> "Vertical"
             }
-            if (countExpression == null && sourceItems == null && sourceSections == null) {
+            val reverseLayout = options?.optBoolean(NexaDevKeys.REVERSE_LAYOUT, false) ?: false
+            val pageSnap = options?.optBoolean(NexaDevKeys.PAGE_SNAP, false) ?: false
+            if (options == null || countExpression == null && sourceItems == null && sourceSections == null) {
                 Text("FastList source could not be evaluated.")
             } else {
                 val itemCount = countExpression?.let {
                     (store.evaluatePresented(it, locals, scope) as? Number)?.toInt()?.coerceAtLeast(0) ?: 0
                 } ?: sourceItems?.size ?: 0
                 val count = sourceSections?.sumOf { (it as? List<*>)?.size ?: 0 } ?: itemCount
-                val indexName = fields.optString("index", "index")
-                val itemName = fields.optString("item").takeIf(String::isNotEmpty)
-                val sectionName = fields.optString("section").takeIf(String::isNotEmpty)
-                val children = fields.optJSONArray("children") ?: JSONArray()
-                val stickyHeaderNodes = fields.optJSONArray("sticky_header")
-                val sectionHeader = fields.optJSONArray("section_header")
-                val onScroll = fields.optJSONArray("on_scroll")
-                val onEndReached = fields.optJSONArray("on_end_reached")
-                val refresh = fields.optJSONObject("refresh")
+                val indexName = options.optString("index", "index")
+                val itemName = listPlan.optString("item").takeIf(String::isNotEmpty)
+                val sectionName = listPlan.optString("section").takeIf(String::isNotEmpty)
+                val children = options.optJSONArray("children") ?: JSONArray()
+                val stickyHeaderNodes = options.optJSONArray("sticky_header")
+                val sectionHeader = options.optJSONArray("section_header")
+                val onScroll = options.optJSONArray("on_scroll")
+                val onEndReached = options.optJSONArray("on_end_reached")
+                val refresh = options.optJSONObject("refresh")
                 val refreshState = refresh?.optString("state")?.takeIf(String::isNotEmpty)
                 val refreshActions = refresh?.optJSONArray("actions") ?: JSONArray()
                 var endReached by remember(countExpression, sourceItems?.size, sourceSections?.size) { mutableStateOf(false) }
-                val scrollPositionName = fields.optString("scroll_position").takeIf(String::isNotEmpty)
+                val scrollPositionName = options.optString("scroll_position").takeIf(String::isNotEmpty)
                 val requestedIndex = scrollPositionName?.let { name ->
                     (store.state(name, scope) as? Number)?.toInt()?.coerceIn(0, maxOf(0, count - 1)) ?: 0
-                } ?: 0
-                val extent = fields.optDouble("item_extent", 0.0).takeIf { it > 0.0 }?.dp
+                } ?: if (reverseLayout) maxOf(0, count - 1) else 0
+                val requestedPosition = if (reverseLayout) {
+                    (count - 1 - requestedIndex).coerceIn(0, maxOf(0, count - 1))
+                } else requestedIndex
+                val extent = options.optDouble("item_extent", 0.0).takeIf { it > 0.0 }?.dp
                 val renderItem: @Composable (Int, String) -> Unit = { itemIndex, itemAxis ->
                     var rowLocals = locals + (indexName to itemIndex)
                     if (itemName != null && sourceItems != null) {
@@ -751,10 +826,13 @@ internal fun NexaDevNode(
                     }
                 }
                 val observeScroll: suspend (Int, Int, Int) -> Unit = { firstVisible, visibleCount, total ->
-                    val callbackLocals = locals + (indexName to firstVisible)
+                    val logicalFirstVisible = if (reverseLayout) {
+                        (total - 1 - firstVisible).coerceAtLeast(0)
+                    } else firstVisible
+                    val callbackLocals = locals + (indexName to logicalFirstVisible)
                     if (scrollPositionName != null) {
                         val storedIndex = (store.state(scrollPositionName, scope) as? Number)?.toInt()
-                        if (storedIndex != firstVisible) store.setState(scrollPositionName, firstVisible, scope)
+                        if (storedIndex != logicalFirstVisible) store.setState(scrollPositionName, logicalFirstVisible, scope)
                     }
                     if (onScroll != null && onScroll != JSONObject.NULL) store.perform(onScroll, scope, callbackLocals)
                     if (onEndReached != null && onEndReached != JSONObject.NULL) {
@@ -787,15 +865,44 @@ internal fun NexaDevNode(
                             }
                         }
                     } else {
-                        val listState = rememberLazyListState(initialFirstVisibleItemIndex = requestedIndex)
-                        LaunchedEffect(listState, scrollPositionName, onScroll, onEndReached, count) {
-                            snapshotFlow { Pair(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) }
-                                .distinctUntilChanged()
-                                .collect { (firstVisible, visibleCount) -> observeScroll(firstVisible, visibleCount, count) }
+                        val listState = rememberLazyListState(initialFirstVisibleItemIndex = requestedPosition)
+                        if (reverseLayout) {
+                            val previousCount = remember(listState) { intArrayOf(count) }
+                            LaunchedEffect(listState, count) {
+                                val oldCount = previousCount[0]
+                                val delta = count - oldCount
+                                if (delta > 0 && count > 0) {
+                                    val firstVisible = listState.firstVisibleItemIndex
+                                    val offset = listState.firstVisibleItemScrollOffset
+                                    if (firstVisible == delta && offset == 0) {
+                                        listState.scrollToItem(0)
+                                    }
+                                }
+                                previousCount[0] = count
+                            }
                         }
-                        LaunchedEffect(listState, requestedIndex, count) {
-                            if (count > 0 && listState.firstVisibleItemIndex != requestedIndex) {
-                                listState.scrollToItem(requestedIndex)
+                        LaunchedEffect(listState, scrollPositionName, onScroll, onEndReached, count) {
+                            if (pageSnap) {
+                                snapshotFlow { listState.isScrollInProgress }
+                                    .distinctUntilChanged()
+                                    .collect { isScrolling ->
+                                        if (!isScrolling) {
+                                            observeScroll(
+                                                listState.firstVisibleItemIndex,
+                                                listState.layoutInfo.visibleItemsInfo.size,
+                                                count,
+                                            )
+                                        }
+                                    }
+                            } else {
+                                snapshotFlow { Pair(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) }
+                                    .distinctUntilChanged()
+                                    .collect { (firstVisible, visibleCount) -> observeScroll(firstVisible, visibleCount, count) }
+                            }
+                        }
+                        LaunchedEffect(listState, requestedPosition) {
+                            if (count > 0 && listState.firstVisibleItemIndex != requestedPosition) {
+                                listState.scrollToItem(requestedPosition)
                             }
                         }
                         if (axis == "Horizontal") {
@@ -805,7 +912,17 @@ internal fun NexaDevNode(
                                 }
                             }
                         } else {
-                            LazyColumn(state = listState, modifier = modifier.fillMaxWidth()) {
+                            LazyColumn(
+                                state = listState,
+                                reverseLayout = reverseLayout,
+                                flingBehavior = if (pageSnap) {
+                                    rememberSnapFlingBehavior(
+                                        lazyListState = listState,
+                                        snapPosition = SnapPosition.Start,
+                                    )
+                                } else androidx.compose.foundation.gestures.ScrollableDefaults.flingBehavior(),
+                                modifier = modifier.fillMaxWidth(),
+                            ) {
                                 if (stickyHeaderNodes != null && stickyHeaderNodes != JSONObject.NULL) {
                                     stickyHeader { renderHeader(stickyHeaderNodes, locals) }
                                 }
@@ -826,8 +943,20 @@ internal fun NexaDevNode(
                                         }
                                     }
                                 } else {
-                                    items(count = count, key = { itemIndex -> itemIndex }) { itemIndex ->
-                                        renderItem(itemIndex, axis)
+                                    items(
+                                        count = count,
+                                        key = { itemPosition ->
+                                            if (reverseLayout) count - 1 - itemPosition else itemPosition
+                                        },
+                                    ) { itemPosition ->
+                                        val itemIndex = if (reverseLayout) count - 1 - itemPosition else itemPosition
+                                        if (pageSnap) {
+                                            Box(Modifier.fillParentMaxSize()) {
+                                                renderItem(itemIndex, axis)
+                                            }
+                                        } else {
+                                            renderItem(itemIndex, axis)
+                                        }
                                     }
                                 }
                             }
@@ -994,6 +1123,8 @@ internal fun NexaDevNode(
                         when (transition) {
                             "Fade" -> fadeIn() togetherWith fadeOut()
                             "SlideFromBottom" -> slideInVertically { height -> height } togetherWith slideOutVertically { height -> height }
+                            "SlideFromLeft" -> slideInHorizontally { width -> -width } togetherWith slideOutHorizontally { width -> width }
+                            "SlideFromRight" -> slideInHorizontally { width -> width } togetherWith slideOutHorizontally { width -> -width }
                             "Scale" -> scaleIn() togetherWith scaleOut()
                             else -> fadeIn() togetherWith fadeOut()
                         }
@@ -1016,6 +1147,8 @@ internal fun NexaDevNode(
                         when (transition) {
                             "Fade" -> fadeIn() togetherWith fadeOut()
                             "SlideFromBottom" -> slideInVertically { height -> height } togetherWith slideOutVertically { height -> height }
+                            "SlideFromLeft" -> slideInHorizontally { width -> -width } togetherWith slideOutHorizontally { width -> width }
+                            "SlideFromRight" -> slideInHorizontally { width -> width } togetherWith slideOutHorizontally { width -> -width }
                             "Scale" -> scaleIn() togetherWith scaleOut()
                             else -> fadeIn() togetherWith fadeOut()
                         }
@@ -1030,7 +1163,7 @@ internal fun NexaDevNode(
             val context = LocalContext.current
             val url = store.stringify(store.evaluatePresented(fields.opt("url"), locals, scope))
             val children = fields.optJSONArray("children") ?: JSONArray()
-            Column(Modifier.clickable { openNexaUrl(context, url) }) {
+            Column(Modifier.clickable(interactionSource = null, indication = null) { openNexaUrl(context, url) }) {
                 RenderChildren(children, module, store, locals, scope)
             }
         }

@@ -78,7 +78,7 @@ app FastListExample {
 }
 ```
 - **Sources**: `FastList(collection, ...)`, `FastList(count: Int32, ...)`, or `FastList(sections: Array<Array<T>>, ...)`.
-- **Options**: `axis: Vertical | Horizontal | Grid(columns)`, where `columns` is a positive integer literal; positive literal `rowHeight`, scalar `key`, and mutable `Int32` `scrollPosition`.
+- **Options**: `axis: Vertical | Horizontal | Grid(columns)`, where `columns` is a positive integer literal; positive literal `rowHeight`, scalar `key`, mutable `Int32` `scrollPosition`, `reverseLayout: true`, and `pageSnap: true`. `pageSnap` is limited to flat vertical lists: each virtualized row fills the list viewport and native scrolling settles on page boundaries, with a maximum of one page per fling. Its `scrollPosition`, `onScroll`, and `onEndReached` updates are reported after a page settles. It cannot be combined with `rowHeight`, `reverseLayout`, sectioned sources, or `stickyHeader`. A `RefreshControl` can wrap a paged list and keeps the platform-native pull-to-refresh interaction. Reverse layout keeps the last logical item at the bottom, maps row bindings to source indexes, and follows new items while the user remains at the latest item; it cannot be combined with sectioned sources, `stickyHeader`, or `RefreshControl`.
 - **Modifiers**: `.stickyHeader { ... }`, `.sectionHeader { ... }`, `.onEndReached { ... }`, `.onScroll { ... }`.
 
 ---
@@ -281,7 +281,7 @@ app PressableExample {
     state zoom: Float64 = 1.0
 
     body {
-        Pressable(disabled: false, haptic: Medium) {
+        Pressable(disabled: false, haptic: Medium, fillMaxSize: true) {
             Column {
                 Text("Tap, drag, or pinch me")
                 Text("Horizontal offset: $dragOffset")
@@ -300,8 +300,9 @@ app PressableExample {
     }
 }
 ```
-- **Properties**: `disabled: Bool`, optional `haptic: Light | Medium | Heavy`.
+- **Properties**: `disabled: Bool`, optional `haptic: Light | Medium | Heavy`, and `fillMaxSize: Bool` (defaults to `false`). Set `fillMaxSize: true` when the pressable's hit area should expand to its parent's available size.
 - **Modifiers**: `.onTap { ... }` (or legacy `.onPress { ... }`), `.onDoubleTap { ... }`, `.onLongPress(durationMs: 700) { ... }`, `.onDrag { translationX, translationY, velocityX, velocityY -> ... }`, and `.onPinch { scaleFactor -> ... }`.
+- Android pressables and Material controls do not draw a ripple by default; tap actions and haptics still work.
 - Long-press duration defaults to 500 ms. Runtime values are clamped to at least 1 ms for consistent platform behavior.
 - Drag translations use points on iOS and dp on Android; velocities use those same units per second.
 - `scaleFactor` is the multiplicative scale delta for the current gesture update. Multiply the current zoom by it; Android and iOS report the same incremental semantics.
@@ -333,6 +334,27 @@ Image(asset: "product", description: "Product")
 ```
 
 This maps to SwiftUI matched geometry on iOS and Compose shared transitions on Android. It also works in `nexa dev` hot reload; the development host already includes the native transition support.
+
+### `Icon`
+Renders the platform's native system icon: SF Symbols on iOS and the matching Compose Material icon on Android.
+
+```nexa
+Icon(system: "heart.fill", description: "Like", size: 30, tint: "#FFFFFF")
+```
+
+`system` accepts these cross-platform SF Symbol names: `house.fill`, `magnifyingglass`, `tray`, `person`, `heart`, `heart.fill`, `bubble.right`, `bubble.right.fill`, `bookmark`, `bookmark.fill`, `arrowshape.turn.up.right`, `music.note`, `chevron.left`, `tv`, `rectangle.on.rectangle`, `plus`, `xmark`, `checkmark`, `paperplane`, `speaker.wave.2.fill`, and `speaker.slash.fill`. Unsupported names are compile errors. `description` is exposed to accessibility, `size` is a positive point/dp value up to 512, and `tint` is a static hexadecimal color.
+
+### `LinearGradient`
+Draws a native linear gradient with two static colors. Use it as a child of a `Stack` to shade content without intercepting taps.
+
+```nexa
+Stack {
+    LinearGradient(startColor: "#CC000000", endColor: "#00000000", direction: TopToBottom, height: 180)
+}
+```
+
+- **Properties**: `startColor`, `endColor`, optional `direction` (`TopToBottom`, `BottomToTop`, `LeadingToTrailing`, or `TrailingToLeading`), and optional `height` (defaults to `180`).
+- Native rendering uses SwiftUI `LinearGradient` and Compose gradient brushes.
 
 ---
 

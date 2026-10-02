@@ -1060,6 +1060,8 @@ fn node_name(node: &Node) -> &'static str {
         Node::SegmentedControl { .. } => "SegmentedControl",
         Node::Picker { .. } => "Picker",
         Node::Image { .. } => "Image",
+        Node::SystemIcon { .. } => "Icon",
+        Node::LinearGradient { .. } => "LinearGradient",
         Node::Pressable { .. } => "Pressable",
         Node::NavigationStack { .. } => "NavigationStack",
         Node::NavigationLink { .. } => "NavigationLink",

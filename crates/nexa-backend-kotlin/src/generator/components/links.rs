@@ -31,7 +31,7 @@ pub(crate) fn render_link(
     indent(out, depth);
     out.push_str("Box(\n");
     indent(out, depth + 1);
-    out.push_str("modifier = Modifier.clickable {\n");
+    out.push_str("modifier = Modifier.clickable(interactionSource = null, indication = null) {\n");
     indent(out, depth + 2);
     out.push_str("val nexaLinkIntent = Intent(Intent.ACTION_VIEW, Uri.parse(");
     out.push_str(&expression(url));

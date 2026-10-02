@@ -7,7 +7,7 @@ use crate::generator::{
     accessibility, bottom_bar, colors, controls,
     engine::features::Features,
     expressions::text_expression,
-    images, input, keyboard, layout, links, lists, navigation, refresh, sheets,
+    images, input, keyboard, layout, links, lists, navigation, refresh, sheets, system_icons,
     utils::{indent, number},
 };
 
@@ -179,6 +179,36 @@ pub(crate) fn render_node(
             depth,
             out,
         ),
+        Node::SystemIcon {
+            icon,
+            description,
+            size,
+            tint,
+        } => system_icons::render(*icon, description, *size, *tint, depth, out),
+        Node::LinearGradient {
+            start_color,
+            end_color,
+            direction,
+            height,
+        } => {
+            let (start, end) = match direction {
+                nexa_ir::GradientDirection::TopToBottom => (".top", ".bottom"),
+                nexa_ir::GradientDirection::BottomToTop => (".bottom", ".top"),
+                nexa_ir::GradientDirection::LeadingToTrailing => (".leading", ".trailing"),
+                nexa_ir::GradientDirection::TrailingToLeading => (".trailing", ".leading"),
+            };
+            out.line_at(
+                depth,
+                format_args!(
+                    "LinearGradient(colors: [{}, {}], startPoint: {}, endPoint: {}).frame(maxWidth: .infinity).frame(height: {}).allowsHitTesting(false)",
+                    crate::generator::engine::colors::expression(*start_color),
+                    crate::generator::engine::colors::expression(*end_color),
+                    start,
+                    end,
+                    crate::generator::engine::utils::number(*height),
+                ),
+            );
+        }
         Node::Pressable { .. } => controls::render_pressable(node, module, features, depth, out),
         Node::NavigationStack { root, arguments } => {
             navigation::render_navigation_stack(module, *root, arguments, features, depth, out);
@@ -398,6 +428,8 @@ fn swift_transition(transition: ViewTransition) -> &'static str {
     match transition {
         ViewTransition::Fade => ".opacity",
         ViewTransition::SlideFromBottom => ".move(edge: .bottom)",
+        ViewTransition::SlideFromLeft => ".move(edge: .leading)",
+        ViewTransition::SlideFromRight => ".move(edge: .trailing)",
         ViewTransition::Scale => ".scale",
     }
 }

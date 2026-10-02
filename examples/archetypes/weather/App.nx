@@ -1,0 +1,63 @@
+struct CurrentConditions {
+    temperature_2m: Float64,
+    wind_speed_10m: Float64,
+}
+
+struct ForecastResponse {
+    current: CurrentConditions,
+}
+
+app WeatherArchetype {
+    state forecastSummary: String = "Tap refresh to load the forecast."
+    state locationPermission: PermissionStatus = PermissionStatus.notDetermined
+    state online: Bool = Network.isOnline
+    state locationTask: TaskHandle? = null
+    state refreshTask: TaskHandle? = null
+
+    background task SaveRefreshTime(
+        identifier: "dev.nexa.archetypes.weather.refresh",
+        everyMinutes: 60
+    ) {
+        Storage.setString(
+            key: "weather.last-refresh",
+            value: Time.iso8601(timestamp: Time.now())
+        )
+    }
+
+    body {
+        OnAppear async {
+            locationPermission = await Permissions.status(permission: Location)
+            Network.onStatusChange { isOnline -> online = isOnline }
+        }
+
+        Column(spacing: 16, padding: 20) {
+            Text("Weather")
+            Text("Paris (fixed demo location)")
+            Text(online ? "Online" : "Offline")
+            Text(forecastSummary)
+            Button("Refresh forecast") {
+                Task.launch(handle: refreshTask, executor: TaskExecutor.Main) {
+                    try {
+                        forecastSummary = Json.stringify<Result<ForecastResponse, JsonError>>(
+                            value: Json.parse<ForecastResponse>(
+                                raw: (await Network.fetch(
+                                    url: "https://api.open-meteo.com/v1/forecast?latitude=48.8566&longitude=2.3522&current=temperature_2m,wind_speed_10m"
+                                )).body
+                            )
+                        )
+                    } catch {
+                        forecastSummary = "Forecast is unavailable. Check your connection and retry."
+                    }
+                }
+            }
+            Text("This sample demonstrates location permission; it does not read device coordinates.")
+            Text(locationPermission == PermissionStatus.granted ? "Location permission granted" : "Location permission not granted")
+            Button("Test location permission request") {
+                Task.launch(handle: locationTask, executor: TaskExecutor.Main) {
+                    locationPermission = await Permissions.request(permission: Location)
+                }
+            }
+            Text(Storage.getString(key: "weather.last-refresh") ?? "No background refresh recorded")
+        }
+    }
+}

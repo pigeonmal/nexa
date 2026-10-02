@@ -1007,9 +1007,12 @@ impl Parser {
             android_maven_repositories: Vec::new(),
             ios_usage_descriptions: Vec::new(),
             ios_entitlements: Vec::new(),
+            ios_application_delegate: None,
             ios_background_modes: Vec::new(),
             ios_linker_flags: Vec::new(),
             android_permissions: Vec::new(),
+            android_application_metadata: Vec::new(),
+            android_firebase_messaging_service: None,
             android_picture_in_picture: false,
             android_media_playback_service: None,
         })
@@ -3379,19 +3382,24 @@ impl Parser {
                 self.expect(Kind::Colon, "expected `:` after `from`")?;
                 self.expect(Kind::Dot, "expected a slide edge such as `.bottom`")?;
                 let (edge, edge_span) = self.ident()?;
-                if edge != "bottom" {
-                    return Err(CompileError::new(
-                        edge_span,
-                        "conditional slide transitions currently support `.bottom`",
-                    ));
-                }
-                self.expect(Kind::RParen, "expected `)` after `.slide(from: .bottom)`")?;
-                ViewTransition::SlideFromBottom
+                let transition = match edge.as_str() {
+                    "bottom" => ViewTransition::SlideFromBottom,
+                    "left" => ViewTransition::SlideFromLeft,
+                    "right" => ViewTransition::SlideFromRight,
+                    _ => {
+                        return Err(CompileError::new(
+                            edge_span,
+                            "conditional slide transitions support `.bottom`, `.left`, and `.right`",
+                        ));
+                    }
+                };
+                self.expect(Kind::RParen, "expected `)` after `.slide(from: .edge)`")?;
+                transition
             }
             _ => {
                 return Err(CompileError::new(
                     kind_span,
-                    "transition must be `.fade`, `.slide(from: .bottom)`, or `.scale`",
+                    "transition must be `.fade`, `.slide(from: .bottom|.left|.right)`, or `.scale`",
                 ));
             }
         };

@@ -16,7 +16,7 @@ use nexa_syntax::ast::Program;
 
 // Bump when compiler or backend semantics change without a source-graph change.
 // This prevents old generated native units from surviving a generator update.
-const CACHE_VERSION: &str = "build-v132";
+const CACHE_VERSION: &str = "build-v135";
 
 pub(super) fn restore_warnings(entry: &Path, key: &str) -> Result<Option<Vec<String>>, String> {
     let path = cache_directory(entry).join(format!("{key}.warnings"));
@@ -150,7 +150,7 @@ fn fingerprint_file(
             plugin_roots,
         )?;
     }
-    if is_entry {
+    if is_entry || !program.plugins.is_empty() {
         fingerprint_plugins(
             &canonical,
             &program,

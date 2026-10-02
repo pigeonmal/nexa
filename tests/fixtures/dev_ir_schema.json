@@ -3,10 +3,12 @@
   "title": "NexaDevIRSchema",
   "description": "Canonical schema definitions for Nexa dynamic Dev IR protocol, operations, and interpreter keys",
   "protocol_version": 10,
-  "dev_ir_format_version": 19,
+  "dev_ir_format_version": 25,
   "view_transitions": [
     "Fade",
     "SlideFromBottom",
+    "SlideFromLeft",
+    "SlideFromRight",
     "Scale"
   ],
   "platforms": [
@@ -51,6 +53,8 @@
     "ProgressBar",
     "ProgressRing",
     "Image",
+    "SystemIcon",
+    "LinearGradient",
     "RefreshControl",
     "If",
     "When",
@@ -151,6 +155,10 @@
       "name": "name",
       "ty": "ty",
       "initial": "initial"
+    },
+    "fast_list": {
+      "reverse_layout": "reverse_layout",
+      "page_snap": "page_snap"
     },
     "pressable": {
       "drag_parameters": "drag_parameters",

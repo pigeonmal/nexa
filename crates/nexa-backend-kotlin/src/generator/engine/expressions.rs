@@ -646,21 +646,64 @@ fn kotlin_number(raw: &str, ty: NumericType) -> String {
 }
 
 pub(crate) fn text_expression(expr: &Expr) -> String {
+    if is_non_optional_string_expression(expr) {
+        expression(expr)
+    } else {
+        format!("{}.toString()", expression(expr))
+    }
+}
+
+fn is_non_optional_string_expression(expr: &Expr) -> bool {
     match expr {
-        Expr::String(_)
-        | Expr::State(_, Type::String)
-        | Expr::Member {
+        Expr::String(_) | Expr::Interpolation(_) | Expr::Concat(_, _) => true,
+        Expr::State(_, Type::String) | Expr::AnimatedState(_, Type::String) => true,
+        Expr::Member {
+            optional: false,
             field_type: Type::String,
             ..
         }
-        | Expr::Interpolation(_) => expression(expr),
-        _ => format!("{}.toString()", expression(expr)),
+        | Expr::Index {
+            optional: false,
+            element_type: Type::String,
+            ..
+        } => true,
+        Expr::Call {
+            return_type: Type::String,
+            ..
+        }
+        | Expr::NativeCall {
+            return_type: Type::String,
+            ..
+        }
+        | Expr::TimeCall {
+            return_type: Type::String,
+            ..
+        }
+        | Expr::Conditional {
+            value_type: Type::String,
+            ..
+        }
+        | Expr::Try {
+            value_type: Type::String,
+            ..
+        }
+        | Expr::PathJoin { .. }
+        | Expr::FileReadText { .. } => true,
+        Expr::Coalesce(_, fallback) | Expr::Await(fallback) | Expr::TryAwait(fallback) => {
+            is_non_optional_string_expression(fallback)
+        }
+        Expr::CollectionTransform {
+            operation: CollectionTransform::Reduce,
+            initial: Some(initial),
+            ..
+        } => is_non_optional_string_expression(initial),
+        _ => false,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::expression;
+    use super::{expression, text_expression};
     use nexa_ir::{ArithmeticOp, CollectionUtilityKind, Expr, NumericType, TimeMethod, Type};
 
     #[test]
@@ -675,6 +718,40 @@ mod tests {
         assert_eq!(
             expression(&conditional),
             "(if (true) \"ready\" else \"waiting\")"
+        );
+    }
+
+    #[test]
+    fn text_expression_avoids_string_conversion_for_typed_string_values() {
+        let index = |optional| Expr::Index {
+            collection: Box::new(Expr::State(
+                "messages".to_owned(),
+                Type::Array(Box::new(Type::String)),
+            )),
+            index: Box::new(Expr::Number {
+                raw: "0".to_owned(),
+                ty: NumericType::Int32,
+            }),
+            optional,
+            collection_type: Type::Array(Box::new(Type::String)),
+            element_type: Type::String,
+        };
+        let direct_index = index(false);
+        assert_eq!(text_expression(&direct_index), "nexa_messages[0]");
+
+        let call = Expr::Call {
+            name: "displayName".to_owned(),
+            arguments: Vec::new(),
+            return_type: Type::String,
+            is_async: false,
+            is_constructor: false,
+        };
+        assert_eq!(text_expression(&call), "nexa_fn_displayName()");
+
+        let optional_index = index(true);
+        assert_eq!(
+            text_expression(&optional_index),
+            "nexa_messages?.get(0).toString()"
         );
     }
 

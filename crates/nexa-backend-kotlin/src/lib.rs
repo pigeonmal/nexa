@@ -5,6 +5,7 @@ pub struct KotlinProjectFeatures {
     pub uses_network: bool,
     pub uses_network_connectivity: bool,
     pub uses_remote_image: bool,
+    pub uses_system_icons: bool,
     pub uses_coroutines: bool,
     pub uses_permission_request: bool,
     pub uses_navigation: bool,

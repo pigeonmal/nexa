@@ -3,7 +3,10 @@ use nexa_ir::walk::walk_ir;
 use nexa_ir::{Component, LayoutKind, Module, Node, ViewStyle};
 
 use crate::generator::engine::types::kotlin_type;
-use crate::generator::{components::render_node, features::Features, layout, state, utils::indent};
+use crate::generator::{
+    components::render_node, features::Features, layout, render_opt_in_annotation, state,
+    utils::indent,
+};
 
 pub(crate) fn render(module: &Module, features: &Features, out: &mut SourceWriter) {
     for component in &module.components {
@@ -17,17 +20,20 @@ fn render_component(
     features: &Features,
     out: &mut SourceWriter,
 ) {
+    let mut opt_in_annotations = Vec::with_capacity(3);
     if component_uses_bottom_sheet(component) {
-        out.push_str("\n@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)");
+        opt_in_annotations.push("androidx.compose.material3.ExperimentalMaterial3Api::class");
     }
     if features.component_uses_keyboard_interactive(&component.name) {
-        out.push_str("\n@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)");
+        opt_in_annotations.push("androidx.compose.foundation.layout.ExperimentalLayoutApi::class");
     }
     if component_uses_sticky_header(component) {
-        out.push_str("\n@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)");
+        opt_in_annotations.push("androidx.compose.foundation.ExperimentalFoundationApi::class");
     }
+    out.push('\n');
+    render_opt_in_annotation(out, &opt_in_annotations);
     out.push_str(&format!(
-        "\n@Composable\nprivate fun {}(",
+        "@Composable\nprivate fun {}(",
         nexa_codegen::names::component_name(&component.name)
     ));
     out.push_str(

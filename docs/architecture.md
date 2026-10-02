@@ -54,6 +54,8 @@ C++ native plugins use generated bindings and standard C++ types such as `std::i
 
 ## 3. Generated Source Cache
 
+`build-v135` exposes the currently bound Android host `Activity` as a nullable weak-reference read so native plugins can start platform UI flows without retaining the activity or using reflection.
+
 `build-v130` adds typed optional array `first()` and `last()` accessors to both AOT backends and DevRuntime, and advances the Dev IR format.
 
 `build-v128` adds typed screen orientation requests to both AOT backends and DevRuntime, with iOS scene geometry support and generated interface-orientation declarations.

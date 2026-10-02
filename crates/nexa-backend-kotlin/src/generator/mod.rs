@@ -1,4 +1,4 @@
-use nexa_codegen::{GeneratedSources, SourceUnits};
+use nexa_codegen::{GeneratedSources, SourceUnits, SourceWriter};
 use nexa_ir::{LayoutKind, Module, ViewStyle};
 
 mod api;
@@ -10,7 +10,7 @@ pub(super) use api::{network, number, permissions};
 use components::node_renderer as component_renderer;
 pub(super) use components::{
     accessibility, assets, bottom_bar, controls, custom_components, dialogs, images, input,
-    keyboard, layout, links, lists, navigation, refresh, sheets,
+    keyboard, layout, links, lists, navigation, refresh, sheets, system_icons,
 };
 pub(super) use engine::{
     colors, expressions, features, functions, runtime, state, structs, utils, value,
@@ -24,6 +24,7 @@ fn project_features_from_analysis(
         uses_network: features.uses_network_transport(),
         uses_network_connectivity: features.uses_network_connectivity,
         uses_remote_image: features.uses_remote_image,
+        uses_system_icons: !features.facts.ui.system_icons.is_empty(),
         uses_coroutines: features.uses_network_transport()
             || features.uses_file_async
             || features.uses_permission_request
@@ -130,6 +131,16 @@ fn join_units(units: Vec<nexa_codegen::SourceUnit>) -> String {
     source
 }
 
+pub(super) fn render_opt_in_annotation(out: &mut SourceWriter, annotations: &[&str]) {
+    if annotations.is_empty() {
+        return;
+    }
+
+    out.push_str("@OptIn(");
+    out.push_str(&annotations.join(", "));
+    out.push_str(")\n");
+}
+
 /// Whether the app declares a collection state, which is what makes a whole
 /// collection replaceable at runtime.
 fn has_collection_state(module: &Module) -> bool {
@@ -184,11 +195,11 @@ internal fun <K, V> nexaReplace(target: MutableMap<K, V>, value: Map<K, V>) {
 /// O(1). Snapshot it once before a loop instead of reading snapshot state for
 /// every element through the collection iterator. Ordinary Kotlin collections
 /// pass through unchanged.
-const COLLECTION_ITERATION_HELPERS: &str = r#"private inline fun <T> nexaSnapshotValues(values: Iterable<T>): Iterable<T> = values
-private inline fun <T> nexaSnapshotValues(values: androidx.compose.runtime.snapshots.SnapshotStateList<T>): List<T> = values.toList()
+const COLLECTION_ITERATION_HELPERS: &str = r#"private fun <T> nexaSnapshotValues(values: Iterable<T>): Iterable<T> = values
+private fun <T> nexaSnapshotValues(values: androidx.compose.runtime.snapshots.SnapshotStateList<T>): List<T> = values.toList()
 
-private inline fun <K, V> nexaSnapshotEntries(values: Map<K, V>): Map<K, V> = values
-private inline fun <K, V> nexaSnapshotEntries(values: androidx.compose.runtime.snapshots.SnapshotStateMap<K, V>): Map<K, V> = values.toMap()
+private fun <K, V> nexaSnapshotEntries(values: Map<K, V>): Map<K, V> = values
+private fun <K, V> nexaSnapshotEntries(values: androidx.compose.runtime.snapshots.SnapshotStateMap<K, V>): Map<K, V> = values.toMap()
 
 "#;
 
@@ -275,18 +286,19 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             if features.uses_picker {
                 controls::render_picker_helper(out);
             }
-            if features.uses_bottom_sheet || features.uses_segmented_control {
-                out.push_str("@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)\n");
-            }
+            let mut opt_in_annotations = Vec::with_capacity(3);
+            opt_in_annotations.push("androidx.compose.material3.ExperimentalMaterial3Api::class");
             if features.app_uses_keyboard_interactive {
-                out.push_str("@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)\n");
+                opt_in_annotations.push("androidx.compose.foundation.layout.ExperimentalLayoutApi::class");
             }
             if features.uses_sticky_header
                 || features.uses_long_press
                 || features.uses_double_tap
+                || features.uses_page_snap
             {
-                out.push_str("@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)\n");
+                opt_in_annotations.push("androidx.compose.foundation.ExperimentalFoundationApi::class");
             }
+            render_opt_in_annotation(out, &opt_in_annotations);
             out.push_str(&format!(
                 "@Composable\nfun {}() {{\n",
                 nexa_codegen::names::screen_name(&module.app_name)
@@ -376,10 +388,11 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             if !module.states.is_empty() {
                 out.push('\n');
             }
+            out.push_str("    CompositionLocalProvider(LocalRippleConfiguration provides null) {\n");
             if features.uses_shared_elements {
-                out.push_str("    NexaSharedTransitionContent {\n");
+                out.push_str("        NexaSharedTransitionContent {\n");
             }
-            let body_base_depth = if features.uses_shared_elements { 2 } else { 1 };
+            let body_base_depth = if features.uses_shared_elements { 3 } else { 2 };
             let body_depth = components::direction::start(module.direction, body_base_depth, out);
             components::lifecycle::render_on_appear(module.on_appear.as_deref(), body_depth, out);
             components::lifecycle::render_on_disappear(
@@ -408,9 +421,9 @@ fn generate_with_analysis(module: &Module, features: &features::Features) -> Gen
             }
             components::direction::end(module.direction, body_base_depth, out);
             if features.uses_shared_elements {
-                out.push_str("\n    }");
+                out.push_str("\n        }");
             }
-            out.push_str("\n}\n");
+            out.push_str("\n    }\n}\n");
     });
 
     if features.uses_shared_elements {
@@ -513,9 +526,101 @@ mod tests {
     use super::generate;
     use nexa_ir::{
         Action, AnimationSpec, Component, Expr, Function, ImageScale, ImageSource, LayoutKind,
-        Module, Node, NumericType, Screen, ScreenId, State, TextStyle, Type, ViewStyle,
-        ViewTransition, WhenCase,
+        ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId, State,
+        TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
+
+    #[test]
+    fn page_snap_and_bottom_sheet_share_compose_opt_in_annotation() {
+        let module = Module {
+            app_name: "PageSnap".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: vec![
+                State {
+                    name: "currentPage".to_owned(),
+                    ty: Type::Numeric(NumericType::Int32),
+                    initial: Expr::Number {
+                        raw: "0".to_owned(),
+                        ty: NumericType::Int32,
+                    },
+                    mutable: true,
+                },
+                State {
+                    name: "commentsPresented".to_owned(),
+                    ty: Type::Bool,
+                    initial: Expr::Bool(false),
+                    mutable: true,
+                },
+            ],
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![
+                Node::FastList {
+                    plan: ListPlan::Count {
+                        count: Expr::Number {
+                            raw: "3".to_owned(),
+                            ty: NumericType::Int32,
+                        },
+                        common: ListCommon {
+                            axis: ListAxis::Vertical,
+                            reverse_layout: false,
+                            page_snap: true,
+                            item_extent: None,
+                            index: "index".to_owned(),
+                            key: None,
+                            scroll_position: Some("currentPage".to_owned()),
+                            children: vec![Node::Text {
+                                value: Expr::String("Feed page".to_owned()),
+                                style: TextStyle::default(),
+                            }],
+                            on_end_reached: None,
+                            on_scroll: None,
+                            sticky_header: None,
+                            refresh: None,
+                        },
+                    },
+                },
+                Node::BottomSheet {
+                    state: "commentsPresented".to_owned(),
+                    partial: true,
+                    children: vec![Node::Text {
+                        value: Expr::String("Comments".to_owned()),
+                        style: TextStyle::default(),
+                    }],
+                },
+            ],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let kotlin = generate(&module);
+        assert!(kotlin.contains("VerticalPager("));
+        assert!(kotlin.contains(
+            "PagerDefaults.flingBehavior(state = nexaListState0, pagerSnapDistance = PagerSnapDistance.atMost(1))"
+        ));
+        assert!(kotlin.contains("Modifier.fillMaxSize()"));
+        assert!(kotlin.contains(
+            "if (nexaListState0.isScrollInProgress) -1 else nexaListState0.settledPage"
+        ));
+        assert!(kotlin.contains(
+            "if (firstVisiblePosition >= 0)"
+        ));
+        assert_eq!(kotlin.matches("@OptIn(").count(), 1);
+        assert!(kotlin.contains(
+            "@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)"
+        ));
+    }
 
     #[test]
     fn shared_image_elements_use_compose_scopes_across_navigation_screens() {
@@ -742,6 +847,7 @@ mod tests {
             body: vec![Node::Pressable {
                 disabled: Expr::Bool(false),
                 haptic: None,
+                fill_max_size: true,
                 children: vec![Node::Text {
                     value: Expr::String("Tap twice".to_owned()),
                     style: TextStyle::default(),
@@ -777,10 +883,9 @@ mod tests {
         let kotlin = generate(&module);
 
         assert!(kotlin.contains("import androidx.compose.foundation.combinedClickable"));
-        assert!(
-            kotlin.contains("@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)")
-        );
+        assert!(kotlin.contains("androidx.compose.foundation.ExperimentalFoundationApi::class"));
         assert!(kotlin.contains("combinedClickable("));
+        assert!(kotlin.contains(".fillMaxSize().combinedClickable("));
         assert!(kotlin.contains("onDoubleClick = {"));
         assert!(!kotlin.contains("onLongClick = {"));
         assert!(!kotlin.contains("import androidx.compose.ui.input.pointer"));
@@ -810,6 +915,7 @@ mod tests {
             body: vec![Node::Pressable {
                 disabled: Expr::Bool(false),
                 haptic: None,
+                fill_max_size: false,
                 children: vec![Node::Text {
                     value: Expr::String("Drag me".to_owned()),
                     style: TextStyle::default(),
@@ -899,6 +1005,7 @@ mod tests {
             body: vec![Node::Pressable {
                 disabled: Expr::Bool(false),
                 haptic: None,
+                fill_max_size: false,
                 children: vec![Node::Text {
                     value: Expr::String("Pinch to zoom".to_owned()),
                     style: TextStyle::default(),

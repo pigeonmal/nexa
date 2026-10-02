@@ -52,9 +52,12 @@ pub struct PluginDecl {
     pub android_maven_repositories: Vec<String>,
     pub ios_usage_descriptions: Vec<(String, String)>,
     pub ios_entitlements: Vec<(String, PluginEntitlementValue)>,
+    pub ios_application_delegate: Option<String>,
     pub ios_background_modes: Vec<String>,
     pub ios_linker_flags: Vec<String>,
     pub android_permissions: Vec<String>,
+    pub android_application_metadata: Vec<(String, String)>,
+    pub android_firebase_messaging_service: Option<String>,
     /// The generated Android activity opts into PiP for video playback plugins.
     pub android_picture_in_picture: bool,
     /// Android MediaSessionService class contributed to the generated host.
@@ -518,6 +521,8 @@ pub struct WhenCase {
 pub enum ViewTransition {
     Fade,
     SlideFromBottom,
+    SlideFromLeft,
+    SlideFromRight,
     Scale,
 }
 

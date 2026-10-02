@@ -1,0 +1,7 @@
+component Avatar(initials: String) {
+    body {
+        Stack(width: 44, height: 44, alignment: Center, background: "#292B32", cornerRadius: 22) {
+            Text(initials, color: "#FFFFFF", fontSize: 16, fontWeight: Bold)
+        }
+    }
+}

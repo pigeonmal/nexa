@@ -278,9 +278,9 @@ Reference: components.md#textinput
 
 Pressable region with tap, drag, pinch, double-tap, and long-press actions
 
-Signature: `Pressable(disabled:, haptic:, accessibilityLabel:, accessibilityHint:, accessibilityRole:) { ... }`
+Signature: `Pressable(disabled:, haptic:, fillMaxSize:, accessibilityLabel:, accessibilityHint:, accessibilityRole:) { ... }`
 
-Optional options: `disabled`, `haptic`, `accessibilityLabel`, `accessibilityHint`, `accessibilityRole`
+Optional options: `disabled`, `haptic`, `fillMaxSize`, `accessibilityLabel`, `accessibilityHint`, `accessibilityRole`
 
 Children: node block
 
@@ -296,6 +296,22 @@ Modifiers:
 Reference: components.md#pressable
 
 ## Media
+
+### `Icon`
+
+Displays a native system icon
+
+Signature: `Icon(system, description, size, tint, accessibilityLabel:, accessibilityHint:, accessibilityRole:)`
+
+Required options: `system`, `description`, `size`, `tint`
+
+Optional options: `accessibilityLabel`, `accessibilityHint`, `accessibilityRole`
+
+Children: none
+
+Modifiers: none
+
+Reference: components.md#icon
 
 ### `Image`
 
@@ -316,6 +332,22 @@ Modifiers:
 - `.sharedElement` (no block, optional)
 
 Reference: components.md#image
+
+### `LinearGradient`
+
+Draws a native linear color gradient
+
+Signature: `LinearGradient(startColor, endColor, direction:, height:, accessibilityLabel:, accessibilityHint:, accessibilityRole:)`
+
+Required options: `startColor`, `endColor`
+
+Optional options: `direction`, `height`, `accessibilityLabel`, `accessibilityHint`, `accessibilityRole`
+
+Children: none
+
+Modifiers: none
+
+Reference: components.md#lineargradient
 
 ## Navigation
 
@@ -453,7 +485,7 @@ High-performance virtualized list view
 
 Signature: `FastList(collection | count: | sections:, axis:, ...)` with `{ bindings in ... }` rows
 
-Optional options: `axis`, `rowHeight`, `scrollPosition`, `accessibilityLabel`, `accessibilityHint`, `accessibilityRole`
+Optional options: `axis`, `rowHeight`, `scrollPosition`, `reverseLayout`, `pageSnap`, `accessibilityLabel`, `accessibilityHint`, `accessibilityRole`
 
 Source forms: positional collection, `count`:, or `sections:` (exactly one); row-key option `key`.
 

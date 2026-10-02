@@ -31,6 +31,7 @@ pub(crate) mod refresh;
 pub(crate) mod shared_elements;
 pub(crate) mod sheets;
 pub(crate) mod status_bar;
+pub(crate) mod system_icons;
 pub(crate) mod text;
 
 pub(super) use node_renderer::{render_children, render_node};

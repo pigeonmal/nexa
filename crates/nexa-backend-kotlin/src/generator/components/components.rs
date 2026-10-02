@@ -3,7 +3,7 @@ use nexa_ir::{LayoutKind, Module, Node, ViewStyle};
 
 use crate::generator::{
     accessibility, bottom_bar, controls, dialogs, features::Features, images, input, keyboard,
-    layout, links, lists, navigation, refresh, sheets, utils::indent,
+    layout, links, lists, navigation, refresh, sheets, system_icons, utils::indent,
 };
 
 use super::RenderScope;
@@ -122,6 +122,44 @@ pub(crate) fn render_node(
             depth,
             out,
         ),
+        Node::SystemIcon {
+            icon,
+            description,
+            size,
+            tint,
+        } => system_icons::render(*icon, description, *size, *tint, depth, out),
+        Node::LinearGradient {
+            start_color,
+            end_color,
+            direction,
+            height,
+        } => {
+            let (brush, colors) = match direction {
+                nexa_ir::GradientDirection::TopToBottom => ("Brush.verticalGradient", "start_end"),
+                nexa_ir::GradientDirection::BottomToTop => ("Brush.verticalGradient", "end_start"),
+                nexa_ir::GradientDirection::LeadingToTrailing => {
+                    ("Brush.horizontalGradient", "start_end")
+                }
+                nexa_ir::GradientDirection::TrailingToLeading => {
+                    ("Brush.horizontalGradient", "end_start")
+                }
+            };
+            let (first, second) = if colors == "start_end" {
+                (*start_color, *end_color)
+            } else {
+                (*end_color, *start_color)
+            };
+            out.line_at(
+                depth,
+                format_args!(
+                    "Box(modifier = Modifier.fillMaxWidth().height({}.dp).background({}(colors = listOf({}, {}))))",
+                    crate::generator::engine::utils::number(*height),
+                    brush,
+                    crate::generator::engine::colors::expression(first),
+                    crate::generator::engine::colors::expression(second),
+                ),
+            );
+        }
         Node::Pressable { .. } => controls::render_pressable(node, module, features, depth, out),
         Node::NavigationStack { root, arguments } => {
             navigation::render_navigation_stack(module, *root, arguments, features, depth, out);

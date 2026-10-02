@@ -7,7 +7,7 @@ public enum NexaDevSchema {
     public static let protocolVersion: Int = 10
 
     /// Format version of the Dev IR payload.
-    public static let devIRFormatVersion: Int = 19
+    public static let devIRFormatVersion: Int = 25
 
     /// Platform identifier for iOS dev runtimes.
     public static let targetPlatform = "ios"
@@ -89,6 +89,10 @@ public enum NexaDevKeys {
     public static let ty = "ty"
     public static let initial = "initial"
 
+    // FastList fields
+    public static let reverseLayout = "reverse_layout"
+    public static let pageSnap = "page_snap"
+
     // Diagnostic fields
     public static let file = "file"
     public static let line = "line"
@@ -121,6 +125,8 @@ public enum NexaDevNodeKind {
     public static let progressBar = "ProgressBar"
     public static let progressRing = "ProgressRing"
     public static let image = "Image"
+    public static let systemIcon = "SystemIcon"
+    public static let linearGradient = "LinearGradient"
     public static let refreshControl = "RefreshControl"
     public static let ifNode = "If"
     public static let whenNode = "When"

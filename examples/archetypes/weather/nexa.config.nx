@@ -1,0 +1,6 @@
+config {
+    app { displayName: "WeatherArchetype", version: "1.0.0", buildNumber: 1 }
+    ios { minVersion: "16.0", bundleIdentifier: "dev.nexa.archetypes.weather" }
+    android { minSdk: 23, targetSdk: 36, applicationId: "dev.nexa.archetypes.weather" }
+    permissions { location: "This demo tests location permission prompts; the forecast uses fixed Paris coordinates." }
+}

@@ -527,7 +527,11 @@ fn conditional_transitions_reject_unknown_edges() {
     )
     .expect_err("unsupported transition edges should be rejected");
 
-    assert!(error.message.contains("currently support `.bottom`"));
+    assert!(
+        error
+            .message
+            .contains("support `.bottom`, `.left`, and `.right`")
+    );
 }
 
 #[test]

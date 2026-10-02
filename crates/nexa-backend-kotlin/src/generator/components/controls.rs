@@ -25,6 +25,10 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "androidx.compose.foundation.combinedClickable",
     );
     imports.add(
+        features.facts.ui.pressable.fill_max_size,
+        "androidx.compose.foundation.layout.fillMaxSize",
+    );
+    imports.add(
         features.uses_long_press,
         "androidx.compose.runtime.CompositionLocalProvider",
     );
@@ -323,6 +327,7 @@ pub(crate) fn render_pressable(
     let Node::Pressable {
         disabled,
         haptic,
+        fill_max_size,
         children,
         actions,
         double_tap_actions,
@@ -387,6 +392,9 @@ pub(crate) fn render_pressable(
         depth,
         format_args!("Box(\n{}    modifier = Modifier", "    ".repeat(depth)),
     );
+    if *fill_max_size {
+        out.push_str(".fillMaxSize()");
+    }
     if has_pinch {
         out.push_str(".pointerInput(");
         if has_drag {
@@ -558,6 +566,8 @@ pub(crate) fn render_pressable(
     }
     out.push_str(&format!(".{modifier}(\n"));
     out.line_at(depth + 2, format_args!("enabled = {enabled},"));
+    out.line_at(depth + 2, format_args!("interactionSource = null,"));
+    out.line_at(depth + 2, format_args!("indication = null,"));
     out.line_at(depth + 2, format_args!("role = Role.Button,"));
     out.text_at(depth + 2, format_args!("onClick = {{"));
     if actions.is_empty() && haptic.is_none() {

@@ -15,6 +15,15 @@ use nexa_compiler::{Target, compile_file_with_warnings_for_target};
 /// Writes a plugin with `contract` plus an app with `body` and compiles it for
 /// every target.
 fn compile_with_plugin(name: &str, contract: &str, body: &str) -> Result<nexa_ir::Module, String> {
+    compile_with_plugin_for_target(name, contract, body, Target::Swift)
+}
+
+fn compile_with_plugin_for_target(
+    name: &str,
+    contract: &str,
+    body: &str,
+    target: Target,
+) -> Result<nexa_ir::Module, String> {
     let project = TestProject::new(name);
     let plugin = project.join("store");
     fs::create_dir_all(&plugin).expect("plugin directory should be created");
@@ -26,7 +35,7 @@ fn compile_with_plugin(name: &str, contract: &str, body: &str) -> Result<nexa_ir
     fs::write(plugin.join("native.nxid"), contract).expect("plugin contract should be written");
     let entry = project.join("App.nx");
     fs::write(&entry, body).expect("app source should be written");
-    compile_file_with_warnings_for_target(&entry, Target::Swift)
+    compile_file_with_warnings_for_target(&entry, target)
         .map(|compiled| compiled.module)
         .map_err(|error| error.to_string())
 }
@@ -82,6 +91,108 @@ fn struct_body(action: &str) -> String {
          struct Options {{\n    autoplay: Bool,\n    volume: Float64,\n    tags: Array<String>,\n}}\n\
          app Demo {{\n    let store = Store.Store(\"id\")\n    state saved: Options? = null\n    body {{ Button(\"Save\") {{ {action} }} }}\n}}\n"
     )
+}
+
+#[test]
+fn plugin_value_structs_have_typed_positional_constructors_on_both_targets() {
+    let contract = r#"
+struct Entry {
+    id: Int64
+    title: String
+}
+
+native class Store {
+    init(id: String)
+    fn save(entry: Entry) -> Bool
+    fn dispose()
+}
+"#;
+    let body = r#"
+plugin "store" as Store
+app Demo {
+    let store = Store.Store("id")
+    body { Button("Save") { store.save(Store.Entry(42, "note")) } }
+}
+"#;
+
+    for (target, target_name) in [(Target::Swift, "Swift"), (Target::Kotlin, "Kotlin")] {
+        let module = compile_with_plugin_for_target(
+            &format!("nexa-plugin-struct-constructor-{target_name}"),
+            contract,
+            body,
+            target,
+        )
+        .unwrap_or_else(|error| {
+            panic!("{target_name} should compile the plugin value constructor: {error}")
+        });
+
+        let mut constructors = Vec::new();
+        let mut visit_expr = |expr: &Expr| {
+            if let Expr::Call {
+                name,
+                return_type,
+                is_constructor: true,
+                ..
+            } = expr
+            {
+                constructors.push((name.clone(), return_type.clone()));
+            }
+        };
+        let mut visit_node = |_: &nexa_ir::Node| {};
+        for node in &module.body {
+            walk(
+                &module,
+                std::slice::from_ref(node),
+                &mut visit_node,
+                &mut visit_expr,
+            );
+        }
+
+        assert!(
+            constructors.iter().any(|(name, ty)| {
+                name == "Entry"
+                    && matches!(ty, Type::Plugin { namespace, name }
+                        if namespace == "Store" && name == "Entry")
+            }),
+            "{target_name} should lower Store.Entry directly as an Entry constructor: {constructors:?}"
+        );
+    }
+}
+
+#[test]
+fn plugin_enum_values_support_equality_on_both_targets() {
+    let contract = r#"
+enum State {
+    idle
+    ready
+}
+
+native class Store {
+    init(id: String)
+    fn dispose()
+}
+"#;
+    let body = r#"
+plugin "store" as Store
+app Demo {
+    state current = Store.State.idle
+    body {
+        Button("Check") {
+            if current == Store.State.ready { current = Store.State.idle }
+        }
+    }
+}
+"#;
+
+    for (target, target_name) in [(Target::Swift, "Swift"), (Target::Kotlin, "Kotlin")] {
+        compile_with_plugin_for_target(
+            &format!("nexa-plugin-enum-equality-{target_name}"),
+            contract,
+            body,
+            target,
+        )
+        .unwrap_or_else(|error| panic!("{target_name} should compare plugin enum values: {error}"));
+    }
 }
 
 #[test]
@@ -408,4 +519,92 @@ fn a_type_argument_on_a_plain_method_is_reported() {
         error.contains("does not declare value type parameters"),
         "unexpected diagnostic: {error}"
     );
+}
+
+#[test]
+fn native_plugin_class_values_are_rejected_from_generic_codecs_on_both_targets() {
+    let contract = r#"
+native class Store {
+    init(id: String)
+    fn setObject<T>(key: String, value: T) -> Bool
+    fn getObject<T>(key: String) -> T?
+    fn dispose()
+}
+native class Handle {
+    init(id: String)
+    fn dispose()
+}
+"#;
+    let cases = [
+        (
+            "direct native class writer",
+            r#"
+plugin "store" as Store
+app Demo {
+    let store = Store.Store("id")
+    let handle = Store.Handle("one")
+    body { Button("Save") { store.setObject("handle", handle) } }
+}
+"#,
+            "must be a scalar",
+        ),
+        (
+            "native class nested in a compound writer",
+            r#"
+plugin "store" as Store
+app Demo {
+    let store = Store.Store("id")
+    let handles = [Store.Handle("one")]
+    body { Button("Save") { store.setObject("handles", handles) } }
+}
+"#,
+            "must be a scalar",
+        ),
+        (
+            "direct native class reader",
+            r#"
+plugin "store" as Store
+app Demo {
+    let store = Store.Store("id")
+    state handle = Store.Handle("initial")
+    body { Button("Read") { handle = store.getObject("handle") ?? Store.Handle("fallback") } }
+}
+"#,
+            "cannot infer value type",
+        ),
+        (
+            "native class nested in a compound reader",
+            r#"
+plugin "store" as Store
+app Demo {
+    let store = Store.Store("id")
+    state handles = [Store.Handle("initial")]
+    body { Button("Read") { handles = store.getObject("handles") ?? [] } }
+}
+"#,
+            "cannot infer value type",
+        ),
+    ];
+
+    for (case_name, body, expected_diagnostic) in cases {
+        for (target, target_name) in [(Target::Swift, "Swift"), (Target::Kotlin, "Kotlin")] {
+            let error = compile_with_plugin_for_target(
+                &format!("nexa-generic-plugin-class-{target_name}-{case_name}"),
+                contract,
+                body,
+                target,
+            )
+            .expect_err("native plugin objects do not have generic value codecs");
+            assert!(
+                error.contains(expected_diagnostic),
+                "{target_name} should reject {case_name} during compilation, found: {error}"
+            );
+            if expected_diagnostic == "must be a scalar" {
+                assert!(
+                    error.contains("Handle"),
+                    "{target_name} should identify the unsupported plugin class, found: {error}"
+                );
+            }
+        }
+    }
 }

@@ -58,9 +58,12 @@ pub struct PluginArtifacts {
     pub android_maven_repositories: Vec<String>,
     pub ios_usage_descriptions: Vec<(String, String)>,
     pub ios_entitlements: Vec<(String, EntitlementValue)>,
+    pub ios_application_delegate: Option<String>,
     pub ios_background_modes: Vec<String>,
     pub ios_linker_flags: Vec<String>,
     pub android_permissions: Vec<String>,
+    pub android_application_metadata: Vec<(String, String)>,
+    pub android_firebase_messaging_service: Option<String>,
     pub android_picture_in_picture: bool,
     pub android_media_playback_service: Option<String>,
 }
@@ -105,9 +108,12 @@ impl PluginPackage {
                     (key.clone(), value)
                 })
                 .collect(),
+            ios_application_delegate: decl.ios_application_delegate.clone(),
             ios_background_modes: decl.ios_background_modes.clone(),
             ios_linker_flags: decl.ios_linker_flags.clone(),
             android_permissions: decl.android_permissions.clone(),
+            android_application_metadata: decl.android_application_metadata.clone(),
+            android_firebase_messaging_service: decl.android_firebase_messaging_service.clone(),
             android_picture_in_picture: decl.android_picture_in_picture,
             android_media_playback_service: decl.android_media_playback_service.clone(),
         };
@@ -162,9 +168,12 @@ impl PluginPackage {
             android_maven_repositories: manifest.android.repositories,
             ios_usage_descriptions: manifest.ios.usage_descriptions,
             ios_entitlements: manifest.ios.entitlements,
+            ios_application_delegate: manifest.ios.application_delegate,
             ios_background_modes: manifest.ios.background_modes,
             ios_linker_flags: manifest.ios.linker_flags,
             android_permissions: manifest.android.permissions,
+            android_application_metadata: manifest.android.application_metadata,
+            android_firebase_messaging_service: manifest.android.firebase_messaging_service,
             android_picture_in_picture: manifest.android.picture_in_picture,
             android_media_playback_service: manifest.android.media_playback_service,
         };
@@ -280,9 +289,12 @@ mod tests {
             android_maven_repositories: Vec::new(),
             ios_usage_descriptions: Vec::new(),
             ios_entitlements: Vec::new(),
+            ios_application_delegate: None,
             ios_background_modes: Vec::new(),
             ios_linker_flags: Vec::new(),
             android_permissions: Vec::new(),
+            android_application_metadata: Vec::new(),
+            android_firebase_messaging_service: None,
             android_picture_in_picture: false,
             android_media_playback_service: None,
         }

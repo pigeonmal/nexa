@@ -30,6 +30,8 @@ struct OpenListConfig<'a> {
     on_end_reached: Option<&'a [Action]>,
     on_scroll: Option<&'a [Action]>,
     scroll_position: Option<&'a str>,
+    reverse_layout: bool,
+    page_snap: bool,
     sticky_header: Option<&'a [Node]>,
     refresh: Option<&'a FastListRefresh>,
 }
@@ -88,6 +90,8 @@ pub(crate) fn render_virtualized_list(
                     on_end_reached: common.on_end_reached.as_deref(),
                     on_scroll: common.on_scroll.as_deref(),
                     scroll_position: common.scroll_position.as_deref(),
+                    reverse_layout: common.reverse_layout,
+                    page_snap: common.page_snap,
                     sticky_header: common.sticky_header.as_deref(),
                     refresh: common.refresh.as_ref(),
                 },
@@ -135,6 +139,8 @@ pub(crate) fn render_virtualized_list(
                     on_end_reached: common.on_end_reached.as_deref(),
                     on_scroll: common.on_scroll.as_deref(),
                     scroll_position: common.scroll_position.as_deref(),
+                    reverse_layout: common.reverse_layout,
+                    page_snap: common.page_snap,
                     sticky_header: common.sticky_header.as_deref(),
                     refresh: common.refresh.as_ref(),
                 },
@@ -283,6 +289,8 @@ fn list_constructor(
     key: &str,
     item_extent: Option<f32>,
     has_sticky_header: bool,
+    reverse_layout: bool,
+    page_snap: bool,
 ) -> String {
     let extent = item_extent
         .map(format_float)
@@ -294,7 +302,15 @@ fn list_constructor(
             } else {
                 "<_, EmptyView>"
             };
-            format!("NexaFastList{type_arguments}(rowCount: {row_count}, rowHeight: {extent}{key})")
+            let reverse = if reverse_layout {
+                ", reverseLayout: true"
+            } else {
+                ""
+            };
+            let page_snap = if page_snap { ", pageSnap: true" } else { "" };
+            format!(
+                "NexaFastList{type_arguments}(rowCount: {row_count}, rowHeight: {extent}{key}{reverse}{page_snap})"
+            )
         }
         ListAxis::Horizontal => {
             format!("NexaFastHorizontalList(rowCount: {row_count}, itemExtent: {extent}{key})")
@@ -321,17 +337,28 @@ fn open_list(
         on_end_reached,
         on_scroll,
         scroll_position,
+        reverse_layout,
+        page_snap,
         sticky_header,
         refresh,
     } = config;
     if on_end_reached.is_some()
         || on_scroll.is_some()
         || scroll_position.is_some()
+        || reverse_layout
+        || page_snap
         || sticky_header.is_some()
         || refresh.is_some()
     {
-        let mut constructor =
-            list_constructor(axis, row_count, &key, item_extent, sticky_header.is_some());
+        let mut constructor = list_constructor(
+            axis,
+            row_count,
+            &key,
+            item_extent,
+            sticky_header.is_some(),
+            reverse_layout,
+            page_snap,
+        );
         constructor.pop();
         out.push_str(&constructor);
         if let Some(scroll_position) = scroll_position {
@@ -385,6 +412,8 @@ fn open_list(
             &key,
             item_extent,
             sticky_header.is_some(),
+            reverse_layout,
+            page_snap,
         ));
     }
     out.push_str(" { listPosition in\n");

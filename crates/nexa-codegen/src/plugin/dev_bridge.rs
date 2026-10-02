@@ -3519,6 +3519,7 @@ mod tests {
         assert!(generated.contains("throw Self.nexaDevFailureVideoPlayerPlayerError(error)"));
         assert!(generated.contains("case .decodingFailed(message: let nexaPayload0):"));
         assert!(generated.contains("variant: \"invalidUrl\", payload: [:]"));
+        assert!(!generated.contains("onTapped"));
     }
 
     #[test]
@@ -3534,7 +3535,7 @@ mod tests {
                 "VideoView(player = nexaArg_player, controls = nexaArg_controls, softwareDecodingEnabled = nexaArg_softwareDecodingEnabled"
             )
         );
-        assert!(generated.contains("VideoView(player = nexaArg_player, controls = nexaArg_controls, softwareDecodingEnabled = nexaArg_softwareDecodingEnabled, onTapped = { events[\"onTapped\"]?.invoke(emptyList()) }, content = content)\n                return true"));
+        assert!(!generated.contains("onTapped"));
         assert!(generated.contains("nexaReceiver.prepare(nexaArg0)"));
         assert!(generated.contains("throw nexaDevFailureVideoPlayerPlayerError(error)"));
         assert!(generated.contains("\"message\" to error.message"));

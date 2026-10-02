@@ -422,6 +422,39 @@ pub(super) fn collect_plugin_signatures(
                 namespace: plugin.namespace.clone(),
                 name: declaration.name.clone(),
             };
+            let constructor_key = format!("{}.{}", plugin.namespace, declaration.name);
+            if signatures.contains_key(&constructor_key) {
+                return Err(CompileError::new(
+                    plugin.span,
+                    format!(
+                        "plugin value constructor `{constructor_key}` is declared more than once"
+                    ),
+                ));
+            }
+            let parameters = declaration
+                .fields
+                .iter()
+                .map(|field| {
+                    plugin_type(&plugin.namespace, &field.ty, false, &[])
+                        .map(|ty| (field.name.clone(), ty))
+                        .map_err(|message| CompileError::new(plugin.span, message))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            signatures.insert(
+                constructor_key,
+                FunctionSignature {
+                    parameters,
+                    type_parameters: Vec::new(),
+                    return_type: receiver.clone(),
+                    is_async: false,
+                    is_throwing: false,
+                    receiver: None,
+                    is_constructor: true,
+                    is_mutable_property: false,
+                    error_handling_allowed: false,
+                    error_type: None,
+                },
+            );
             for field in &declaration.fields {
                 let key = format!("{}.#property.{}", declaration.name, field.name);
                 if signatures.contains_key(&key) {
@@ -3406,7 +3439,7 @@ fn lower_binary(
             "ordering comparisons are supported for numeric values only",
         ));
     }
-    if !is_ordered && !is_equatable_type(&common_type) {
+    if !is_ordered && !is_equatable_type(&common_type, ctx.symbols) {
         return Err(CompileError::new(
             span,
             "equality is supported for scalar, enum, optional, collection, pair, triple, and value-struct types",
@@ -3421,29 +3454,36 @@ fn lower_binary(
     })
 }
 
-fn is_equatable_type(ty: &Type) -> bool {
+fn is_equatable_type(ty: &Type, symbols: &HashMap<String, (Type, bool)>) -> bool {
     match ty {
         Type::String | Type::Bool | Type::Numeric(_) | Type::Enum(_) => true,
+        Type::Plugin { namespace, name } => {
+            let prefix = format!("{namespace}.{name}.");
+            symbols.keys().any(|symbol| symbol.starts_with(&prefix))
+        }
         // A type parameter is only ever compared after it is bound, and a
         // bound value type is checked on its own.
         Type::TypeParam(_) => false,
-        Type::Optional(inner) => is_equatable_type(inner),
-        Type::Array(element) | Type::Set(element) => is_equatable_type(element),
-        Type::Map(key, value) => is_equatable_type(key) && is_equatable_type(value),
+        Type::Optional(inner) => is_equatable_type(inner, symbols),
+        Type::Array(element) | Type::Set(element) => is_equatable_type(element, symbols),
+        Type::Map(key, value) => {
+            is_equatable_type(key, symbols) && is_equatable_type(value, symbols)
+        }
         Type::Pair(first, second) | Type::Result(first, second) => {
-            is_equatable_type(first) && is_equatable_type(second)
+            is_equatable_type(first, symbols) && is_equatable_type(second, symbols)
         }
         Type::Triple(first, second, third) => {
-            is_equatable_type(first) && is_equatable_type(second) && is_equatable_type(third)
+            is_equatable_type(first, symbols)
+                && is_equatable_type(second, symbols)
+                && is_equatable_type(third, symbols)
         }
         Type::Struct { fields, .. } => {
-            !fields.is_empty() && fields.iter().all(|(_, field)| is_equatable_type(field))
+            !fields.is_empty()
+                && fields
+                    .iter()
+                    .all(|(_, field)| is_equatable_type(field, symbols))
         }
-        Type::Void
-        | Type::Bytes
-        | Type::Plugin { .. }
-        | Type::TaskHandle
-        | Type::NetworkResponse => false,
+        Type::Void | Type::Bytes | Type::TaskHandle | Type::NetworkResponse => false,
     }
 }
 
@@ -4144,6 +4184,7 @@ fn expr_numeric_type(expr: &Expr) -> Option<NumericType> {
         | Expr::Arithmetic { ty, .. }
         | Expr::Negate { ty, .. } => Some(*ty),
         Expr::State(_, Type::Numeric(ty)) => Some(*ty),
+        Expr::Coalesce(_, fallback) => expr_numeric_type(fallback),
         _ => lowered_type(expr).as_ref().and_then(as_numeric_type),
     }
 }
@@ -4295,9 +4336,12 @@ mod tests {
             android_maven_repositories: Vec::new(),
             ios_usage_descriptions: Vec::new(),
             ios_entitlements: Vec::new(),
+            ios_application_delegate: None,
             ios_background_modes: Vec::new(),
             ios_linker_flags: Vec::new(),
             android_permissions: Vec::new(),
+            android_application_metadata: Vec::new(),
+            android_firebase_messaging_service: None,
             android_picture_in_picture: false,
             android_media_playback_service: None,
         }

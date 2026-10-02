@@ -740,6 +740,16 @@
         "android": "covered"
       },
       {
+        "name": "SystemIcon",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "LinearGradient",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Pressable",
         "ios": "covered",
         "android": "covered"
@@ -1064,6 +1074,16 @@
         "android": "covered"
       },
       {
+        "name": "SlideFromLeft",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "SlideFromRight",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
         "name": "Scale",
         "ios": "covered",
         "android": "covered"
@@ -1367,6 +1387,135 @@
       },
       {
         "name": "Error",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "GradientDirection": [
+      {
+        "name": "TopToBottom",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "BottomToTop",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "LeadingToTrailing",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "TrailingToLeading",
+        "ios": "covered",
+        "android": "covered"
+      }
+    ],
+    "SystemIcon": [
+      {
+        "name": "Home",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Search",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Inbox",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Profile",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Heart",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "HeartFilled",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Comment",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "CommentFilled",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Bookmark",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "BookmarkFilled",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Share",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Music",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Back",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Screen",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Layers",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Plus",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Close",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Checkmark",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Send",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "Volume",
+        "ios": "covered",
+        "android": "covered"
+      },
+      {
+        "name": "VolumeMuted",
         "ios": "covered",
         "android": "covered"
       }

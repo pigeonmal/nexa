@@ -71,6 +71,31 @@ fn assert_runtime_dispatch(runtime: &str, enum_name: &str, variant: &str, platfo
     );
 }
 
+fn section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+    source
+        .split_once(start)
+        .unwrap_or_else(|| panic!("runtime section `{start}` was not found"))
+        .1
+        .split_once(end)
+        .unwrap_or_else(|| panic!("runtime section `{end}` was not found"))
+        .0
+}
+
+fn serde_snake_case(name: &str) -> String {
+    let mut value = String::new();
+    for character in name.chars() {
+        if character.is_ascii_uppercase() {
+            if !value.is_empty() {
+                value.push('_');
+            }
+            value.push(character.to_ascii_lowercase());
+        } else {
+            value.push(character);
+        }
+    }
+    value
+}
+
 #[test]
 fn inventory_tracks_every_public_ir_node_and_interpreter_variant() {
     let (root, fixture) = fixture();
@@ -212,6 +237,49 @@ fn hot_reload_interpreter_variants_have_both_native_dispatches() {
         }
         assert_runtime_dispatch(&swift, "Node", variant, "iOS");
         assert_runtime_dispatch(&kotlin, "Node", variant, "Android");
+    }
+}
+
+#[test]
+fn system_icons_and_gradient_directions_have_both_native_renderers() {
+    let (root, fixture) = fixture();
+    let swift = fs::read_to_string(root.join("../../runtime/ios/NexaDevRenderer.swift"))
+        .expect("read iOS dev renderer");
+    let kotlin = fs::read_to_string(root.join("../../runtime/android/NexaDevRenderer.kt"))
+        .expect("read Android dev renderer");
+    let swift_icons = section(&swift, "case \"SystemIcon\":", "case \"LinearGradient\":");
+    let kotlin_icons = section(&kotlin, "\"SystemIcon\" -> {", "\"LinearGradient\" -> {");
+    for entry in fixture["ir_variants"]["SystemIcon"]
+        .as_array()
+        .expect("SystemIcon inventory")
+    {
+        let name = entry["name"].as_str().expect("system icon variant");
+        let icon = serde_snake_case(name);
+        assert!(
+            swift_icons.contains(&format!("case \"{icon}\":")),
+            "iOS dev renderer has no SystemIcon::{name} mapping"
+        );
+        assert!(
+            kotlin_icons.contains(&format!("\"{icon}\" ->")),
+            "Android dev renderer has no SystemIcon::{name} mapping"
+        );
+    }
+
+    let swift_gradients = section(&swift, "case \"LinearGradient\":", "case \"Image\":");
+    let kotlin_gradients = section(&kotlin, "\"LinearGradient\" -> {", "\"Button\" ->");
+    for entry in fixture["ir_variants"]["GradientDirection"]
+        .as_array()
+        .expect("GradientDirection inventory")
+    {
+        let name = entry["name"].as_str().expect("gradient direction variant");
+        assert!(
+            swift_gradients.contains(&format!("\"{name}\"")),
+            "iOS dev renderer has no GradientDirection::{name} handling"
+        );
+        assert!(
+            kotlin_gradients.contains(&format!("\"{name}\"")),
+            "Android dev renderer has no GradientDirection::{name} handling"
+        );
     }
 }
 
@@ -599,7 +667,13 @@ fn conditional_view_transitions_are_consumed_by_both_dev_renderers() {
         swift.contains("rendered.transition(transition).animation(.default, value: condition)")
     );
     assert!(swift.contains("rendered.transition(transition).animation(.default, value: value)"));
-    for transition in ["Fade", "SlideFromBottom", "Scale"] {
+    for transition in [
+        "Fade",
+        "SlideFromBottom",
+        "SlideFromLeft",
+        "SlideFromRight",
+        "Scale",
+    ] {
         assert!(kotlin.contains(&format!("\"{transition}\" ->")));
     }
     assert!(kotlin.contains("AnimatedContent(\n                    targetState = condition"));

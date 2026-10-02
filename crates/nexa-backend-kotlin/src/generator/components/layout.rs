@@ -13,6 +13,27 @@ use crate::generator::engine::imports::ImportSet;
 use super::RenderScope;
 
 pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
+    let uses_linear_gradient = features.facts.ui.linear_gradient;
+    imports.add(
+        uses_linear_gradient,
+        "androidx.compose.foundation.layout.Box",
+    );
+    imports.add(
+        uses_linear_gradient,
+        "androidx.compose.foundation.layout.fillMaxWidth",
+    );
+    imports.add(
+        uses_linear_gradient,
+        "androidx.compose.foundation.layout.height",
+    );
+    imports.add(
+        uses_linear_gradient,
+        "androidx.compose.foundation.background",
+    );
+    imports.add(uses_linear_gradient, "androidx.compose.ui.Modifier");
+    imports.add(uses_linear_gradient, "androidx.compose.ui.graphics.Brush");
+    imports.add(uses_linear_gradient, "androidx.compose.ui.graphics.Color");
+    imports.add(uses_linear_gradient, "androidx.compose.ui.unit.dp");
     imports.add(
         features.uses_background,
         "androidx.compose.foundation.background",

@@ -1,0 +1,7 @@
+import "screens/VideoFeed.nx"
+
+app TikTokArchetype {
+    body {
+        NavigationStack(root: VideoFeed)
+    }
+}

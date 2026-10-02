@@ -6,7 +6,7 @@ Nexa is an Ahead-Of-Time (AOT) transpiler that compiles declarative `.nx` mobile
 
 This document is the **Nexa 1.0 implementation roadmap and status source**. The archetypes below describe target applications; they are not a claim that every capability or end-to-end scenario is finished. Every actionable roadmap item has a checkbox: `[ ]` means remaining, and `[x]` means implemented and verified. Informational architecture and archetype descriptions are not task items.
 
-Status reviewed: 2026-10-01.
+Status reviewed: 2026-10-02. All 152 actionable roadmap items have a checkbox: 143 are complete and 9 remain. The individual checkboxes below are the source of truth.
 
 ---
 
@@ -60,12 +60,12 @@ graph TD
         Audio["@nexa/audio-player (MediaSession / NowPlaying)"]
         MMKV["@nexa/mmkv (High-performance mmap KV)"]
         Camera["@nexa/camera — implemented (CameraX / AVCaptureSession)"]
-        Maps["@nexa/maps — planned (MapKit / Google Maps)"]
-        SQLite["@nexa/sqlite — planned (Relational database with migrations)"]
+        Maps["@nexa/maps — implemented (MapKit / Google Maps)"]
+        SQLite["@nexa/sqlite — implemented (Relational database with migrations)"]
         Biometrics["@nexa/biometrics — implemented (Face ID / Touch ID / BiometricPrompt)"]
         WebView["@nexa/webview (WKWebView / WebView)"]
         Sensors["@nexa/sensors (CoreMotion / SensorManager)"]
-        Notifications["@nexa/notifications — planned (local / APNs / FCM)"]
+        Notifications["@nexa/notifications — implemented (local / APNs / FCM); remote runtime acceptance pending"]
         IAP["@nexa/in-app-purchases — planned (StoreKit 2 / Google Play Billing)"]
     end
 
@@ -119,6 +119,8 @@ graph TD
 - [x] **`ProgressBar(progress: Float64)`, `ProgressRing(progress: Float64)`, and progress indicators**: Linear and circular progress UI.
 - [x] **`Dialog(isPresented: binding, title: String, message: String) { actions }`**: Native modal alert.
 - [x] **`SegmentedControl(items: Array<String>, selected: binding)`** and **`Picker`**: Native selection controls.
+- [x] **`BottomSheet`**: Native partial and full-height modal presentation on iOS and Android.
+- [x] **`RefreshControl`**: Native pull-to-refresh behavior for `FastList` on iOS and Android.
 
 #### 2.2 Visual Modifiers (in style, maybe like opacity: .3)
 
@@ -134,6 +136,7 @@ graph TD
 - [x] Prelink configured plugin packages into the DevRuntime host. Existing plugin methods, typed errors, property writes, event subscriptions, and native component adapters can be used by reloaded modules for bridge-supported types.
 - [x] Require a native rebuild when the host changes, including adding a plugin dependency or changing native plugin sources, plugin contracts, permissions, or platform minimums.
 - [x] Verify DevRuntime plugin methods, supported values, property writes, event subscriptions, and visual components with semantic log assertions on Android Emulator and iOS Simulator. Coverage includes class construction/methods, service sync/async dispatch, scalar/optional/collection/tuple/bytes/enum/struct/Result codecs, compound property writes, typed error payloads, and a newly created imported component.
+- [x] Reject unsupported native plugin class objects in generic or compound plugin-value positions at compile time on iOS and Android; regression tests cover direct and nested read/write shapes. Prelinked class methods remain hot-reloadable, while adding native implementations still requires a host rebuild.
 - [x] Add DevRuntime bridge adapters for plugin properties, method results, events, and components using `Set<Bytes>`; Kotlin byte arrays use content-based set semantics, verified from simulator/emulator logs.
 - [x] Support Android DevRuntime generic plugin reads with nullable type arguments using tagged read results; verify valid null decoding with semantic logs on Android Emulator and iOS Simulator.
 - [x] Verify awaited results nested in arithmetic, array literals/indexing, conditional branches, and short-circuit Boolean expressions with semantic log assertions on iOS Simulator and Android Emulator.
@@ -148,6 +151,12 @@ graph TD
 - [x] Support native async functions and async lifecycle actions.
 - [x] Support periodic app-scoped work through `BackgroundTask` (see §4.5).
 - [x] Add a general-purpose `TaskHandle?` API to create and cancel user tasks on native `Main` and `Background` executors; cancel handles when their app, screen, or component scope ends, and report uncaught task errors. Native host generation compiles, and hot-reloaded task launches in a newly added component pass log-only Android Emulator and iOS Simulator checks.
+
+#### 2.6 Core gaps exposed by the archetype matrix
+
+- [x] Add a reusable `Avatar` `.nx` component composed from native `Stack` and `Text` primitives; Chat imports it through a nested local module and builds on both targets.
+- [x] Add bottom-anchored reverse layout to `FastList` for chronological chat messages; verify initial order, auto-follow while at the bottom, and preserved reader position on Android Emulator and iOS Simulator.
+- [x] Add full-page vertical snap behavior to `FastList` for video feeds.
 
 ---
 
@@ -246,6 +255,7 @@ graph TD
 #### 4.5 Formatting & Utilities
 
 - [x] **`Number.formatCurrency(amount: Float64, currencyCode: String) -> String`**: Locale-aware currency formatting.
+- [x] **`Time`**: Wall-clock and monotonic timestamps, elapsed-time measurement, cancellable sleep, and locale-independent ISO-8601 conversion.
 - [x] **`Json.parse<T>(raw: String) -> Result<T, JsonError>`** and **`Json.stringify(value: T) -> String`**: Statically generated codecs without reflection.
 - [x] **`Storage`**: App-private string preferences with `getString`, `setString`, `delete`, and `clear` on both native platforms and DevRuntime.
 - [x] **`Clipboard`**: `setText`, `getText`, and `hasText` on both native platforms and DevRuntime.
@@ -260,6 +270,10 @@ graph TD
 #### 4.7 Automated Apple Privacy Manifest
 
 - [x] Emit `PrivacyInfo.xcprivacy` for reachable required-reason APIs: app-private `UserDefaults` (`CA92.1`) and app-container file metadata (`C617.1`). SecureStorage's Keychain calls do not map to a required-reason API category and therefore do not add a fabricated reason entry.
+
+#### 4.8 Location Permissions
+
+- [x] **`Permissions.status`** and **`Permissions.request`** for location access: typed status results, native authorization requests, and generated platform permission declarations.
 
 ---
 
@@ -312,14 +326,36 @@ graph TD
 2. [x] `@nexa/audio-player`: Background audio playback, lock screen metadata (`MPNowPlayingInfoCenter`, `MediaSession`).
 3. [x] `@nexa/mmkv`: Tencent MMKV zero-copy memory-mapped storage. The Android arm64 Release conformance benchmark records 1,000 identical string writes in 0.170–0.288 ms with compare-before-set enabled and 1,000 reads in 0.158–0.182 ms; comparison-disabled writes are retained as a diagnostic.
 4. [x] `@nexa/camera`: Photo/video capture and QR/barcode scanning (`AVCaptureSession` / `CameraX`), including a defined efficient I420 image-stream API. Android emulator logs confirmed photo, finalized video, and image-frame callbacks; Android and iOS native and DevRuntime hosts compile.
-   - [ ] Runtime acceptance: decode a known QR/barcode on Android and exercise camera capture callbacks on an iOS device.
-5. [ ] `@nexa/maps`: Apple Maps (`MapKit`) and Google Maps SDK for Android.
-6. [ ] `@nexa/sqlite`: Relational SQLite database with migrations and transactions.
+   - [x] Android runtime acceptance: built `plugins/camera/tests/acceptance/app` and decoded Code 128 payload `NEXA-CAMERA-1` through CameraX and ML Kit on the API 31 AVD using its `imagefile:` camera source. `adb logcat` recorded `CAMERA_BARCODE_ACCEPTANCE: NEXA-CAMERA-1`; the reusable fixture is `plugins/camera/tests/fixtures/code128-nexa-camera.png`.
+   - [ ] iOS runtime acceptance: exercise camera capture callbacks on a physical device and verify them from logs. Only an iOS Simulator is currently available.
+5. [x] `@nexa/maps`: Apple MapKit and Google Maps Compose (Maps SDK 20) with typed pins, pan/zoom, and pin-selection events.
+   - [x] Define the typed contract and native MapKit/Google Maps implementations; keep the Android API key in an environment-backed manifest placeholder.
+   - [x] Complete the `.nx` conformance app, pass `nexa check`, and build/launch generated iOS Simulator and Android Emulator hosts.
+   - [x] iOS runtime acceptance: tap the accessible Eiffel Tower pin on an iOS Simulator and verify `MAP_PIN_SELECTED:eiffel` in Simulator logs with the log-only UI acceptance harness.
+   - [ ] Android runtime acceptance: verify map tiles and pin-selection logs on an Android device. `NEXA_MAPS_API_KEY` is unset here, and the only available Android AVD has no Google Play services or Play Store.
+6. [x] `@nexa/sqlite`: Relational SQLite database with migrations and transactions; verified in iOS Simulator and Android Emulator.
+   - [x] Define the typed `.nxid` contract and package configuration; iOS plugin type-checking and Android host compilation pass.
+   - [x] Complete the `.nx` conformance app and pass `nexa check`.
+   - [x] Build and validate the generated iOS and Android hosts; the iOS Simulator and Android Gradle builds pass.
+   - [x] Verify typed queries, migrations, transaction commit and rollback, and disposal through native logs on both platforms.
 7. [x] `@nexa/biometrics`: Face ID, Touch ID, and Android BiometricPrompt (`plugins/biometrics`).
 8. [x] `@nexa/webview`: Embedded `WKWebView` and Android `WebView` with HTTPS-only navigation and origin-gated two-way string messaging (`plugins/webview`).
 9. [ ] `@nexa/notifications`: Local notifications and APNs/FCM push notifications.
+   - [x] Implement typed local scheduling and cancellation for iOS and Android; runtime acceptance confirms a reminder is pending after scheduling and absent after cancellation on both platforms.
+   - [x] Verify iOS local notification scheduling and cancellation in the Simulator using `plugins/notifications/tests/acceptance/ios-local-notifications.sh`; XCUITest passed and Simulator logs confirmed the pending request appeared and was removed.
+   - [x] Implement APNs token registration, received/opened events, host delegate wiring, and development/release entitlement generation; the generated iOS Simulator host builds.
+   - [ ] Runtime acceptance: verify APNs registration and remote delivery with configured signing credentials on a supported device or Simulator. On Xcode 27.0/iOS 26.5 Simulator, the log-only UI harness tapped registration but received neither a token nor a failure callback within 45 seconds; APNs provider credentials are not configured here.
+   - [x] Implement Firebase configuration/initialization, FCM token registration, received/opened events, and Android host wiring; the generated Android Gradle host builds.
+   - [ ] Runtime acceptance: verify FCM token registration and delivery with a configured Firebase project on a Google Play services device.
 10. [x] `@nexa/sensors`: Accelerometer, gyroscope, and pedometer on iOS and Android, with typed readings/errors, runtime motion permission handling, and explicit stream disposal.
 11. [ ] `@nexa/in-app-purchases`: Apple StoreKit 2 and Google Play Billing.
+   - [x] Define the typed product, offer, transaction, purchase status, error, update event, and lifecycle contract in `native.nxid`.
+   - [x] Implement StoreKit 2 catalog lookup, purchase, verified updates, owned purchases, restore, transaction completion, and disposal.
+   - [x] Implement Google Play Billing 9.1.0 catalog/offer lookup, purchase and pending results, purchase updates, owned purchases, restore, consume/acknowledge, and disposal.
+   - [x] Validate the plugin contract, run the demo app's iOS and Android checks, and build both generated native hosts.
+   - [x] Verify the typed Android `billingUnavailable` response on the API 31 AVD without Play Store; `adb logcat` recorded `NEXA_IAP_BILLING_UNAVAILABLE`.
+   - [ ] iOS runtime acceptance: load local StoreKit products, complete a consumable purchase, finish its transaction, and restore purchases. On Xcode 27.0 with iOS 26.5 Simulator, `xcodebuild test` did not activate the scheme's local StoreKit configuration and queried Apple's sandbox instead. The 2026-10-02 10:25 retry first dismissed a pending camera-permission alert, then successfully tapped the catalog button but still loaded zero products; Simulator logs show sandbox requests returning 401 and missing `amsaccountsd`. A test-bundled `SKTestSession` retry also logged `storekitd` connection invalidation; run through Xcode's IDE path or a toolchain where the local configuration is honored. [Apple Developer Forums](https://developer.apple.com/forums/thread/826971).
+   - [ ] Android runtime acceptance: verify product lookup, licensed purchase, consume/acknowledge, and restore through Google Play. The current API 31 AVD has no Play Store; a Play Store emulator and license-tester products are required.
 
 ---
 
@@ -345,11 +381,23 @@ cargo test -p nexa-testkit -- --ignored
 
 ### Native Skill Audits
 
-- [ ] Run `nexa-swift-expert` to audit generated SwiftUI code across all 8 example apps.
-- [ ] Run `nexa-kotlin-expert` to audit generated Jetpack Compose code for recomposition skippability and stability metrics.
+- [x] Run `nexa-swift-expert` to audit generated SwiftUI code across all 8 example apps; inspect generated output and complete fresh iOS host builds for all 8.
+- [x] Run `nexa-kotlin-expert` to audit generated Jetpack Compose code for recomposition skippability and stability metrics; all 8 Release Compose reports mark their app screen restartable and skippable, and forced Release Kotlin compilation succeeds.
 
 ### End-to-End Application Builds
 
-- [ ] Verify that all 8 archetype apps (To-Do, E-Commerce, Chat, Weather, Spotify, Netflix, Fitness, TikTok) generate and compile valid Xcode and Gradle projects.
+- [x] Create the To-Do archetype app and `nexa.config.nx`; its iOS Simulator and Android Emulator builds succeeded.
+- [x] Create the E-Commerce archetype app and `nexa.config.nx`; `nexa check` and iOS Simulator and Android Emulator builds succeeded with the MediaPicker plugin.
+- [x] Create the Chat archetype app and `nexa.config.nx`; `nexa check` and iOS Simulator and Android Emulator builds succeeded with WebSocket and imported Avatar components.
+- [x] Create the Weather archetype app and `nexa.config.nx`; `nexa check` and iOS Simulator and Android Emulator builds succeeded.
+- [x] Create the Spotify-style Music archetype app and `nexa.config.nx`; `nexa check` and iOS Simulator and Android Emulator builds succeeded with AudioPlayer's iOS 17 and Android API 26 minimums.
+- [x] Create the Netflix-style Video archetype app and `nexa.config.nx`; `nexa check` and iOS Simulator and Android Emulator builds succeeded with software decoding disabled.
+- [x] Create the Fitness Tracker archetype app and `nexa.config.nx`; `nexa check` and iOS Simulator and Android Emulator builds succeeded with Sensors and MMKV.
+- [x] Create the TikTok-style Video archetype app and `nexa.config.nx`; `nexa check` and iOS and Android native host builds succeeded. A transparent bottom-inset hit shield inside each paged video cell keeps taps from reaching the video gesture while leaving the fixed bar buttons above it. Android AOT emulator logs confirm Friends and bottom-inset taps do not pause playback, a direct video tap pauses and resumes it, and a swipe above the bar advances the feed. An iOS Simulator UI log check reports `pausedAfterTap=false` for a tap in the bar gap; the app also completes eight swipe pairs. The iOS video tap gesture uses normal priority so foreground controls keep their taps; the updated iOS simulator build succeeds.
+- [x] Verify that all 8 archetype apps (To-Do, E-Commerce, Chat, Weather, Spotify, Netflix, Fitness, TikTok) generate and compile valid Xcode and Gradle projects; every app passed current iOS and Android native host builds.
 - [ ] Measure runtime performance and verify smooth 60/120 FPS behavior on iOS Simulators and Android Emulators.
+  - Android evidence (2026-10-02): the available 720×1600 AVD supports 60 Hz only. Exploratory SurfaceFlinger present-interval samples during feed swipes measured p50/p90/p95/p99 at 17.36/68.49/134.63/260.37 ms before PlayerView reuse and 17.44/55.56/87.68/244.59 ms after; intervals over 16.67 ms were 166/257 and 194/299. Samples include video presentation and emulator scheduling, so they are noisy and do not establish smooth 60 FPS. The cache comparison is mixed, memory was noisy, iOS and 120 Hz remain unmeasured. Keep this task open.
+  - Additional Android Release AOT comparison (2026-10-02): three TikTok runs with 16 alternating ADB swipes produced 120-frame `gfxinfo` windows with p90 intervals of 66.7–83.3 ms, p95 of 100–133.3 ms, and 27–33 intervals above 16.67 ms. A minimal Release AOT `FastList(pageSnap: true)` app on the same AVD measured p90 16.7 ms, p95 33.3 ms, and 10 intervals above 16.67 ms in its last 120-frame window. A TikTok build with the two-video prefetch calls removed did not improve the result (p90 50 ms, p95 133.3 ms, 36 intervals above 16.67 ms); keep prefetch enabled. TikTok PSS was 112–116 MiB versus 33 MiB for the minimal pager. UI-thread and RenderThread measurements varied, and the AVD results do not establish the cause or prove smooth 60 FPS. iOS and 120 Hz remain unmeasured.
+  - iOS Simulator evidence (2026-10-02): a Release UI run completed eight swipe pairs. Six log-only `CADisplayLink` windows of 300 callbacks each measured p50/p90/p95 intervals of 16.67 ms, p99 intervals of 16.67–21.77 ms, and 0–3 callbacks above 1.5× the median per window. This measures main-run-loop display-link callbacks, not presented compositor frames. Xcode's Animation Hitches template reports “Hitches is not supported on this platform,” and the Core Animation FPS instrument reports that graphics instruments do not support the simulator device. Keep actual 60/120 FPS verification open.
+  - Android optimization in progress: cache and reuse one detached Media3 `PlayerView` per player to reduce repeated view inflation during feed transitions. Temporary diagnostic logs confirm reuse occurs; current emulator samples do not prove an end-to-end frame-rate or memory improvement.
 - [x] Run `scripts/test-dev-runtime-plugin-hot-reload.sh ios` and `scripts/test-dev-runtime-plugin-hot-reload.sh android` with booted simulators/emulators; verify prelinked plugin calls and newly created imported `.nx` files using native logs only.

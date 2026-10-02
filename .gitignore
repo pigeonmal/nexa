@@ -1,5 +1,6 @@
 /target/
 /build/
+**/build/
 .nexa/
 .DS_Store
 /examples/*.swift

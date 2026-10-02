@@ -1,0 +1,68 @@
+plugin "../../../plugins/audio-player" as AudioPlayer
+
+app MusicArchetype {
+    let player = AudioPlayer()
+    let trackUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+    state playbackChanged: Bool = false
+    state trackEnded: Bool = false
+    state message: String = "Ready to load a track."
+    state loadTask: TaskHandle? = null
+    state seekRatio: Float64 = 0.0
+
+    body {
+        OnAppear {
+            player.stateChanged { current ->
+                playbackChanged = true
+                message = "Playback state updated"
+            }
+            player.ended {
+                trackEnded = true
+                message = "Track finished"
+            }
+            player.updateMetadata("SoundHelix Song 1", "SoundHelix", "Nexa Music")
+        }
+
+        OnDisappear {
+            player.dispose()
+        }
+
+        Column(spacing: 16, padding: 20) {
+            Text("Nexa Music")
+            Text("SoundHelix Song 1")
+            Text(message)
+            Text("Position: \(player.currentTime) / \(player.duration)")
+
+            Button("Load and play") {
+                Task.launch(handle: loadTask, executor: TaskExecutor.Main) {
+                    try {
+                        await player.prepare(trackUrl)
+                        player.play()
+                        message = "Playing"
+                    } catch {
+                        case AudioPlayer.AudioPlayerError.invalidUrl {
+                            message = "The track URL is invalid."
+                        }
+                        case AudioPlayer.AudioPlayerError.playbackFailed(error) {
+                            message = error
+                        }
+                    }
+                }
+            }
+            Row(spacing: 12) {
+                Button("Pause") { player.pause() }
+                Button("Resume") { player.play() }
+                Button("Restart") { player.seek(0.0) }
+            }
+            Slider(value: seekRatio, min: 0.0, max: 1.0, step: 0.01)
+            Button("Seek") {
+                player.seek(player.duration * seekRatio)
+            }
+            if playbackChanged {
+                Text("Lock screen controls and playback metadata are active.")
+            }
+            if trackEnded {
+                Text("Playback complete")
+            }
+        }
+    }
+}

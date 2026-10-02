@@ -1,6 +1,6 @@
 //! Deterministic native host templates used by `nexa generate`.
 
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 use nexa_ir::Permission;
 use nexa_plugin_idl::manifest::{EntitlementValue, SwiftPackage};
@@ -153,13 +153,30 @@ pub(super) fn ios_app_source(
     app_name: &str,
     app_root: &str,
     tasks: &[nexa_ir::BackgroundTask],
-) -> String {
+    plugins: &[PluginPackage],
+) -> Result<String, String> {
+    let app_delegates = plugins
+        .iter()
+        .filter_map(|plugin| plugin.artifacts.ios_application_delegate.as_deref())
+        .collect::<std::collections::BTreeSet<_>>();
+    if app_delegates.len() > 1 {
+        return Err(format!(
+            "multiple plugins declare iOS application delegates: {}",
+            app_delegates.into_iter().collect::<Vec<_>>().join(", ")
+        ));
+    }
     let mut source = String::from("import SwiftUI\n");
     if !tasks.is_empty() {
         source.push_str("import BackgroundTasks\n");
     }
+    source.push_str(&format!("\n@main\nstruct {app_name}App: App {{\n"));
+    if let Some(delegate) = app_delegates.first() {
+        source.push_str(&format!(
+            "    @UIApplicationDelegateAdaptor({delegate}.self) private var nexaApplicationDelegate\n"
+        ));
+    }
     source.push_str(&format!(
-        "\n@main\nstruct {app_name}App: App {{\n    var body: some Scene {{\n        WindowGroup {{\n            {app_root}"
+        "    var body: some Scene {{\n        WindowGroup {{\n            {app_root}"
     ));
     if !tasks.is_empty() {
         source.push_str("\n                .task { __nexaScheduleBackgroundTasks() }");
@@ -185,7 +202,7 @@ pub(super) fn ios_app_source(
             "}\n\nprivate func __nexaScheduleBackgroundTask(_ identifier: String, everyMinutes: Int) {\n    let request = BGAppRefreshTaskRequest(identifier: identifier)\n    request.earliestBeginDate = Date(timeIntervalSinceNow: TimeInterval(everyMinutes * 60))\n    do {\n        try BGTaskScheduler.shared.submit(request)\n    } catch {\n        NSLog(\"Nexa background task schedule failed for %@: %@\", identifier, String(describing: error))\n    }\n}\n",
         );
     }
-    source
+    Ok(source)
 }
 
 pub(super) fn ios_privacy_manifest(
@@ -222,6 +239,21 @@ pub(super) fn ios_entitlements(
     config: &ProjectConfig,
     plugins: &[PluginPackage],
 ) -> Result<Option<String>, String> {
+    ios_entitlements_for_environment(config, plugins, None)
+}
+
+pub(super) fn ios_release_entitlements(
+    config: &ProjectConfig,
+    plugins: &[PluginPackage],
+) -> Result<Option<String>, String> {
+    ios_entitlements_for_environment(config, plugins, Some("production"))
+}
+
+fn ios_entitlements_for_environment(
+    config: &ProjectConfig,
+    plugins: &[PluginPackage],
+    aps_environment: Option<&str>,
+) -> Result<Option<String>, String> {
     let mut values = std::collections::BTreeMap::<String, EntitlementValue>::new();
     let mut owners = std::collections::HashMap::<String, &str>::new();
     for plugin in plugins {
@@ -238,6 +270,14 @@ pub(super) fn ios_entitlements(
             values.entry(key.clone()).or_insert_with(|| value.clone());
             owners.entry(key.clone()).or_insert(&plugin.namespace);
         }
+    }
+    if let Some(environment) = aps_environment
+        && values.contains_key("aps-environment")
+    {
+        values.insert(
+            "aps-environment".to_owned(),
+            EntitlementValue::String(environment.to_owned()),
+        );
     }
     let associated_domains = config
         .deep_links
@@ -650,16 +690,24 @@ pub(super) fn ios_project_file_with_config(
             SettingValue::bare("AppIcon"),
         );
     }
-    // An app that links an entitlement, or registers a universal link, needs
-    // the generated entitlements file at signing time.
-    if plugins
+    // Apps using APNs need configuration-specific entitlement files so
+    // development provisioning uses the sandbox and distribution provisioning
+    // uses production. Other entitlement users share one generated file.
+    let has_aps_environment = plugins.iter().any(|plugin| {
+        plugin
+            .artifacts
+            .ios_entitlements
+            .iter()
+            .any(|(key, _)| key == "aps-environment")
+    });
+    let has_code_sign_entitlements = plugins
         .iter()
         .any(|plugin| !plugin.artifacts.ios_entitlements.is_empty())
         || config
             .deep_links
             .iter()
-            .any(|value| value.starts_with("https://"))
-    {
+            .any(|value| value.starts_with("https://"));
+    if has_code_sign_entitlements && !has_aps_environment {
         target_common.set(
             "CODE_SIGN_ENTITLEMENTS",
             SettingValue::Scalar(format!("{app_name}/Nexa.entitlements")),
@@ -725,6 +773,17 @@ pub(super) fn ios_project_file_with_config(
         SettingValue::Scalar(minimum_version.clone()),
     );
     target_debug.set("TARGETED_DEVICE_FAMILY", SettingValue::quoted("1,2"));
+
+    if has_aps_environment {
+        target_release.set(
+            "CODE_SIGN_ENTITLEMENTS",
+            SettingValue::Scalar(format!("{app_name}/Nexa-Release.entitlements")),
+        );
+        target_debug.set(
+            "CODE_SIGN_ENTITLEMENTS",
+            SettingValue::Scalar(format!("{app_name}/Nexa.entitlements")),
+        );
+    }
 
     // Both target configurations inherit the icon, entitlement, and linker
     // settings from one base, so a Release-only difference is a deliberate
@@ -1160,7 +1219,18 @@ pub(super) fn android_manifest(
     network_connectivity: bool,
     config: &ProjectConfig,
     plugins: &[PluginPackage],
-) -> String {
+) -> Result<String, String> {
+    let application_metadata = merged_android_application_metadata(plugins)?;
+    let application_metadata_xml = application_metadata
+        .iter()
+        .map(|(name, value)| {
+            format!(
+                "        <meta-data android:name=\"{}\" android:value=\"{}\" />\n",
+                xml_escape(name),
+                xml_escape(value),
+            )
+        })
+        .collect::<String>();
     let mut permissions = std::collections::BTreeSet::new();
     if remote {
         permissions.insert("android.permission.INTERNET".to_owned());
@@ -1269,10 +1339,132 @@ pub(super) fn android_manifest(
             )
         })
         .collect::<String>();
-    format!(
-        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\" android:screenOrientation=\"fullUser\"{picture_in_picture_attributes}>\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n{deep_link_filters}        </activity>\n{media_playback_service_declarations}    </application>\n</manifest>\n",
+    let firebase_messaging_services = plugins
+        .iter()
+        .filter_map(|plugin| {
+            plugin
+                .artifacts
+                .android_firebase_messaging_service
+                .as_deref()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    if firebase_messaging_services.len() > 1 {
+        return Err(format!(
+            "multiple plugins declare Android Firebase messaging services: {}",
+            firebase_messaging_services
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    let firebase_messaging_service_declarations = firebase_messaging_services
+        .iter()
+        .map(|service| {
+            format!(
+                "        <service android:name=\"{}\" android:exported=\"false\"><intent-filter><action android:name=\"com.google.firebase.MESSAGING_EVENT\" /></intent-filter></service>\n",
+                xml_escape(service)
+            )
+        })
+        .collect::<String>();
+    Ok(format!(
+        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n{declared}    <application android:label=\"{}\"{icon_attribute} android:theme=\"{app_theme}\" android:enableOnBackInvokedCallback=\"true\">\n        <activity android:name=\"{package}.MainActivity\" android:exported=\"true\" android:screenOrientation=\"fullUser\"{picture_in_picture_attributes}>\n            <intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter>\n{deep_link_filters}        </activity>\n{media_playback_service_declarations}{firebase_messaging_service_declarations}{application_metadata_xml}    </application>\n</manifest>\n",
         xml_escape(&config.display_name),
-    )
+    ))
+}
+
+pub(super) fn android_firebase_resources(
+    plugins: &[PluginPackage],
+    config: &ProjectConfig,
+) -> Result<Option<String>, String> {
+    let messaging_plugins = plugins
+        .iter()
+        .filter(|plugin| {
+            plugin
+                .artifacts
+                .android_firebase_messaging_service
+                .is_some()
+        })
+        .collect::<Vec<_>>();
+    if messaging_plugins.is_empty() {
+        return Ok(None);
+    }
+
+    let read_option = |namespace: &str, name: &str| {
+        config
+            .plugins()
+            .find(|plugin| plugin.namespace == namespace)
+            .and_then(|plugin| plugin.options.iter().find(|option| option.name == name))
+            .and_then(|option| match &option.value {
+                nexa_syntax::ast::ConfigValue::String(value) => Some(value.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    let mut firebase_options = Vec::new();
+    for plugin in messaging_plugins {
+        firebase_options.push((
+            read_option(&plugin.namespace, "fcmApiKey"),
+            read_option(&plugin.namespace, "fcmApplicationId"),
+            read_option(&plugin.namespace, "fcmProjectId"),
+            read_option(&plugin.namespace, "fcmSenderId"),
+        ));
+    }
+    let first = firebase_options.first().cloned().unwrap_or_default();
+    if firebase_options.iter().any(|options| options != &first) {
+        return Err(
+            "Android Firebase Messaging plugins have conflicting app options; configure one Firebase project per app"
+                .to_owned(),
+        );
+    }
+    let (api_key, application_id, project_id, sender_id) = first;
+    if api_key.is_empty()
+        || application_id.is_empty()
+        || project_id.is_empty()
+        || sender_id.is_empty()
+    {
+        return Ok(None);
+    }
+
+    Ok(Some(format!(
+        "<resources><string name=\"google_app_id\" translatable=\"false\">{}</string><string name=\"google_api_key\" translatable=\"false\">{}</string><string name=\"project_id\" translatable=\"false\">{}</string><string name=\"gcm_defaultSenderId\" translatable=\"false\">{}</string></resources>\n",
+        xml_escape(&application_id),
+        xml_escape(&api_key),
+        xml_escape(&project_id),
+        xml_escape(&sender_id),
+    )))
+}
+
+fn merged_android_application_metadata(
+    plugins: &[PluginPackage],
+) -> Result<BTreeMap<String, String>, String> {
+    let mut metadata = BTreeMap::new();
+    for plugin in plugins {
+        for (name, value) in &plugin.artifacts.android_application_metadata {
+            if let Some(previous) = metadata.get(name)
+                && previous != value
+            {
+                return Err(format!(
+                    "Android application metadata `{name}` has conflicting values from plugins; declare it once or use the same value"
+                ));
+            }
+            metadata.insert(name.clone(), value.clone());
+        }
+    }
+    Ok(metadata)
+}
+
+fn android_manifest_placeholder_names(metadata: &BTreeMap<String, String>) -> Vec<String> {
+    metadata
+        .values()
+        .filter_map(|value| {
+            value
+                .strip_prefix("${")
+                .and_then(|value| value.strip_suffix('}'))
+                .map(str::to_owned)
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 pub(super) fn android_app_gradle_with_dev_runtime(
@@ -1290,6 +1482,15 @@ pub(super) fn android_app_gradle_with_dev_runtime(
         ));
     }
     let maven_dependencies = merge_maven_dependencies(plugins)?;
+    let application_metadata = merged_android_application_metadata(plugins)?;
+    let manifest_placeholders = android_manifest_placeholder_names(&application_metadata)
+        .iter()
+        .map(|name| {
+            format!(
+                "; manifestPlaceholders[\"{name}\"] = providers.environmentVariable(\"{name}\").orElse(\"\").get()"
+            )
+        })
+        .collect::<String>();
     let plugin_minimums = plugins
         .iter()
         .map(|plugin| (plugin.namespace.as_str(), plugin.artifacts.android_min_sdk))
@@ -1338,6 +1539,11 @@ pub(super) fn android_app_gradle_with_dev_runtime(
             "    implementation(\"io.coil-kt.coil3:coil-compose:3.6.3\")\n    implementation(\"io.coil-kt.coil3:coil-network-core:3.6.3\")\n",
         );
     }
+    if dev_runtime || features.uses_system_icons {
+        dependencies.push_str(
+            "    implementation(\"androidx.compose.material:material-icons-extended\")\n",
+        );
+    }
     if dev_runtime || features.uses_coroutines {
         dependencies.push_str(
             "    implementation(\"org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0\")\n",
@@ -1380,7 +1586,7 @@ pub(super) fn android_app_gradle_with_dev_runtime(
         })
         .unwrap_or_default();
     Ok(format!(
-        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{}\"; minSdk = {minimum_sdk}; targetSdk = {}; versionCode = {}; versionName = \"{}\"{ndk_config} }}\n    buildFeatures {{ compose = true }}{cpp_native_build}\n    signingConfigs {{\n        create(\"nexaRelease\") {{\n            val keystorePath = System.getenv(\"NEXA_ANDROID_KEYSTORE\")\n            if (!keystorePath.isNullOrBlank()) {{\n                storeFile = file(keystorePath)\n                storePassword = System.getenv(\"NEXA_ANDROID_STORE_PASSWORD\")\n                keyAlias = System.getenv(\"NEXA_ANDROID_KEY_ALIAS\")\n                keyPassword = System.getenv(\"NEXA_ANDROID_KEY_PASSWORD\")\n            }}\n        }}\n    }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            signingConfig = signingConfigs.getByName(\"nexaRelease\")\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencyLocking {{\n    lockAllConfigurations()\n}}\n\ndependencies {{\n{dependencies}}}\n",
+        "plugins {{\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}}\n\nandroid {{\n    namespace = \"{package}\"\n    compileSdk = 37\n    defaultConfig {{ applicationId = \"{}\"; minSdk = {minimum_sdk}; targetSdk = {}; versionCode = {}; versionName = \"{}\"{ndk_config}{manifest_placeholders} }}\n    buildFeatures {{ compose = true }}{cpp_native_build}\n    signingConfigs {{\n        create(\"nexaRelease\") {{\n            val keystorePath = System.getenv(\"NEXA_ANDROID_KEYSTORE\")\n            if (!keystorePath.isNullOrBlank()) {{\n                storeFile = file(keystorePath)\n                storePassword = System.getenv(\"NEXA_ANDROID_STORE_PASSWORD\")\n                keyAlias = System.getenv(\"NEXA_ANDROID_KEY_ALIAS\")\n                keyPassword = System.getenv(\"NEXA_ANDROID_KEY_PASSWORD\")\n            }}\n        }}\n    }}\n    compileOptions {{ sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }}\n    buildTypes {{\n        release {{\n            signingConfig = signingConfigs.getByName(\"nexaRelease\")\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(\n                getDefaultProguardFile(\"proguard-android-optimize.txt\"),\n                \"proguard-rules.pro\"\n            )\n        }}\n    }}\n}}\n\nkotlin {{\n    compilerOptions {{\n        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)\n    }}\n}}\n\ndependencyLocking {{\n    lockAllConfigurations()\n}}\n\ndependencies {{\n{dependencies}}}\n",
         config.android_application_id,
         config.android_target_sdk,
         config.build_number,

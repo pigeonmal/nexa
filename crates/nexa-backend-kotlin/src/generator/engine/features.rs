@@ -40,6 +40,8 @@ pub(crate) struct Features {
     pub(crate) uses_accessibility_hint: bool,
     pub(crate) uses_list: bool,
     pub(crate) uses_linear_list: bool,
+    pub(crate) uses_reverse_layout: bool,
+    pub(crate) uses_page_snap: bool,
     pub(crate) uses_horizontal_list: bool,
     pub(crate) uses_grid_list: bool,
     pub(crate) uses_list_end_reached: bool,
@@ -193,6 +195,8 @@ impl Features {
 
         let lists = &ui.lists;
         self.uses_sticky_header = lists.sticky_header || lists.section_header;
+        self.uses_reverse_layout = lists.reverse_layout;
+        self.uses_page_snap = lists.page_snap;
         self.uses_list_scroll_position = lists.scroll_position || lists.scroll_position_grid;
         self.uses_linear_list_scroll_position = lists.scroll_position;
         self.uses_grid_scroll_position = lists.scroll_position_grid;

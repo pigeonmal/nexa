@@ -6,7 +6,7 @@ package __NEXA_PACKAGE__
  */
 internal object NexaDevSchema {
     const val PROTOCOL_VERSION: Int = 10
-    const val DEV_IR_FORMAT_VERSION: Int = 19
+    const val DEV_IR_FORMAT_VERSION: Int = 25
     const val TARGET_PLATFORM: String = "android"
 }
 
@@ -88,6 +88,10 @@ internal object NexaDevKeys {
     const val TY = "ty"
     const val INITIAL = "initial"
 
+    // FastList fields
+    const val REVERSE_LAYOUT = "reverse_layout"
+    const val PAGE_SNAP = "page_snap"
+
     // Diagnostic fields
     const val FILE = "file"
     const val LINE = "line"
@@ -119,6 +123,8 @@ internal object NexaDevNodeKind {
     const val PROGRESS_BAR = "ProgressBar"
     const val PROGRESS_RING = "ProgressRing"
     const val IMAGE = "Image"
+    const val SYSTEM_ICON = "SystemIcon"
+    const val LINEAR_GRADIENT = "LinearGradient"
     const val REFRESH_CONTROL = "RefreshControl"
     const val IF = "If"
     const val WHEN = "When"

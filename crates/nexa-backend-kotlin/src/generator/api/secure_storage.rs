@@ -129,7 +129,7 @@ internal object NexaSecureStorage {
         synchronized(keyLock) {
             val alias = "${context.packageName}.nexa.secure-storage.v1"
             val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            (keyStore.getKey(alias, null) as? java.security.Key)?.let { return it }
+            keyStore.getKey(alias, null)?.let { return it }
             val generator = javax.crypto.KeyGenerator.getInstance(
                 android.security.keystore.KeyProperties.KEY_ALGORITHM_AES,
                 "AndroidKeyStore",

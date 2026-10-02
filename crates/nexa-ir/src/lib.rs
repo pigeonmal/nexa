@@ -613,9 +613,22 @@ pub enum Node {
         placeholder: Option<String>,
         shared_element: Option<Expr>,
     },
+    SystemIcon {
+        icon: SystemIcon,
+        description: String,
+        size: f32,
+        tint: ColorValue,
+    },
+    LinearGradient {
+        start_color: ColorValue,
+        end_color: ColorValue,
+        direction: GradientDirection,
+        height: f32,
+    },
     Pressable {
         disabled: Expr,
         haptic: Option<HapticStyle>,
+        fill_max_size: bool,
         children: Vec<Node>,
         actions: Vec<Action>,
         double_tap_actions: Vec<Action>,
@@ -739,6 +752,12 @@ pub enum AccessibilityRole {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ListCommon {
     pub axis: ListAxis,
+    /// Invert a flat vertical list so logical rows appear bottom-to-top.
+    #[serde(default)]
+    pub reverse_layout: bool,
+    /// Snap flat vertical rows to exactly one viewport per page.
+    #[serde(default)]
+    pub page_snap: bool,
     pub item_extent: Option<f32>,
     /// Row index binding name (always `Int32`).
     pub index: String,
@@ -795,6 +814,24 @@ pub enum ListPlan {
 }
 
 impl ListPlan {
+    /// Whether a flat list is laid out from its logical end toward its start.
+    pub fn reverse_layout(&self) -> bool {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => {
+                common.reverse_layout
+            }
+            ListPlan::Sections { .. } => false,
+        }
+    }
+
+    /// Whether flat vertical rows occupy and snap to the full viewport.
+    pub fn page_snap(&self) -> bool {
+        match self {
+            ListPlan::Count { common, .. } | ListPlan::Items { common, .. } => common.page_snap,
+            ListPlan::Sections { .. } => false,
+        }
+    }
+
     /// Row children for analysis passes.
     pub fn children(&self) -> &[Node] {
         match self {
@@ -1064,6 +1101,43 @@ pub enum ImageScale {
     Fill,
 }
 
+/// A platform-neutral system icon. Backends map each icon to SF Symbols on
+/// iOS and the matching Compose Material icon on Android.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemIcon {
+    Home,
+    Search,
+    Inbox,
+    Profile,
+    Heart,
+    HeartFilled,
+    Comment,
+    CommentFilled,
+    Bookmark,
+    BookmarkFilled,
+    Share,
+    Music,
+    Back,
+    Screen,
+    Layers,
+    Plus,
+    Close,
+    Checkmark,
+    Send,
+    Volume,
+    VolumeMuted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GradientDirection {
+    TopToBottom,
+    BottomToTop,
+    LeadingToTrailing,
+    TrailingToLeading,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ImageSource {
     Asset(String),
@@ -1154,6 +1228,8 @@ pub enum AnimationSpec {
 pub enum ViewTransition {
     Fade,
     SlideFromBottom,
+    SlideFromLeft,
+    SlideFromRight,
     Scale,
 }
 

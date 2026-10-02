@@ -17,7 +17,8 @@ use crate::walk::{
 };
 use crate::{
     AccessibilityRole, AnimationSpec, ColorValue, Expr, ImageSource, KeyboardDismissMode, ListAxis,
-    ListPlan, Module, Node, NumericType, Permission, PermissionOpKind, State, Type, ViewStyle,
+    ListPlan, Module, Node, NumericType, Permission, PermissionOpKind, State, SystemIcon, Type,
+    ViewStyle,
 };
 
 /// Everything a backend needs to know about a pruned module, computed once.
@@ -148,6 +149,10 @@ pub struct UiFacts {
     pub dialog_present: bool,
     pub refresh: RefreshFacts,
     pub image: ImageFacts,
+    /// Native system icons used anywhere in generated UI.
+    pub system_icons: BTreeSet<SystemIcon>,
+    /// Native linear gradient nodes used anywhere in generated UI.
+    pub linear_gradient: bool,
     pub lists: ListFacts,
     pub text: TextFacts,
     pub button: ButtonFacts,
@@ -206,6 +211,8 @@ pub struct ListFacts {
     pub any: bool,
     pub sectioned: bool,
     pub vertical: bool,
+    pub reverse_layout: bool,
+    pub page_snap: bool,
     pub horizontal: bool,
     pub grid: bool,
     /// A flat sticky header (sectioned headers are reported separately).
@@ -254,6 +261,7 @@ pub struct TextInputFacts {
 #[derive(Clone, Debug, Default)]
 pub struct PressableFacts {
     pub present: bool,
+    pub fill_max_size: bool,
     pub long_press: bool,
     pub double_tap: bool,
     pub drag: bool,
@@ -749,9 +757,14 @@ fn observe_node(
             *remote_hit |= matches!(source, ImageSource::RemoteUrl(_));
             ui.image.placeholder |= placeholder.is_some();
         }
+        Node::SystemIcon { icon, .. } => {
+            ui.system_icons.insert(*icon);
+        }
+        Node::LinearGradient { .. } => ui.linear_gradient = true,
         Node::Pressable {
             children,
             haptic,
+            fill_max_size,
             double_tap_actions,
             long_press_actions,
             drag_parameters,
@@ -760,6 +773,7 @@ fn observe_node(
             ..
         } => {
             ui.pressable.present = true;
+            ui.pressable.fill_max_size |= *fill_max_size;
             scope_of(ui, scope).haptic |= haptic.is_some();
             let long_press = !long_press_actions.is_empty();
             let double_tap = !double_tap_actions.is_empty();
@@ -837,6 +851,8 @@ fn observe_node(
             let axis = plan.axis();
             let grid = matches!(axis, ListAxis::Grid { .. });
             ui.lists.any = true;
+            ui.lists.reverse_layout |= plan.reverse_layout();
+            ui.lists.page_snap |= plan.page_snap();
             ui.lists.sectioned |= matches!(plan, ListPlan::Sections { .. });
             match axis {
                 ListAxis::Vertical => {
@@ -1282,6 +1298,7 @@ mod tests {
         let module = empty_module(vec![Node::Pressable {
             disabled: Expr::Bool(false),
             haptic: Some(crate::HapticStyle::Heavy),
+            fill_max_size: false,
             children: Vec::new(),
             actions: Vec::new(),
             double_tap_actions: Vec::new(),

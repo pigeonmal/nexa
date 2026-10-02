@@ -880,7 +880,7 @@ fn ios_plan(
     plan = plan
         .with_file(
             format!("{directory}/{app_name}App.swift"),
-            templates::ios_app_source(app_name, &app_root, &module.background_tasks),
+            templates::ios_app_source(app_name, &app_root, &module.background_tasks, plugins)?,
         )
         .with_file(
             format!("ios/{app_name}.xcodeproj/xcshareddata/xcschemes/{app_name}.xcscheme"),
@@ -939,6 +939,28 @@ fn ios_plan(
         None => {
             plan = plan.with_removal(format!("{directory}/Nexa.entitlements"));
         }
+    }
+    let has_aps_environment = plugins.iter().any(|plugin| {
+        plugin
+            .artifacts
+            .ios_entitlements
+            .iter()
+            .any(|(key, _)| key == "aps-environment")
+    });
+    if has_aps_environment {
+        match templates::ios_release_entitlements(config, plugins)? {
+            Some(entitlements) => {
+                plan = plan.with_file(
+                    format!("{directory}/Nexa-Release.entitlements"),
+                    entitlements,
+                );
+            }
+            None => {
+                plan = plan.with_removal(format!("{directory}/Nexa-Release.entitlements"));
+            }
+        }
+    } else {
+        plan = plan.with_removal(format!("{directory}/Nexa-Release.entitlements"));
     }
     plan.validate()?;
     Ok(plan)
@@ -1167,6 +1189,27 @@ fn android_plan(
     } else {
         "        NexaBackgroundWorker.scheduleAll(applicationContext)\n".to_owned()
     };
+    let uses_firebase_messaging = plugins.iter().any(|plugin| {
+        plugin
+            .artifacts
+            .android_firebase_messaging_service
+            .is_some()
+    });
+    let remote_notification_imports = if uses_firebase_messaging {
+        "import android.content.Intent\nimport dev.nexa.notifications.NotificationsRemoteHub\n"
+    } else {
+        ""
+    };
+    let remote_notification_dispatch = if uses_firebase_messaging {
+        "        NotificationsRemoteHub.dispatchOpened(intent)\n"
+    } else {
+        ""
+    };
+    let remote_notification_new_intent = if uses_firebase_messaging {
+        "\n    override fun onNewIntent(intent: Intent) {\n        super.onNewIntent(intent)\n        setIntent(intent)\n        NotificationsRemoteHub.dispatchOpened(intent)\n    }\n"
+    } else {
+        ""
+    };
     let activity_content = if install_play_services_cronet {
         format!(
             "        CronetProviderInstaller.installProvider(this).addOnCompleteListener {{ result ->\n            if (!result.isSuccessful) android.util.Log.w(\"Nexa\", \"Play Services Cronet provider is unavailable; network calls may fail\", result.exception)\n            setContent {{ MaterialTheme {{ {compose_root} }} }}\n        }}\n"
@@ -1180,7 +1223,7 @@ fn android_plan(
         .with_file(
             format!("{source_directory}/MainActivity.kt"),
             format!(
-                "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{splash_import}{cronet_import}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n{background_schedule}{activity_content}    }}\n}}\n"
+                "package {package}\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.material3.MaterialTheme\n{splash_import}{cronet_import}{remote_notification_imports}\nclass MainActivity : ComponentActivity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n{splash_install}        super.onCreate(savedInstanceState)\n{remote_notification_dispatch}{background_schedule}{activity_content}    }}{remote_notification_new_intent}}}\n"
             ),
         )
         .with_file(
@@ -1192,7 +1235,7 @@ fn android_plan(
                 dev_session.is_some() || project_features.uses_network_connectivity,
                 config,
                 plugins,
-            ),
+            )?,
         )
         .with_file(
             "android/settings.gradle.kts",
@@ -1264,6 +1307,17 @@ fn android_plan(
         );
     } else {
         plan = plan.with_removal(format!("{resource_directory}/.nexa-plugin-resources"));
+    }
+    match templates::android_firebase_resources(plugins, config)? {
+        Some(resources) => {
+            plan = plan.with_file(
+                "android/app/src/main/res/values/nexa_firebase.xml",
+                resources,
+            );
+        }
+        None => {
+            plan = plan.with_removal("android/app/src/main/res/values/nexa_firebase.xml");
+        }
     }
     if dev_runtime {
         for (filename, content) in ANDROID_DEV_RUNTIME_FILES {
@@ -1704,7 +1758,6 @@ mod tests {
             "NexaPlayerMediaComponent(nexa_player, nexa_title)",
             "VideoView(player: nexa_player,",
             "VideoView(player: nexa_player2",
-            "onTapped: {",
             "nexa_tapped = true",
             "nexa_secondTapped = true",
             "await nexa_player1.prepare(\"",
@@ -1723,6 +1776,7 @@ mod tests {
         ] {
             assert!(swift.contains(fragment), "missing Swift output: {fragment}");
         }
+        assert!(!swift.contains("onTapped"));
         assert!(swift.contains("do {"));
         assert!(swift.contains("try await nexa_player1.prepare(\""));
         assert!(swift.contains("} catch let error as PlayerError {"));
@@ -1740,7 +1794,6 @@ mod tests {
             "NexaPlayerMediaComponent(nexa_player, nexa_title)",
             "VideoView(player = nexa_player,",
             "VideoView(player = nexa_player2",
-            "onTapped = {",
             "nexa_tapped = true",
             "nexa_secondTapped = true",
             "nexa_player1.prepare(",
@@ -1762,6 +1815,7 @@ mod tests {
                 "missing Kotlin output: {fragment}"
             );
         }
+        assert!(!kotlin.contains("onTapped"));
         assert!(kotlin.contains("when (error) {"));
         assert!(kotlin.contains("PlayerError.invalidUrl ->"));
         assert!(kotlin.contains("is PlayerError.decodingFailed ->"));

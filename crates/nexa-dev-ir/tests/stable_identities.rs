@@ -49,6 +49,7 @@ fn double_tap_pressable(value: &str) -> Node {
     Node::Pressable {
         disabled: Expr::Bool(false),
         haptic: None,
+        fill_max_size: true,
         children: vec![text("Double tap")],
         actions: Vec::new(),
         double_tap_actions: vec![Action::Assign {
@@ -74,6 +75,7 @@ fn pinch_pressable(value: &str) -> Node {
     Node::Pressable {
         disabled: Expr::Bool(false),
         haptic: None,
+        fill_max_size: false,
         children: vec![text("Pinch")],
         actions: Vec::new(),
         double_tap_actions: Vec::new(),
@@ -99,6 +101,7 @@ fn long_pressable(duration_ms: &str) -> Node {
     Node::Pressable {
         disabled: Expr::Bool(false),
         haptic: None,
+        fill_max_size: false,
         children: vec![text("Long press")],
         actions: Vec::new(),
         double_tap_actions: Vec::new(),
@@ -139,6 +142,7 @@ fn double_tap_action_changes_are_carried_by_a_hot_reload_patch() {
 
     let payload = serde_json::to_value(&updated.module).expect("Dev IR serializes");
     assert!(payload["body"][0]["Pressable"]["double_tap_actions"].is_array());
+    assert_eq!(payload["body"][0]["Pressable"]["fill_max_size"], true);
 
     let patch = nexa_dev_ir::diff(&original, &updated).expect("changed action is patchable");
     assert_eq!(patch.operations.len(), 1);

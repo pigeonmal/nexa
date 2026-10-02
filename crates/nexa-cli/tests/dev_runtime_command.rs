@@ -433,7 +433,6 @@ fn development_runtime_generates_video_plugin_class_event_and_component_bridges(
         "nexaReceiver.onEnded =",
         "case (\"VideoPlayer\", \"VideoView\")",
         "VideoView(player: nexaArg_player, controls: nexaArg_controls",
-        "events[\"onTapped\"]",
     ] {
         assert!(
             ios_bridge.contains(marker),
@@ -448,13 +447,14 @@ fn development_runtime_generates_video_plugin_class_event_and_component_bridges(
         "receiver.onEnded =",
         "\"VideoPlayer.VideoView\" ->",
         "VideoView(player = nexaArg_player, controls = nexaArg_controls",
-        "events[\"onTapped\"]",
     ] {
         assert!(
             android_bridge.contains(marker),
             "Kotlin Dev bridge is missing {marker}"
         );
     }
+    assert!(!ios_bridge.contains("events[\"onTapped\"]"));
+    assert!(!android_bridge.contains("events[\"onTapped\"]"));
 }
 
 #[test]
@@ -655,7 +655,7 @@ fn hot_reload_can_add_preconfigured_plugin_classes_events_properties_and_compone
 
     project.write(
         "AddedPlayer.nx",
-        "plugin \"dev.nexa.video-player\" as VideoPlayer\ncomponent AddedPlayer(player: VideoPlayer.VideoPlayer) { body { VideoPlayer.VideoView(player: player) { Text(\"Loaded\") }.onTapped { player.volume = 0.5 } } }\n",
+        "plugin \"dev.nexa.video-player\" as VideoPlayer\ncomponent AddedPlayer(player: VideoPlayer.VideoPlayer) { body { Pressable() { VideoPlayer.VideoView(player: player) { Text(\"Loaded\") } }.onTap { player.volume = 0.5 } } }\n",
     );
     project.write(
         "App.nx",

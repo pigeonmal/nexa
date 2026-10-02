@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -37,6 +39,7 @@ import kotlinx.coroutines.isActive
 import org.json.JSONArray
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
     val currentContext = LocalContext.current
     val applicationContext = currentContext.applicationContext
@@ -121,14 +124,16 @@ internal fun NexaDevRuntimeRoot(serverURL: String, sessionToken: String) {
                     "Ltr" -> LayoutDirection.Ltr
                     else -> LocalLayoutDirection.current
                 }
-                NexaSharedTransitionContent {
-                    CompositionLocalProvider(LocalLayoutDirection provides direction) {
-                        NexaDevNodeList(
-                            module.optJSONArray("body") ?: JSONArray(),
-                            module,
-                            store,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                CompositionLocalProvider(LocalRippleConfiguration provides null) {
+                    NexaSharedTransitionContent {
+                        CompositionLocalProvider(LocalLayoutDirection provides direction) {
+                            NexaDevNodeList(
+                                module.optJSONArray("body") ?: JSONArray(),
+                                module,
+                                store,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                     }
                 }
             }

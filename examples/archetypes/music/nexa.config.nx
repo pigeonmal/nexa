@@ -1,0 +1,6 @@
+config {
+    app { displayName: "MusicArchetype", version: "1.0.0", buildNumber: 1 }
+    ios { minVersion: "17.0", bundleIdentifier: "dev.nexa.archetypes.music" }
+    android { minSdk: 26, targetSdk: 36, applicationId: "dev.nexa.archetypes.music" }
+    permissions {}
+}

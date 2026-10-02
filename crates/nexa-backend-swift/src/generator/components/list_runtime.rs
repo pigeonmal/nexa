@@ -254,11 +254,25 @@ private let nexaFastListHeaderReuseIdentifier = "NexaFastListHeader"
 // <nexa:list-runtime-vertical-constants:end>
 
 // <nexa:list-runtime-vertical:begin>
+private final class NexaFastListTableView: UITableView {
+    var onViewportSizeChanged: ((CGSize) -> Void)?
+    private var reportedBoundsSize = CGSize.zero
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.size != reportedBoundsSize else { return }
+        reportedBoundsSize = bounds.size
+        onViewportSizeChanged?(bounds.size)
+    }
+}
+
 @available(iOS 16.0, *)
 private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepresentable {
     let rowCount: Int
     let rowHeight: CGFloat?
     let rowKey: ((Int) -> AnyHashable)?
+    let reverseLayout: Bool
+    let pageSnap: Bool
     let scrollPosition: Int32?
     let onScrollPositionChanged: ((Int) -> Void)?
     let isRefreshing: Bool
@@ -276,6 +290,8 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
         rowCount: Int,
         rowHeight: CGFloat? = nil,
         rowKey: ((Int) -> AnyHashable)? = nil,
+        reverseLayout: Bool = false,
+        pageSnap: Bool = false,
         scrollPosition: Int32? = nil,
         onScrollPositionChanged: ((Int) -> Void)? = nil,
         isRefreshing: Bool = false,
@@ -292,6 +308,8 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
         self.rowCount = max(0, rowCount)
         self.rowHeight = rowHeight
         self.rowKey = rowKey
+        self.reverseLayout = reverseLayout
+        self.pageSnap = pageSnap
         self.scrollPosition = scrollPosition
         self.onScrollPositionChanged = onScrollPositionChanged
         self.isRefreshing = isRefreshing
@@ -311,6 +329,8 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
             rowCount: rowCount,
             rowHeight: rowHeight,
             rowKey: rowKey,
+            reverseLayout: reverseLayout,
+            pageSnap: pageSnap,
             scrollPosition: scrollPosition,
             onScrollPositionChanged: onScrollPositionChanged,
             onEndReached: onEndReached,
@@ -325,7 +345,21 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
     }
 
     func makeUIView(context: Context) -> UITableView {
-        let tableView = UITableView(frame: .zero, style: .plain)
+        let tableView = NexaFastListTableView(frame: .zero, style: .plain)
+        let coordinator = context.coordinator
+        tableView.onViewportSizeChanged = { [weak tableView, weak coordinator] size in
+            DispatchQueue.main.async {
+                guard let tableView, let coordinator else { return }
+                coordinator.updatePageHeight(size.height, in: tableView)
+            }
+        }
+        tableView.isPagingEnabled = pageSnap
+        if pageSnap {
+            tableView.contentInsetAdjustmentBehavior = .never
+        }
+        if reverseLayout {
+            tableView.transform = CGAffineTransform(scaleX: 1, y: -1)
+        }
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         nexaUpdateRefreshControl(
@@ -341,7 +375,11 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
             forHeaderFooterViewReuseIdentifier: nexaFastListHeaderReuseIdentifier
         )
         // <nexa:sticky-header-register:end>
-        if let rowHeight {
+        if pageSnap {
+            let viewportHeight = max(tableView.bounds.height, 1)
+            tableView.rowHeight = viewportHeight
+            tableView.estimatedRowHeight = viewportHeight
+        } else if let rowHeight {
             tableView.rowHeight = rowHeight
             tableView.estimatedRowHeight = rowHeight
         } else {
@@ -358,10 +396,21 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
     func updateUIView(_ tableView: UITableView, context: Context) {
         let coordinator = context.coordinator
         let previousRowCount = coordinator.rowCount
+        let previousReverseLayout = coordinator.reverseLayout
+        let previousPageSnap = coordinator.pageSnap
+        let previousPage = coordinator.pageSnap && coordinator.rowCount > 0
+            ? coordinator.currentPage(in: tableView)
+            : nil
         let previousScrollPosition = coordinator.scrollPosition
+        let previousContentHeight = tableView.contentSize.height
+        let previousContentOffset = tableView.contentOffset
+        let wasAtBottom = reverseLayout
+            && previousContentOffset.y <= -tableView.adjustedContentInset.top + 1
         coordinator.rowCount = rowCount
         coordinator.rowHeight = rowHeight
         coordinator.rowKey = rowKey
+        coordinator.reverseLayout = reverseLayout
+        coordinator.pageSnap = pageSnap
         coordinator.scrollPosition = scrollPosition
         coordinator.onScrollPositionChanged = onScrollPositionChanged
         coordinator.onEndReached = onEndReached
@@ -378,34 +427,79 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
             isRefreshing: isRefreshing,
             action: onRefresh
         )
+        tableView.transform = reverseLayout
+            ? CGAffineTransform(scaleX: 1, y: -1)
+            : .identity
+        tableView.isPagingEnabled = pageSnap
+        tableView.contentInsetAdjustmentBehavior = pageSnap ? .never : .automatic
+        if pageSnap {
+            coordinator.updatePageHeight(tableView.bounds.height, in: tableView)
+        } else if previousPageSnap {
+            coordinator.pageHeight = 0
+            if let rowHeight {
+                tableView.rowHeight = rowHeight
+                tableView.estimatedRowHeight = rowHeight
+            } else {
+                tableView.rowHeight = UITableView.automaticDimension
+                tableView.estimatedRowHeight = 44
+            }
+        }
+        if previousPageSnap != pageSnap {
+            tableView.reloadData()
+            coordinator.applyScrollPosition(to: tableView)
+            return
+        }
+        if previousReverseLayout != reverseLayout {
+            tableView.reloadData()
+            coordinator.applyScrollPosition(to: tableView)
+            return
+        }
         if previousRowCount != rowCount {
             coordinator.lastEndReachedRowCount = nil
-            coordinator.applyScrollPosition(to: tableView)
+            tableView.reloadData()
+            tableView.layoutIfNeeded()
+            if reverseLayout && scrollPosition == nil && rowCount > previousRowCount {
+                let contentHeightGrowth = tableView.contentSize.height - previousContentHeight
+                let targetOffsetY = wasAtBottom
+                    ? -tableView.adjustedContentInset.top
+                    : previousContentOffset.y + contentHeightGrowth
+                tableView.setContentOffset(
+                    CGPoint(x: previousContentOffset.x, y: targetOffsetY),
+                    animated: false
+                )
+            } else if pageSnap {
+                let targetPage = previousScrollPosition != scrollPosition
+                    ? Int(scrollPosition ?? 0)
+                    : (previousPage ?? Int(scrollPosition ?? 0))
+                coordinator.scrollToPage(targetPage, in: tableView)
+            } else {
+                coordinator.applyScrollPosition(to: tableView)
+            }
+            return
         } else if previousScrollPosition != scrollPosition {
             coordinator.applyScrollPosition(to: tableView)
         }
 
-        guard previousRowCount != rowCount else {
-            if let visibleRows = tableView.indexPathsForVisibleRows, !visibleRows.isEmpty {
-                tableView.reconfigureRows(at: visibleRows)
-            }
-            // <nexa:sticky-header-update-view:begin>
-            if let header = tableView.headerView(forSection: 0), let headerContent {
-                header.contentConfiguration = UIHostingConfiguration {
-                    headerContent()
-                }
-                .margins(.all, 0)
-            }
-            // <nexa:sticky-header-update-view:end>
-            return
+        if let visibleRows = tableView.indexPathsForVisibleRows, !visibleRows.isEmpty {
+            tableView.reconfigureRows(at: visibleRows)
         }
-        tableView.reloadData()
+        // <nexa:sticky-header-update-view:begin>
+        if let header = tableView.headerView(forSection: 0), let headerContent {
+            header.contentConfiguration = UIHostingConfiguration {
+                headerContent()
+            }
+            .margins(.all, 0)
+        }
+        // <nexa:sticky-header-update-view:end>
     }
 
     final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
         var rowCount: Int
         var rowHeight: CGFloat?
         var rowKey: ((Int) -> AnyHashable)?
+        var reverseLayout: Bool
+        var pageSnap: Bool
+        var pageHeight: CGFloat
         var scrollPosition: Int32?
         var onScrollPositionChanged: ((Int) -> Void)?
         var refreshController: NexaFastListRefreshController?
@@ -424,6 +518,8 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
             rowCount: Int,
             rowHeight: CGFloat?,
             rowKey: ((Int) -> AnyHashable)?,
+            reverseLayout: Bool,
+            pageSnap: Bool,
             scrollPosition: Int32?,
             onScrollPositionChanged: ((Int) -> Void)?,
             onEndReached: (() -> Void)?,
@@ -438,6 +534,9 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
             self.rowCount = rowCount
             self.rowHeight = rowHeight
             self.rowKey = rowKey
+            self.reverseLayout = reverseLayout
+            self.pageSnap = pageSnap
+            self.pageHeight = 0
             self.scrollPosition = scrollPosition
             self.onScrollPositionChanged = onScrollPositionChanged
             self.refreshController = nil
@@ -454,6 +553,33 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
             super.init()
         }
 
+        func updatePageHeight(_ height: CGFloat, in tableView: UITableView) {
+            guard pageSnap, height > 0, abs(height - pageHeight) > 0.5 else { return }
+            let page = pageHeight > 0
+                ? currentPage(in: tableView)
+                : min(max(Int(scrollPosition ?? 0), 0), max(0, rowCount - 1))
+            pageHeight = height
+            tableView.rowHeight = height
+            tableView.estimatedRowHeight = height
+            tableView.reloadData()
+            tableView.layoutIfNeeded()
+            scrollToPage(page, in: tableView)
+        }
+
+        func currentPage(in tableView: UITableView) -> Int {
+            guard pageHeight > 0, rowCount > 0 else { return 0 }
+            let position = (tableView.contentOffset.y + tableView.adjustedContentInset.top) / pageHeight
+            return min(max(Int(position.rounded()), 0), rowCount - 1)
+        }
+
+        func scrollToPage(_ requestedPage: Int, in tableView: UITableView) {
+            guard pageSnap, pageHeight > 0, rowCount > 0 else { return }
+            let page = min(max(requestedPage, 0), rowCount - 1)
+            let targetOffsetY = CGFloat(page) * pageHeight - tableView.adjustedContentInset.top
+            guard abs(tableView.contentOffset.y - targetOffsetY) > 1 else { return }
+            tableView.scrollToRow(at: IndexPath(row: page, section: 0), at: .top, animated: false)
+        }
+
         func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
             rowCount
         }
@@ -461,11 +587,15 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
         func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
             let cell = tableView.dequeueReusableCell(withIdentifier: nexaFastListCellReuseIdentifier, for: indexPath)
             cell.selectionStyle = .none
+            cell.transform = reverseLayout
+                ? CGAffineTransform(scaleX: 1, y: -1)
+                : .identity
+            let row = reverseLayout ? rowCount - 1 - indexPath.row : indexPath.row
             cell.contentConfiguration = UIHostingConfiguration {
                 if let rowKey {
-                    rowContent(indexPath.row).id(rowKey(indexPath.row))
+                    rowContent(row).id(rowKey(row))
                 } else {
-                    rowContent(indexPath.row)
+                    rowContent(row)
                 }
             }
             .margins(.all, 0)
@@ -495,14 +625,22 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
         // <nexa:sticky-header-delegate-methods:end>
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            guard !pageSnap else { return }
+            let visibleRows = (scrollView as? UITableView)?.indexPathsForVisibleRows ?? []
+            let visiblePosition = reverseLayout
+                ? visibleRows.map(\.row).max()
+                : visibleRows.first?.row
+            let logicalPosition = visiblePosition.map { position in
+                reverseLayout ? rowCount - 1 - position : position
+            }
             // <nexa:scroll-events-condition-active:begin>
             if (onScrollPositionChanged != nil || onScroll != nil),
-               let position = (scrollView as? UITableView)?.indexPathsForVisibleRows?.first?.row,
+               let position = logicalPosition,
                lastReportedScrollPosition != position
             // <nexa:scroll-events-condition-active:end>
             // <nexa:scroll-events-condition-inactive:begin>
             if onScrollPositionChanged != nil,
-               let position = (scrollView as? UITableView)?.indexPathsForVisibleRows?.first?.row,
+               let position = logicalPosition,
                lastReportedScrollPosition != position
             // <nexa:scroll-events-condition-inactive:end>
             {
@@ -521,14 +659,81 @@ private struct NexaFastList<RowContent: View, HeaderContent: View>: UIViewRepres
             onEndReached()
         }
 
+        func scrollViewWillEndDragging(
+            _ scrollView: UIScrollView,
+            withVelocity velocity: CGPoint,
+            targetContentOffset: UnsafeMutablePointer<CGPoint>
+        ) {
+            guard pageSnap,
+                  rowCount > 0,
+                  pageHeight > 0,
+                  let tableView = scrollView as? UITableView
+            else {
+                return
+            }
+
+            let current = min(
+                max(lastReportedScrollPosition ?? currentPage(in: tableView), 0),
+                rowCount - 1
+            )
+            let proposedOffset = targetContentOffset.pointee.y + tableView.adjustedContentInset.top
+            var proposed = Int((proposedOffset / pageHeight).rounded())
+            if proposed == current && abs(velocity.y) > 0.2 {
+                proposed += velocity.y > 0 ? 1 : -1
+            }
+            let target = min(max(proposed, current - 1), current + 1)
+            let boundedTarget = min(max(target, 0), rowCount - 1)
+            targetContentOffset.pointee.y = CGFloat(boundedTarget) * pageHeight
+                - tableView.adjustedContentInset.top
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            reportSettledPage(in: scrollView)
+        }
+
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            if !decelerate {
+                reportSettledPage(in: scrollView)
+            }
+        }
+
+        func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+            reportSettledPage(in: scrollView)
+        }
+
+        private func reportSettledPage(in scrollView: UIScrollView) {
+            guard pageSnap, rowCount > 0, let tableView = scrollView as? UITableView else { return }
+            let page = currentPage(in: tableView)
+            if lastReportedScrollPosition != page {
+                lastReportedScrollPosition = page
+                onScrollPositionChanged?(page)
+                // <nexa:scroll-events-callback:begin>
+                onScroll?()
+                // <nexa:scroll-events-callback:end>
+            }
+            guard let onEndReached, page == rowCount - 1, lastEndReachedRowCount != rowCount else {
+                return
+            }
+            lastEndReachedRowCount = rowCount
+            onEndReached()
+        }
+
         func applyScrollPosition(to tableView: UITableView) {
             guard let scrollPosition, rowCount > 0 else { return }
             let target = min(max(Int(scrollPosition), 0), rowCount - 1)
-            guard (tableView.indexPathsForVisibleRows?.first?.row ?? -1) != target else {
+            let visualTarget = reverseLayout ? rowCount - 1 - target : target
+            let visiblePosition = reverseLayout
+                ? tableView.indexPathsForVisibleRows?.map(\.row).max()
+                : tableView.indexPathsForVisibleRows?.first?.row
+            guard (visiblePosition ?? -1) != visualTarget else {
                 return
             }
             lastReportedScrollPosition = target
-            tableView.scrollToRow(at: IndexPath(row: target, section: 0), at: .top, animated: false)
+            tableView.scrollToRow(
+                at: IndexPath(row: visualTarget, section: 0),
+                at: reverseLayout ? .bottom : .top,
+                animated: false
+            )
         }
     }
 }
@@ -852,7 +1057,7 @@ private struct NexaFastGridList<RowContent: View>: UIViewRepresentable {
         )
         let group = NSCollectionLayoutGroup.horizontal(
             layoutSize: groupSize,
-            subitem: item,
+            repeatingSubitem: item,
             count: columns
         )
         let layout = UICollectionViewCompositionalLayout(

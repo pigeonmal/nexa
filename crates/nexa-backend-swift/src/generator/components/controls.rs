@@ -210,6 +210,7 @@ pub(crate) fn render_pressable(
     let Node::Pressable {
         disabled,
         haptic,
+        fill_max_size,
         children,
         actions,
         double_tap_actions,
@@ -281,12 +282,17 @@ pub(crate) fn render_pressable(
         indent(out, depth);
         out.push('}');
         out.push_str(".buttonStyle(.plain)");
+        if *fill_max_size {
+            out.push_str(
+                ".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())",
+            );
+        }
         if !matches!(disabled, nexa_ir::Expr::Bool(false)) {
             out.push_str(".disabled(");
             out.push_str(&expression(disabled));
             out.push(')');
         }
-        out.push_str(".highPriorityGesture(\n");
+        out.push_str(".gesture(\n");
         indent(out, depth + 1);
         out.push_str("TapGesture(count: 2)\n");
         indent(out, depth + 2);
@@ -367,6 +373,11 @@ pub(crate) fn render_pressable(
         out.push(')');
     }
     out.push_str(".buttonStyle(.plain)");
+    if *fill_max_size {
+        out.push_str(
+            ".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())",
+        );
+    }
     if !matches!(disabled, nexa_ir::Expr::Bool(true)) && !long_press_actions.is_empty() {
         out.push_str(".onLongPressGesture(minimumDuration: ");
         out.push_str(&long_press_duration_seconds(long_press_duration_ms));

@@ -1,0 +1,51 @@
+app TodoArchetype {
+    state newTitle: String = ""
+    state tasks: Array<String> = ["Review pull requests", "Ship the Android build"]
+    state privateNote: String = ""
+    state saveMessage: String = ""
+    state lastSavedAt: String = "Not saved yet"
+    state saveTask: TaskHandle? = null
+
+    body {
+        Column(spacing: 16, padding: 16) {
+            Text("To-Do")
+            Text("Open tasks: \(tasks.count)")
+
+            Row(spacing: 8) {
+                TextInput(value: newTitle, placeholder: "Add a task")
+                Button("Add") {
+                    if newTitle != "" {
+                        tasks.append(newTitle)
+                        newTitle = ""
+                    }
+                }
+            }
+
+            FastList(count: tasks.count, rowHeight: 56) { index in
+                Row(spacing: 8, padding: 8) {
+                    Text(tasks[index])
+                    Spacer()
+                    Button("Done") {
+                        tasks.remove(index)
+                    }
+                }
+            }
+
+            TextInput(value: privateNote, placeholder: "Private note")
+            Button("Save private note") {
+                Task.launch(handle: saveTask, executor: TaskExecutor.Main) {
+                    try {
+                        await SecureStorage.set(key: "todo.private-note", value: privateNote)
+                        saveMessage = "Private note saved"
+                    } catch {
+                        saveMessage = "Private note could not be saved"
+                    }
+                }
+                Storage.setString(key: "todo.last-saved", value: Time.iso8601(timestamp: Time.now()))
+                lastSavedAt = Storage.getString(key: "todo.last-saved") ?? "Not saved yet"
+            }
+            Text(saveMessage)
+            Text("Last saved: \(lastSavedAt)")
+        }
+    }
+}

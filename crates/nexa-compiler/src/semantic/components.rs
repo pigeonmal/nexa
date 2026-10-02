@@ -4,11 +4,11 @@ use nexa_diagnostics::{CompileError, Span};
 use nexa_ir::walk::any_node;
 use nexa_ir::{
     AccessibilityRole, Action, AutofillType, BottomBarTab, Capitalization, CollectionMutation,
-    DirectionConfig, DirectionStyle, Expr, FastListRefresh, FontWeight, HapticStyle, ImageScale,
-    ImageSource, KeyboardDismissMode, KeyboardType, LayoutKind, ListAxis, ListCommon, ListPlan,
-    NativeComponentEventHandler, Node, NumericType, ReturnKeyType, ScreenId, SectionedListCommon,
-    StatusBarConfig, StatusBarStyle, TaskExecutor as IrTaskExecutor, TextStyle, Type,
-    ViewTransition as IrViewTransition, WhenCase,
+    ColorValue, DirectionConfig, DirectionStyle, Expr, FastListRefresh, FontWeight,
+    GradientDirection, HapticStyle, ImageScale, ImageSource, KeyboardDismissMode, KeyboardType,
+    LayoutKind, ListAxis, ListCommon, ListPlan, NativeComponentEventHandler, Node, NumericType,
+    ReturnKeyType, ScreenId, SectionedListCommon, StatusBarConfig, StatusBarStyle, SystemIcon,
+    TaskExecutor as IrTaskExecutor, TextStyle, Type, ViewTransition as IrViewTransition, WhenCase,
 };
 use nexa_syntax::{ast, catalog};
 
@@ -19,8 +19,8 @@ use super::{
         plugin_error_variant, type_name,
     },
     styles::{
-        lower_opacity, lower_style, lower_view_effects, optional_color, optional_dimension,
-        parse_animation, parse_color_literal,
+        lower_opacity, lower_style, lower_view_effects, number_value, optional_color,
+        optional_dimension, parse_animation, parse_color_literal,
     },
 };
 use crate::Target;
@@ -953,11 +953,139 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 shared_element,
             })
         }
+        ast::Node::ComponentInvocation(inv) if inv.name == "Icon" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let system_expr = take_required_arg(&mut args, &inv.name, "system", span)?;
+            let system = require_string_literal(&system_expr, "Icon system symbol")?;
+            let icon = match system.as_str() {
+                "house.fill" => SystemIcon::Home,
+                "magnifyingglass" => SystemIcon::Search,
+                "tray" => SystemIcon::Inbox,
+                "person" => SystemIcon::Profile,
+                "heart" => SystemIcon::Heart,
+                "heart.fill" => SystemIcon::HeartFilled,
+                "bubble.right" => SystemIcon::Comment,
+                "bubble.right.fill" => SystemIcon::CommentFilled,
+                "bookmark" => SystemIcon::Bookmark,
+                "bookmark.fill" => SystemIcon::BookmarkFilled,
+                "arrowshape.turn.up.right" => SystemIcon::Share,
+                "music.note" => SystemIcon::Music,
+                "chevron.left" => SystemIcon::Back,
+                "tv" => SystemIcon::Screen,
+                "rectangle.on.rectangle" => SystemIcon::Layers,
+                "plus" => SystemIcon::Plus,
+                "xmark" => SystemIcon::Close,
+                "checkmark" => SystemIcon::Checkmark,
+                "paperplane" => SystemIcon::Send,
+                "speaker.wave.2.fill" => SystemIcon::Volume,
+                "speaker.slash.fill" => SystemIcon::VolumeMuted,
+                _ => {
+                    return Err(CompileError::new(
+                        span,
+                        format!("unsupported system icon `{system}`"),
+                    ));
+                }
+            };
+            let description_expr = take_required_arg(&mut args, &inv.name, "description", span)?;
+            let description = require_string_literal(&description_expr, "Icon description")?;
+            let size = take_required_arg(&mut args, &inv.name, "size", span)?;
+            let size = match size {
+                ast::Expr::Number(value, number_span) => value
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|value| value.is_finite() && *value > 0.0 && *value <= 512.0)
+                    .ok_or_else(|| {
+                        CompileError::new(
+                            number_span,
+                            "Icon size must be a positive numeric literal no greater than 512",
+                        )
+                    })?,
+                expr => {
+                    return Err(CompileError::new(
+                        expr.span(),
+                        "Icon size must be a positive numeric literal",
+                    ));
+                }
+            };
+            let tint = parse_color_literal(
+                take_required_arg(&mut args, &inv.name, "tint", span)?,
+                "Icon tint",
+            )?;
+            Ok(Node::SystemIcon {
+                icon,
+                description,
+                size,
+                tint: ColorValue::Static(tint),
+            })
+        }
+        ast::Node::ComponentInvocation(inv) if inv.name == "LinearGradient" => {
+            let span = inv.span;
+            let mut args = inv.arguments;
+            let start_color = parse_color_literal(
+                take_required_arg(&mut args, &inv.name, "startColor", span)?,
+                "LinearGradient startColor",
+            )?;
+            let end_color = parse_color_literal(
+                take_required_arg(&mut args, &inv.name, "endColor", span)?,
+                "LinearGradient endColor",
+            )?;
+            let direction = match args.remove("direction") {
+                None => GradientDirection::TopToBottom,
+                Some(ast::Expr::Name(name, _)) if name == "TopToBottom" => {
+                    GradientDirection::TopToBottom
+                }
+                Some(ast::Expr::Name(name, _)) if name == "BottomToTop" => {
+                    GradientDirection::BottomToTop
+                }
+                Some(ast::Expr::Name(name, _)) if name == "LeadingToTrailing" => {
+                    GradientDirection::LeadingToTrailing
+                }
+                Some(ast::Expr::Name(name, _)) if name == "TrailingToLeading" => {
+                    GradientDirection::TrailingToLeading
+                }
+                Some(expr) => {
+                    return Err(CompileError::new(
+                        expr.span(),
+                        "LinearGradient direction must be TopToBottom, BottomToTop, LeadingToTrailing, or TrailingToLeading",
+                    ));
+                }
+            };
+            let height = match args.remove("height") {
+                None => 180.0,
+                Some(expr) => {
+                    let value = number_value(&expr, "LinearGradient height")?;
+                    if !value.is_finite() || value <= 0.0 || value > 4096.0 {
+                        return Err(CompileError::new(
+                            expr.span(),
+                            "LinearGradient height must be greater than 0 and no greater than 4096",
+                        ));
+                    }
+                    value
+                }
+            };
+            Ok(Node::LinearGradient {
+                start_color: ColorValue::Static(start_color),
+                end_color: ColorValue::Static(end_color),
+                direction,
+                height,
+            })
+        }
         ast::Node::ComponentInvocation(inv) if inv.name == "Pressable" => {
             let span = inv.span;
             let mut args = inv.arguments;
             let disabled = args.remove("disabled");
             let haptic = args.remove("haptic");
+            let fill_max_size = match args.remove("fillMaxSize") {
+                Some(ast::Expr::Bool(value, _)) => value,
+                Some(value) => {
+                    return Err(CompileError::new(
+                        value.span(),
+                        "Pressable `fillMaxSize` must be a Boolean literal",
+                    ));
+                }
+                None => false,
+            };
             let children = match inv.children {
                 ast::ChildBody::Nodes(children) => children,
                 _ => return Err(child_mismatch(span)),
@@ -1136,6 +1264,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             Ok(Node::Pressable {
                 disabled,
                 haptic,
+                fill_max_size,
                 children: lowered_children,
                 actions,
                 double_tap_actions,
@@ -1339,6 +1468,12 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             if lowered_children.len() == 1 {
                 let mut child = lowered_children.pop().expect("one lowered refresh child");
                 if let Node::FastList { plan } = &mut child {
+                    if plan.reverse_layout() {
+                        return Err(CompileError::new(
+                            span,
+                            "`RefreshControl` cannot be combined with FastList `reverseLayout`",
+                        ));
+                    }
                     *plan.refresh_slot() = Some(FastListRefresh { state, actions });
                     return Ok(child);
                 }
@@ -1432,6 +1567,12 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             let axis = args.remove("axis");
             let item_extent = args.remove("rowHeight");
             let scroll_position = args.remove("scrollPosition");
+            let reverse_layout = optional_bool(
+                args.remove("reverseLayout"),
+                false,
+                "FastList reverseLayout",
+            )?;
+            let page_snap = optional_bool(args.remove("pageSnap"), false, "FastList pageSnap")?;
             let mut modifiers = inv.modifiers;
             let on_end_reached = take_modifier_actions(&mut modifiers, span, "onEndReached")?;
             let on_scroll = take_modifier_actions(&mut modifiers, span, "onScroll")?;
@@ -1492,6 +1633,54 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 return Err(CompileError::new(
                     span,
                     "FastList `sections` is supported only for vertical lists",
+                ));
+            }
+            if reverse_layout && !matches!(axis, ListAxis::Vertical) {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `reverseLayout` is supported only for vertical lists",
+                ));
+            }
+            if reverse_layout && sections_source {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `reverseLayout` is supported only for flat count or collection sources",
+                ));
+            }
+            if reverse_layout && sticky_header.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `reverseLayout` cannot be combined with `stickyHeader`",
+                ));
+            }
+            if page_snap && !matches!(axis, ListAxis::Vertical) {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `pageSnap` is supported only for vertical lists",
+                ));
+            }
+            if page_snap && sections_source {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `pageSnap` is supported only for flat count or collection sources",
+                ));
+            }
+            if page_snap && reverse_layout {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `pageSnap` cannot be combined with `reverseLayout`",
+                ));
+            }
+            if page_snap && sticky_header.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `pageSnap` cannot be combined with `stickyHeader`",
+                ));
+            }
+            if page_snap && item_extent.is_some() {
+                return Err(CompileError::new(
+                    span,
+                    "FastList `pageSnap` sets each row to the viewport height; omit `rowHeight`",
                 ));
             }
             if sections_source && sticky_header.is_some() {
@@ -1663,6 +1852,7 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
             if let (Some(item_name), Some(item_type)) = (&item, &item_type) {
                 row_symbols.insert(item_name.clone(), (item_type.clone(), false));
             }
+            let row_cx = child_cx.with_symbols(&row_symbols);
             let key = key
                 .map(|key| {
                     let item_name = item.as_deref().ok_or_else(|| {
@@ -1704,10 +1894,10 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         key.span(),
                         "FastList keys",
                     )?;
-                    lower_expr(&key, Some(&key_type), &cx.exprs(false))
+                    lower_expr(&key, Some(&key_type), &row_cx.exprs(false))
                 })
                 .transpose()?;
-            let lowered_children = lower_nodes(children, &child_cx.with_symbols(&row_symbols))?;
+            let lowered_children = lower_nodes(children, &row_cx)?;
             if lowered_children.is_empty() {
                 return Err(CompileError::new(
                     span,
@@ -1771,6 +1961,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         count,
                         common: ListCommon {
                             axis,
+                            reverse_layout,
+                            page_snap,
                             item_extent,
                             index,
                             key,
@@ -1792,6 +1984,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                         item,
                         common: ListCommon {
                             axis,
+                            reverse_layout,
+                            page_snap,
                             item_extent,
                             index,
                             key,
@@ -1859,6 +2053,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 transition: transition.map(|transition| match transition {
                     ast::ViewTransition::Fade => IrViewTransition::Fade,
                     ast::ViewTransition::SlideFromBottom => IrViewTransition::SlideFromBottom,
+                    ast::ViewTransition::SlideFromLeft => IrViewTransition::SlideFromLeft,
+                    ast::ViewTransition::SlideFromRight => IrViewTransition::SlideFromRight,
                     ast::ViewTransition::Scale => IrViewTransition::Scale,
                 }),
             })
@@ -1919,6 +2115,8 @@ fn lower_node_inner(node: ast::Node, cx: &SemanticContext) -> Result<Node, Compi
                 transition: transition.map(|transition| match transition {
                     ast::ViewTransition::Fade => IrViewTransition::Fade,
                     ast::ViewTransition::SlideFromBottom => IrViewTransition::SlideFromBottom,
+                    ast::ViewTransition::SlideFromLeft => IrViewTransition::SlideFromLeft,
+                    ast::ViewTransition::SlideFromRight => IrViewTransition::SlideFromRight,
                     ast::ViewTransition::Scale => IrViewTransition::Scale,
                 }),
             })

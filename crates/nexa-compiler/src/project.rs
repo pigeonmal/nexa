@@ -380,6 +380,11 @@ fn load_file(
                     .collect();
                 plugin.ios_linker_flags = manifest.ios.linker_flags.clone();
                 plugin.android_permissions = manifest.android.permissions.clone();
+                plugin.android_application_metadata =
+                    manifest.android.application_metadata.clone();
+                plugin.ios_application_delegate = manifest.ios.application_delegate.clone();
+                plugin.android_firebase_messaging_service =
+                    manifest.android.firebase_messaging_service.clone();
                 plugin.android_picture_in_picture = manifest.android.picture_in_picture;
                 plugin.ios_background_modes = manifest.ios.background_modes.clone();
                 plugin.android_media_playback_service =

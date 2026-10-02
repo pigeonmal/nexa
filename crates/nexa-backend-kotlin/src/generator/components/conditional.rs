@@ -25,6 +25,8 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
         "scaleOut",
         "slideInVertically",
         "slideOutVertically",
+        "slideInHorizontally",
+        "slideOutHorizontally",
         "togetherWith",
     ] {
         imports.add(
@@ -37,6 +39,8 @@ pub(crate) fn imports(features: &Features, imports: &mut ImportSet) {
                 "scaleOut" => "androidx.compose.animation.scaleOut",
                 "slideInVertically" => "androidx.compose.animation.slideInVertically",
                 "slideOutVertically" => "androidx.compose.animation.slideOutVertically",
+                "slideInHorizontally" => "androidx.compose.animation.slideInHorizontally",
+                "slideOutHorizontally" => "androidx.compose.animation.slideOutHorizontally",
                 _ => "androidx.compose.animation.togetherWith",
             },
         );
@@ -180,6 +184,12 @@ fn content_transform(transition: ViewTransition) -> &'static str {
         ViewTransition::Fade => "fadeIn() togetherWith fadeOut()",
         ViewTransition::SlideFromBottom => {
             "slideInVertically { height -> height } togetherWith slideOutVertically { height -> height }"
+        }
+        ViewTransition::SlideFromLeft => {
+            "slideInHorizontally { width -> -width } togetherWith slideOutHorizontally { width -> width }"
+        }
+        ViewTransition::SlideFromRight => {
+            "slideInHorizontally { width -> width } togetherWith slideOutHorizontally { width -> -width }"
         }
         ViewTransition::Scale => "scaleIn() togetherWith scaleOut()",
     }

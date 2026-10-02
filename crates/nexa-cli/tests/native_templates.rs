@@ -1051,22 +1051,201 @@ mod template_generation {
         );
 
         let manifest =
-            android_manifest("Demo", "com.example.demo", false, false, &config, &[plugin]);
+            android_manifest("Demo", "com.example.demo", false, false, &config, &[plugin])
+                .expect("Android manifest should generate");
         assert!(manifest.contains("android.permission.CAMERA"));
         assert!(manifest.contains("android.permission.RECORD_AUDIO"));
+    }
+
+    #[test]
+    fn android_plugin_application_metadata_reaches_manifest_and_gradle() {
+        let mut maps = plugin("Maps");
+        maps.artifacts.android_application_metadata = vec![
+            (
+                "com.google.android.geo.API_KEY".to_owned(),
+                "${NEXA_MAPS_API_KEY}".to_owned(),
+            ),
+            (
+                "com.example.maps.description".to_owned(),
+                "Maps & Places".to_owned(),
+            ),
+        ];
+        maps.artifacts.android_permissions = vec!["android.permission.INTERNET".to_owned()];
+        let config = ProjectConfig::from_defaults(&[], "Demo").expect("default project config");
+
+        let manifest = templates::android_manifest(
+            "Demo",
+            "com.example.demo",
+            false,
+            false,
+            &config,
+            &[maps.clone()],
+        )
+        .expect("Android application metadata should generate");
+        assert!(manifest.contains("android.permission.INTERNET"));
+        assert!(manifest.contains(
+            "<meta-data android:name=\"com.google.android.geo.API_KEY\" android:value=\"${NEXA_MAPS_API_KEY}\" />"
+        ));
+        assert!(manifest.contains("android:value=\"Maps &amp; Places\""));
+
+        let gradle = templates::android_app_gradle_with_dev_runtime(
+            "Demo",
+            nexa_backend_kotlin::KotlinProjectFeatures::default(),
+            &[maps],
+            &[],
+            &config,
+            false,
+        )
+        .expect("environment-backed manifest placeholders should generate");
+        assert!(gradle.contains(
+            "manifestPlaceholders[\"NEXA_MAPS_API_KEY\"] = providers.environmentVariable(\"NEXA_MAPS_API_KEY\").orElse(\"\").get()"
+        ));
+    }
+
+    #[test]
+    fn native_notification_services_reach_both_generated_hosts() {
+        let config = ProjectConfig::from_defaults(&[], "Demo").expect("default project config");
+        let mut notifications = plugin("Notifications");
+        notifications.artifacts.ios_application_delegate =
+            Some("NotificationsAppDelegate".to_owned());
+        notifications.artifacts.android_firebase_messaging_service =
+            Some("dev.nexa.notifications.NotificationsFirebaseMessagingService".to_owned());
+        notifications.artifacts.ios_entitlements.push((
+            "aps-environment".to_owned(),
+            nexa_plugin_idl::manifest::EntitlementValue::String("development".to_owned()),
+        ));
+
+        let app_source =
+            templates::ios_app_source("Demo", "DemoRoot()", &[], &[notifications.clone()])
+                .expect("iOS app delegate should integrate");
+        assert!(app_source.contains(
+            "@UIApplicationDelegateAdaptor(NotificationsAppDelegate.self) private var nexaApplicationDelegate"
+        ));
+
+        let manifest = templates::android_manifest(
+            "Demo",
+            "com.example.demo",
+            false,
+            false,
+            &config,
+            &[notifications.clone()],
+        )
+        .expect("Android messaging service should integrate");
+        assert!(manifest.contains(
+            "<service android:name=\"dev.nexa.notifications.NotificationsFirebaseMessagingService\" android:exported=\"false\"><intent-filter><action android:name=\"com.google.firebase.MESSAGING_EVENT\" /></intent-filter></service>"
+        ));
+
+        let debug = templates::ios_entitlements(&config, &[notifications.clone()])
+            .expect("debug entitlements should generate")
+            .expect("APNs requires entitlements");
+        let release = templates::ios_release_entitlements(&config, &[notifications.clone()])
+            .expect("release entitlements should generate")
+            .expect("APNs requires entitlements");
+        assert!(debug.contains("<key>aps-environment</key><string>development</string>"));
+        assert!(release.contains("<key>aps-environment</key><string>production</string>"));
+
+        let xcode_project = templates::ios_project_file_with_config(
+            "Demo",
+            false,
+            false,
+            false,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[notifications],
+            &config,
+        )
+        .expect("APNs should choose configuration-specific entitlements");
+        assert!(xcode_project.contains("CODE_SIGN_ENTITLEMENTS = Demo/Nexa-Release.entitlements"));
+        assert!(xcode_project.contains("CODE_SIGN_ENTITLEMENTS = Demo/Nexa.entitlements"));
+    }
+
+    #[test]
+    fn android_firebase_app_options_become_default_sdk_resources() {
+        let idl = nexa_plugin_idl::parse(
+            r#"config {
+                fcmApiKey: String = ""
+                fcmApplicationId: String = ""
+                fcmProjectId: String = ""
+                fcmSenderId: String = ""
+            }"#,
+        )
+        .expect("notification config IDL should parse");
+        let definitions = [crate::config::PluginDefinition {
+            namespace: "Notifications".to_owned(),
+            idl,
+        }];
+        let directory = nexa_testkit::TempDir::new("nexa-firebase-config");
+        let path = directory.path().join("nexa.config.nx");
+        fs::write(
+            &path,
+            r#"config {
+                plugins {
+                    Notifications {
+                        fcmApiKey: "api<&key",
+                        fcmApplicationId: "1:123:android:app",
+                        fcmProjectId: "project-id",
+                        fcmSenderId: "123",
+                    }
+                }
+            }"#,
+        )
+        .expect("write Firebase app config");
+        let config = ProjectConfig::parse_file(&path, &definitions, "Demo")
+            .expect("Firebase app config should resolve");
+        let mut plugin = plugin("Notifications");
+        plugin.artifacts.android_firebase_messaging_service =
+            Some("dev.nexa.notifications.NotificationsFirebaseMessagingService".to_owned());
+
+        let resources = templates::android_firebase_resources(&[plugin], &config)
+            .expect("Firebase resources should render")
+            .expect("configured Firebase options should create resources");
+        assert!(resources.contains("name=\"google_app_id\""));
+        assert!(resources.contains("1:123:android:app"));
+        assert!(resources.contains("api&lt;&amp;key"));
+        assert!(resources.contains("name=\"gcm_defaultSenderId\""));
+    }
+
+    #[test]
+    fn conflicting_android_plugin_application_metadata_is_rejected() {
+        let mut first = plugin("First");
+        first.artifacts.android_application_metadata.push((
+            "com.example.maps.API_KEY".to_owned(),
+            "${FIRST_MAPS_KEY}".to_owned(),
+        ));
+        let mut second = plugin("Second");
+        second.artifacts.android_application_metadata.push((
+            "com.example.maps.API_KEY".to_owned(),
+            "${SECOND_MAPS_KEY}".to_owned(),
+        ));
+        let config = ProjectConfig::from_defaults(&[], "Demo").expect("default project config");
+
+        let error = templates::android_manifest(
+            "Demo",
+            "com.example.demo",
+            false,
+            false,
+            &config,
+            &[first, second],
+        )
+        .expect_err("conflicting metadata values must be rejected");
+        assert!(error.contains("conflicting values from plugins"));
     }
 
     #[test]
     fn plugin_picture_in_picture_metadata_reaches_only_opted_in_hosts() {
         let config = ProjectConfig::from_defaults(&[], "Demo").expect("empty project config");
         let without_video =
-            android_manifest("Demo", "com.example.demo", false, false, &config, &[]);
+            android_manifest("Demo", "com.example.demo", false, false, &config, &[])
+                .expect("Android manifest should generate");
         assert!(!without_video.contains("android:supportsPictureInPicture"));
 
         let mut video = plugin("Video");
         video.artifacts.android_picture_in_picture = true;
         let with_video =
-            android_manifest("Demo", "com.example.demo", false, false, &config, &[video]);
+            android_manifest("Demo", "com.example.demo", false, false, &config, &[video])
+                .expect("Android manifest should generate");
         assert!(with_video.contains("android:supportsPictureInPicture=\"true\""));
         assert!(with_video.contains(
             "android:configChanges=\"screenSize|smallestScreenSize|screenLayout|orientation\""
@@ -1076,7 +1255,8 @@ mod template_generation {
     #[test]
     fn android_launcher_uses_the_user_orientation_policy_at_startup() {
         let config = ProjectConfig::from_defaults(&[], "Demo").expect("empty project config");
-        let manifest = android_manifest("Demo", "com.example.demo", false, false, &config, &[]);
+        let manifest = android_manifest("Demo", "com.example.demo", false, false, &config, &[])
+            .expect("Android manifest should generate");
 
         assert!(manifest.contains("android:screenOrientation=\"fullUser\""));
         assert!(!manifest.contains("android:screenOrientation=\"portrait\""));
@@ -1085,7 +1265,8 @@ mod template_generation {
     #[test]
     fn connectivity_status_adds_state_permission_without_internet_transport() {
         let config = ProjectConfig::from_defaults(&[], "Demo").expect("empty project config");
-        let manifest = android_manifest("Demo", "com.example.demo", false, true, &config, &[]);
+        let manifest = android_manifest("Demo", "com.example.demo", false, true, &config, &[])
+            .expect("Android manifest should generate");
 
         assert!(manifest.contains("android.permission.ACCESS_NETWORK_STATE"));
         assert!(!manifest.contains("android.permission.INTERNET"));
@@ -1107,7 +1288,8 @@ mod template_generation {
         );
 
         let manifest =
-            android_manifest("Demo", "com.example.demo", false, false, &config, &[audio]);
+            android_manifest("Demo", "com.example.demo", false, false, &config, &[audio])
+                .expect("Android manifest should generate");
         assert!(manifest.contains("android.permission.FOREGROUND_SERVICE"));
         assert!(manifest.contains("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"));
         assert!(manifest.contains(
@@ -1147,7 +1329,8 @@ mod template_generation {
             false,
             &config,
             &[],
-        );
+        )
+        .expect("Android manifest should generate");
         let platform_permissions = [
             (
                 "camera",
@@ -1336,7 +1519,8 @@ mod template_generation {
             false,
             &config,
             &[],
-        );
+        )
+        .expect("Android manifest should generate");
         assert!(manifest.contains("android:scheme=\"nexa\""));
         assert!(manifest.contains("android:autoVerify=\"true\""));
         assert!(manifest.contains("android:host=\"links.example.com\""));

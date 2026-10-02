@@ -367,6 +367,11 @@ public object NexaRuntimeCore {
         "NexaRuntime.bind must run before a native API call"
     }
 
+    /** Returns the currently bound host Activity without retaining it. */
+    public fun currentActivity(): android.app.Activity? = foregroundActivity?.get()?.takeUnless {
+        it.isFinishing || it.isDestroyed
+    }
+
     public fun dismissKeyboard() {
         val activity = foregroundActivity?.get() ?: return
         activity.runOnUiThread {

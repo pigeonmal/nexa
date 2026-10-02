@@ -220,7 +220,16 @@ fn component_schemas_cover_every_vocabulary_entry() {
 fn fast_list_source_grammar_is_catalogued() {
     let schema = catalog::component_schema("FastList").expect("FastList schema");
     let options: Vec<&str> = schema.arguments.iter().map(|arg| arg.name).collect();
-    assert_eq!(options, ["axis", "rowHeight", "scrollPosition"]);
+    assert_eq!(
+        options,
+        [
+            "axis",
+            "rowHeight",
+            "scrollPosition",
+            "reverseLayout",
+            "pageSnap"
+        ]
+    );
     assert_eq!(catalog::FASTLIST_SOURCE_KEYS, ["count", "sections"]);
     assert_eq!(catalog::FASTLIST_KEY_OPTION, "key");
 }

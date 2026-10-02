@@ -1,0 +1,8 @@
+import "screens/Chat.nx"
+plugin "../../../plugins/websocket" as WebSocket
+
+app ChatArchetype {
+    body {
+        NavigationStack(root: Chat)
+    }
+}

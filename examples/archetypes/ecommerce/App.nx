@@ -1,0 +1,86 @@
+plugin "../../../plugins/media-picker" as MediaPicker
+
+struct CatalogSummary {
+    total: Int32,
+}
+
+app ECommerceArchetype {
+    state products: Array<String> = ["Everyday Backpack", "Ceramic Pour-Over", "Travel Bottle", "Desk Lamp"]
+    state prices: Array<Float64> = [68.0, 34.5, 22.0, 49.0]
+    state productImages: Array<String> = [
+        "https://images.unsplash.com/photo-1553062407-98eeb64c6a62",
+        "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085",
+        "https://images.unsplash.com/photo-1602143407151-7111542de6e8",
+        "https://images.unsplash.com/photo-1507473885765-e6ed057f782c",
+    ]
+    state categories: Array<String> = ["All", "Home", "Travel"]
+    state selectedCategory: String = "All"
+    state cartCount: Int32 = 0
+    state showCart: Bool = false
+    state pickedImage: String = "No image selected"
+    state pickerError: String = ""
+    state catalogStatus: String = "Catalog not synced"
+    state syncTask: TaskHandle? = null
+
+    body {
+        Column(spacing: 12, padding: 16) {
+            Row(spacing: 8) {
+                Text("Nexa Market")
+                Spacer()
+                Button("Cart (\(cartCount))") {
+                    showCart = true
+                }
+            }
+
+            SegmentedControl(items: categories, selected: selectedCategory)
+            Text("Showing \(selectedCategory) products")
+
+            FastList(count: products.count, axis: Grid(2), rowHeight: 240) { index in
+                Column(spacing: 6, padding: 8) {
+                    Image(url: productImages[index], description: "Product photo", scale: Fill)
+                    Text(products[index])
+                    Text(Number.formatCurrency(amount: prices[index], currencyCode: "EUR"))
+                    Button("Add to cart") {
+                        cartCount = cartCount + 1
+                    }
+                }
+            }
+
+            MediaPicker.MediaPickerControl(isVideo: false) {
+                Text("Choose a product photo")
+            }.onPicked { uri ->
+                pickedImage = uri
+                pickerError = ""
+            }.onFailed { message ->
+                pickerError = message
+            }
+            Text(pickedImage)
+            Text(pickerError)
+            Text(catalogStatus)
+
+            Button("Sync catalog") {
+                Task.launch(handle: syncTask, executor: TaskExecutor.Main) {
+                    try {
+                        catalogStatus = Json.stringify<Result<CatalogSummary, JsonError>>(
+                            value: Json.parse<CatalogSummary>(
+                                raw: (await Network.fetch(url: "https://dummyjson.com/products?limit=1")).body
+                            )
+                        )
+                    } catch {
+                        catalogStatus = "Catalog sync failed"
+                    }
+                }
+            }
+
+            BottomSheet(isPresented: showCart, partial: true) {
+                Column(spacing: 12, padding: 20) {
+                    Text("Your cart")
+                    Text("Items: \(cartCount)")
+                    Button("Continue shopping") {
+                        showCart = false
+                    }
+                }
+            }
+        }
+    }
+}

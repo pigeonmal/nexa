@@ -1,0 +1,70 @@
+plugin "../../../plugins/sensors" as Sensors
+plugin "../../../plugins/mmkv" as MMKV
+
+app FitnessArchetype {
+    let sensors = Sensors()
+    let store = MMKV.MMKVStore("fitness", null, false)
+
+    state steps: Int64 = 0
+    state savedSteps: Int64 = 0
+    state sensorMessage: String = "Motion tracking is stopped."
+    state selectedPeriod: String = "Week"
+    state periods: Array<String> = ["Day", "Week", "Month"]
+    state workouts: Array<String> = ["Morning walk · 32 min", "Strength · 45 min", "Evening ride · 28 min"]
+
+    body {
+        OnAppear async {
+            steps = store.getInt64("today.steps") ?? 0
+            savedSteps = steps
+            sensors.stepsChanged { reading ->
+                steps = reading.steps
+            }
+
+            if await Permissions.request(permission: Motion) == PermissionStatus.granted {
+                try {
+                    await sensors.startPedometer()
+                    sensorMessage = "Step tracking is active."
+                } catch {
+                    case Sensors.SensorError.permissionNotGranted {
+                        sensorMessage = "Motion permission is not available."
+                    }
+                    case Sensors.SensorError.pedometerUnavailable {
+                        sensorMessage = "A pedometer is not available on this device."
+                    }
+                    else {
+                        sensorMessage = "Step tracking could not start."
+                    }
+                }
+            } else {
+                sensorMessage = "Grant motion access to count steps."
+            }
+        }
+
+        OnDisappear {
+            sensors.dispose()
+            store.dispose()
+        }
+
+        Column(spacing: 16, padding: 20) {
+            Text("Nexa Fitness")
+            Text("Today's steps")
+            Text("\(steps)")
+            ProgressRing(progress: 0.72)
+            Text(sensorMessage)
+            Button("Save today's steps") {
+                if (store.setInt64("today.steps", steps)) {
+                    savedSteps = steps
+                } else {
+                    sensorMessage = "Today's steps could not be saved."
+                }
+            }
+            Text("Saved steps: \(savedSteps)")
+
+            SegmentedControl(items: periods, selected: selectedPeriod)
+            Text("Workout history · \(selectedPeriod)")
+            FastList(count: workouts.count, rowHeight: 56) { index in
+                Text(workouts[index])
+            }
+        }
+    }
+}

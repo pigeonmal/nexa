@@ -186,6 +186,8 @@ pub fn walk_ir(
             Node::Content
             | Node::Spacer
             | Node::Divider { .. }
+            | Node::SystemIcon { .. }
+            | Node::LinearGradient { .. }
             | Node::Switch { .. }
             | Node::Slider { .. }
             | Node::StatusBar { .. }
@@ -554,6 +556,8 @@ pub fn contains_scrollable(nodes: &[Node]) -> bool {
         | Node::SegmentedControl { .. }
         | Node::Picker { .. }
         | Node::Image { .. }
+        | Node::SystemIcon { .. }
+        | Node::LinearGradient { .. }
         | Node::NavigationStack { .. }
         | Node::NavigationBack { .. }
         | Node::ComponentCall { .. }
@@ -1020,6 +1024,8 @@ pub fn walk_node_children<V: IrVisitor>(node: &Node, visitor: &mut V) {
         Node::Content
         | Node::Spacer
         | Node::Divider { .. }
+        | Node::SystemIcon { .. }
+        | Node::LinearGradient { .. }
         | Node::Switch { .. }
         | Node::Slider { .. }
         | Node::StatusBar { .. }
@@ -1320,6 +1326,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::Pressable {
             disabled,
             haptic,
+            fill_max_size,
             children,
             actions,
             double_tap_actions,
@@ -1332,6 +1339,7 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         } => Some(Node::Pressable {
             disabled: folder.fold_expr(disabled),
             haptic,
+            fill_max_size,
             children: folder.fold_nodes(children),
             actions: folder.fold_actions(actions),
             double_tap_actions: folder.fold_actions(double_tap_actions),
@@ -1567,6 +1575,8 @@ pub fn fold_node_children<F: IrFolder>(node: Node, folder: &mut F) -> Option<Nod
         Node::Content
         | Node::Spacer
         | Node::Divider { .. }
+        | Node::SystemIcon { .. }
+        | Node::LinearGradient { .. }
         | Node::Switch { .. }
         | Node::Slider { .. }
         | Node::StatusBar { .. }

@@ -577,6 +577,8 @@ fn collect_ir_component_calls(node: &Node, calls: &mut HashSet<String>) {
         | Node::SegmentedControl { .. }
         | Node::Picker { .. }
         | Node::Image { .. }
+        | Node::SystemIcon { .. }
+        | Node::LinearGradient { .. }
         | Node::NavigationStack { .. }
         | Node::NavigationBack { .. }
         | Node::Direction { .. }

@@ -57,16 +57,23 @@ pub struct PlatformManifest {
     pub usage_descriptions: Vec<(String, String)>,
     /// iOS code-signing entitlements requested by this plugin.
     pub entitlements: Vec<(String, EntitlementValue)>,
+    /// SwiftUI host app-delegate type supplied by this plugin.
+    pub application_delegate: Option<String>,
     /// iOS background modes required by this plugin.
     pub background_modes: Vec<String>,
     /// Additional arguments passed to the iOS linker, each as one argument.
     pub linker_flags: Vec<String>,
     /// Android manifest permissions required by the plugin.
     pub permissions: Vec<String>,
+    /// Android `<application>` metadata entries contributed by the plugin.
+    /// Values may be literal strings or a complete `${ENV_VAR}` placeholder.
+    pub application_metadata: Vec<(String, String)>,
     /// Whether an Android plugin needs the generated activity to support PiP.
     pub picture_in_picture: bool,
     /// Fully qualified media playback service declared by this plugin.
     pub media_playback_service: Option<String>,
+    /// Fully qualified Firebase Cloud Messaging service declared by this plugin.
+    pub firebase_messaging_service: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -424,6 +431,11 @@ impl Parser {
                     platform.entitlements = self.parse_entitlements()?;
                     validate_ios_entitlements(&platform.entitlements)?;
                 }
+                Some("applicationDelegate") if !android => {
+                    let delegate = self.parse_string_field("applicationDelegate")?;
+                    validate_ios_application_delegate(&delegate)?;
+                    platform.application_delegate = Some(delegate);
+                }
                 Some("backgroundModes") if !android => {
                     platform.background_modes = self.parse_string_array_field("backgroundModes")?;
                     validate_ios_background_modes(&platform.background_modes)?;
@@ -436,12 +448,21 @@ impl Parser {
                     platform.permissions = self.parse_string_array_field("permissions")?;
                     validate_android_permissions(&platform.permissions)?;
                 }
+                Some("applicationMetadata") if android => {
+                    platform.application_metadata = self.parse_application_metadata()?;
+                    validate_android_application_metadata(&platform.application_metadata)?;
+                }
                 Some("pictureInPicture") if android => {
                     platform.picture_in_picture = self.parse_bool_field("pictureInPicture")?;
                 }
                 Some("mediaPlaybackService") if android => {
                     platform.media_playback_service =
                         Some(self.parse_string_field("mediaPlaybackService")?);
+                }
+                Some("firebaseMessagingService") if android => {
+                    let service = self.parse_string_field("firebaseMessagingService")?;
+                    validate_android_class_name(&service, "Firebase messaging service")?;
+                    platform.firebase_messaging_service = Some(service);
                 }
                 Some(name) => return self.error(format!("unknown platform field `{name}`")),
                 None => return self.error("expected a platform field"),
@@ -622,6 +643,28 @@ impl Parser {
         Ok(values)
     }
 
+    fn parse_application_metadata(&mut self) -> Result<Vec<(String, String)>, String> {
+        self.expect_identifier("applicationMetadata")?;
+        self.expect(TokenKind::LeftBrace, "`{")?;
+        let mut values = Vec::new();
+        let mut keys = std::collections::HashSet::new();
+        while !self.consume(TokenKind::RightBrace) {
+            if self.at_end() {
+                return self.error("expected `}` to close Android application metadata");
+            }
+            let key = self.expect_string()?;
+            if !keys.insert(key.clone()) {
+                return self.error(format!(
+                    "Android application metadata key `{key}` is declared twice"
+                ));
+            }
+            self.expect(TokenKind::Colon, "`:`")?;
+            values.push((key, self.expect_string()?));
+            self.consume(TokenKind::Comma);
+        }
+        Ok(values)
+    }
+
     fn parse_string_field(&mut self, name: &str) -> Result<String, String> {
         self.expect_identifier(name)?;
         self.expect(TokenKind::Colon, "`:`")?;
@@ -721,9 +764,16 @@ impl Parser {
         validate_ios_frameworks(&manifest.ios.frameworks)?;
         validate_usage_descriptions(&manifest.ios.usage_descriptions)?;
         validate_ios_entitlements(&manifest.ios.entitlements)?;
+        if let Some(delegate) = &manifest.ios.application_delegate {
+            validate_ios_application_delegate(delegate)?;
+        }
         validate_ios_background_modes(&manifest.ios.background_modes)?;
         validate_ios_linker_flags(&manifest.ios.linker_flags)?;
         validate_android_permissions(&manifest.android.permissions)?;
+        validate_android_application_metadata(&manifest.android.application_metadata)?;
+        if let Some(service) = &manifest.android.firebase_messaging_service {
+            validate_android_class_name(service, "Firebase messaging service")?;
+        }
         if let Some(service) = &manifest.android.media_playback_service {
             validate_android_class_name(service, "Android media playback service")?;
         }
@@ -1135,6 +1185,20 @@ fn validate_ios_entitlements(values: &[(String, EntitlementValue)]) -> Result<()
     Ok(())
 }
 
+fn validate_ios_application_delegate(name: &str) -> Result<(), String> {
+    let mut characters = name.chars();
+    let valid = characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_');
+    if !valid {
+        return Err(format!(
+            "iOS application delegate `{name}` must be a Swift type name"
+        ));
+    }
+    Ok(())
+}
+
 fn validate_ios_linker_flags(flags: &[String]) -> Result<(), String> {
     for flag in flags {
         if flag.is_empty() || flag.chars().any(char::is_control) {
@@ -1209,6 +1273,58 @@ fn validate_android_permissions(values: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_android_application_metadata(values: &[(String, String)]) -> Result<(), String> {
+    let mut keys = std::collections::HashSet::new();
+    for (key, value) in values {
+        let valid_key = !key.is_empty()
+            && key.split('.').all(|part| {
+                let mut characters = part.chars();
+                characters.next().is_some_and(|first| {
+                    first.is_ascii_alphabetic() || first == '_'
+                }) && characters.all(|character| {
+                    character.is_ascii_alphanumeric() || character == '_'
+                })
+            });
+        if !valid_key {
+            return Err(format!(
+                "Android application metadata name `{key}` must be a dotted identifier"
+            ));
+        }
+        if !keys.insert(key) {
+            return Err(format!(
+                "Android application metadata key `{key}` is declared twice"
+            ));
+        }
+        if value.is_empty() || value.chars().any(char::is_control) {
+            return Err(format!(
+                "Android application metadata value for `{key}` must be non-empty and contain no control characters"
+            ));
+        }
+        if value.contains("${") {
+            let Some(variable) = value
+                .strip_prefix("${")
+                .and_then(|value| value.strip_suffix('}'))
+            else {
+                return Err(format!(
+                    "Android application metadata placeholder for `{key}` must be a complete environment-variable placeholder"
+                ));
+            };
+            let mut characters = variable.chars();
+            let valid_variable = characters.next().is_some_and(|first| {
+                first.is_ascii_alphabetic() || first == '_'
+            }) && characters.all(|character| {
+                character.is_ascii_alphanumeric() || character == '_'
+            });
+            if !valid_variable {
+                return Err(format!(
+                    "Android application metadata placeholder `{variable}` for `{key}` must be an environment-variable name"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1260,6 +1376,9 @@ mod tests {
                     proguardRules: ["android/rules/vendor.pro"]
                     repositories: ["https://maven.example.com/releases"]
                     permissions: ["android.permission.INTERNET", "android.permission.CAMERA"]
+                    applicationMetadata {
+                        "com.example.sdk.API_KEY": "${EXAMPLE_SDK_API_KEY}"
+                    }
                 }
                 cpp {
                     standard: "c++23"
@@ -1309,6 +1428,13 @@ mod tests {
         assert_eq!(
             manifest.android.permissions,
             vec!["android.permission.INTERNET", "android.permission.CAMERA"]
+        );
+        assert_eq!(
+            manifest.android.application_metadata,
+            vec![(
+                "com.example.sdk.API_KEY".to_owned(),
+                "${EXAMPLE_SDK_API_KEY}".to_owned()
+            )]
         );
         assert_eq!(
             manifest.android.repositories,
@@ -1440,6 +1566,27 @@ mod tests {
         )
         .expect_err("Android plugin minSdk must be a valid API level");
         assert!(min_sdk_error.contains("Android plugin minSdk must be greater than zero"));
+    }
+
+    #[test]
+    fn validates_android_application_metadata_and_environment_placeholders() {
+        let malformed_key = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" sources { native: "native.nxid" } android { applicationMetadata { "com..example.KEY": "value" } } }"#,
+        )
+        .expect_err("metadata keys must be dotted identifiers");
+        assert!(malformed_key.contains("must be a dotted identifier"));
+
+        let malformed_placeholder = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" sources { native: "native.nxid" } android { applicationMetadata { "com.example.KEY": "prefix-${KEY}" } } }"#,
+        )
+        .expect_err("placeholders must occupy the full metadata value");
+        assert!(malformed_placeholder.contains("complete environment-variable placeholder"));
+
+        let invalid_variable = parse(
+            r#"plugin { schema: 2 id: "dev.nexa.bad" version: "1" sources { native: "native.nxid" } android { applicationMetadata { "com.example.KEY": "${bad-key}" } } }"#,
+        )
+        .expect_err("environment variable names must be valid identifiers");
+        assert!(invalid_variable.contains("environment-variable name"));
     }
 
     #[test]

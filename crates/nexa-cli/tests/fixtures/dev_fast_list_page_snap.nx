@@ -1,0 +1,21 @@
+app PageSnapSmoke {
+    state currentPage: Int32 = 0
+    state settledEvents: Int32 = 0
+
+    body {
+        Column {
+            Text("Page snap smoke test")
+            Text("Current page $currentPage")
+            Text("Settled events $settledEvents")
+
+            FastList(count: 4, pageSnap: true, scrollPosition: currentPage) { index in
+                Column(spacing: 24, padding: 32) {
+                    Text("Feed page $index")
+                }
+            }
+            .onScroll {
+                settledEvents = settledEvents + 1
+            }
+        }
+    }
+}

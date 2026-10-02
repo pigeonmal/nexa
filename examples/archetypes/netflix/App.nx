@@ -1,0 +1,55 @@
+plugin "../../../plugins/video-player" as VideoPlayer
+
+app NetflixArchetype {
+    let player = VideoPlayer()
+    state playbackMessage: String = "Choose a title to start streaming."
+    state ended: Bool = false
+    state loadTask: TaskHandle? = null
+
+    body {
+        OnAppear {
+            player.ended {
+                ended = true
+                playbackMessage = "Playback finished"
+            }
+        }
+
+        OnDisappear {
+            player.dispose()
+        }
+
+        Column(spacing: 16, padding: 16) {
+            Text("Nexa Stream")
+            Text("Featured: Sintel")
+            VideoPlayer.VideoView(player: player, controls: true, softwareDecodingEnabled: false) {
+                Text("Sintel — official trailer")
+            }
+            Text(playbackMessage)
+
+            Button("Play trailer") {
+                Task.launch(handle: loadTask, executor: TaskExecutor.Main) {
+                    try {
+                        await player.prepare("https://media.w3.org/2010/05/sintel/trailer.mp4")
+                        player.play()
+                        playbackMessage = "Playing trailer"
+                    } catch {
+                        case VideoPlayer.PlayerError.invalidUrl {
+                            playbackMessage = "The stream URL is invalid."
+                        }
+                        case VideoPlayer.PlayerError.decodingFailed(message) {
+                            playbackMessage = message
+                        }
+                    }
+                }
+            }
+            Row(spacing: 12) {
+                Button("Pause") { player.pause() }
+                Button("Resume") { player.play() }
+                Button("Restart") { player.seek(0.0) }
+            }
+            if ended {
+                Text("You reached the end of this title.")
+            }
+        }
+    }
+}

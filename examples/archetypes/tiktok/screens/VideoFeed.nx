@@ -1,0 +1,607 @@
+import "../../shared/Avatar.nx"
+plugin "../../../../plugins/video-player" as VideoPlayer
+plugin "../../../../plugins/media-picker" as MediaPicker
+
+struct VideoClip {
+    id: String,
+    creator: String,
+    initials: String,
+    caption: String,
+    audio: String,
+    videoUrl: String,
+    avatarUrl: String,
+    audioCoverUrl: String,
+    location: String,
+    shareMetric: String,
+}
+
+screen VideoFeed {
+    let clips: Array<VideoClip> = [
+        VideoClip(
+            "basketball",
+            "@streets.of.nepal",
+            "SN",
+            "One more look at this court in Kathmandu. #basketball #nepal",
+            "original sound · streets.of.nepal",
+            "https://videos.pexels.com/video-files/5275090/5275090-hd_720_1366_25fps.mp4",
+            "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop",
+            "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=80&h=80&fit=crop",
+            "Kathmandu, Nepal · 2h ago",
+            "3.4K",
+        ),
+        VideoClip(
+            "city-walk",
+            "@drone.diaries",
+            "DD",
+            "Saved this for a rainy day. It is raining. #citywalk",
+            "original sound · drone.diaries",
+            "https://videos.pexels.com/video-files/5450594/5450594-hd_720_1280_30fps.mp4",
+            "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=100&h=100&fit=crop",
+            "https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=80&h=80&fit=crop",
+            "Paris, France · 3h ago",
+            "10.9K",
+        ),
+        VideoClip(
+            "park-walk",
+            "@small.moments",
+            "SM",
+            "A quiet walk before the city wakes up. #morning",
+            "original sound · small.moments",
+            "https://videos.pexels.com/video-files/6646056/6646056-hd_720_1280_24fps.mp4",
+            "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop",
+            "https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=80&h=80&fit=crop",
+            "New York, USA · 1d ago",
+            "1.2K",
+        ),
+    ]
+    let player = VideoPlayer()
+
+    state currentPage: Int32 = 0
+    state requestedPage: Int32 = -1
+    state playbackTask: TaskHandle? = null
+    state feedTask: TaskHandle? = null
+    state selectedVideoUri: String = ""
+    state loadedClipId: String = ""
+    state feedStatus: String = "For You · fresh videos"
+    state feedStatusCode: Int32 = 0
+    state playbackStatus: String = ""
+    state isPlaying: Bool = false
+    state isRefreshing: Bool = false
+    state likedClipIds: Set<String> = []
+    state bookmarkedClipIds: Set<String> = []
+    state bookmarkCounts: Map<String, Int32> = [
+        "basketball": 20100,
+        "city-walk": 21400,
+        "park-walk": 9600,
+    ]
+    state likeCounts: Map<String, Int32> = [
+        "basketball": 55400,
+        "city-walk": 431000,
+        "park-walk": 24800,
+    ]
+    state comments: Array<String> = [
+        "Love the energy here!",
+        "This made my day ✨",
+        "Where is this?",
+    ]
+    state commentDraft: String = ""
+    state commentCount: Int32 = 8900
+    state commentsPresented: Bool = false
+    state selectedFeedTab: String = "For You"
+    state selectedBottomTab: String = "Home"
+    state isFollowingCreator: Bool = false
+
+    OnAppear {
+        player.volume = 0.0
+        player.looping = true
+        player.ended {
+            isPlaying = false
+            loadedClipId = ""
+            playbackStatus = "Video ended · tap to replay"
+        }
+
+        player.setPreloadPosition(0)
+        if clips.count > 1 {
+            player.preload(clips[1].videoUrl, 1)
+        }
+        if clips.count > 2 {
+            player.preload(clips[2].videoUrl, 2)
+        }
+
+        if requestedPage != 0 {
+            requestedPage = 0
+            Task.launch(handle: playbackTask, executor: TaskExecutor.Main) {
+                try {
+                    await player.prepare(clips[0].videoUrl)
+                    loadedClipId = clips[0].id
+                    player.play()
+                    isPlaying = true
+                    playbackStatus = ""
+                } catch {
+                    case VideoPlayer.PlayerError.invalidUrl {
+                        playbackStatus = "This video URL is invalid"
+                    }
+                    case VideoPlayer.PlayerError.decodingFailed(message) {
+                        playbackStatus = message
+                    }
+                }
+            }
+        }
+    }
+
+    OnDisappear {
+        Task.cancel(handle: playbackTask)
+        Task.cancel(handle: feedTask)
+        player.dispose()
+    }
+
+    StatusBar(style: Light, hidden: false, background: "#000000")
+
+        Column(spacing: 0, background: "#000000") {
+            Stack(alignment: Center, background: "#000000") {
+                RefreshControl(isRefreshing: isRefreshing) {
+                    FastList(clips, key: .id, pageSnap: true, scrollPosition: currentPage) { clip, index in
+                        Stack(alignment: Center, background: "#090A0E") {
+                            if index == currentPage {
+                                Stack(alignment: Center, background: "#090A0E") {
+                                    VideoPlayer.VideoView(
+                                        player: player,
+                                        controls: false,
+                                        softwareDecodingEnabled: false,
+                                    ) {
+                                        if playbackStatus != "" {
+                                            Text(playbackStatus, color: "#FFFFFF", fontSize: 15, fontWeight: Semibold)
+                                        }
+                                    }
+                                    Pressable(fillMaxSize: true) {
+                                        Column(spacing: 0) {
+                                            Spacer()
+                                            Row(spacing: 0) {
+                                                Spacer()
+                                                Text(" ", color: "#00000000", fontSize: 1)
+                                                Spacer()
+                                            }
+                                        }
+                                    }.onTap {
+                                        if isPlaying {
+                                            player.pause()
+                                            isPlaying = false
+                                            playbackStatus = "Paused · tap to resume"
+                                        } else if loadedClipId == clips[index].id {
+                                            player.play()
+                                            isPlaying = true
+                                            playbackStatus = ""
+                                        } else {
+                                            Task.cancel(handle: playbackTask)
+                                            requestedPage = index
+                                            Task.launch(handle: playbackTask, executor: TaskExecutor.Main) {
+                                                try {
+                                                    await player.prepare(clips[index].videoUrl)
+                                                    loadedClipId = clips[index].id
+                                                    player.play()
+                                                    isPlaying = true
+                                                    playbackStatus = ""
+                                                } catch {
+                                                    case VideoPlayer.PlayerError.invalidUrl {
+                                                        playbackStatus = "This video URL is invalid"
+                                                    }
+                                                    case VideoPlayer.PlayerError.decodingFailed(message) {
+                                                        playbackStatus = message
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }.onDoubleTap {
+                                        if !(clip.id in likedClipIds) {
+                                            likedClipIds.insert(clip.id)
+                                            likeCounts.set(clip.id, (likeCounts[clip.id] ?? 0) + 1)
+                                            Haptics.impact(style: Medium)
+                                        }
+                                    }
+                                }
+                            }
+
+                            platform android {
+                                Column(spacing: 0) {
+                                    Spacer()
+                                    Pressable() {
+                                        LinearGradient(startColor: "#00000000", endColor: "#00000000", direction: BottomToTop, height: 56)
+                                    }.onTap { }
+                                }.zIndex(1)
+                            }
+
+                            platform ios {
+                                Column(spacing: 0) {
+                                    Spacer()
+                                    Pressable() {
+                                        LinearGradient(startColor: "#00000000", endColor: "#00000000", direction: BottomToTop, height: 90)
+                                    }.onTap { }
+                                }.zIndex(1)
+                            }
+                        }
+                    }.onScroll {
+                        if requestedPage != currentPage {
+                            requestedPage = currentPage
+                            player.pause()
+                            isPlaying = false
+                            playbackStatus = ""
+                            Task.cancel(handle: playbackTask)
+                            player.setPreloadPosition(currentPage)
+                            if currentPage + 1 < clips.count {
+                                player.preload(clips[currentPage + 1].videoUrl, currentPage + 1)
+                            }
+                            if currentPage + 2 < clips.count {
+                                player.preload(clips[currentPage + 2].videoUrl, currentPage + 2)
+                            }
+                            Task.launch(handle: playbackTask, executor: TaskExecutor.Main) {
+                                try {
+                                    await player.prepare(clips[currentPage].videoUrl)
+                                    loadedClipId = clips[currentPage].id
+                                    player.play()
+                                    isPlaying = true
+                                    playbackStatus = ""
+                                } catch {
+                                    case VideoPlayer.PlayerError.invalidUrl {
+                                        playbackStatus = "This video URL is invalid"
+                                    }
+                                    case VideoPlayer.PlayerError.decodingFailed(message) {
+                                        playbackStatus = message
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }.onRefresh {
+                    if !isRefreshing {
+                        isRefreshing = true
+                        feedStatus = "Pull down to refresh"
+                        Task.launch(handle: feedTask, executor: TaskExecutor.Main) {
+                            try {
+                                feedStatusCode = (await Network.fetch(url: "https://dummyjson.com/posts?limit=1")).statusCode
+                                feedStatus = "You're all caught up · \(feedStatusCode)"
+                            } catch {
+                                feedStatus = "Refresh failed · check your connection"
+                            }
+                            isRefreshing = false
+                        }
+                    }
+                }
+
+                Column(spacing: 0) {
+                    Stack(alignment: Start) {
+                        LinearGradient(startColor: "#000000B8", endColor: "#00000000", direction: TopToBottom, height: 190)
+                        Row(spacing: 18, padding: 14) {
+                            Pressable() {
+                                Row(spacing: 5) {
+                                    Stack(width: 8, height: 8, background: "#FE2C55", cornerRadius: 4) {}
+                                    Text("LIVE", color: "#FFFFFF", fontSize: 11, fontWeight: Bold)
+                                }
+                            }.onTap {
+                                selectedFeedTab = "LIVE"
+                            }
+                        Spacer()
+                        Column(spacing: 4) {
+                            Pressable() {
+                                if selectedFeedTab == "Following" {
+                                    Text("Following", color: "#FFFFFF", fontSize: 16, fontWeight: Semibold)
+                                } else {
+                                    Text("Following", color: "#D0D0D0", fontSize: 16, fontWeight: Semibold)
+                                }
+                            }.onTap {
+                                selectedFeedTab = "Following"
+                            }
+                            Stack(width: 30, height: 3) {
+                                if selectedFeedTab == "Following" {
+                                    Stack(width: 30, height: 3, background: "#FFFFFF", cornerRadius: 2) {}
+                                }.transition(.slide(from: .right))
+                            }
+                        }
+                        Column(spacing: 4) {
+                            Pressable() {
+                                if selectedFeedTab == "For You" {
+                                    Text("For You", color: "#FFFFFF", fontSize: 16, fontWeight: Semibold)
+                                } else {
+                                    Text("For You", color: "#D0D0D0", fontSize: 16, fontWeight: Semibold)
+                                }
+                            }.onTap {
+                                selectedFeedTab = "For You"
+                            }
+                            Stack(width: 30, height: 3) {
+                                if selectedFeedTab == "For You" {
+                                    Stack(width: 30, height: 3, background: "#FFFFFF", cornerRadius: 2) {}
+                                }.transition(.slide(from: .left))
+                            }
+                        }
+                        Spacer()
+                        Pressable() {
+                            Icon(system: "magnifyingglass", description: "Search", size: 22, tint: "#FFFFFF")
+                        }.onTap {
+                            selectedFeedTab = "Search"
+                        }
+                        }
+                    }
+
+                    Spacer()
+
+                    Row(spacing: 10, alignment: End, padding: 14, background: "#28000000") {
+                        Column(spacing: 6, maxWidth: 260) {
+                            Row(spacing: 8) {
+                                Text(clips[currentPage].creator, color: "#FFFFFF", fontSize: 16, fontWeight: Bold)
+                                Text("✓", color: "#25F4EE", fontSize: 13, fontWeight: Bold)
+                                Pressable() {
+                                    Text(if isFollowingCreator { "Following" } else { "Follow" }, color: "#FFFFFF", fontSize: 12, fontWeight: Bold)
+                                }.onTap {
+                                    isFollowingCreator = !isFollowingCreator
+                                }
+                            }
+                            Text(clips[currentPage].location, color: "#E7E7E7", fontSize: 11, lineLimit: 1)
+                            Text(clips[currentPage].caption, color: "#FFFFFF", fontSize: 14, lineLimit: 2)
+                            Row(spacing: 6) {
+                                Icon(system: "music.note", description: "Audio track", size: 13, tint: "#FFFFFF")
+                                Text(clips[currentPage].audio, color: "#F4F4F4", fontSize: 12, lineLimit: 1)
+                            }
+                            Text(feedStatus, color: "#EEEEEE", fontSize: 10, lineLimit: 1)
+                        }
+                        Spacer()
+                        Column(spacing: 8) {
+                            Stack(alignment: Center, width: 48, height: 58) {
+                                Stack(alignment: Center, width: 46, height: 46, cornerRadius: 23, clip: Rounded(23), borderColor: "#FFFFFF", borderWidth: 1) {
+                                    Image(url: clips[currentPage].avatarUrl, description: "Creator avatar", scale: Fill)
+                                }
+                                Column {
+                                    Spacer()
+                                    Pressable() {
+                                        Stack(alignment: Center, width: 21, height: 21, background: "#FE2C55", cornerRadius: 11) {
+                                            if isFollowingCreator {
+                                                Icon(system: "checkmark", description: "Following", size: 12, tint: "#FFFFFF")
+                                            } else {
+                                                Icon(system: "plus", description: "Follow", size: 13, tint: "#FFFFFF")
+                                            }
+                                        }
+                                    }.onTap {
+                                        isFollowingCreator = !isFollowingCreator
+                                    }
+                                }
+                            }
+                            Pressable(haptic: Light) {
+                                Column(spacing: 1) {
+                                    if clips[currentPage].id in likedClipIds {
+                                        Icon(system: "heart.fill", description: "Liked", size: 34, tint: "#FE2C55")
+                                    } else {
+                                        Icon(system: "heart", description: "Like", size: 34, tint: "#FFFFFF")
+                                    }
+                                    Text(if (likeCounts[clips[currentPage].id] ?? 0) >= 1000 { "\((likeCounts[clips[currentPage].id] ?? 0) / 1000).\((likeCounts[clips[currentPage].id] ?? 0) % 1000 / 100)K" } else { "\(likeCounts[clips[currentPage].id] ?? 0)" }, color: "#FFFFFF", fontSize: 11, fontWeight: Semibold)
+                                }
+                            }.onTap {
+                                if clips[currentPage].id in likedClipIds {
+                                    likedClipIds.remove(clips[currentPage].id)
+                                    likeCounts.set(clips[currentPage].id, (likeCounts[clips[currentPage].id] ?? 1) - 1)
+                                } else {
+                                    likedClipIds.insert(clips[currentPage].id)
+                                    likeCounts.set(clips[currentPage].id, (likeCounts[clips[currentPage].id] ?? 0) + 1)
+                                    Haptics.impact(style: Light)
+                                }
+                            }
+                            Pressable() {
+                                Column(spacing: 1) {
+                                    Icon(system: "bubble.right.fill", description: "Comments", size: 27, tint: "#FFFFFF")
+                                    Text(if commentCount >= 1000 { "\(commentCount / 1000).\(commentCount % 1000 / 100)K" } else { "\(commentCount)" }, color: "#FFFFFF", fontSize: 11, fontWeight: Semibold)
+                                }
+                            }.onTap {
+                                commentsPresented = true
+                            }
+                            Pressable() {
+                                Column(spacing: 1) {
+                                    if clips[currentPage].id in bookmarkedClipIds {
+                                        Icon(system: "bookmark.fill", description: "Saved", size: 27, tint: "#F6D34A")
+                                    } else {
+                                        Icon(system: "bookmark", description: "Save", size: 27, tint: "#FFFFFF")
+                                    }
+                                    Text(if (bookmarkCounts[clips[currentPage].id] ?? 0) >= 1000 { "\((bookmarkCounts[clips[currentPage].id] ?? 0) / 1000).\((bookmarkCounts[clips[currentPage].id] ?? 0) % 1000 / 100)K" } else { "\(bookmarkCounts[clips[currentPage].id] ?? 0)" }, color: "#FFFFFF", fontSize: 11, fontWeight: Semibold)
+                                }
+                            }.onTap {
+                                if clips[currentPage].id in bookmarkedClipIds {
+                                    bookmarkedClipIds.remove(clips[currentPage].id)
+                                    bookmarkCounts.set(clips[currentPage].id, (bookmarkCounts[clips[currentPage].id] ?? 1) - 1)
+                                } else {
+                                    bookmarkedClipIds.insert(clips[currentPage].id)
+                                    bookmarkCounts.set(clips[currentPage].id, (bookmarkCounts[clips[currentPage].id] ?? 0) + 1)
+                                }
+                            }
+                            Pressable() {
+                                Column(spacing: 1) {
+                                    Icon(system: "arrowshape.turn.up.right", description: "Share", size: 28, tint: "#FFFFFF")
+                                    Text(clips[currentPage].shareMetric, color: "#FFFFFF", fontSize: 11, fontWeight: Semibold)
+                                }
+                            }.onTap {
+                                feedStatus = "Link copied · share this video"
+                            }
+                            Pressable() {
+                                Stack(alignment: Center, width: 42, height: 42, cornerRadius: 21, clip: Rounded(21), borderColor: "#FFFFFF", borderWidth: 1) {
+                                    Image(url: clips[currentPage].audioCoverUrl, description: "Audio cover", scale: Fill)
+                                }
+                            }.onTap {
+                                if player.volume > 0.0 {
+                                    player.volume = 0.0
+                                } else {
+                                    player.volume = 1.0
+                                }
+                            }
+                            Pressable() {
+                                if player.volume > 0.0 {
+                                    Icon(system: "speaker.wave.2.fill", description: "Sound on", size: 16, tint: "#FFFFFF")
+                                } else {
+                                    Icon(system: "speaker.slash.fill", description: "Muted", size: 16, tint: "#FFFFFF")
+                                }
+                            }.onTap {
+                                if player.volume > 0.0 {
+                                    player.volume = 0.0
+                                } else {
+                                    player.volume = 1.0
+                                }
+                            }
+                        }
+                    }
+
+                }.zIndex(1000)
+
+                Column(spacing: 0) {
+                    Spacer()
+                    LinearGradient(startColor: "#000000E8", endColor: "#00000000", direction: BottomToTop, height: 240)
+                }.zIndex(1)
+
+                Column(spacing: 0) {
+                    Spacer()
+                    Stack(alignment: Center, background: "#000000") {
+                        Pressable() {
+                            Row(spacing: 0, padding: 10) {
+                                Spacer()
+                                Text(" ", color: "#00000000", fontSize: 32)
+                                Spacer()
+                            }
+                        }.onTap { }
+                        Row(spacing: 0, padding: 10, background: "#000000") {
+                            Pressable() {
+                                Column(spacing: 3) {
+                                    if selectedBottomTab == "Home" {
+                                        Icon(system: "house.fill", description: "Home", size: 21, tint: "#FFFFFF")
+                                        Text("Home", color: "#FFFFFF", fontSize: 10)
+                                    } else {
+                                        Icon(system: "house.fill", description: "Home", size: 21, tint: "#AAAAAA")
+                                        Text("Home", color: "#AAAAAA", fontSize: 10)
+                                    }
+                                }
+                            }.onTap {
+                                selectedBottomTab = "Home"
+                            }
+                            Spacer()
+                            Pressable() {
+                                Column(spacing: 3) {
+                                    if selectedBottomTab == "Friends" {
+                                        Icon(system: "person", description: "Friends", size: 21, tint: "#FFFFFF")
+                                        Text("Friends", color: "#FFFFFF", fontSize: 10)
+                                    } else {
+                                        Icon(system: "person", description: "Friends", size: 21, tint: "#AAAAAA")
+                                        Text("Friends", color: "#AAAAAA", fontSize: 10)
+                                    }
+                                }
+                            }.onTap {
+                                selectedBottomTab = "Friends"
+                            }
+                            Spacer()
+                            MediaPicker.MediaPickerControl(isVideo: true) {
+                                Row(spacing: 0) {
+                                    Stack(width: 4, height: 25, background: "#25F4EE", cornerRadius: 3) {}
+                                    Stack(alignment: Center, width: 42, height: 29, background: "#FFFFFF", cornerRadius: 7) {
+                                        Icon(system: "plus", description: "Create", size: 22, tint: "#000000")
+                                    }
+                                    Stack(width: 4, height: 25, background: "#FE2C55", cornerRadius: 3) {}
+                                }
+                            }.onPicked { uri ->
+                                selectedVideoUri = uri
+                                feedStatus = "Video selected · ready to post"
+                            }.onFailed { message ->
+                                feedStatus = "Video picker failed: \(message)"
+                            }
+                            Spacer()
+                            Pressable() {
+                                Column(spacing: 3) {
+                                    Stack(alignment: Center, width: 23, height: 22) {
+                                        if selectedBottomTab == "Inbox" {
+                                            Icon(system: "tray", description: "Inbox", size: 21, tint: "#FFFFFF")
+                                        } else {
+                                            Icon(system: "tray", description: "Inbox", size: 21, tint: "#AAAAAA")
+                                        }
+                                        Stack(alignment: Center, width: 18, height: 12, background: "#FE2C55", cornerRadius: 7) {
+                                            Text("9+", color: "#FFFFFF", fontSize: 8, fontWeight: Bold)
+                                        }
+                                    }
+                                    if selectedBottomTab == "Inbox" {
+                                        Text("Inbox", color: "#FFFFFF", fontSize: 10)
+                                    } else {
+                                        Text("Inbox", color: "#AAAAAA", fontSize: 10)
+                                    }
+                                }
+                            }.onTap {
+                                selectedBottomTab = "Inbox"
+                            }
+                            Spacer()
+                            Pressable() {
+                                Column(spacing: 3) {
+                                    if selectedBottomTab == "Profile" {
+                                        Icon(system: "person", description: "Profile", size: 21, tint: "#FFFFFF")
+                                        Text("Profile", color: "#FFFFFF", fontSize: 10)
+                                    } else {
+                                        Icon(system: "person", description: "Profile", size: 21, tint: "#AAAAAA")
+                                        Text("Profile", color: "#AAAAAA", fontSize: 10)
+                                    }
+                                }
+                            }.onTap {
+                                selectedBottomTab = "Profile"
+                            }
+                        }
+                    }
+                }.zIndex(2000)
+
+                if isRefreshing {
+                    Row(spacing: 7, padding: 12) {
+                        Spacer()
+                        Text("Pull down to refresh", color: "#FFFFFF", fontSize: 15, fontWeight: Semibold)
+                        Stack(alignment: Center, width: 8, height: 8, background: "#FE2C55", cornerRadius: 4) {}
+                        Stack(alignment: Center, width: 8, height: 8, background: "#25F4EE", cornerRadius: 4) {}
+                        Spacer()
+                    }
+                }
+            }
+
+
+        }
+
+        BottomSheet(isPresented: commentsPresented, partial: true) {
+            Column(spacing: 12, padding: 18, background: "#111111") {
+                Row {
+                    Spacer()
+                    Text("Comments · \(commentCount)", color: "#FFFFFF", fontSize: 16, fontWeight: Bold)
+                    Spacer()
+                    Pressable() {
+                        Icon(system: "xmark", description: "Close comments", size: 18, tint: "#FFFFFF")
+                    }.onTap {
+                        commentsPresented = false
+                    }
+                }
+                FastList(comments, key: .self, rowHeight: 66) { comment, index in
+                    Row(spacing: 10, padding: 6) {
+                        Avatar(initials: "NX")
+                        Column(spacing: 3) {
+                            Text("nexa.viewer · \(index + 1)", color: "#B9B9B9", fontSize: 11, fontWeight: Semibold)
+                            Text(comment, color: "#FFFFFF", fontSize: 14)
+                        }
+                    }
+                }
+                Row(spacing: 8) {
+                    TextInput(
+                        value: commentDraft,
+                        placeholder: "Add a comment…",
+                        returnKeyType: Send,
+                        capitalization: Sentences,
+                        maxLength: 280
+                    ) {
+                        if commentDraft != "" {
+                            comments.append(commentDraft)
+                            commentCount = commentCount + 1
+                            commentDraft = ""
+                        }
+                    }
+                    Pressable(haptic: Light) {
+                        Text("Post", color: "#FE2C55", fontSize: 14, fontWeight: Bold)
+                    }.onTap {
+                        if commentDraft != "" {
+                            comments.append(commentDraft)
+                            commentCount = commentCount + 1
+                            commentDraft = ""
+                        }
+                    }
+                }
+            }
+        }
+}

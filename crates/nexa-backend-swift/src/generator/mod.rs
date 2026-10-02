@@ -123,6 +123,7 @@ use components::node_renderer as component_renderer;
 pub(super) use components::{
     accessibility, bottom_bar, controls, custom_components, direction, images, input, keyboard,
     layout, lifecycle, links, list_runtime, lists, navigation, refresh, sheets, status_bar,
+    system_icons,
 };
 pub(super) use engine::state::{render_immutable_state, render_native_object_state};
 use engine::types::{self, swift_type};
@@ -514,9 +515,74 @@ mod tests {
     use super::generate;
     use nexa_ir::{
         Action, AnimationSpec, Component, Expr, Function, ImageScale, ImageSource, LayoutKind,
-        Module, Node, NumericType, Screen, ScreenId, State, TextStyle, Type, ViewStyle,
-        ViewTransition, WhenCase,
+        ListAxis, ListCommon, ListPlan, Module, Node, NumericType, Screen, ScreenId, State,
+        TextStyle, Type, ViewStyle, ViewTransition, WhenCase,
     };
+
+    #[test]
+    fn page_snap_lists_use_viewport_rows_and_report_the_settled_page() {
+        let module = Module {
+            app_name: "PageSnap".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            states: vec![State {
+                name: "currentPage".to_owned(),
+                ty: Type::Numeric(NumericType::Int32),
+                initial: Expr::Number {
+                    raw: "0".to_owned(),
+                    ty: NumericType::Int32,
+                },
+                mutable: true,
+            }],
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::FastList {
+                plan: ListPlan::Count {
+                    count: Expr::Number {
+                        raw: "3".to_owned(),
+                        ty: NumericType::Int32,
+                    },
+                    common: ListCommon {
+                        axis: ListAxis::Vertical,
+                        reverse_layout: false,
+                        page_snap: true,
+                        item_extent: None,
+                        index: "index".to_owned(),
+                        key: None,
+                        scroll_position: Some("currentPage".to_owned()),
+                        children: vec![Node::Text {
+                            value: Expr::String("Feed page".to_owned()),
+                            style: TextStyle::default(),
+                        }],
+                        on_end_reached: None,
+                        on_scroll: None,
+                        sticky_header: None,
+                        refresh: None,
+                    },
+                },
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+        assert!(swift.contains("pageSnap: true"));
+        assert!(swift.contains("tableView.isPagingEnabled = pageSnap"));
+        assert!(swift.contains("tableView.rowHeight = height"));
+        assert!(swift.contains("func scrollViewDidEndDecelerating(_ scrollView: UIScrollView)"));
+        assert!(swift.contains("guard !pageSnap else { return }"));
+        assert!(!swift.contains("onScroll?()"));
+    }
 
     #[test]
     fn shared_image_elements_use_a_namespace_across_navigation_screens() {
@@ -740,6 +806,7 @@ mod tests {
             body: vec![Node::Pressable {
                 disabled: Expr::Bool(false),
                 haptic: None,
+                fill_max_size: true,
                 children: vec![Node::Text {
                     value: Expr::String("Tap twice".to_owned()),
                     style: TextStyle::default(),
@@ -775,6 +842,9 @@ mod tests {
         let swift = generate(&module);
 
         assert!(swift.contains("TapGesture(count: 2)"));
+        assert!(swift.contains(
+            ".frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())"
+        ));
         assert!(swift.contains(".exclusively(before: TapGesture(count: 1)"));
         assert!(swift.contains("nexa_taps = 2"));
         assert!(!swift.contains("onLongPressGesture"));
@@ -805,6 +875,7 @@ mod tests {
             body: vec![Node::Pressable {
                 disabled: Expr::Bool(false),
                 haptic: None,
+                fill_max_size: false,
                 children: vec![Node::Text {
                     value: Expr::String("Drag me".to_owned()),
                     style: TextStyle::default(),
@@ -888,6 +959,7 @@ mod tests {
             body: vec![Node::Pressable {
                 disabled: Expr::Bool(false),
                 haptic: None,
+                fill_max_size: false,
                 children: vec![Node::Text {
                     value: Expr::String("Pinch to zoom".to_owned()),
                     style: TextStyle::default(),
