@@ -1,6 +1,25 @@
 # Nexa Documentation Rules & Style Guide
 
-All documentation across the Nexa repository (`docs/`, `README.md`) and the plugins repository (`plugins/`) must strictly satisfy the 5 laws of Nexa documentation.
+All documentation across the Nexa repository (`docs/`, `README.md`) and the plugins repository (`plugins/`) must strictly satisfy the 6 laws of Nexa documentation.
+
+## Law 0: Generated Facts, Never Restated Facts
+
+Any value that a machine can produce must be produced by a machine, and a test must fail when it drifts.
+
+- **Generate** every table that restates a source of truth: component arguments, plugin platform
+  floors, permissions, dependency coordinates, config defaults, CLI flags, scalar type mappings,
+  cache versions. Put a `render_*` next to the data, in the crate that owns it.
+- **Never** restate such a table in a second location — not in a skill, a comment, a README, or
+  another doc. Point at the generated one. A copy has no compiler behind it and will be wrong.
+- **Never** generate prose. An editorial column (a plugin's summary, a field's description) lives
+  in a `&'static` table beside the code, with a test failing when a real item has no entry.
+- Wrap generated spans in `<!-- nexadoc:begin NAME -->` / `<!-- nexadoc:end NAME -->` and gate them
+  with `nexa_testkit::assert_region`; gate whole generated files with `assert_snapshot`. Regenerate
+  with `NEXA_UPDATE_SNAPSHOTS=1` and commit the result.
+- When you catch a hand-maintained table of machine facts, that is a bug report, not a proofreading
+  task. Fix the generator, not the table.
+
+The existing gated tables are listed in `AGENTS.md` §5.1.
 
 ## The 5 Laws of Nexa Documentation
 

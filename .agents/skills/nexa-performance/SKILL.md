@@ -3,38 +3,64 @@ name: nexa-performance
 description: "Use when analyzing, profiling, or optimizing Nexa runtime performance, memory allocations, binary sizes, SwiftUI/Compose layout trees, or C++ JNI/bridging overhead."
 ---
 
-# Nexa Performance & Zero-Cost Architecture
+# Nexa Performance
 
-This skill guides the design, profiling, and optimization of Nexa applications and compiler backend targets to achieve maximum execution speed and minimum memory/binary overhead.
+Find real costs with evidence. Do not report a speedup that was never measured.
 
-## Performance Guarantees
+## Invariants that must hold
 
-Nexa is engineered to generate native code that meets or beats hand-written Swift and Kotlin. Every compiler pass and backend generator must preserve these guarantees:
+| Invariant | Why |
+|---|---|
+| No `AnyView` in Swift release view trees or virtualized list cells | Type erasure forces a heap allocation per layout pass. Specialize with generic parameters: the generated runtime declares `NexaFastList<RowContent: View, HeaderContent: View>` and `NexaFastSectionedList<RowContent: View, HeaderContent: View>`, with defaulted parameters where a slot is unused (`NexaFastList<_, EmptyView>`). Its use inside debug DevRuntime is a separate concern. |
+| No boxed primitive state in Kotlin | `mutableStateOf(0.0)` allocates `MutableState<java.lang.Double>` and boxes on every mutation. Use `mutableIntStateOf`, `mutableLongStateOf`, `mutableDoubleStateOf`. |
+| No reflection, string member lookup, or untyped containers | These defeat AOT entirely. |
+| `FastList` work proportional to visible rows | Eagerly materializing the full collection or rebuilding on every scroll frame is the defect. |
+| Feature-gated native output | A capability absent from optimized IR must not add a dependency, import, or runtime helper to the app. |
 
-### 1. Zero Type Erasure in UI Hierarchies
-- **Swift**: Never use `AnyView`. Specialize view builders and container components (such as `NexaFastList` and `NexaFastSectionedList`) with generic parameters (e.g. `HeaderContent: View = EmptyView`).
-- **Compose**: Avoid wrapper composables that introduce intermediate layout nodes. Ensure modifiers are chained directly on layout primitives.
+## What counts as evidence
 
-### 2. Allocation-Free State & Mutability
-- Avoid object boxing for primitives. In Kotlin, use `mutableDoubleStateOf` (not `mutableStateOf<Double>`), `mutableIntStateOf`, and `mutableLongStateOf`.
-- Keep state variables local to the screen or component requiring recomposition to minimize invalidation scopes.
+Ranked by strength:
 
-### 3. Recomposition & Diffing Churn Prevention
-- When observing scroll states or layout metrics in Jetpack Compose, always filter with `.distinctUntilChanged()` to prevent allocations and recompositions during sub-pixel movements.
-- In virtualized lists, provide stable, unique keys (`key: item.id`) so platform diffing engines (SwiftUI `ForEach(..., id: \.self)` / Compose `items(..., key = { ... })`) can reuse view instances without churn.
+1. **Measured on a target build** — allocations, retained objects, recomposition counts, CPU time,
+   frame timing, binary size.
+2. **Compiler output** — `nexa audit` reachability and generated-dependency reports; generated
+   source volume per feature.
+3. **Source inspection** — establishes that a pattern *exists*, never that it is slow.
 
-### 4. Zero-Copy Plugin & C++ Interop
-- In plugin IDL contracts, prefer contiguous primitives, structs, and binary buffer views over nested dynamic collections.
-- Ensure all native C++ handles on Android are bound to `AutoCloseable` with `finalize()` safety nets to prevent native heap leakage.
-- On iOS, utilize Swift 6 / C++ direct interop with `SWIFT_SHARED_REFERENCE` for zero-overhead pointer passing without Objective-C boxing.
+Never infer a speedup from fewer source lines or from native-looking syntax. When you report a
+finding, state which of these three produced it.
 
----
+## Workflow
 
-## Profiling & Benchmarking Workflow
+1. **Locate the output.** `nexa audit App.nx --target ios|android` for capability reachability, or
+   read the generated units under the build directory. Separate release AOT output from
+   `NexaDevRuntime` — the latter is debug-only and its interpreter infrastructure is not release
+   overhead.
+2. **Find the hot path.** Name the specific construct: which `.nx` source, which generated
+   function, which Compose recomposition scope.
+3. **Measure it.** iOS: Instruments *Allocations* and *Time Profiler* while scrolling.
+   Android: Android Studio *Memory Profiler* and *Layout Inspector* for recomposition counts.
+4. **Fix and re-measure.** A fix without a second measurement is a proposal, not a result.
 
-When auditing performance:
-1. **Source Inspection**: Run `nexa audit` to inspect generated capabilities, native code volume, and dead code removal.
-2. **Binary Measurement**: Build release packages with `nexa build ios --release` and `nexa build android --release`. Measure IPA/APK size, stripped binary symbols, and dynamic library overhead.
-3. **Allocation Profiling**:
-   - iOS: Profile in Xcode Instruments using **Allocations** and **Time Profiler**. Inspect memory spikes during list scrolling.
-   - Android: Profile in Android Studio using **Memory Profiler** and **Layout Inspector** to verify recomposition counts and zero Double boxing.
+## Platform-specific traps
+
+**SwiftUI.** `AnyView` around section headers, sticky headers, or rows destroys view identity
+across layout passes. User enums inside `Result` must conform to `Error`; generated ones are
+`String, Error`-backed so a case name crosses the boundary without runtime type information.
+
+**Compose.** Reading `LazyListState.layoutInfo` inside `snapshotFlow` without filtering emits on
+every sub-pixel offset change, allocating `LazyListItemInfo` lists and churning the GC — append
+`.distinctUntilChanged()`. Modifier order is behavior, not taste: transforms, clipping, padding,
+backgrounds, and hit targets change drawing and input semantics. Use `derivedStateOf` only when it
+removes meaningful downstream recomposition, not as a wrapper around every read.
+
+**C++ / JNI.** A native class wrapped as `std::unique_ptr` behind a `Long` handle leaks the C++
+heap if `dispose()` is never called. Generated Kotlin wrappers implement `AutoCloseable` with a
+`finalize()` safety net for exactly this reason. iOS uses Swift 6 C++ interop with
+`SWIFT_SHARED_REFERENCE` to avoid Objective-C boxing.
+
+## Reporting
+
+For each finding: the `.nx` construct that triggers it, the generated consequence, the measured or
+inspected cost, and a focused correction. State which paths you inspected and which you could not
+verify.

@@ -3,140 +3,122 @@ name: nexa-framework
 description: "Use when changing the Nexa Rust compiler, language, typed IR, CLI, native Swift or Kotlin code generators, core UI components, build workflow, or performance architecture."
 ---
 
-# Nexa Framework Engineering Guide
+# Nexa Framework Engineering
 
-Fast, token-efficient, authoritative architectural cheat sheet for engineering on the Nexa transpiler and core crates. **Consult this guide directly instead of grepping through 50,000+ lines of codebase.**
+Routing map and non-negotiable invariants for the Rust compiler and both AOT backends.
 
----
+## Rule 1: the catalog is the grammar
 
-## 1. Strict Syntax Invariants
+`crates/nexa-syntax/src/catalog.rs` is the single source of truth for the accepted language:
+component vocabulary, argument schemas, child models, dot modifiers, keywords, and types.
+`docs/syntax-audit.md` and `editors/vscode/syntaxes/nexa.tmLanguage.json` are generated from it
+and asserted byte-for-byte by `cargo test -p nexa-syntax`.
 
-### 1.1 Dot-Modifiers vs Component Parameters (MANDATORY RULE)
-* **DOT-MODIFIERS ARE RESERVED ONLY FOR EVENT CALLBACKS & SYSTEM TRIGGERS**:
-  * Allowed dot-modifiers:
-    * `RefreshControl(...) { ... }.onRefresh { ... }`
-    * `Pressable(...) { ... }.onTap { ... }.onDoubleTap { ... }.onLongPress(durationMs: 500) { ... }.onDrag { ... }.onPinch { ... }`
-    * `FastList(...) { ... }.onEndReached { ... }.onScroll { ... }.stickyHeader { ... }.sectionHeader { ... }`
-* **ALL STYLING & LAYOUT MUST BE DIRECT COMPONENT PARAMETERS**:
-  * NEVER use trailing dot-modifiers for styling (no `.padding()`, `.background()`, `.cornerRadius()`, `.glass()`, etc.).
-  * ALL styling properties must be passed inside the component call parentheses:
-    ```nx
-    // CORRECT
-    Column(spacing: 12, padding: 16, background: "#FFFFFF", cornerRadius: 12, glass: "capsule") { ... }
-    Button("Submit", style: BorderedProminent, shape: Capsule, tint: "#0984E3", glass: true) { ... }
-    Text("Title", fontSize: 24, fontWeight: Bold, color: "#111111")
+When you add or change a component:
 
-    // INCORRECT (FORBIDDEN)
-    Column { ... }.padding(16).background("#FFFFFF")
-    Text("Title").fontSize(24).bold()
-    ```
+1. Add the `ComponentEntry` (vocabulary, summary, snippet, parse-checked `probe`) and the
+   `ComponentSchema` (arguments, children, modifiers, flags).
+2. Update the parser if the grammar really changed.
+3. Run `NEXA_UPDATE_SNAPSHOTS=1 cargo test -p nexa-syntax` and commit the regenerated files.
 
-### 1.2 Native Code Generation Principles
-1. **Zero Runtime Reflection or Boxing**: Statically typed native code only. No dynamic `AnyMap` or untyped reflection.
-2. **Zero `unwrap()` in Production Paths**: Return `Result<T, CompileError>`. Never panic during user code compilation.
-3. **No `AnyView` in Swift UI**: Use generic view specialization (`NexaFastList<RowContent: View, HeaderContent: View = EmptyView>`).
-4. **Unboxed Primitives in Kotlin**: Use `mutableIntStateOf`, `mutableDoubleStateOf` instead of generic `mutableStateOf<T>`.
-5. **Deterministic Scaffolding**: All CLI code-gen and project templates must be strictly deterministic and idempotent.
+Never hand-edit `docs/syntax-audit.md`. Never restate the catalog into a skill, doc, or comment —
+point at it. A copied table has no compiler behind it and will drift.
 
-### 1.3 Generic Framework Boundaries
-* Nexa core must support arbitrary apps. Do not add product-specific models, labels, behaviors, defaults, symbol switches, storage rules, or workflow assumptions to the parser, IR, compiler, backends, DevRuntime, or CLI.
-* Keep shared cross-platform concepts in a typed, target-neutral IR/API and resolve them in the native backends. A symbol, control, or navigation primitive must not have independent app-specific or platform-specific lookup tables in unrelated generators.
-* A native component may implement one reusable platform primitive (for example, a bottom navigation bar), but its generated behavior must not invent screen content, titles, storage, sorting, or task behavior. Tab labels belong to the tab bar; destinations own their content and title.
-* Release output is AOT Swift/Kotlin. Resolve names and feature branches during compilation so generated apps do not ship a general interpreter, reflection, or dynamic lookup path. DevRuntime may interpret IR only in development builds and must track the same typed IR contract.
-* When porting an app feature, first decide whether it is a general capability or app-owned composition. Implement reusable capabilities in Nexa; leave product-specific composition in `.nx` app source unless the user explicitly narrows the work to framework-only.
-* Locale and localization are first-party framework APIs, not optional plugins. Keep locale calls statically typed and lower them to Foundation or Android `Locale` APIs; compile literal localization keys to native string resources, with no release-time key lookup or reflection.
+## Rule 2: generated documentation is generated
 
----
+Any Markdown table restating a machine-readable source of truth is rendered from that source and
+gated by a test. `nexa_testkit::docs` provides `assert_snapshot` (whole file) and `assert_region`
+(`<!-- nexadoc:begin NAME -->` fenced span, prose around it stays hand-written).
 
-## 2. Fast Codebase Routing Map
-
-Use this index to go directly to the exact file without exploratory searches:
-
-| Task / Responsibility | Key Files |
-|---|---|
-| **Lexer & Tokens** | `crates/nexa-syntax/src/lexer.rs` |
-| **Parser & AST** | `crates/nexa-syntax/src/parser.rs`, `crates/nexa-syntax/src/ast.rs` |
-| **Component Schemas & Catalog** | `crates/nexa-syntax/src/catalog.rs` (vocabulary, schemas, argument models) |
-| **Typed IR & Enums** | `crates/nexa-ir/src/lib.rs` (`Node`, `Expr`, `Action`, `Type`, enums); `crates/nexa-ir/src/system_icons.rs` (shared icon catalog and native name resolution) |
-| **IR Traversal & Capabilities** | `crates/nexa-ir/src/walk.rs`, `crates/nexa-ir/src/capabilities.rs` |
-| **Semantic Lowering (Components)** | `crates/nexa-compiler/src/semantic/components.rs` |
-| **Semantic Lowering (Expressions & Types)** | `crates/nexa-compiler/src/semantic/expressions.rs` |
-| **Semantic Lowering (Styles & Effects)** | `crates/nexa-compiler/src/semantic/styles.rs` |
-| **IR Optimization (Constant Folding)** | `crates/nexa-compiler/src/optimize.rs` |
-| **Swift UI Controls & Layout** | `crates/nexa-backend-swift/src/generator/components/` (`controls.rs`, `layout.rs`, `bottom_bar.rs`, `sheets.rs`) |
-| **Swift Virtualized Lists** | `crates/nexa-backend-swift/src/generator/components/lists.rs`, `list_runtime.rs` |
-| **Swift Structs, Types & Expressions** | `crates/nexa-backend-swift/src/generator/engine/` (`structs.rs`, `types.rs`, `expressions.rs`) |
-| **Kotlin Composables & Layout** | `crates/nexa-backend-kotlin/src/generator/components/` (`controls.rs`, `layout.rs`, `bottom_bar.rs`, `sheets.rs`) |
-| **Kotlin Virtualized Lists** | `crates/nexa-backend-kotlin/src/generator/components/lists.rs` |
-| **Kotlin Data Classes & Engine** | `crates/nexa-backend-kotlin/src/generator/engine/` (`structs.rs`, `types.rs`, `expressions.rs`) |
-| **CLI & Project Generation** | `crates/nexa-cli/src/project.rs`, `crates/nexa-cli/src/commands/` |
-| **Hot Reload & Dev Runtime** | `runtime/ios/NexaDevRenderer.swift`, `runtime/android/NexaDevRenderer.kt` |
-| **Coverage Inventory Fixture** | `crates/nexa-cli/tests/fixtures/hot_reload_coverage.json` |
-
----
-
-## 3. Core Component Catalog & Parameter Reference
-
-| Component | Parameters | Allowed Children / Blocks |
+| Published table | Source of truth | Gate |
 |---|---|---|
-| `Column` | `spacing: Int`, `padding: Int`, `alignment: Leading\|Center\|Trailing`, `background: Color`, `cornerRadius: Float`, `width: Float`, `height: Float`, `minWidth`, `maxWidth`, `glass: "circle"\|"capsule"\|"rounded(r)"` | UI nodes block |
-| `Row` | `spacing: Int`, `padding: Int`, `alignment: Top\|Center\|Bottom`, `background: Color`, `cornerRadius: Float`, `width: Float`, `height: Float`, `glass: "circle"\|"capsule"\|"rounded(r)"` | UI nodes block |
-| `Stack` | `alignment: Center\|TopLeading\|...`, `width: Float`, `height: Float`, `background: Color`, `cornerRadius: Float`, `glass: ...` | UI nodes block |
-| `Text` | Positional text `String`, `fontSize: Int`, `fontWeight: Normal\|Medium\|Semibold\|Bold`, `color: Color`, `maxLines: Int` | None |
-| `Button` | Positional title `String`, `icon: shared system icon name`, `loading: Bool`, `disabled: Bool`, `style`, `size`, `shape`, `tint`, `glass` | Action block `{ ... }` |
-| `TextInput` | `value: mutableString`, `placeholder: String`, `fontSize: Int` | None |
-| `Switch` | `value: mutableBool`, `label: String` | None |
-| `SegmentedControl` | `items: Array<String>`, `selected: mutableString` | None |
-| `Picker` | `items: Array<String>`, `selected: mutableString`, optional `icon: shared system icon name` | None |
-| `Icon` | Exactly one of `system: sharedName`, `sfsymbol: iOSName`, or `materialsymbol: AndroidName`; `size`, `tint`, `description` | None |
-| `Image` | `asset: String` or `url: String`, `description: String` | None |
-| `Pressable` | None | UI nodes block + trailing `.onTap { ... }`, `.onLongPress { ... }`, `.contextMenu { Button(...) { ... } }`, `.onDoubleTap { ... }`, `.onDrag { ... }`, `.onPinch { ... }` |
-| `FastList` | Collection `FastList(items, key: .id)` or `FastList(count: Int, rowHeight: Float)` | Row binding `{ item, index in ... }` + optional `.onEndReached`, `.onScroll`, `.stickyHeader`, `.sectionHeader` |
-| `AppBottomBar`| `selected: mutableInt32` | `Tab(index: Int, label: String, icon: shared system icon name, badge: String?, role: "search"?) { ... }` |
-| `BottomSheet` | `isPresented: mutableBool`, `partial: Bool` | UI nodes block |
-| `Dialog` | `isPresented: mutableBool`, `title: String`, `message: String` | Button action nodes block |
-| `RefreshControl`| `isRefreshing: mutableBool` | Content block + trailing `.onRefresh { ... }` |
-| `Spacer` | None (expands along axis) | None |
-| `Divider` | `color: Color`, `thickness: Float` | None |
+| `docs/syntax-audit.md` | `nexa_syntax::catalog` | `cargo test -p nexa-syntax` |
+| `docs/system-icons.md#3-catalog-of-shared-icons` | `nexa_ir::system_icons::SHARED_ICONS` | `-p nexa-ir --test system_icon_docs` |
+| `README.md#official-native-plugins`, `docs/plugins.md` (3 tables) | `plugins/*/plugin.config.nx` | `-p nexa-cli --test plugin_reference` |
+| `docs/getting-started.md#configuration-options-reference` | `ProjectConfig::from_defaults` | `-p nexa-cli --test project_config_reference` |
+| `docs/getting-started.md#cli-command-matrix` | the CLI's command and flag tables | same |
+| `docs/language-guide.md#primitive-scalar-types` | `swift_type` / `kotlin_type` | `-p nexa-cli --test language_reference` |
+| `docs/architecture-audit.md` newest row | `cache::CACHE_VERSION` | `-p nexa-cli --test cache_audit` |
 
----
+Put each `render_*` in the crate that owns the data. Never generate prose: an editorial column
+lives in a `&'static` table next to the code, with a test that fails when a real item has no entry.
+CI runs these gates in the `docs` job.
 
-## 4. State & Collection Semantics
+## Non-negotiable invariants
 
-* **Primitives**: `String`, `Bool`, `Int32`, `Float64`.
-* **Collections**:
-  * `Array<T>`: `.count`, `.append(value)`, `.remove(index)`, `.move(from, to)`.
-  * `Set<T>`: `.insert(value)`, `.remove(value)`, `value in set`.
-  * `Map<K, V>`: `.set(key, value)`, `.remove(key)`, `map[key]`.
-* **Value Structs**:
-  ```nx
-  struct TaskItem {
-      id: String,
-      content: String,
-      priority: Int32,
-  }
-  // Lowers to:
-  // Swift:  struct TaskItem: Equatable { let id: String; let content: String; let priority: Int32 }
-  // Kotlin: data class TaskItem(val id: String, val content: String, val priority: Int)
-  ```
-* **Assignment**: `Assign` is strictly for state variables: `variable = value`.
+- **No runtime reflection or boxing.** No `AnyMap`, untyped parameter maps, or string-keyed member
+  lookup in generated output.
+- **No `unwrap()` on a user compilation path.** Return `Result<T, CompileError>`; a user's `.nx`
+  file must never panic the compiler.
+- **No `AnyView` in Swift release view trees** or virtualized list cells. Specialize with generic
+  parameters (`NexaSectionedList<RowContent: View, HeaderContent: View = EmptyView>`).
+- **No boxed primitive state in Kotlin.** Use `mutableIntStateOf`, `mutableDoubleStateOf`,
+  `mutableLongStateOf` — not `mutableStateOf<Double>`.
+- **Deterministic scaffolding.** CLI templates and generated projects must be idempotent: the same
+  input produces byte-identical output.
 
----
+## Framework boundaries
 
-## 5. Verification Commands
+- Core must serve arbitrary apps. No product-specific models, labels, storage rules, or workflow
+  assumptions in the parser, IR, compiler, backends, DevRuntime, or CLI.
+- Shared concepts live in the typed, target-neutral IR and resolve in each backend. Never give one
+  primitive independent lookup tables in unrelated generators.
+- A native component may implement one reusable platform primitive (a bottom bar), but must not
+  invent screen content, titles, or behavior. Tab labels belong to the tab bar; destinations own
+  their content.
+- Release output is AOT. Resolve names and branches during compilation — no interpreter,
+  reflection, or dynamic lookup ships. DevRuntime may interpret IR in debug builds only and must
+  track the same typed contract.
+- Porting an app feature: decide first whether it is a general capability or app-owned composition.
+  Implement capabilities in Nexa; leave product composition in `.nx`.
 
-Always run and verify before completing work:
+## Routing map
+
+| Responsibility | File |
+|---|---|
+| Lexer / parser / AST | `crates/nexa-syntax/src/{lexer,parser,ast}.rs` |
+| **Component catalog (grammar source of truth)** | `crates/nexa-syntax/src/catalog.rs` |
+| Typed IR, `Type`, `NumericType`, enums | `crates/nexa-ir/src/lib.rs` |
+| Shared system icon catalog | `crates/nexa-ir/src/system_icons.rs` |
+| IR walk / capability reachability | `crates/nexa-ir/src/{walk,capabilities}.rs` |
+| Semantic lowering: components | `crates/nexa-compiler/src/semantic/components.rs` |
+| Semantic lowering: expressions, core APIs, types | `crates/nexa-compiler/src/semantic/expressions.rs` |
+| Semantic lowering: styles, alignment, effects | `crates/nexa-compiler/src/semantic/styles.rs` |
+| Constant folding / dead code | `crates/nexa-compiler/src/optimize.rs` |
+| Plugin IDL + manifest parsing | `crates/nexa-plugin-idl/src/{lib,manifest}.rs` |
+| Plugin binding generation | `crates/nexa-codegen/src/plugin/` |
+| Swift components / lists | `crates/nexa-backend-swift/src/generator/components/` |
+| Swift types / structs / expressions | `crates/nexa-backend-swift/src/generator/engine/` |
+| Kotlin components / lists | `crates/nexa-backend-kotlin/src/generator/components/` |
+| Kotlin types / structs / expressions | `crates/nexa-backend-kotlin/src/generator/engine/` |
+| CLI commands and flags | `crates/nexa-cli/src/commands.rs` |
+| Project generation, templates | `crates/nexa-cli/src/project.rs`, `src/project/templates.rs` |
+| Project config defaults | `crates/nexa-cli/src/config.rs` |
+| Generated-doc renderers (CLI-side) | `crates/nexa-cli/src/docs.rs` |
+| Build cache and `CACHE_VERSION` | `crates/nexa-cli/src/cache.rs` |
+| `nexa plugin` subcommands | `crates/nexa-cli/src/plugin_cli.rs` |
+| DevRuntime (iOS / Android) | `runtime/ios/`, `runtime/android/` |
+| Shared test support | `crates/nexa-testkit/src/` |
+
+## Testing rules
+
+- Never name a temp directory from a clock. `SystemTime::now().as_nanos()` repeats under
+  concurrency and `create_dir_all` is a no-op on an existing path, so two tests silently share a
+  tree. Use `nexa_testkit::TempDir::new` / `VacantDir::new`, which claim a name atomically.
+- `nexa-testkit` is a `dev-dependency` only and depends on nothing, so any crate can use it without
+  inverting the layering.
+
+## Verification
 
 ```bash
-# 1. Type check
+export CARGO_TARGET_DIR=/tmp/nexa-verification-target   # reuse artifacts; do not delete
+
 cargo check --workspace --all-targets
-
-# 2. Strict linter (must be 0 warnings)
-cargo clippy --workspace --all-targets
-
-# 3. Complete test suite
+cargo clippy --workspace --all-targets                 # must be 0 warnings
 cargo test --workspace
-
-# 4. Safe temp directories in tests (Dev-dependency only)
-# Always use nexa_testkit::TempDir / VacantDir, NEVER SystemTime::now()
 ```
+
+Run the narrowest useful command while iterating (`cargo check -p nexa-compiler`,
+`cargo test -p nexa-syntax --test catalog_tests`), then the three full gates once at the end.
+After changing anything that creates temporary directories, also run the collision gate:
+`cargo test -p nexa-testkit -- --ignored`.

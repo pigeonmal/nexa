@@ -5,72 +5,117 @@ description: "Use when helping a Nexa user plan, author, structure, or troublesh
 
 # Create an App with Nexa
 
-Help people build an iOS and Android app from Nexa's shared `.nx` source without asking them to edit native Swift or Kotlin. Start from the user's product goal, clarify important screens and interactions only when needed, and build a coherent app using the framework's current core components.
+Help people build an iOS and Android app from one `.nx` source without asking them to edit
+native Swift or Kotlin. Start from the user's product goal, clarify only what the request leaves
+genuinely open, and build a coherent app from the components the compiler actually accepts.
 
-Nexa is alpha software with one current language surface. Use documented current spellings directly; superseded component names and compatibility aliases are removed when the compiler design changes.
+## The one rule that matters
 
-## Work within today's language
+**Never write `.nx` syntax from memory.** Every accepted component, argument, and modifier is in
+[`docs/syntax-audit.md`](../../../docs/syntax-audit.md), which is generated from
+`crates/nexa-syntax/src/catalog.rs` and parse-checked by `cargo test -p nexa-syntax`. Read the
+relevant section before writing code. This skill deliberately does not restate those tables: a
+copied table is a table that rots, and the audit is regenerated whenever the grammar changes.
 
-- Read `README.md`, `docs/language.md`, and the examples relevant to the request before writing `.nx` syntax. The language and compiler are an early prototype; check actual parser/backend support instead of assuming the roadmap is implemented.
-- Follow [`docs/syntax-audit.md`](../../../docs/syntax-audit.md) when choosing argument forms. Use positional values only for a component's documented primary value or a `FastList` array source; keep configuration named, keep callback bindings explicit, and do not recreate removed aliases.
-- Use core components already supported by Nexa, such as Column, Row, Stack, Text, Button, TextInput, Switch, Image, navigation, keyboard-aware layout, and FastList when available in the current compiler.
-- Use `if`/`else`, `&&`, `||`, `!`, scalar `==`/`!=`, and numeric comparisons for supported conditional UI and button/press actions. Keep compared numeric types equal; Nexa does not implicitly convert values.
-- Use `$name` or `\(expression)` inside strings when a label or message includes dynamic values. Embedded expressions use the normal Nexa type checker and compile directly to native Swift/Kotlin string interpolation without a template runtime.
-- Pure literal conditions are folded by the compiler, so unreachable UI and event branches are removed from generated native source. Conditions that read state or platform environment remain native runtime branches.
-- The compiler reports unused states, `let` constants, function parameters, action-loop and `FastList` row bindings, pure functions, component parameters, and constant conditions. Use `--deny-warnings` when warnings should fail a check or build; see `docs/compiler-diagnostics.md` for the policy.
-- Use `platform ios { ... }` and `platform android { ... }` for widgets that should exist on one target only. `nexa check` validates both target branches; `nexa build --target swift|kotlin` emits only the selected branch, with no runtime platform check.
-- Keep host permission purpose messages in the generated project's `nexa.config.nx`: `config { permissions { camera: "...", photos: "..." } }`. `nexa generate` creates it automatically, validates names/messages, writes iOS `Info.plist` strings, and writes Android manifest entries. App source files do not declare host permissions.
-- Configure declared plugins in the same generated `nexa.config.nx`: `config { plugins { CustomPlugin { option: value } } }`. Plugin authors define the option schema in `native.nxid`; generation validates names, required values, defaults, and scalar types, then emits direct native constants for reachable plugins.
-- Choose `nexa plugin init ... --kind pure` for reusable Nexa-only components/logic, or the default native kind for Swift/Kotlin integrations. Pure packages contain `plugin.nx` and optional `assets/`; they are compiled into the app source graph and unused components are pruned. Native packages keep IDL and platform source trees isolated, and generated projects copy only reachable plugin sources/assets.
-- Local `Image(asset: ...)` values resolve to native image resources; Android uses a remembered drawable lookup with a transparent fallback until an optional asset is supplied. Remote `Image(url: ...)` requests use Nexa's generated native network stack. The URL must be a `String` expression; literal values must be absolute HTTPS URLs, while dynamic values are guarded by the loader. iOS uses URLSession; Android uses Coil 3 through the Play Services Cronet provider with HTTP/2, QUIC, Brotli, and a 64 MiB disk cache. `nexa generate` initializes the provider in the generated Android activity and emits Coil dependencies only when a remote image is present; image-only generated source keeps only the private image transport and omits the public `Network.fetch`/`download` API, while typed network-only apps keep Cronet without Coil. Do not add Coil's OkHttp network module.
-- Use `await Permissions.status(permission: Camera|Microphone|Photos|Location|Notifications|Contacts|Calendar|Bluetooth)` to read a typed native status, or `await Permissions.request(permission: ...)` inside `OnAppear async` or an async function to invoke the native authorization flow and receive the resulting status. Declare the matching permission in `nexa.config.nx`; this keeps purpose messages and manifest entries compile-time metadata. iOS uses each framework's native request API; Android uses a lifecycle-owned `ActivityResultLauncher` callback and then re-queries the native status. The compiler emits only the literal permission cases and branches used by the app, plus Android's location combiner only when Location is present; dynamic permission values keep all cases. `restricted` remains reserved for platforms that expose that state.
-- The generated native library exposes asynchronous `Network.fetch`/`download`, `Path`, and `File` qualified calls. Request options include method, body, headers, timeout in seconds, cache use, redirects, response size limits, and optional certificate pins. These calls are compile-time lowered to URLSession on iOS or Cronet on Android; use `await` from async functions or `OnAppear async`. Throwing async calls in action blocks require explicit `try { ... } catch { ... }` recovery; generated code preserves the native failure instead of substituting a default value. Generation emits only the helper namespace used by the lowered app: path/file-only apps do not pull the network helper, image-only apps omit the public request API, and Android adds coroutines only for generated asynchronous file/network helpers, remote images, or permission requests.
-- Use `Column` as the vertical container, `Row` for horizontal layout, and `Stack` for overlays. Set a layout's cross-axis `alignment` to `Start`, `Center`, or `End` where needed; `Stack` maps directly to SwiftUI `ZStack` or Compose `Box` and uses alignment as its content alignment. Do not pass `spacing` to `Stack`; the compiler rejects it.
-- Use paired `borderColor` and `borderWidth` layout options for a native static border. Both are required together; colors can be hexadecimal literals or matching color theme tokens, and dimensions use points on iOS or density-independent pixels on Android.
-- Use `minWidth`, `maxWidth`, `minHeight`, and `maxHeight` for static size bounds on `Column` or `Row`. Values must be non-negative and each minimum must be no greater than its matching maximum; Swift and Compose receive native frame or `widthIn`/`heightIn` bounds with no runtime layout wrapper.
-- Add `animation: Spring|EaseIn|EaseOut|EaseInOut|Linear` to a `Column` or `Row` when its layout size should animate. Swift and Compose use their native animation engines; the current slice animates content size and does not provide transforms or gesture-driven transitions.
-- Use `Text(value, fontWeight: Normal|Medium|Semibold|Bold, lineLimit: positiveInt, lineHeight: number, letterSpacing: number, selectable: true|false)` for native text emphasis, metrics, selection, and static truncation. Swift and Compose receive direct native text styling; custom spans and nested text remain outside the current syntax.
-- Use `Button("Label", icon: "shared_icon_name", loading: Bool, disabled: Bool) { ... }` for a native button with an optional cross-platform system icon, loading indicator, or disabled state. Buttons, `Icon(system:)`, and bottom-bar tabs use one shared icon catalog that maps to SF Symbols and Compose Material icons. Use `Icon(sfsymbol:)` or `Icon(materialsymbol:)` when a platform-specific symbol is needed. Loading shows the platform progress indicator and disables the control; `disabled` independently controls whether the button accepts taps. Omit optional values for the smallest direct button output.
-- Use `Pressable(disabled: Bool, haptic: Light|Medium|Heavy) { ... }.onPress { ... }` for composed press targets. `.onPress` is required; `.onLongPress` and `.contextMenu { Button(...) { ... } }` are optional. `disabled` may be a state expression and defaults to `false`, while `haptic` is an optional static native feedback style. The compiler maps these interactions to SwiftUI/UIKit or Compose; omit optional features for the smaller tap-only path. Pressed state, hover, focus, and custom accessibility actions are not part of the current syntax.
-- Add optional `focused: mutableBool` and positive integer literal `maxLength` values to `TextInput(...)` when the app needs native focus control or a hard input limit, and add an action block when the field should handle submit/Done. The compiler maps focus to SwiftUI `@FocusState`/`.focused` and Compose `FocusRequester`/`onFocusChanged`, submit to `.onSubmit`/`KeyboardActions`, and `maxLength` to native Swift `onChange` and Compose `onValueChange` truncation. Selection, autofill, password-manager hooks, and richer validation are not part of the current syntax.
-- Wrap form content in `KeyboardAware(dismiss: Interactive|Never) { ... }` when it must avoid the software keyboard. The default is `Interactive`; use `Never` to keep the keyboard visible while scrolling. Both modes lower to native SwiftUI and Compose insets/scroll APIs.
-- Configure the status bar with one static `StatusBar(style: Default|Light|Dark, hidden: true|false, background: "#RRGGBB")` declaration at the app body's top level or inside a named screen. `style` describes status-bar content, `background` is compile-time validated, and nested or repeated declarations within the same destination are rejected.
-- Wrap app content in `Appearance(mode: "system"|"light"|"dark") { ... }` when a persisted user preference should select the native light or dark scheme. Keep palette colors and preference persistence in app state or a reusable package.
-- Use `BottomSheet(isPresented: mutableBool, partial: true|false) { ... }` for native modal content. `partial: true` enables native medium/large or partially expanded sheet behavior; dismissal sets the bound Boolean to `false`. Custom snap points and transitions are not part of the current syntax.
-- Use `RefreshControl(isRefreshing: mutableBool) { ... }.onRefresh { ... }` for native pull-to-refresh. A direct `FastList` child keeps the native list path and receives UIKit `UIRefreshControl` or Compose `PullToRefreshBox`; other content uses the generic native wrapper. Put direct state assignments in the `.onRefresh` block; custom indicators and refresh streams are not part of the current syntax.
-- Use `AppBottomBar(selected: mutableInt32) { Tab(index: 0, label: "Home", icon: "home", badge: "2") { ... } ... }` for native tabs. Indexes must be unique, non-negative `Int32` literals; Swift uses native `TabView`, SF Symbols, native badges, and the native search-tab role where supported. Android uses Material 3 `NavigationSuiteScaffold`, adaptive between bottom navigation and wide-window rail/drawer layouts, and preserves saveable state per destination. Tab labels stay in the navigation component; each destination supplies its own content and title. Custom transitions are not part of the current syntax.
-- Use `Link(url: ...)` to open a web URL or application scheme with the native handler. The URL must be typed `String`; literal schemes are validated at compile time, while state, interpolation, and function results are checked by the native URL parser. Incoming links and universal-link routing are not part of the current syntax.
-- Add optional `accessibilityLabel: String`, `accessibilityHint: String`, and `accessibilityRole: None|Button|Link|Header|Image` arguments directly to visual built-ins, custom components, or qualified native plugin components. A label is required when any accessibility option is used. State, interpolation, and function results are valid labels and hints; literal values must be non-empty. Swift emits native accessibility modifiers. Android includes the hint in the Compose content description because the framework's pinned stable Compose version has no general hint semantic; it does not misreport the hint as the control's current state. Both platforms emit heading semantics for `Header`. Focus control and custom actions are not part of the current syntax.
-- Use `Direction(value: LTR|RTL)` once at the top level of the app body for a static reading/layout direction. Swift uses the native layout-direction environment and Android uses `LocalLayoutDirection`; omit it to follow the system setting. Dynamic language changes and directional margin syntax are not part of the current syntax.
-- Use at most one top-level `OnAppear { ... }` and one `OnDisappear { ... }` block in the app body or each named screen. Add `async` to `OnAppear` when it awaits an app-local `async fn` or a qualified `Network`/`File` call; Swift uses `.task` for that form and Android uses `LaunchedEffect(Unit)`. Synchronous `OnAppear` keeps `.onAppear`; `OnDisappear` remains synchronous and uses `DisposableEffect(Unit)` on Android. The app body may additionally contain one `OnActive`, `OnInactive`, and `OnBackground` block; these map to Swift `scenePhase` and Android lifecycle events. They are not valid inside named screens, and richer cancellation controls remain future work.
-- Named screens may declare their own `state` or `let` bindings before their UI nodes, for example `screen Profile { state visits: Int32 = 0 ... }`. These bindings are typed and native, and their names must be unique across the app so both backends can emit direct state storage. Screens may declare scalar route parameters, such as `screen Profile(userId: Int32) { ... }`, and links pass them positionally with `NavigationLink(destination: Profile(id))`. Add `when: Bool` to a link for a compile-time checked navigation guard; the native link stays visible but is disabled when the expression is false. The compiler checks destination, arity, and exact types. Use `NavigationBack(label: "Back")` inside a declared screen for native back navigation; the label is optional and defaults to `"Back"`.
-- Use `Layout.isRegularWidth`, `Layout.isCompactWidth`, `Layout.isRegularHeight`, or `Layout.isCompactHeight` in conditional UI when native size classes matter. Swift maps them to horizontal or vertical `.regular`/`.compact` size classes; Compose maps them to current configuration width or height `>= 600dp`/`< 600dp`. Document the platform difference when it affects a design.
-- Use exhaustive scalar `when value { literal: { ... } else: { ... } }` for multiple-choice UI branches. Cases must be unique literals matching the scrutinee's `String`, `Bool`, or numeric type, and `else` is required; generated code is native Swift `switch` or Kotlin `when`.
-- Declare closed app enums with `enum ThemeMode { light, dark }`, initialize them with `ThemeMode.light`, and use enum cases in `when`; cases are statically typed and lower to native Swift/Kotlin enum values. Associated values and payload patterns are not supported yet.
-- Define top-level value models with `struct User { id: Int64, name: String }`. Construct them positionally (`User(42, "Ada")`) and access fields directly (`user.name` or `optionalUser?.name`). Struct fields and constructor arguments are checked at compile time and lower to private Swift structs or Kotlin data classes. Recursive structs, named constructor arguments, methods, inheritance, and struct field mutation are not supported yet.
-- Use `pair?.first`, `pair?.second`, `triple?.third`, or `optionalUser?.name` for safe access to optional Pair/Triple and value-struct members; the result is optional and can use `??`. Forced unwrap operators and members of unsupported reference types remain unavailable.
-- Use `for item in array`, `for item in set`, `for (key, value) in map`, `for item in start..end`, `for item in start..end step positiveInt32Literal`, and `while condition` inside button, pressable, submit, refresh, and lifecycle action blocks when direct control flow is needed. `..` is inclusive and `..<` is exclusive; range bounds are `Int32`, steps must be positive literals, all loop bindings are immutable, and `break`/`continue` stay inside loops. Loops in pure functions remain unsupported. Use `FastList` for repeated UI rows.
-- Keep user-authored application code in `.nx`. `state` remains mutable and `let` remains immutable; Nexa does not infer mutability from later assignments. Both can omit the type when their non-empty initializer is unambiguous; integer literals default to `Int32` and decimal literals to `Float64`. Use an explicit type for narrower numeric bindings or empty collections. Do not put app features in generated `.swift` or `.kt` files and do not make native edits a prerequisite for supported functionality.
-- Use `nexa generate entry.nx --target ios|android|all --out AppProject --name AppName` to create the native host project. Regenerate after editing `.nx`; keep generated Swift/Kotlin, Xcode, and Gradle files out of the authoring workflow. Generation writes `nexa.project.json` plus `nexa.sources.json`, which record the selected capabilities, native dependencies, generated source units, and resources for tooling and reproducible audits. Run `nexa audit entry.nx --target ios|android|all` to inspect capability reachability and generated dependency choices without claiming source size is binary size.
-- Generated hosts use Xcode 27/Swift 6 with an iOS 17 baseline and Android API 37 with Kotlin 2.4.20. Android navigation uses Navigation Compose 2.10.1 and enables `android:enableOnBackInvokedCallback="true"` for native predictive-back behavior.
-- Use `T?`, `null`, and `value ?? fallback` for the supported nullable slice. `null` requires an explicit optional annotation, and the fallback has the wrapped non-optional type. Pair/Triple optional members support `?.first`, `?.second`, and `?.third`; optional arrays/maps support `?[index]`; general user-defined safe member access and explicit unwrap syntax are not supported yet.
-- Define small pure app functions with `fn name(parameter: Type) -> ReturnType { let local = expression; return expression }` and call them from state initializers or UI expressions. Local constants are immutable, ordered, and can infer their type from non-empty initializers. Use `async fn` for lifecycle work or typed `Network`/`File` calls, and call it with `await` inside `OnAppear async` or another async function. Parameters and returns stay explicitly typed; the compiler emits direct native helpers. Closures and generic functions are not part of this slice.
-- Use explicit `Result<T, E>` types with `Ok(value)` and `Err(error)` constructors for fallible operations. Propagate errors explicitly using postfix `?` (e.g. `let data = fetch_resource(id)?`). User-defined enums can serve as typed error variants `E`. Emitted code maps to native Swift `Result<T, E>` with `.get()` and Kotlin `NexaResult<T, E>` with zero hidden exception overhead.
-- Use `FastList` for large or repeating arrays with one explicit source and an explicit row binding block. Write `FastList(rows, key: .self, rowHeight: 56) { row, index in ... }` for an array, `FastList(count: rowCount) { index in ... }` for generated rows, and `FastList(sections: groups, key: .self) { item, index, section in ... }.sectionHeader { ... }` for grouped data. The binding arity is fixed by the source (one, two, or three); no item/index/section names are inferred. `key` accepts `.self` or one member path such as `.id`; `rowHeight` and `Grid(columns)` use positive static literals. Use `axis: Horizontal` or `axis: Grid(columns)` for native horizontal/grid paths, `scrollPosition: mutableInt32` for native index restoration, and dot modifiers `.onEndReached { ... }`, `.onScroll { ... }`, `.stickyHeader { ... }`, or `.sectionHeader { ... }` where supported. The compiler rejects legacy aliases (`items`, `itemExtent`, `id`, `item`, `index`, `section`) and bare modifier words. iOS uses `UITableView`/`UICollectionView`; Android uses `LazyColumn`/`LazyRow`/`LazyVerticalGrid`, with generated runtime code feature-gated to the used axis and options.
-- Use the built-in typed values `Array<T>`, `Set<T>`, `Map<K, V>`, `Pair<A, B>`, and `Triple<A, B, C>` with declared types and contextual literals: `[a, b]` for arrays/sets, `[key: value]` for maps, `Pair(a, b)`, and `Triple(a, b, c)`. Set elements and map keys must be scalar `String`, `Bool`, or numeric values. Arrays support direct `array[index]` access with an `Int32` index and native bounds behavior; maps support `map[key]` with the declared key type and return `V?`; optional arrays/maps support `?[index]`; use `??` when a non-null fallback is required. Scalar `value in array`, `value in set`, and `key in map` use direct native membership checks. Pair/triple values expose compile-time checked `.first`, `.second`, and `.third` access. Mutable collection actions are available for `state` collections: arrays use `append(value)`, `remove(index)`, and `move(from, to)`; sets use `insert(value)` and `remove(value)`; maps use `set(key, value)` and `remove(key)`. `Array.move` takes two `Int32` indexes and moves the item to the destination index when both indexes exist; invalid indexes are ignored. Drag interaction must be authored through a supported native UI primitive. Inline closures support `values.map { value -> expression }`, `values.filter { value -> condition }`, and `values.reduce(initial) { accumulator, value -> expression }` for `Array<T>`; the compiler checks closure types and emits native Swift/Kotlin collection calls. Set and map order is not cross-platform stable. Swift pairs/triples are tuples; Kotlin uses ordinary standard-library Pair/Triple objects, so avoid rebuilding them repeatedly in hot Compose paths. Use `FastList` to render arrays as repeated rows.
-- Define reusable `component Name(property: Type)` declarations in `.nx`, with private `state` declarations and a `body`; invoke them by name using all required named properties. Each instance owns native component state.
-- Split larger apps into `.nx` files with `import "relative/path/File.nx"`. Resolve imports relative to the importing file, keep one project-wide component name scope, and put the single `app` declaration in the entry file. Imported files may import other app files.
-- For a real multi-screen app, establish the file structure before filling in screens. Keep `App.nx` as a small composition root with the one `app` declaration, app-wide state, and root navigation. Put every screen in its own file under `screens/`; do not combine multiple screens in `App.nx` or another catch-all file. Put reusable custom components in focused files under `components/`, and put supported value structs, enums, and pure helpers in `models/` or `helpers/`. Import dependencies explicitly from each file. A tiny single-screen example may stay in one file when splitting it would add ceremony.
-- A useful starting layout is `App.nx`, `screens/Home.nx`, `screens/Settings.nx`, `components/TaskRow.nx`, `models/Task.nx`, and `helpers/DateFormatting.nx`. Treat those names as examples, not required framework conventions. Before creating a boundary, confirm that the required declaration kind and import form are supported by the current compiler; do not invent modules, namespaces, callback properties, or storage layers that Nexa does not provide.
-- Keep component boundaries focused. Components may declare one `Content()` slot and receive a trailing content block; the compiler lowers it to a native SwiftUI view builder or Compose composable lambda. `NavigationLink` is supported inside reusable components and receives the native navigation context only when required. Callback properties are not supported yet; pass values as typed inputs and keep interactions inside the component when possible.
-- For Android images, rely on Nexa's generated Coil 3 adapter. `nexa generate` adds the required Coil/Cronet dependencies and host initialization only when remote images or native network calls need them; do not add an OkHttp image fallback.
-- Optional integrations such as SQLite, MMKV, and maps are available through supplied plugins. Locale and localization are built-in Nexa framework features, not plugins; store Apple `Localizable.xcstrings` at `assets/localization/Localizable.xcstrings` and use `Locale.localized(key:)` with literal keys. Xcode handles full catalog variations on iOS; Android generates simple strings and rejects plural/device variation keys only when the app references them. For a supplied local plugin, declare `plugin "path" as Namespace` at the entry-file top level and call its checked methods directly, using `await` for asynchronous methods. Native visual exports use the qualified form `Namespace.Component(prop: value)` and are emitted as direct SwiftUI/Compose wrappers; declared content slots and event handlers are supported. DevRuntime hot reloads calls, supported properties, class and component event handlers, and visual component arguments through generated direct adapters. Changing the plugin declaration, IDL, native source, dependencies, or host configuration requires rebuilding the Dev host. Generated projects include reachable plugin source files, and use platform minimums and SwiftPM/Maven dependencies declared in the plugin manifest. Package installation and lockfile editing remain outside Nexa's current workflow.
+Verify every snippet you hand the user:
 
-## User experience and accuracy
+```bash
+nexa check            # type-checks both targets and reports grammar and type errors
+```
 
-- Translate nontechnical requests into screens, state, navigation, and component behavior. Explain the proposed structure in plain language and preserve the requested visual/product intent.
-- When a requested feature is unsupported, identify the specific gap and offer the closest working core-only approach. Do not claim a complete build, plugin installation, or app-store-ready project if Nexa currently only emits source files.
-- Keep app source modular as it grows: separate screens and reusable component declarations using only syntax the language actually supports. Avoid premature plugin or runtime architecture in app code.
-- Before authoring a multi-screen or feature-rich app, apply the file architecture above and check the language guide for supported imports and declaration boundaries.
-- Generate Swift and Kotlin from the same `.nx` source and check that both targets express equivalent behavior. Prefer platform-native APIs through the compiler's existing mappings.
-- Give clear build instructions using the current Nexa CLI and describe any required host Xcode/Android project setup without asking the user to write native source for features the language supports.
+`nexa check` is the arbiter. If it passes, the syntax is real; if it fails, the error names the
+exact option or value that is wrong. Never claim a construct works without having run it.
+
+## Reading order
+
+| Need | Read |
+|---|---|
+| Accepted components, arguments, modifiers | [`docs/syntax-audit.md`](../../../docs/syntax-audit.md) |
+| Types, `Result<T, E>`, collections, core APIs | [`docs/language-guide.md`](../../../docs/language-guide.md) |
+| State scopes, screens, navigation, lifecycle | [`docs/state-and-navigation.md`](../../../docs/state-and-navigation.md) |
+| Component idioms and worked examples | [`docs/components.md`](../../../docs/components.md) |
+| CLI flags and `nexa.config.nx` keys | [`docs/getting-started.md`](../../../docs/getting-started.md) |
+| Runnable programs | `examples/*.nx`, `examples/archetypes/`, `examples/components/` |
+| Native plugin APIs | `plugins/<name>/README.md` and its `native.nxid` |
+
+## Layout and interaction
+
+- `Column` is the vertical container, `Row` horizontal, `Stack` for overlays. Layout `alignment`
+  takes `Start`, `Center`, or `End` — `Leading`/`Trailing` are `Text` values and are rejected on
+  layout. `Stack` rejects `spacing`; the compiler says so explicitly.
+- Styling and layout are named arguments inside the call: `Column(spacing: 12, padding: 16,
+  background: "#FFFFFF", cornerRadius: 12)`. There are no `.padding()`-style layout modifiers.
+- Dot modifiers are for event callbacks only — `.onTap`, `.onRefresh`, `.onScroll`,
+  `.onEndReached`, `.contextMenu`, `.stickyHeader`. The tap handler is `.onTap`; `.onPress` is not
+  accepted syntax.
+- Bounds pair together: `minWidth`/`maxWidth`, `minHeight`/`maxHeight`, and `borderColor` with
+  `borderWidth`. Each minimum must not exceed its maximum.
+- Accessibility options (`accessibilityLabel`, `accessibilityHint`, `accessibilityValue`,
+  `accessibilityRole`) go directly on any visual component. A label is required as soon as any
+  accessibility option is used.
+
+## State, binding, and mutability
+
+- `state name: Type = init` is mutable; `let` is immutable. Nexa does not infer mutability from a
+  later assignment.
+- Integer literals default to `Int32`, decimal literals to `Float64`. Use an explicit annotation
+  for anything narrower or for an empty collection.
+- Bindings passed to a component (`Slider(value:)`, `AppBottomBar(selected:)`, `TextInput(value:)`)
+  must be a **mutable state binding**, not a literal. `Slider(value: 0.5, ...)` is an error; declare
+  `state level: Float64 = 0.5` and pass that.
+- `FastList` takes its source positionally or as `count:` / `sections:` — never `items:`, which the
+  compiler rejects by name. An array source binds **two** names: `{ item, index in ... }`. An
+  unused binding is a warning, so use `nexa check --deny-warnings` when that matters.
+
+## File architecture
+
+For anything beyond a single screen, establish this before filling in screens:
+
+```text
+App.nx                 # the one `app` declaration, app-wide state, root navigation
+screens/Home.nx        # one screen per file
+components/TaskRow.nx  # reusable components
+models/Task.nx         # structs and enums
+helpers/DateFormat.nx  # pure functions
+```
+
+Join files with `import "relative/path.nx"`, resolved from the importing file. Component names
+share one project-wide scope. These names are a useful starting shape, not a framework
+requirement — a small app may stay in one file.
+
+## Platform and permissions
+
+- Use `platform ios { ... }` / `platform android { ... }` for target-only branches. `nexa check`
+  validates both.
+- Declare host permissions and purpose strings in `nexa.config.nx`, never in app source:
+  `config { permissions { camera: "Scan a return label." } }`. The compiler writes the iOS
+  `Info.plist` strings and Android manifest entries from that.
+- Configure plugins in the same file: `config { plugins { Notifications { ... } } }`. Options are
+  validated against the plugin's `native.nxid` at generation time.
+- An app's `android.minSdk` must be at least every plugin's floor. The generated project raises the
+  iOS deployment target to the highest plugin minimum; the published floors are in
+  `README.md#official-native-plugins`.
+
+## Working with users
+
+- Translate a non-technical request into screens, state, navigation, and component behavior, and
+  explain the structure in plain language.
+- When a request exceeds the language, name the specific gap and offer the closest working
+  core-only approach. Do not imply the project is store-ready when Nexa only emits source.
+- Present `.nx` source and the build command. Never hand the user a step that requires editing
+  generated Swift or Kotlin for something the language supports.
+
+## Current CLI
+
+```bash
+nexa create <Name>        # scaffold App.nx, nexa.config.nx, .nexa/signing.properties, .gitignore, README.md
+nexa check                # type-check both targets (--deny-warnings, --audit, --locked)
+nexa dev                  # build, launch, hot reload (--ios, --android, --once, --compile-only)
+nexa test                 # build and run (--unit-only for language tests only)
+nexa release              # iOS archive or Android AAB
+nexa audit App.nx         # capability reachability and generated dependencies
+nexa doctor               # toolchain health
+```
+
+There is no `nexa build` and no `nexa generate` command. Full flag list:
+[`docs/getting-started.md`](../../../docs/getting-started.md#cli-command-matrix).
