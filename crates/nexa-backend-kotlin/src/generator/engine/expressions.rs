@@ -587,6 +587,47 @@ fn native_call(
         });
     }
     if let Some(receiver) = receiver {
+        if namespace == "__NexaString" {
+            let rendered_receiver = expression_with_locals(receiver, locals);
+            return match name {
+                "trim" => format!("{rendered_receiver}.trim()"),
+                "toLowercase" => format!("{rendered_receiver}.lowercase()"),
+                "toUppercase" => format!("{rendered_receiver}.uppercase()"),
+                "split" => {
+                    let delimiter = rendered.first().map(String::as_str).unwrap_or("\" \"");
+                    format!("{rendered_receiver}.split({delimiter})")
+                }
+                "contains" => {
+                    let sub = rendered.first().map(String::as_str).unwrap_or("\"\"");
+                    format!("{rendered_receiver}.contains({sub})")
+                }
+                "startsWith" => {
+                    let prefix = rendered.first().map(String::as_str).unwrap_or("\"\"");
+                    format!("{rendered_receiver}.startsWith({prefix})")
+                }
+                "endsWith" => {
+                    let suffix = rendered.first().map(String::as_str).unwrap_or("\"\"");
+                    format!("{rendered_receiver}.endsWith({suffix})")
+                }
+                _ => format!("{rendered_receiver}.{name}()"),
+            };
+        }
+        if namespace == "__NexaMap" {
+            let rendered_receiver = expression_with_locals(receiver, locals);
+            return match name {
+                "get" => {
+                    let key = rendered.first().map(String::as_str).unwrap_or("\"\"");
+                    format!("{rendered_receiver}[{key}]")
+                }
+                "contains" => {
+                    let key = rendered.first().map(String::as_str).unwrap_or("\"\"");
+                    format!("{rendered_receiver}.containsKey({key})")
+                }
+                "keys" => format!("{rendered_receiver}.keys.toList()"),
+                "values" => format!("{rendered_receiver}.values.toList()"),
+                _ => format!("{rendered_receiver}.{name}()"),
+            };
+        }
         let native_name = if namespace.starts_with("__NexaUserClass:") {
             nexa_codegen::names::function_name(name)
         } else {
@@ -600,6 +641,22 @@ fn native_call(
         );
     }
     match (namespace, name) {
+        ("Regex", "isMatch") => {
+            let pattern = rendered.first().map(String::as_str).unwrap_or("\"\"");
+            let text = rendered.get(1).map(String::as_str).unwrap_or("\"\"");
+            format!("Regex({pattern}).containsMatchIn({text})")
+        }
+        ("Regex", "matches") => {
+            let pattern = rendered.first().map(String::as_str).unwrap_or("\"\"");
+            let text = rendered.get(1).map(String::as_str).unwrap_or("\"\"");
+            format!("Regex({pattern}).findAll({text}).map {{ it.value }}.toList()")
+        }
+        ("Regex", "replace") => {
+            let pattern = rendered.first().map(String::as_str).unwrap_or("\"\"");
+            let text = rendered.get(1).map(String::as_str).unwrap_or("\"\"");
+            let replacement = rendered.get(2).map(String::as_str).unwrap_or("\"\"");
+            format!("Regex({pattern}).replace({text}, {replacement})")
+        }
         ("Screen", "lockOrientation") => format!(
             "dev.nexa.core.NexaRuntimeCore.lockOrientation({})",
             rendered.first().map(String::as_str).unwrap_or("\"All\"")

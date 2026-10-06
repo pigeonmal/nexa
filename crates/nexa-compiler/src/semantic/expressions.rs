@@ -713,7 +713,7 @@ pub(super) fn collect_function_signatures(
                     structs,
                 ),
                 is_async: declaration.is_async,
-                is_throwing: false,
+                is_throwing: declaration.is_throwing,
                 receiver: None,
                 is_constructor: false,
                 is_mutable_property: false,
@@ -1456,6 +1456,23 @@ pub(super) fn lower_expr(
                         "named arguments are not supported for this method call",
                     ));
                 }
+                if let Some(Type::String) = infer_expr_type(base, ctx.symbols, ctx.functions) {
+                    return lower_string_method(base, name, arguments, *span, expected, ctx);
+                }
+                if let Some(Type::Map(key_type, value_type)) =
+                    infer_expr_type(base, ctx.symbols, ctx.functions)
+                {
+                    return lower_map_method(
+                        base,
+                        name,
+                        &key_type,
+                        &value_type,
+                        arguments,
+                        *span,
+                        expected,
+                        ctx,
+                    );
+                }
                 if is_collection_utility(name) {
                     lower_collection_utility(base, name, arguments, *span, expected, ctx)
                 } else {
@@ -2096,6 +2113,100 @@ fn lower_collection_transform(
     })
 }
 
+fn lower_string_method(
+    base: &ast::Expr,
+    name: &str,
+    arguments: &[ast::Expr],
+    span: Span,
+    expected: Option<&Type>,
+    ctx: &ExprContext<'_>,
+) -> Result<Expr, CompileError> {
+    let (return_type, expected_arg_count) = match name {
+        "trim" | "toLowercase" | "toUppercase" => (Type::String, 0),
+        "split" => (Type::Array(Box::new(Type::String)), 1),
+        "contains" | "startsWith" | "endsWith" => (Type::Bool, 1),
+        _ => {
+            return Err(CompileError::new(
+                span,
+                format!("unknown String method `{name}`"),
+            ));
+        }
+    };
+    if arguments.len() != expected_arg_count {
+        return Err(CompileError::new(
+            span,
+            format!("`{name}` expects {expected_arg_count} argument(s), got {}", arguments.len()),
+        ));
+    }
+    require_expected(expected, &return_type, span)?;
+    let receiver = lower_expr(base, Some(&Type::String), ctx)?;
+    let string_type = Type::String;
+    let mut lowered_args = Vec::with_capacity(arguments.len());
+    for (i, arg) in arguments.iter().enumerate() {
+        let lowered = lower_expr(arg, Some(&string_type), ctx)?;
+        lowered_args.push((format!("arg{i}"), lowered));
+    }
+    Ok(Expr::NativeCall {
+        receiver: Some(Box::new(receiver)),
+        namespace: "__NexaString".to_owned(),
+        name: name.to_owned(),
+        arguments: lowered_args,
+        codecs: Vec::new(),
+        return_type,
+        is_async: false,
+        is_throwing: false,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lower_map_method(
+    base: &ast::Expr,
+    name: &str,
+    key_type: &Type,
+    value_type: &Type,
+    arguments: &[ast::Expr],
+    span: Span,
+    expected: Option<&Type>,
+    ctx: &ExprContext<'_>,
+) -> Result<Expr, CompileError> {
+    let (return_type, expected_arg_count) = match name {
+        "get" => (Type::Optional(Box::new(value_type.clone())), 1),
+        "contains" => (Type::Bool, 1),
+        "keys" => (Type::Array(Box::new(key_type.clone())), 0),
+        "values" => (Type::Array(Box::new(value_type.clone())), 0),
+        _ => {
+            return Err(CompileError::new(
+                span,
+                format!("unknown Map method `{name}`"),
+            ));
+        }
+    };
+    if arguments.len() != expected_arg_count {
+        return Err(CompileError::new(
+            span,
+            format!("`{name}` expects {expected_arg_count} argument(s), got {}", arguments.len()),
+        ));
+    }
+    require_expected(expected, &return_type, span)?;
+    let map_type = Type::Map(Box::new(key_type.clone()), Box::new(value_type.clone()));
+    let receiver = lower_expr(base, Some(&map_type), ctx)?;
+    let mut lowered_args = Vec::with_capacity(arguments.len());
+    if expected_arg_count == 1 {
+        let lowered = lower_expr(&arguments[0], Some(key_type), ctx)?;
+        lowered_args.push(("key".to_owned(), lowered));
+    }
+    Ok(Expr::NativeCall {
+        receiver: Some(Box::new(receiver)),
+        namespace: "__NexaMap".to_owned(),
+        name: name.to_owned(),
+        arguments: lowered_args,
+        codecs: Vec::new(),
+        return_type,
+        is_async: false,
+        is_throwing: false,
+    })
+}
+
 fn is_collection_utility(name: &str) -> bool {
     matches!(
         name,
@@ -2414,6 +2525,9 @@ fn lower_call(
         ));
     }
     require_expected(expected, &signature.return_type, span)?;
+    if signature.is_throwing {
+        reject_unhandled_plugin_errors(name, signature, span)?;
+    }
     let lowered = arguments
         .iter()
         .zip(&signature.parameters)
@@ -2625,7 +2739,7 @@ fn lower_native_call(
     if !is_core_native_namespace(namespace) && ctx.functions.contains_key(&qualified_name) {
         return lower_plugin_call(namespace, name, call);
     }
-    if namespace == "Json" {
+    if namespace == "Json" || namespace == "JSON" {
         return lower_json_call(name, call);
     }
     if namespace == "Locale" && matches!(name, "displayName" | "localized") {
@@ -2812,6 +2926,25 @@ fn lower_native_call(
         "Log.info" | "Log.warning" | "Log.error" => {
             (Type::Void, false, vec![("message", Type::String, None)])
         }
+        "Regex.isMatch" => (
+            Type::Bool,
+            false,
+            vec![("pattern", Type::String, None), ("text", Type::String, None)],
+        ),
+        "Regex.matches" => (
+            Type::Array(Box::new(Type::String)),
+            false,
+            vec![("pattern", Type::String, None), ("text", Type::String, None)],
+        ),
+        "Regex.replace" => (
+            Type::String,
+            false,
+            vec![
+                ("pattern", Type::String, None),
+                ("text", Type::String, None),
+                ("replacement", Type::String, None),
+            ],
+        ),
         _ => {
             return Err(CompileError::new(
                 span,
@@ -3400,6 +3533,34 @@ fn native_plan(
             },
             message: Box::new(take("message")?),
         }),
+        "Regex.isMatch" | "Regex.matches" | "Regex.replace" => {
+            let (method_name, return_type) = match qualified_name {
+                "Regex.isMatch" => ("isMatch", Type::Bool),
+                "Regex.matches" => ("matches", Type::Array(Box::new(Type::String))),
+                _ => ("replace", Type::String),
+            };
+            let arguments = match qualified_name {
+                "Regex.isMatch" | "Regex.matches" => vec![
+                    ("pattern".to_owned(), take("pattern")?),
+                    ("text".to_owned(), take("text")?),
+                ],
+                _ => vec![
+                    ("pattern".to_owned(), take("pattern")?),
+                    ("text".to_owned(), take("text")?),
+                    ("replacement".to_owned(), take("replacement")?),
+                ],
+            };
+            Ok(Expr::NativeCall {
+                receiver: None,
+                namespace: "Regex".to_owned(),
+                name: method_name.to_owned(),
+                arguments,
+                codecs: Vec::new(),
+                return_type,
+                is_async: false,
+                is_throwing: false,
+            })
+        }
         _ => Err(CompileError::new(
             span,
             format!("unknown native API `{qualified_name}`"),
@@ -3420,11 +3581,13 @@ fn is_core_native_namespace(namespace: &str) -> bool {
             | "Keyboard"
             | "Number"
             | "Json"
+            | "JSON"
             | "Crypto"
             | "SecureStorage"
             | "Storage"
             | "Clipboard"
             | "Haptics"
+            | "Regex"
     )
 }
 
@@ -4547,6 +4710,31 @@ pub(super) fn infer_expr_type(
                         )
                     })
             } else {
+                if let Some(Type::String) = infer_expr_type(base, symbols, functions) {
+                    return match name.as_str() {
+                        "trim" | "toLowercase" | "toUppercase" if arguments.is_empty() => {
+                            Some(Type::String)
+                        }
+                        "split" if arguments.len() == 1 => {
+                            Some(Type::Array(Box::new(Type::String)))
+                        }
+                        "contains" | "startsWith" | "endsWith" if arguments.len() == 1 => {
+                            Some(Type::Bool)
+                        }
+                        _ => None,
+                    };
+                }
+                if let Some(Type::Map(key_type, value_type)) =
+                    infer_expr_type(base, symbols, functions)
+                {
+                    return match name.as_str() {
+                        "get" if arguments.len() == 1 => Some(Type::Optional(value_type)),
+                        "contains" if arguments.len() == 1 => Some(Type::Bool),
+                        "keys" if arguments.is_empty() => Some(Type::Array(key_type)),
+                        "values" if arguments.is_empty() => Some(Type::Array(value_type)),
+                        _ => None,
+                    };
+                }
                 infer_collection_utility_type(base, name, arguments, symbols, functions).or_else(
                     || infer_collection_transform_type(base, name, arguments, symbols, functions),
                 )

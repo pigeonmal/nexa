@@ -354,6 +354,7 @@ pub struct ComponentParameter {
 pub struct FunctionDecl {
     pub name: String,
     pub is_async: bool,
+    pub is_throwing: bool,
     pub parameters: Vec<FunctionParameter>,
     pub return_type: TypeSyntax,
     pub body: Vec<Stmt>,

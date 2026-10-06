@@ -1709,13 +1709,31 @@ impl Parser {
             }
         }
         self.expect(Kind::RParen, "expected `)` after function parameters")?;
-        self.expect(Kind::Minus, "expected `->` before function return type")?;
-        self.expect(Kind::Greater, "expected `->` before function return type")?;
-        let return_type = self.type_syntax()?;
+        let mut is_throwing = false;
+        if self.word_is("throws") {
+            self.advance();
+            is_throwing = true;
+        }
+        let return_type = if self.take(&Kind::Minus) {
+            self.expect(Kind::Greater, "expected `->` before function return type")?;
+            let ty = self.type_syntax()?;
+            if self.word_is("throws") {
+                self.advance();
+                is_throwing = true;
+            }
+            ty
+        } else if is_throwing {
+            TypeSyntax::Named("Void".to_owned(), keyword)
+        } else {
+            self.expect(Kind::Minus, "expected `->` before function return type")?;
+            self.expect(Kind::Greater, "expected `->` before function return type")?;
+            self.type_syntax()?
+        };
         let body = self.function_body()?;
         Ok(FunctionDecl {
             name,
             is_async,
+            is_throwing,
             parameters,
             return_type,
             body,
@@ -2737,46 +2755,131 @@ impl Parser {
                 if !self.word_is("catch") {
                     return self.error_here("a `try` block requires a `catch` recovery block");
                 }
-                self.advance();
-                self.expect(Kind::LBrace, "expected `{` to open catch recovery")?;
-                let (error_catches, catch_body, catch_close_consumed) = if self.word_is("case")
-                    || self.word_is("else")
-                {
-                    let mut error_catches = Vec::new();
-                    let mut catch_body = None;
-                    while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
-                        if self.word_is("case") {
+                let mut error_catches = Vec::new();
+                let mut catch_body = None;
+
+                while self.word_is("catch") {
+                    self.advance();
+                    if self.take(&Kind::LParen) {
+                        if self.take(&Kind::RParen) {
+                            let catch_stmts = self.block_stmts_with_return(allow_return)?;
                             if catch_body.is_some() {
-                                return self.error_here("typed catch cases must precede `else`");
+                                return self.error_here("cannot declare more than one catch-all block");
                             }
-                            error_catches.push(self.error_catch_arm(allow_return)?);
-                        } else if self.word_is("else") {
-                            if catch_body.is_some() {
-                                return self
-                                    .error_here("a catch block can declare only one `else`");
-                            }
-                            self.advance();
-                            catch_body = Some(self.block_stmts_with_return(allow_return)?);
-                        } else {
-                            return self.error_here("expected a typed `case` or catch-all `else`");
+                            catch_body = Some(catch_stmts);
+                            break;
                         }
-                        self.optional_semicolon();
+
+                        let (first_ident, first_span) = self.ident()?;
+                        if self.take(&Kind::Colon) {
+                            let (namespace, _) = self.ident()?;
+                            self.expect(Kind::Dot, "expected `.` after catch plugin alias")?;
+                            let (error_name, _) = self.ident()?;
+                            self.expect(Kind::Dot, "expected `.` after catch error type")?;
+                            let (variant, _) = self.ident()?;
+                            let mut bindings = Vec::new();
+                            if self.take(&Kind::LParen) {
+                                if !self.check(&Kind::RParen) {
+                                    loop {
+                                        bindings.push(self.ident()?.0);
+                                        if !self.take(&Kind::Comma) {
+                                            break;
+                                        }
+                                    }
+                                }
+                                self.expect(Kind::RParen, "expected `)` after catch payload bindings")?;
+                            } else if first_ident != "_" && first_ident != "error" {
+                                bindings.push(first_ident);
+                            }
+                            self.expect(Kind::RParen, "expected `)` after catch pattern")?;
+                            let arm_body = self.block_stmts_with_return(allow_return)?;
+                            if catch_body.is_some() {
+                                return self.error_here("typed catch cases must precede catch-all");
+                            }
+                            error_catches.push(ErrorCatchArm {
+                                namespace,
+                                error_name,
+                                variant,
+                                bindings,
+                                body: arm_body,
+                                span: first_span,
+                            });
+                        } else if self.take(&Kind::Dot) {
+                            let namespace = first_ident;
+                            let (error_name, _) = self.ident()?;
+                            self.expect(Kind::Dot, "expected `.` after catch error type")?;
+                            let (variant, _) = self.ident()?;
+                            let mut bindings = Vec::new();
+                            if self.take(&Kind::LParen) {
+                                if !self.check(&Kind::RParen) {
+                                    loop {
+                                        bindings.push(self.ident()?.0);
+                                        if !self.take(&Kind::Comma) {
+                                            break;
+                                        }
+                                    }
+                                }
+                                self.expect(Kind::RParen, "expected `)` after catch payload bindings")?;
+                            }
+                            self.expect(Kind::RParen, "expected `)` after catch pattern")?;
+                            let arm_body = self.block_stmts_with_return(allow_return)?;
+                            if catch_body.is_some() {
+                                return self.error_here("typed catch cases must precede catch-all");
+                            }
+                            error_catches.push(ErrorCatchArm {
+                                namespace,
+                                error_name,
+                                variant,
+                                bindings,
+                                body: arm_body,
+                                span: first_span,
+                            });
+                        } else {
+                            self.expect(Kind::RParen, "expected `)` after catch variable")?;
+                            let catch_stmts = self.block_stmts_with_return(allow_return)?;
+                            if catch_body.is_some() {
+                                return self.error_here("cannot declare more than one catch-all block");
+                            }
+                            catch_body = Some(catch_stmts);
+                            break;
+                        }
+                    } else {
+                        self.expect(Kind::LBrace, "expected `{` to open catch recovery")?;
+                        if self.word_is("case") || self.word_is("else") {
+                            while !self.check(&Kind::RBrace) && !self.check(&Kind::Eof) {
+                                if self.word_is("case") {
+                                    if catch_body.is_some() {
+                                        return self.error_here("typed catch cases must precede `else`");
+                                    }
+                                    error_catches.push(self.error_catch_arm(allow_return)?);
+                                } else if self.word_is("else") {
+                                    if catch_body.is_some() {
+                                        return self
+                                            .error_here("a catch block can declare only one `else`");
+                                    }
+                                    self.advance();
+                                    catch_body = Some(self.block_stmts_with_return(allow_return)?);
+                                } else {
+                                    return self.error_here("expected a typed `case` or catch-all `else`");
+                                }
+                                self.optional_semicolon();
+                            }
+                            self.expect(Kind::RBrace, "expected `}` to close catch recovery")?;
+                        } else {
+                            let catch_stmts = self.statements_after_open(allow_return, allow_let)?;
+                            if catch_body.is_some() {
+                                return self.error_here("cannot declare more than one catch-all block");
+                            }
+                            catch_body = Some(catch_stmts);
+                            break;
+                        }
                     }
-                    if error_catches.is_empty() && catch_body.is_none() {
-                        return self
-                            .error_here("typed catch recovery requires at least one `case`");
-                    }
-                    (error_catches, catch_body, false)
-                } else {
-                    (
-                        Vec::new(),
-                        Some(self.statements_after_open(allow_return, allow_let)?),
-                        true,
-                    )
-                };
-                if !catch_close_consumed {
-                    self.expect(Kind::RBrace, "expected `}` to close catch recovery")?;
                 }
+
+                if error_catches.is_empty() && catch_body.is_none() {
+                    return self.error_here("a `try` block requires at least one `catch` block");
+                }
+
                 stmts.push(Stmt::TryCatch {
                     body,
                     error_catches,

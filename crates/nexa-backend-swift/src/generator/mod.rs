@@ -293,6 +293,38 @@ const NEXA_COLLECTION_HELPERS: &str = r#"private func nexaGroupByStable<Element,
     return sections
 }
 
+private func nexaRegexIsMatch(_ pattern: String, in text: String) -> Bool {
+    do {
+        let regex = try NSRegularExpression(pattern: pattern)
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.firstMatch(in: text, range: range) != nil
+    } catch {
+        return false
+    }
+}
+
+private func nexaRegexMatches(_ pattern: String, in text: String) -> [String] {
+    do {
+        let regex = try NSRegularExpression(pattern: pattern)
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            Range(match.range, in: text).map { String(text[$0]) }
+        }
+    } catch {
+        return []
+    }
+}
+
+private func nexaRegexReplace(_ pattern: String, in text: String, with replacement: String) -> String {
+    do {
+        let regex = try NSRegularExpression(pattern: pattern)
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.stringByReplacingMatches(in: text, range: range, withTemplate: replacement)
+    } catch {
+        return text
+    }
+}
+
 "#;
 
 pub(super) use api::{crypto, network, number, permissions, time};

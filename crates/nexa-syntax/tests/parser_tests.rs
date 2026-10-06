@@ -226,6 +226,60 @@ fn parses_typed_error_catch_variants_and_payload_bindings() {
 }
 
 #[test]
+fn parses_chained_and_flat_catch_clauses() {
+    let app = nexa_syntax::parse(
+        r#"
+        app Demo {
+            body {
+                Button("Run") {
+                    try {
+                        let res = Database.query()
+                    } catch (e: SQLite.Error.QueryFailed(msg)) {
+                        let err = msg
+                    } catch (SQLite.Error.ConnectionClosed) {
+                        let disconnected = true
+                    } catch (err) {
+                        let fallback = true
+                    }
+                }
+            }
+        }
+        "#,
+    )
+    .expect("chained catch clauses should parse successfully");
+
+    let Node::ComponentInvocation(invocation) = &app.body[0] else {
+        panic!("expected a button node");
+    };
+    let ChildBody::Actions(actions) = &invocation.children else {
+        panic!("expected button actions");
+    };
+    let [
+        Stmt::TryCatch {
+            error_catches,
+            catch_body,
+            ..
+        },
+    ] = actions.as_slice()
+    else {
+        panic!("expected a try/catch action");
+    };
+    assert_eq!(error_catches.len(), 2);
+    assert_eq!(error_catches[0].namespace, "SQLite");
+    assert_eq!(error_catches[0].error_name, "Error");
+    assert_eq!(error_catches[0].variant, "QueryFailed");
+    assert_eq!(error_catches[0].bindings, ["msg"]);
+
+    assert_eq!(error_catches[1].namespace, "SQLite");
+    assert_eq!(error_catches[1].error_name, "Error");
+    assert_eq!(error_catches[1].variant, "ConnectionClosed");
+    assert!(error_catches[1].bindings.is_empty());
+
+    assert!(catch_body.is_some());
+}
+
+
+#[test]
 fn parses_returns_inside_if_and_catch_all_function_blocks() {
     let program = nexa_syntax::parse_program(
         r#"

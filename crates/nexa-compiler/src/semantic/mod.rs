@@ -633,7 +633,7 @@ fn lower_with_warnings_in_mode(
                     type_parameters: Vec::new(),
                     return_type,
                     is_async: method.is_async,
-                    is_throwing: false,
+                    is_throwing: method.is_throwing,
                     receiver: Some(receiver.clone()),
                     is_constructor: false,
                     is_mutable_property: false,
@@ -677,7 +677,7 @@ fn lower_with_warnings_in_mode(
                     type_parameters: Vec::new(),
                     return_type,
                     is_async: method.is_async,
-                    is_throwing: false,
+                    is_throwing: method.is_throwing,
                     receiver: None,
                     is_constructor: false,
                     is_mutable_property: false,
@@ -2790,11 +2790,16 @@ fn lower_functions(
             }
             symbols.extend(enum_symbols.iter().map(|(name, value)| (name.clone(), value.clone())));
             symbols.extend(global_symbols.iter().map(|(name, value)| (name.clone(), value.clone())));
+            let scoped_signatures = if signature.is_throwing {
+                functions_with_error_handling(signatures, true)
+            } else {
+                signatures.clone()
+            };
             if !has_simple_function_body(&declaration.body) {
                 let (body_actions, returns) = lower_function_statements(
                     declaration.body.clone(),
                     &symbols,
-                    signatures,
+                    &scoped_signatures,
                     &signature.return_type,
                     signature.is_async,
                     structs,
@@ -2885,7 +2890,7 @@ fn lower_functions(
                             Some(&local_type),
                             &ExprContext::with_types(
                                 &symbols,
-                                signatures,
+                                &scoped_signatures,
                                 signature.is_async,
                                 structs,
                                 enums,
@@ -2948,7 +2953,7 @@ fn lower_functions(
             let body = lower_expr(
                 &value,
                 Some(&signature.return_type),
-                &ExprContext::with_types(&symbols, signatures, signature.is_async, structs, enums)
+                &ExprContext::with_types(&symbols, &scoped_signatures, signature.is_async, structs, enums)
                     .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
             )?;
             Ok(Function {

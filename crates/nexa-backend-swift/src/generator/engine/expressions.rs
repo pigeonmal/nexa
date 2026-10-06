@@ -237,6 +237,8 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             name,
             arguments,
             return_type,
+            is_async,
+            is_throwing,
             is_constructor,
             ..
         } => {
@@ -273,7 +275,12 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             } else {
                 arguments.iter().map(render).collect::<Vec<_>>().join(", ")
             };
-            format!("{callee}({arguments})")
+            let call = format!("{callee}({arguments})");
+            if *is_throwing && !*is_async {
+                format!("try {call}")
+            } else {
+                call
+            }
         }
         Expr::CollectionTransform {
             operation,
@@ -382,6 +389,8 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             name,
             arguments,
             codecs,
+            is_async,
+            is_throwing,
             ..
         } => native_call(
             receiver.as_deref(),
@@ -390,6 +399,8 @@ fn expression_with_locals(expr: &Expr, locals: &[String]) -> String {
             arguments,
             codecs,
             locals,
+            *is_async,
+            *is_throwing,
         ),
         Expr::NetworkFetch(request) => render_network_request(request, None, locals),
         Expr::NetworkDownload {
@@ -601,6 +612,7 @@ fn time_call(method: TimeMethod, arguments: &[Expr], locals: &[String]) -> Strin
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn native_call(
     receiver: Option<&Expr>,
     namespace: &str,
@@ -608,6 +620,8 @@ fn native_call(
     arguments: &[(String, Expr)],
     codecs: &[PluginCodec],
     locals: &[String],
+    is_async: bool,
+    is_throwing: bool,
 ) -> String {
     let mut rendered = arguments
         .iter()
@@ -650,19 +664,81 @@ fn native_call(
         });
     }
     if let Some(receiver) = receiver {
+        if namespace == "__NexaString" {
+            let rendered_receiver = expression_with_locals(receiver, locals);
+            return match name {
+                "trim" => format!("{rendered_receiver}.trimmingCharacters(in: .whitespacesAndNewlines)"),
+                "toLowercase" => format!("{rendered_receiver}.lowercased()"),
+                "toUppercase" => format!("{rendered_receiver}.uppercased()"),
+                "split" => {
+                    let delimiter = rendered.first().map(String::as_str).unwrap_or("\" \"");
+                    format!("{rendered_receiver}.components(separatedBy: {delimiter})")
+                }
+                "contains" => {
+                    let sub = rendered.first().map(String::as_str).unwrap_or("\"\"");
+                    format!("{rendered_receiver}.contains({sub})")
+                }
+                "startsWith" => {
+                    let prefix = rendered.first().map(String::as_str).unwrap_or("\"\"");
+                    format!("{rendered_receiver}.hasPrefix({prefix})")
+                }
+                "endsWith" => {
+                    let suffix = rendered.first().map(String::as_str).unwrap_or("\"\"");
+                    format!("{rendered_receiver}.hasSuffix({suffix})")
+                }
+                _ => format!("{rendered_receiver}.{name}()"),
+            };
+        }
+        if namespace == "__NexaMap" {
+            let rendered_receiver = expression_with_locals(receiver, locals);
+            return match name {
+                "get" => {
+                    let key = rendered.first().map(String::as_str).unwrap_or("\"\"");
+                    format!("{rendered_receiver}[{key}]")
+                }
+                "contains" => {
+                    let key = rendered.first().map(String::as_str).unwrap_or("\"\"");
+                    format!("({rendered_receiver}[{key}] != nil)")
+                }
+                "keys" => format!("Array({rendered_receiver}.keys)"),
+                "values" => format!("Array({rendered_receiver}.values)"),
+                _ => format!("{rendered_receiver}.{name}()"),
+            };
+        }
         let native_name = if namespace.starts_with("__NexaUserClass:") {
             nexa_codegen::names::function_name(name)
         } else {
             name.to_owned()
         };
-        return format!(
+        let call = format!(
             "{}.{}({})",
             expression_with_locals(receiver, locals),
             native_name,
             rendered.join(", ")
         );
+        return if is_throwing && !is_async {
+            format!("try {call}")
+        } else {
+            call
+        };
     }
     match (namespace, name) {
+        ("Regex", "isMatch") => {
+            let pattern = rendered.first().map(String::as_str).unwrap_or("\"\"");
+            let text = rendered.get(1).map(String::as_str).unwrap_or("\"\"");
+            format!("nexaRegexIsMatch({pattern}, in: {text})")
+        }
+        ("Regex", "matches") => {
+            let pattern = rendered.first().map(String::as_str).unwrap_or("\"\"");
+            let text = rendered.get(1).map(String::as_str).unwrap_or("\"\"");
+            format!("nexaRegexMatches({pattern}, in: {text})")
+        }
+        ("Regex", "replace") => {
+            let pattern = rendered.first().map(String::as_str).unwrap_or("\"\"");
+            let text = rendered.get(1).map(String::as_str).unwrap_or("\"\"");
+            let replacement = rendered.get(2).map(String::as_str).unwrap_or("\"\"");
+            format!("nexaRegexReplace({pattern}, in: {text}, with: {replacement})")
+        }
         ("Screen", "lockOrientation") => format!(
             "NexaScreen.lockOrientation({})",
             rendered.first().map(String::as_str).unwrap_or("\"All\"")
@@ -773,12 +849,19 @@ fn native_call(
         ("Keyboard", "dismiss") => {
             "UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)".to_owned()
         }
-        _ => format!(
-            "{}Plugin.shared.{}({})",
-            namespace,
-            name,
-            rendered.join(", ")
-        ),
+        _ => {
+            let call = format!(
+                "{}Plugin.shared.{}({})",
+                namespace,
+                name,
+                rendered.join(", ")
+            );
+            if is_throwing && !is_async {
+                format!("try {call}")
+            } else {
+                call
+            }
+        }
     }
 }
 
