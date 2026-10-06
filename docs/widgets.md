@@ -1,89 +1,116 @@
-# Universal widgets
+# Universal Native Widgets 📱
 
-Widgets are authored in `.nx`. Nexa's Swift and Kotlin backends generate the
-platform hosts and native widget UI; app projects do not contain hand-written
-Swift or Kotlin widget implementations.
+Nexa allows you to author cross-platform home screen widgets directly in `.nx`. The compiler generates native **SwiftUI WidgetKit** extensions for iOS and **Jetpack Glance** AppWidget providers for Android with zero manual platform bridging.
+
+---
+
+## 1. Widget Declaration Anatomy
+
+Widgets are declared at the top level of any `.nx` file using the `widget` keyword:
 
 ```nexa
-enum TaskFilter {
-    today,
-    upcoming
+struct TaskSummary {
+    title: String,
+    pendingCount: Int32,
+    overdueCount: Int32,
+    accentColor: String
 }
 
-struct TaskWidgetConfiguration {
-    filter: TaskFilter
-}
-
-widget Tasks(
-    displayName: "Tasks",
-    description: "A quick view of your tasks",
-    configurationTitle: "Task Filter",
-    configurationDescription: "Choose which tasks to display",
-    configuration: TaskWidgetConfiguration(TaskFilter.today),
-    placeholder: TaskWidgetData.placeholder(configuration),
-    entry: await TaskWidgetData.load(configuration),
-    families: [Small, Medium, Large, ExtraLarge],
-    refreshSeconds: 1800
+widget QuickTasks(
+    displayName: "Task Summary",
+    description: "Glance at your remaining tasks for today.",
+    families: [Small, Medium, Large],
+    refreshSeconds: 1800,
+    placeholder: TaskSummary("Loading tasks...", 0, 0, "#38BDF8"),
+    entry: await loadTaskSummary()
 ) {
     Column(spacing: 8, padding: 12) {
-        Text(entry.title)
-        FastList(entry.tasks) { task, index in
-            Text(task.title, lineLimit: 1)
+        Row(spacing: 6) {
+            Icon(system: "checklist", size: 16, tint: entry.accentColor)
+            Text(entry.title).fontSize(14).bold()
+        }
+
+        Spacer()
+
+        Row(spacing: 12) {
+            Column(spacing: 2) {
+                Text(entry.pendingCount).fontSize(22).bold().foregroundColor("#FFFFFF")
+                Text("Pending").fontSize(11).foregroundColor("#94A3B8")
+            }
+            if entry.overdueCount > 0 {
+                Column(spacing: 2) {
+                    Text(entry.overdueCount).fontSize(22).bold().foregroundColor("#EF4444")
+                    Text("Overdue").fontSize(11).foregroundColor("#EF4444")
+                }
+            }
         }
     }
 }
 ```
 
-The entry provider supplies an immutable snapshot to the widget. Keep storage
-reads and filtering in that provider, then render the resulting value from
-`entry`. The generated iOS timeline/snapshot methods and Android
-`provideGlance` evaluate the entry provider when the system requests widget
-data; Nexa does not persist a separate task cache. The returned entry is a
-bounded render snapshot, while the operating system controls how long it keeps
-showing that snapshot and when it requests another one. Async providers run
-before Glance composition on Android and through an asynchronous WidgetKit
-timeline callback on iOS. They need a synchronous `placeholder` value for the
-system's loading UI and as a fallback if loading fails. The placeholder must
-have the same struct type as the entry. Async providers are family-independent
-across both platforms; use `family` in the widget body to select how many of
-the bounded rows to render.
+---
 
-`displayName`, `description`, `configurationTitle`, and
-`configurationDescription` are source text. Nexa extracts these literals into
-`locales/translations.json` along with visible text in the widget body.
-Configuration field and enum labels are derived from their names.
+## 2. Widget Parameter Reference
 
-## Native output
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `displayName` | `String` | Yes | Human-readable title displayed in the system widget gallery. |
+| `description` | `String` | Yes | Subtitle in the widget picker explaining the widget's function. |
+| `families` | `Array<WidgetFamily>`| Yes | Target sizes: `Small`, `Medium`, `Large`, `ExtraLarge`. |
+| `refreshSeconds` | `Int32` | Yes | Minimum periodic timeline refresh interval in seconds (clamped to 1800s on Android). |
+| `placeholder` | `T` | Yes | Synchronous skeleton model rendered while loading or when redacted. |
+| `entry` | `T` or `await T` | Yes | Evaluated data snapshot rendered by the widget body. |
+| `configuration` | `StructInstance?` | No | Optional user-customizable App Intent / Preference configuration model. |
 
-- iOS uses WidgetKit timelines and App Intents for configurable widgets.
-- Android uses Jetpack Glance, a generated widget receiver, and a native
-  configuration Activity for enum options.
-- A widget opens the host app when tapped. `Link` can add static external links
-  inside the widget.
-- `family` maps to Small, Medium, Large, or ExtraLarge in both providers and
-  widget content. The app chooses how many rows fit each family.
-- Android's launcher controls update scheduling. Nexa clamps periodic Android
-  updates to at least 30 minutes and refreshes widgets when the app leaves the
-  foreground.
+---
 
-On iOS, an App Group is optional for widgets that only use their timeline
-values. Configure `ios.appGroupIdentifier` when a widget and app need to share
-storage across their processes; any plugin used by the extension must also
-declare its extension-safe implementation and dependency products. The app's
-deployment target remains independent of a configured widget's iOS 17 minimum.
+## 3. Supported Widget Families
 
-## Configuration labels and localization
+Nexa maps widget families to native system slots:
 
-Configuration field and enum labels are generated from their source names. Widget titles, descriptions, and body text use literal source copy and the same generated translations file as the rest of the app.
+| Family | iOS WidgetKit Target | Android Glance Size Slot | Recommended Content |
+|---|---|---|---|
+| `Small` | `systemSmall` (2x2 grid) | 2x2 launcher cell | Single metric, badge, or primary counter. |
+| `Medium` | `systemMedium` (4x2 grid) | 4x2 launcher cell | Summary card, compact 2-3 row task list. |
+| `Large` | `systemLarge` (4x4 grid) | 4x4 launcher cell | Rich list of 5-8 items with detailed metadata. |
+| `ExtraLarge` | `systemExtraLarge` (iPad only) | Tablet expanded cell | Multi-column dashboard view. |
 
-## Portable widget body
+---
 
-WidgetKit and Glance do not support every regular app view. Widget bodies
-currently accept text, shared system icons, row/column/stack layouts, spacers,
-dividers, accessibility labels and values, conditionals without transitions,
-static links, and vertical `FastList` content. iOS keeps an accessibility value
-separate; Glance includes it in the widget's accessible description. Keep widget
-entry data bounded with `Array.take(count)`. The compiler reports unsupported
-widget nodes and options instead of silently generating a different layout.
-Keep platform-specific differences in Nexa's backends so app authors continue
-to write one widget definition.
+## 4. Portable Widget Body Subset
+
+Because native home screen widgets run in separate lightweight process hosts (WidgetKit on iOS and RemoteViews via Glance on Android), only a dedicated, performant subset of UI nodes is accepted in widget bodies:
+
+| Supported in Widgets ✅ | Unsupported in Widgets (Compile Error) ❌ |
+|---|---|
+| `Text`, `Icon`, `Image` | `TextInput`, `Slider`, `Picker`, `DatePicker` |
+| `Column`, `Row`, `Stack`, `Spacer`, `Divider` | `BottomSheet`, `Dialog`, `ConfirmationDialog` |
+| `FastList` (bounded with `.take(count)`) | Infinite scrolling or unbonded lists |
+| Background colors, padding, corner radii | Complex dynamic GPU shaders or animations |
+| `Link` (Static URL open actions) | Custom stateful mutation closures |
+
+---
+
+## 5. Shared Cross-Process Storage
+
+When your app and widget share persistent state (such as SQLite or MMKV):
+
+### iOS (App Groups)
+In `nexa.config.nx`:
+```nexa
+config {
+    ios {
+        appGroupIdentifier: "group.dev.nexa.quicktasks"
+    }
+}
+```
+
+### Shared SQLite Access
+```nexa
+let database = SQLite.Database(
+    name: "tasks.db",
+    sharedWithWidgets: true
+)
+```
+- On iOS: The database file is placed inside `containerURL(forSecurityApplicationGroupIdentifier:)`.
+- On Android: Reads directly from the app's multi-process shared database directory with WAL mode enabled.

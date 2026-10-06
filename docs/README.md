@@ -1,25 +1,49 @@
-# Nexa Documentation
+# Nexa Documentation Hub 📚
 
-Welcome to the official documentation for **Nexa**, the ultra-high-performance Ahead-Of-Time (AOT) transpiler that compiles declarative `.nx` applications directly into native **Swift (SwiftUI)** for iOS and **Kotlin (Jetpack Compose)** for Android.
+Welcome to the definitive engineering documentation for **Nexa**, the Ahead-Of-Time (AOT) mobile transpiler targeting native **Swift (SwiftUI)** for iOS and **Kotlin (Jetpack Compose)** for Android.
 
----
-
-## Documentation Index
-
-| Guide | Description |
-|---|---|
-| 🚀 [**Getting Started**](getting-started.md) | Install the CLI, check a `.nx` app, and generate native iOS and Android projects. |
-| 📖 [**Language Guide**](language-guide.md) | Syntax reference, types, functions, control flow, and explicit error handling (`Result<T, E>`). |
-| 🧩 [**Component Reference**](components.md) | Built-in layout containers, interactive controls, media, styling, and event modifiers. |
-| 🧭 [**State & Navigation**](state-and-navigation.md) | Reactive state management, navigation stacks, screen routing, and lifecycle hooks. |
-| 🔌 [**Native Plugins (Swift, Kotlin, C++)**](plugins.md) | Write cross-platform native plugins with `.nxid` contracts, C++ acceleration, and zero VM overhead. |
-| 🏗️ [**Architecture & Performance**](architecture.md) | Learn how Nexa uses static typing, concrete view types, and primitive-specialized numeric state. |
+[![Platforms](https://img.shields.io/badge/platforms-iOS%2016+%20%7C%20Android%2023+-brightgreen.svg)]()
+[![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](../LICENSE)
 
 ---
 
-## Core Philosophy
+## Documentation Directory
 
-- **Zero Runtime VM**: Nexa does not ship a JavaScript engine, Dart runtime, or bytecode interpreter. Generated code uses standard platform UI frameworks directly.
-- **Native Performance**: Generates specialized SwiftUI view hierarchies (no `AnyView`) and Compose state primitives (`mutableDoubleStateOf`, `mutableIntStateOf`) without heap boxing.
-- **Single Source of Truth**: Write your UI and business logic once in `.nx`, compile natively to both iOS and Android.
-- **Strongly Typed Native Plugins**: Integrate platform capabilities and native C++ logic through typed contracts and generated bindings.
+| Section | Guide | Target Audience | Core Topics |
+|---|---|---|---|
+| **Quickstart** | 🚀 [**Getting Started**](getting-started.md) | Beginners & App Developers | Installation, CLI commands, project structure, `nexa.config.nx`, first app |
+| **Language** | 📖 [**Language Guide**](language-guide.md) | All Developers | Types, collections, functions, async/await, `Result<T, E>`, and in-language tests |
+| **UI System** | 🧩 [**Component Reference**](components.md) | UI & UX Engineers | Complete 100% catalog of all 45 built-in components, arguments, and dot-modifiers |
+| **Navigation** | 🧭 [**State & Navigation**](state-and-navigation.md) | Application Architects | State scopes, `NavigationStack`, `AppBottomBar`, `NavigationSplitView`, `Signal<T>` |
+| **Plugins** | 🔌 [**Native Plugins Guide**](plugins.md) | Systems & Plugin Authors | `.nxid` contracts, Swift/Kotlin native bindings, C++20 JNI/ObjC++, compiler analyzers |
+| **Widgets** | 📱 [**Native Widgets Reference**](widgets.md) | Mobile Developers | iOS WidgetKit, Android Glance/RemoteViews, timelines, shared App Group storage |
+| **Design** | 🎨 [**System Icons Catalog**](system-icons.md) | Designers & Developers | Cross-platform icon catalog: Apple SF Symbols & Google Material Symbols |
+| **Internals** | 🏗️ [**Architecture & Performance**](architecture.md) | Compiler & Systems Engineers | AOT pipeline, IR transformation, unboxed state, zero-overhead layout flattening |
+
+---
+
+## Core Engineering Invariants
+
+```mermaid
+graph LR
+    A[".nx Declarative Source"] --> B["Nexa Rust AOT Compiler"]
+    B --> C["iOS: Pure Swift 6 + SwiftUI\n(Zero AnyView, Static View Specialization)"]
+    B --> D["Android: Pure Kotlin 2.4 + Jetpack Compose\n(Unboxed Primitive States, Zero Reflection)"]
+```
+
+1. **Zero Runtime Engine or Dynamic Interpreter**:
+   Generated applications link directly against platform SDKs (`UIKit`/`SwiftUI` and `AndroidX`/`Jetpack Compose`). There is no bundled V8, Hermes, or Dart VM.
+2. **Zero `AnyView` or State Boxing**:
+   - In Swift: Virtualized lists (`FastList`) compile into specialized generic views with zero type erasure.
+   - In Kotlin: Primitive state types compile into unboxed specialized holders (`mutableIntStateOf`, `mutableDoubleStateOf`).
+3. **Deterministic & Idempotent Builds**:
+   All scaffolding templates and generated native codebases are 100% deterministic, reproducible, and verifiable.
+4. **Strongly-Typed Cross-Platform Plugins**:
+   Platform extensions use `.nxid` Interface Definition Language (IDL), generating direct zero-cost bridges in Swift, Kotlin, and modern C++20.
+
+---
+
+## Need Help?
+
+- **Official Plugins Directory**: Check out [`plugins/`](../plugins/README.md) for camera, maps, biometrics, SQLite, audio/video players, and push notifications.
+- **Example Applications**: Review production-grade sample applications in [`examples/`](../examples/).

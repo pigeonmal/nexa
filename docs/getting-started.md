@@ -1,138 +1,230 @@
-# Getting Started with Nexa
+# Getting Started with Nexa 🚀
 
-Nexa projects keep one `.nx` entrypoint and one `nexa.config.nx` source of truth. Generated Xcode and Gradle projects live under `build/`.
+This guide walks you through setting up your environment, creating a new project, configuring app metadata, and mastering the live development workflow.
 
-## Requirements
+---
 
-- Rust 1.85 or later and the Nexa CLI
-- macOS with Xcode and an installed iOS Simulator runtime for iOS builds
-- Android SDK, JDK 17, and an emulator for Android builds (the generated Gradle wrapper downloads the pinned Gradle version)
+## 1. System Requirements
 
-Build and install the CLI from a Nexa checkout:
+| Toolchain | Minimum Version | Required For | Verification Command |
+|---|---|---|---|
+| **Rust** | `1.85.0+` | Nexa compiler & CLI | `rustc --version` |
+| **macOS & Xcode** | `macOS 14+`, `Xcode 15+` | iOS builds & simulators | `xcodebuild -version` |
+| **Android SDK & JDK** | `JDK 17+`, `SDK 34+` | Android builds & emulators | `javac -version`, `adb --version` |
+
+> [!TIP]
+> Run `nexa doctor` at any time to verify that your native build toolchains, simulators, and environment variables are properly configured.
+
+---
+
+## 2. Installation
+
+Install the Nexa CLI directly from the source repository:
 
 ```bash
-cargo install --path crates/nexa-cli
+git clone --recurse-submodules https://github.com/pigeonmal/nexa.git
+cd nexa
+cargo build --release -p nexa-cli
+sudo cp target/release/nexa /usr/local/bin/
 nexa --version
 ```
 
-## Create and run a project
+---
+
+## 3. Project Creation & Structure
+
+Create a new application with the standard scaffold:
 
 ```bash
-nexa create HelloWorld
-cd HelloWorld
-nexa check
-nexa dev
+nexa create Pulse
+cd Pulse
 ```
 
-`nexa check` type-checks the project for both targets before invoking Xcode or
-Gradle. It also resolves configured plugin dependencies and updates
-`nexa.lock`. Use `nexa check --locked` to verify that the lockfile already
-matches the configured plugin packages without updating it.
-
-`nexa dev` checks the `.nx` source, generates both native hosts under `build/`, compiles them, and launches on available simulators/emulators. It stays active and watches `.nx` files; compatible UI, state, actions, custom component changes, and navigation reload in the running app. Async expressions are recursively evaluated in lifecycle actions, including nested app-local calls, plugin calls, built-in async APIs, collection construction and transforms, and struct constructors. Calls from reloaded `.nx` code reach configured plugin services and native class constructors or methods with supported signatures, including recursively composed arrays, sets, maps, pairs, triples, and declared structs. Generic plugin codecs support scalar, `Bytes`, enum, struct, `Result` with enum failures, array, set, map, pair, and triple values. Native class property reads and writes, event subscriptions, and native visual components hot reload for supported scalar, `Bytes`, enum, optional, native-class-reference, array, set, map, pair, triple, and struct values; arrays with optional elements are supported by these DevRuntime adapters. New event subscriptions in app or active-screen `OnAppear` actions are installed after reload without replaying the lifecycle action; existing subscriptions rebind to the new action body. Declared throwing plugin calls reach typed catches, including errors with compound payloads. Optional generic inputs and values nested inside compound generic values preserve null separately from decode failures. Generic reads with nullable type arguments are accepted in DevRuntime using tagged decode results, which distinguish valid null payloads from reader failures. On Android, a plugin method's `T?` return still collapses missing and valid null when `T` is itself nullable. A plugin method returning `T?` transports a missing value with the Dev host null sentinel when `T` is nonnullable. Adding or removing configured plugins, or changing plugin source, interfaces, dependencies, assets, or native host configuration requires `b` to rebuild and relaunch the Dev host. The static DevRuntime adapters do not support `Set<Bytes>` values because iOS `Data` and Android `ByteArray` do not share value-equality semantics for set membership. AOT compilation continues to reject nullable generic read arguments because its cross-platform contract does not represent the outer missing-result layer separately. The debug renderer supports the same `FastList` sources, axes, headers, callbacks, refresh actions, state assignments, and synchronous app-local functions accepted by the compiler. Compatible app and screen state, focus, navigation path, and list position are retained across compatible reloads. In the dev terminal, `r` hot reloads, `Shift+R` hot restarts and resets app state, `b` rebuilds and relaunches the native app, and `p` toggles an on-device overlay with live FPS and average frame time. VS Code provides matching **Nexa: Hot Reload**, **Nexa: Hot Restart**, **Nexa: Rebuild and Relaunch App**, and **Nexa: Toggle Performance Overlay** commands with keyboard shortcuts. Use `nexa dev --once` as an explicit one-shot build and launch without starting the watcher.
-
-Use `nexa dev --compile-only` to compile the debug development host, including Nexa's hot-reload runtime, without launching it or starting the watcher. `--once` builds the normal AOT host for a one-time launch.
-
-`nexa test` runs top-level `.nx` test blocks, then generates and compiles the native projects without launching the app. Use `nexa test --unit-only` to run the in-language tests without native toolchains. `nexa release` creates an iOS archive and exported IPA plus a signed Android AAB. Use `--ios` or `--android` to build one platform. Pass `--arch arm64` to select ARM64; Android applies the `arm64-v8a` ABI filter. Set one or multiple architectures per platform in `nexa.config.nx`, such as `ios { arch: ["arm64", "x86_64"] }` or `android { arch: ["arm64", "x86_64"] }`. A single string like `arch: "arm64"` remains accepted. iOS supports simulator `x86_64`; Android supports `armv7`, `x86`, and `x86_64` in addition to `arm64`. Add `--flavor staging` to `dev`, `test`, or `release` for a separate app identity such as `dev.nexa.myapp.staging`; `--staging` is a shorthand. Define flavors in `nexa.config.nx`, for example `flavors { staging { suffix: "staging" }, production { suffix: "" } }`. A missing suffix defaults to the flavor name, while an empty suffix keeps the configured base app ID. `nexa doctor` checks the required toolchains.
-
-Use `nexa check --audit` to include a JSON report of reachable native capabilities, generated source size, dependencies, and compiler warnings. `nexa audit App.nx --target all` prints that report directly; pass `--out audit.json` to save it. Add `--release-sizes` to build isolated Release hosts and measure the resulting iOS app bundle, Android APK, and Android App Bundle. Release measurements require the corresponding native toolchains.
-
-Android releases read signing settings from `.nexa/signing.properties`, which `nexa create` adds as a Git-ignored local file (owner-readable on Unix). Fill it in once:
-
-```properties
-NEXA_ANDROID_KEYSTORE=keys/release.jks
-NEXA_ANDROID_KEY_ALIAS=release
-NEXA_ANDROID_STORE_PASSWORD=your-store-password
-NEXA_ANDROID_KEY_PASSWORD=your-key-password
-```
-
-The keystore path may be absolute or relative to the project directory, and must identify an existing file. Nexa validates the settings before building, passes them to Gradle only for the release build, and verifies the generated AAB signature before reporting success. Environment variables with the same names override the local file, so CI can continue to provide credentials through its secret store. Keep signing secrets out of `nexa.config.nx` and source control.
-
-Declare local or Git-pinned native plugin packages under `dependencies` in
-`nexa.config.nx`, then use each package ID in a `plugin "package.id" as Alias`
-declaration. Git dependencies require a full commit hash; Nexa records the
-resolved package sources and content hashes in `nexa.lock`. Use `--locked` with
-`nexa dev`, `nexa test`, or `nexa release` to reject missing or stale lockfiles.
-
-## Project layout
+### Directory Layout
 
 ```text
-HelloWorld/
-├── App.nx
-├── nexa.config.nx
-├── assets/
-└── build/                 # generated; do not edit
-    ├── ios/
-    └── android/
+Pulse/
+├── App.nx                   # Application UI, screens, and business logic
+├── nexa.config.nx           # App identity, SDK levels, permissions, and dependencies
+├── nexa.lock                # Deterministic native plugin lockfile
+├── assets/                  # Shared cross-platform assets (images, fonts, icons)
+│   ├── icon.png             # Default application launcher icon
+│   └── splash.png           # Native launch screen image
+└── build/                   # Ephemeral generated native projects (do not edit)
+    ├── ios/                 # Xcode project (.xcodeproj) with SwiftUI host
+    └── android/             # Gradle project with Jetpack Compose host
 ```
 
-Edit `App.nx` for app UI and `nexa.config.nx` for app identity, SDK versions, permissions, native plugin options, and assets. Generated Swift and Kotlin are build outputs.
+---
 
-## Configure app identity and assets
+## 4. Configuration: `nexa.config.nx`
 
-The scaffold defaults to iOS 16.0, Android minSdk 23, and Android targetSdk 36. A native plugin may require a higher `minSdk`; Nexa reports that requirement during `nexa check` and asks you to raise the app's configured minimum. Keep the app ID unique before distributing the app:
+All application identifiers, orientations, native dependencies, and target platform floors are configured declaratively in `nexa.config.nx`:
 
 ```nexa
 config {
-    app { displayName: "Hello World", version: "1.0.0", buildNumber: 1 }
-    ios { minVersion: "16.0", bundleIdentifier: "dev.example.hello" }
-    android {
-        minSdk: 23,
-        targetSdk: 36,
-        applicationId: "dev.example.hello",
-        cronet { provider: "play-services", diskCacheSizeMb: 64 }
+    app {
+        displayName: "Pulse App"
+        version: "1.0.0"
+        buildNumber: 1
+        orientation: "portrait-phones"
     }
-    permissions {}
+
+    ios {
+        bundleIdentifier: "dev.nexa.pulse"
+        minVersion: "16.0"
+        arch: ["arm64"]
+    }
+
+    android {
+        applicationId: "dev.nexa.pulse"
+        minSdk: 23
+        targetSdk: 36
+        arch: ["arm64", "x86_64"]
+        cronet {
+            provider: "play-services"
+            diskCacheSizeMb: 64
+        }
+    }
+
+    dependencies {
+        sqlite: "dev.nexa.sqlite"
+        mmkv: "dev.nexa.mmkv"
+    }
 }
 ```
 
-Set a shared orientation policy in `app` metadata. `"all"` keeps system rotation available, `"portrait"` disables landscape on every device, and `"portrait-phones"` keeps phones portrait while tablets and expanded foldable windows remain rotatable. The phone-only policy responds to Android window-size changes as a foldable opens or closes.
+### Configuration Options Reference
 
-```nexa
-config {
-    app { displayName: "Hello World", orientation: "portrait-phones" }
-}
+| Section | Key | Type | Default | Description |
+|---|---|---|---|---|
+| `app` | `displayName` | `String` | Required | Human-readable app name shown on the device launcher. |
+| `app` | `version` | `String` | `"1.0.0"` | Semantic version string (`MAJOR.MINOR.PATCH`). |
+| `app` | `buildNumber` | `Int32` | `1` | Monotonically increasing build integer. |
+| `app` | `orientation` | `String` | `"all"` | `"all"`, `"portrait"`, or `"portrait-phones"`. |
+| `ios` | `bundleIdentifier`| `String` | Required | Reverse-DNS iOS App ID (e.g. `com.company.app`). |
+| `ios` | `minVersion` | `String` | `"16.0"` | Minimum supported iOS deployment target. |
+| `ios` | `arch` | `Array<String>`| `["arm64"]` | Target architectures (`"arm64"`, `"x86_64"`). |
+| `android` | `applicationId`| `String` | Required | Android Package Name. |
+| `android` | `minSdk` | `Int32` | `23` | Minimum Android API level (Android 6.0 Marshmallow). |
+| `android` | `targetSdk` | `Int32` | `36` | Target Android SDK version. |
+| `android` | `cronet.provider`| `String` | `"play-services"`| `"play-services"` or `"embedded"` network stack. |
+| `dependencies`| `<alias>` | `String` | Optional | Plugin package ID to resolve from official or local registry. |
+
+---
+
+## 5. Development Workflow & CLI
+
+```bash
+# 1. Type check without compiling native platforms (super-fast)
+nexa check
+
+# 2. Start live development with hot reload
+nexa dev
+
+# 3. Target a specific platform
+nexa dev --ios
+nexa dev --android
 ```
 
-Android Cronet defaults to the Play Services provider, so release builds do
-not package the embedded Cronet native library. Set `provider: "embedded"` to
-package it for devices without Google Play Services. `diskCacheSizeMb` sets
-the shared network and remote-image disk cache; `0` disables that cache.
+### CLI Command Matrix
 
-To derive launcher icons for both platforms and splash artwork from one PNG, JPEG, or WebP source:
+| Command | Key Flags | Description |
+|---|---|---|
+| `nexa create <name>` | `--template <name>` | Scaffolds a new project with idiomatic layout. |
+| `nexa check` | `--locked`, `--audit` | Validates `.nx` source, plugin dependencies, and types. |
+| `nexa dev` | `--ios`, `--android`, `--arch <arch>`, `--compile-only` | Builds and launches simulator with DevRuntime hot reload. |
+| `nexa test` | `--unit-only` | Executes in-language `test` blocks and unit test suites. |
+| `nexa release` | `--flavor <name>`, `--ios`, `--android` | Generates signed Android AABs and production iOS IPAs. |
+| `nexa doctor` | N/A | Verifies toolchain installation and environment health. |
+| `nexa audit <file>` | `--target <swift\|kotlin\|all>`, `--out <path>` | Analyzes binary footprint, reachable APIs, and warnings. |
+
+### Interactive DevRuntime Shortcuts
+
+While `nexa dev` is running in your terminal:
+
+| Key Shortcut | Action | Description |
+|---|---|---|
+| `r` | **Hot Reload** | Updates views, functions, state initializers, and component trees instantly. |
+| `Shift + R` | **Hot Restart** | Clears in-memory state and restarts the application flow. |
+| `b` | **Rebuild Native Host**| Re-runs native compiler (Xcode/Gradle) when plugins or native code change. |
+| `p` | **Toggle Overlay** | Toggles the on-device live FPS and frame latency diagnostics HUD. |
+
+---
+
+## 6. Your First Complete App
+
+Here is a realistic counter and note app in `App.nx` demonstrating state, input, and list rendering:
 
 ```nexa
-config {
-    assets { icon: "assets/app-icon.png", splash: "assets/splash.png" }
-    ios { icon: "" }
-    android { icon: "" }
+struct Note {
+    id: Int64,
+    text: String,
+    timestamp: String,
 }
-```
 
-The shared icon source generates the iOS AppIcon asset and Android legacy density icons. A flattened image does not contain enough information to generate correct Android adaptive foreground/background layers or a themed monochrome mark. For those, point `android.icon` to an icon-set directory containing `icon.png`, `foreground.png` or `foreground.xml`, `background.png` or `background.xml`, and an optional `monochrome.png` or `monochrome.xml`. Android alternate icons must also use icon-set directories and require a default `android.icon` or shared `assets.icon`.
-
-Each adaptive foreground and background layer is scaled to a 108-by-108 dp canvas. Keep foreground artwork inside the centered 66-by-66 dp safe zone so Android launchers can apply different masks without clipping it. Nexa generates adaptive icons for Android 8.0 and later and includes monochrome artwork for themed icons on Android 13 and later when supplied. iOS accepts an Xcode asset-catalog icon directory or an Icon Composer `.icon` asset. iOS signing remains managed by Xcode; Android signing secrets belong in `.nexa/signing.properties` locally or CI secrets, never in `nexa.config.nx`.
-
-## Example app
-
-```nexa
-app HelloWorld {
-    state count: Int32 = 0
+app QuickNotes {
+    state notes: Array<Note> = [
+        Note(1, "Install Nexa CLI", "10:00 AM"),
+        Note(2, "Build native iOS & Android app", "10:15 AM")
+    ]
+    state draftText: String = ""
 
     body {
-        Column(spacing: 16) {
-            Text("Welcome to Nexa")
-            Text("Count: $count")
-            Button("Add one") {
-                count = count + 1
+        NavigationStack {
+            Column(spacing: 16, padding: 16) {
+                // Input controls
+                Row(spacing: 8) {
+                    TextInput(
+                        value: draftText,
+                        placeholder: "Type a quick note...",
+                        onChange: text => { draftText = text }
+                    )
+                    Button("Add Note", icon: "plus") {
+                        if draftText.trim() != "" {
+                            let newId = (notes.last()?.id ?? 0) + 1
+                            notes.push(Note(newId, draftText, "Just now"))
+                            draftText = ""
+                        }
+                    }
+                }
+
+                // Render virtualized list
+                if notes.isEmpty {
+                    ContentUnavailable(
+                        title: "No Notes Yet",
+                        description: "Add your first note using the input above.",
+                        icon: "note.text"
+                    )
+                } else {
+                    FastList(notes, key: "id") { note in
+                        Row(spacing: 12, padding: 12, background: "#1E293B", cornerRadius: 8) {
+                            Icon(system: "note", size: 20, tint: "#38BDF8")
+                            Column(spacing: 2) {
+                                Text(note.text)
+                                    .fontSize(16)
+                                    .foregroundColor("#FFFFFF")
+                                Text(note.timestamp)
+                                    .fontSize(12)
+                                    .foregroundColor("#94A3B8")
+                            }
+                            Spacer()
+                            Button(icon: "trash") {
+                                notes = notes.filter(n => n.id != note.id)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 ```
 
-In `.nx` strings, interpolate a name with `$count` or an expression with
-`\(count + 1)`. `${count}` is Kotlin's generated-code spelling; it is not the
-Nexa source syntax.
+---
 
-For platform setup issues, run `nexa doctor`.
+## 7. Next Steps
+
+- Explore the complete [**Language Guide**](language-guide.md) to learn about static typing, collections, and `Result<T, E>`.
+- Browse the full [**Component Catalog**](components.md) for layout, styling modifiers, and interactive controls.
+- Check [**State & Navigation**](state-and-navigation.md) for multi-screen stacks, modal sheets, and reactive signals.

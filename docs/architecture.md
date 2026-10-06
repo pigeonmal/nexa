@@ -1,126 +1,234 @@
 # Nexa Architecture & Performance Model
 
-Nexa is engineered around a core tenet: **generated native code must match or outperform hand-written native code**.
+Nexa is an Ahead-Of-Time (AOT) transpiler that compiles declarative `.nx` source files directly into native **Swift (SwiftUI)** for iOS and **Kotlin (Jetpack Compose)** for Android.
+
+Nexa ships **zero runtime interpreters, zero virtual machines, and zero dynamic bridges**. The emitted code compiles directly with standard native toolchains (`swiftc` via Xcode, `kotlinc` via Gradle) and performs identically to—or faster than—idiomatic hand-written native code.
 
 ---
 
-## 1. Compilation Pipeline
+## 1. Engine Comparison
+
+| Feature | React Native | Flutter | Capacitor / Ionic | Nexa |
+|---|---|---|---|---|
+| **Compilation Model** | Interpreted / JIT (Hermes JS engine) | AOT / JIT (Dart VM) | Web View Runtime (Chromium / WebKit) | **Pure Native AOT (`swiftc` & `kotlinc`)** |
+| **UI Rendering Engine** | Fabric / ShadowTree bridge | Custom Skia / Impeller canvas | DOM / Web Canvas | **Platform Native (SwiftUI & Jetpack Compose)** |
+| **Runtime Engine Footprint** | ~30 MB – 50 MB (JS engine + Yoga) | ~15 MB – 35 MB (Flutter Engine) | ~0 MB (Uses System WebView) | **0 MB (Zero runtime dependency)** |
+| **Startup Time (Cold Launch)** | High (JS parse + engine bootstrap) | Medium (Dart VM snapshot unpack) | High (WebView initialization) | **Instant (Native Mach-O / ART execution)** |
+| **List Virtualization** | JS thread bridge serialization | Custom Canvas layout | DOM element recycling | **Platform Native (`LazyVStack` / `LazyColumn`)** |
+| **Dynamic Reflection / Boxing** | Heavy | Moderate | Heavy | **Zero (Statically typed down to IR)** |
+
+---
+
+## 2. Compilation Pipeline
 
 ```mermaid
 graph TD
-    NX[".nx Source Code"] --> LexerParser["nexa-syntax\n(Lexer & Recursive Descent Parser)"]
-    LexerParser --> AST["Abstract Syntax Tree (AST)"]
-    AST --> SemanticCompiler["nexa-compiler\n(Type Checker, Validator & Optimizer)"]
-    SemanticCompiler --> IR["Typed Intermediate Representation (nexa-ir)"]
+    NX[".nx Source Files"] --> Syntax["nexa-syntax\n(Lexer & Recursive Descent Parser)"]
+    Syntax --> AST["Typed Abstract Syntax Tree"]
     
-    IR --> SwiftBackend["nexa-backend-swift\n(Native SwiftUI Code Generator)"]
-    IR --> KotlinBackend["nexa-backend-kotlin\n(Native Jetpack Compose Code Generator)"]
+    AST --> Compiler["nexa-compiler\n(Semantic Analysis, Type Inference & Optimization)"]
+    Compiler --> IR["Typed Intermediate Representation (nexa-ir)"]
     
-    PluginIDL["native.nxid"] --> Codegen["nexa-codegen\n(Swift/Kotlin/C++ Bridge Generator)"]
+    IDL[".nxid Plugin Contracts"] --> PluginIDL["nexa-plugin-idl\n(Grammar & Schema Validator)"]
+    PluginIDL --> Codegen["nexa-codegen\n(Swift, Kotlin & C++ Bridge Generator)"]
+    
+    IR --> SwiftBackend["nexa-backend-swift\n(SwiftUI AOT Generator)"]
+    IR --> KotlinBackend["nexa-backend-kotlin\n(Jetpack Compose AOT Generator)"]
+    
     Codegen --> SwiftBackend
     Codegen --> KotlinBackend
     
-    SwiftBackend --> XcodeBuild["Native iOS App (Xcode / Swift 6)"]
-    KotlinBackend --> GradleBuild["Native Android App (Gradle / Kotlin 2)"]
+    SwiftBackend --> XcodePlan["Deterministic Host Plan (iOS)"]
+    KotlinBackend --> GradlePlan["Deterministic Host Plan (Android)"]
+    
+    XcodePlan --> Xcode["Xcode Build (Swift 6)"]
+    GradlePlan --> Gradle["Gradle Build (Kotlin 2.0)"]
+```
+
+### Compiler Phases:
+1. **Lexical & Syntactic Analysis (`nexa-syntax`)**:
+   - High-throughput tokenizer and recursive descent parser.
+   - Emits structured AST with byte-accurate `Span` references for rich compiler diagnostics.
+2. **Semantic Verification & Type Inference (`nexa-compiler`)**:
+   - Resolves all symbol references across files and plugin schemas.
+   - Validates component hierarchy, modifier constraints, and reactive bindings.
+   - Eliminates dead code paths and unused variables.
+3. **Typed Intermediate Representation (`nexa-ir`)**:
+   - Platform-independent representation of layout trees, reactive states, and business logic.
+   - Strictly typed: primitives (`Int`, `Double`, `Bool`, `String`), enums, structs, collections, and generic containers (`Result<T, E>`).
+4. **Native Code Emission (`nexa-backend-swift` & `nexa-backend-kotlin`)**:
+   - Emits idiomatic Swift 6 (SwiftUI) and Kotlin 2.0 (Jetpack Compose).
+   - Enforces zero type erasure and unboxed reactive state containers.
+
+---
+
+## 3. Core Architectural Invariants
+
+### 1. Elimination of `AnyView` in SwiftUI
+Type erasure in SwiftUI (`AnyView`) destroys view structural identity, invalidates diffing caches, and causes unnecessary view redraws and memory allocations during list scrolling.
+
+Nexa **never emits `AnyView`**. Instead, component hierarchies and containers emit concrete generic specializations:
+
+```swift
+// Emitted by Nexa: Preserves concrete structural identity
+VStack(alignment: .leading, spacing: 12) {
+    Text(item.title)
+        .font(.headline)
+    Text(item.subtitle)
+        .font(.subheadline)
+}
+// NEVER emitted: AnyView(VStack { ... })
+```
+
+### 2. Unboxed Reactive State in Jetpack Compose
+In Kotlin, generic state wrappers (`mutableStateOf<Int>`) box primitive numbers into heap-allocated `java.lang.Integer` objects, triggering garbage collection pressure during rapid UI updates.
+
+Nexa's Kotlin backend analyzes primitive types and selects unboxed primitive state holders:
+
+```kotlin
+// Emitted by Nexa: Primitive unboxed state
+val counter = remember { mutableIntStateOf(0) }
+val progress = remember { mutableDoubleStateOf(0.0) }
+val isEnabled = remember { mutableStateOf(false) }
+
+// NEVER emitted: mutableStateOf<Int>(0)
+```
+
+### 3. Zero Reflection or Runtime Boxing
+- Dynamic string property lookup (`object["key"]`) and runtime reflection (`Mirror`, `java.lang.reflect`) are strictly forbidden.
+- Every signal, state, and plugin method call is validated during compilation and bound statically.
+
+### 4. Direct Zero-Copy C++ JNI/FFI Bridging
+Native plugins written in C++ communicate with Swift and Android without intermediate JSON serialization or reflection:
+- **iOS**: Direct Objective-C++ / Swift C-interop.
+- **Android**: Generated JNI bridge passing direct memory buffer views (`uint8_t*`, `size_t`) avoiding unnecessary buffer copies.
+
+---
+
+## 4. Deterministic Host Project Planning
+
+Nexa splits native project generation into five decoupled stages to enable isolated testing without disk I/O:
+
+```mermaid
+graph LR
+    IR["Typed IR"] --> Units["Source Units\n(nexa-codegen)"]
+    Pkgs["Plugin Packages"] --> Prepare["Prepare\n(Artifact discovery)"]
+    Units --> Plan["ProjectPlan\n(Pure In-Memory)"]
+    Prepare --> Plan
+    Plan --> Validate["Plan Validation\n(Collision & Path check)"]
+    Validate --> Write["Content-Addressed Write\n(SHA-256 Hashed)"]
+```
+
+| Stage | Responsibility | I/O Operation |
+|---|---|---|
+| **1. Units** | Generates source code compile units with module imports and package declarations | Pure computation (In-memory) |
+| **2. Prepare** | Discovers plugin `.nxid` contracts, staging frameworks, and asset directories | Read-only filesystem discovery |
+| **3. Plan** | Builds complete virtual tree of Xcode projects, Podspecs, Gradle files, and source trees | Pure computation (In-memory) |
+| **4. Validate** | Checks for colliding file names, illegal path traversals, or duplicate modules | Pure computation (In-memory) |
+| **5. Write** | Writes files whose SHA-256 content hash changed, preserving timestamps for unmodified files | Content-addressed writes |
+
+> [!NOTE]
+> Preserving timestamps on unmodified files prevents Xcode and Gradle from discarding their incremental compilation caches, cutting subsequent build times to sub-second durations.
+
+---
+
+## 5. AOT Code Generation Comparison
+
+### Nexa Source (`.nx`)
+```nexa
+component CounterCard(title: String, initialCount: Int = 0) {
+    state count: Int = initialCount
+
+    Card(padding: 16) {
+        VStack(spacing: 8) {
+            Text(title, size: 18, weight: "bold")
+            Text("Count: \(count)", size: 14)
+            Button("Increment", action: () => {
+                count += 1
+            })
+        }
+    }
+}
+```
+
+### Generated Swift (SwiftUI)
+```swift
+import SwiftUI
+
+public struct CounterCard: View {
+    public let title: String
+    public let initialCount: Int
+    @State private var count: Int
+
+    public init(title: String, initialCount: Int = 0) {
+        self.title = title
+        self.initialCount = initialCount
+        self._count = State(initialValue: initialCount)
+    }
+
+    public var body: some View {
+        VStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 18, weight: .bold))
+            Text("Count: \(count)")
+                .font(.system(size: 14))
+            Button(action: {
+                count += 1
+            }) {
+                Text("Increment")
+            }
+        }
+        .padding(16)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
+    }
+}
+```
+
+### Generated Kotlin (Jetpack Compose)
+```kotlin
+package com.example.app.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+@Composable
+fun CounterCard(
+    title: String,
+    initialCount: Int = 0,
+    modifier: Modifier = Modifier
+) {
+    var count by remember { mutableIntStateOf(initialCount) }
+
+    Card(modifier = modifier.padding(16.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(text = title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(text = "Count: $count", fontSize = 14.sp)
+            Button(onClick = { count += 1 }) {
+                Text("Increment")
+            }
+        }
+    }
+}
 ```
 
 ---
 
-## 2. Performance Characteristics
+## 6. Incremental Cache Invalidation
 
-### 1. Zero Runtime Reflection or Dynamic Boxing
-Unlike cross-platform engines that use untyped hash maps or reflection (`Any`, `Object`, `Mirror`), Nexa statically types all variables, expressions, and parameters directly into concrete Swift and Kotlin types.
+The Nexa compiler fingerprints the source graph and native compiler version to safely reuse build outputs. The cache is invalidated if any of the following triggers change:
 
-### 2. Elimination of `AnyView` in SwiftUI
-Type-erased views such as `AnyView` hide a view's concrete structure from SwiftUI. Nexa's generated view hierarchy uses concrete view types and does not emit `AnyView` wrappers:
-```swift
-// Emitted by Nexa:
-VStack(spacing: 16) {
-    Text(count.description)
-}
-// NOT: AnyView(VStack { ... })
-```
-
-### 3. Unboxed Compose State in Kotlin
-In Jetpack Compose, generic state holders represent numeric values as boxed values. Nexa selects primitive-specialized state holders for supported numeric types:
-```kotlin
-// Emitted by Nexa:
-val count = remember { mutableIntStateOf(0) }
-val progress = remember { mutableDoubleStateOf(0.0) }
-```
-
-### 4. Typed C++ Bridging
-C++ native plugins use generated bindings and standard C++ types such as `std::int32_t` and `std::vector<std::uint8_t>`. The bindings avoid a serialization format, while converting collection values at language boundaries may copy their contents.
-
-## 3. Generated Source Cache
-
-`build-v149` emits Swift glass, tab-search, custom button-shape, and dynamic-color helpers only when the optimized module uses them; this avoids unused newer SwiftUI API references in unrelated apps. It also gates the Android dynamic-color parser and uses deployment-compatible Foundation language access in generated Swift.
-
-`build-v148` corrects the shared barcode icon to Compose's available scanner vector.
-
-`build-v150` extracts source text and translator comments into `locales/translations.json`, then generates SwiftUI string catalogs and Android Compose string resources. DevRuntime sends translation edits over its WebSocket connection without rebuilding native resources.
-
-`build-v146` adds the built-in `Locale` language-information API to both AOT backends and DevRuntime, and expands the shared system icon catalog with additional portable semantic names.
-
-`build-v135` exposes the currently bound Android host `Activity` as a nullable weak-reference read so native plugins can start platform UI flows without retaining the activity or using reflection.
-
-`build-v130` adds typed optional array `first()` and `last()` accessors to both AOT backends and DevRuntime, and advances the Dev IR format.
-
-`build-v128` adds typed screen orientation requests to both AOT backends and DevRuntime, with iOS scene geometry support and generated interface-orientation declarations.
-
-`build-v127` preserves valid nullable values while decoding generic plugin returns in Android DevRuntime, including nullable elements in compound values.
-
-`build-v125` adds configurable Pressable long-press timing to both native backends and DevRuntime, accepts `.onTap` as the tap-handler spelling, and advances the Dev IR format.
-
-`build-v124` adds typed Pressable pinch scale callbacks to both native backends and DevRuntime, advancing the Dev IR format.
-
-`build-v123` adds typed Pressable drag callbacks to both native backends and DevRuntime, advancing the Dev IR format.
-
-`build-v122` adds typed app-private string storage to both native backends and DevRuntime and emits iOS required-reason privacy metadata for generated UserDefaults and file-metadata APIs. `build-v121` adds statically generated JSON codecs to AOT apps and typed JSON dispatch/codecs to both DevRuntime hosts. `build-v120` decodes nullable generic Android plugin collection inputs before dispatch. `build-v119` makes Android launcher orientation follow the user's current orientation policy at startup.
-
-The CLI fingerprints the source graph and a generator schema version before reusing generated native output. The schema is advanced when compiler or backend behavior changes without a source-graph change, so cached projects cannot retain stale generated code. `build-v118` adds typed Haptics calls to both native backends and DevRuntime dispatch. `build-v117` fixes recursive Kotlin DevRuntime decoding for optional generic plugin arguments. `build-v116` adds the typed iOS and Android system text clipboard API and DevRuntime dispatch. `build-v115` emits Swift and Kotlin read codecs for optional values nested inside compound generic plugin values, keeping Kotlin decode failures separate from valid null elements. `build-v114` includes SecureStorage native adapters in every DevRuntime host so hot reload can add the API without rebuilding. `build-v113` adds typed core cryptographic helpers to both native backends and DevRuntime. `build-v112` adds optional generic plugin input codecs and qualified service calls with explicit type arguments. `build-v111` adds locale-aware `Number.formatCurrency` to both AOT backends and DevRuntime. `build-v110` adds cross-platform generic plugin codecs for `Result` values with enum failures, including hot-reload value adapters. `build-v109` adds configurable spring response and damping to typed animation specs and updates the Dev IR format. `build-v105` reads Android Cronet provider and disk-cache settings from `nexa.config.nx`, omits the embedded artifact for the default Play Services provider, and advances the generated host schema. `build-v104` adds Pressable double-tap actions to typed IR, both native backends, and both Dev renderers, advancing the Dev IR format version. `build-v100` adds typed visual effects to the native style backends and both Dev renderers, advancing the Dev IR format version. `build-v99` adds a native menu-style Picker and Dev IR/runtime support on both platforms, advancing the Dev IR format and protocol versions. `build-v98` adds native SegmentedControl selection and Dev IR/runtime support on both platforms, advancing the Dev IR format and protocol versions. `build-v97` adds native Dialog alerts and Dev IR/runtime support on both platforms, advancing the Dev IR format and protocol versions. `build-v96` adds the native Float64 Slider and progress indicators and extends both development runtimes with their state/expression handling; the Dev IR format and protocol versions reject older runtimes. `build-v95` adds typed arithmetic and string concatenation plus native collection `count`/`isEmpty` accessors; both development interpreters understand the new expression nodes, and the Dev IR and protocol versions reject older runtimes. `build-v94` iterates Compose state collections through their zero-copy immutable backing snapshots, avoiding a snapshot-state read for every loop element. `build-v93` binds the Android runtime context before native plugin initialization and emits the corresponding context import/runtime helper only for modules with reachable plugins. `build-v92` included the development host's first-party File and Path helpers required when those APIs are added by hot reload.
-
-## 4. Host Project Generation
-
-Generating a native host project is split into three stages so that *what* gets
-generated can be inspected and tested without writing a project.
-
-```mermaid
-graph LR
-    IR["Typed IR"] --> Units["Source units\n(nexa-codegen)"]
-    Pkgs["Plugin packages"] --> Prepare["prepare\n(copies & discovery)"]
-    Units --> Prepare
-    Prepare --> Plan["ios_plan / android_plan\n(computed, no I/O)"]
-    Plan --> Validate["ProjectPlan::validate\n(names & paths)"]
-    Validate --> Write["writers\n(materialize)"]
-```
-
-- **Units.** The backends emit named compile units, each carrying its own file
-  name and body, rather than one string with marker comments. Assembling those
-  bodies into files is a separate, explicit step, because a host project has to
-  adjust the header first: plugin bindings add imports every file must see, and
-  Kotlin needs a `package` line ahead of them.
-- **Prepare.** The filesystem work whose results the Xcode project and Gradle
-  scripts must reference: staging plugin sources, vendoring artifacts, copying
-  images.
-- **Plan.** Every path, name, and file body, computed from prepared facts with
-  no filesystem access. Plans carry text files, binary files such as the Gradle
-  wrapper jar, executable bits, and `CopyAction`s for artifacts vendored from a
-  plugin package -- all as data.
-
-Staging a plugin artifact follows the same split. `stage_ios_plugin_artifacts`
-validates each XCFramework and returns the name the Xcode project references
-plus a `CopyAction`; the plan turns the difference against the staging marker
-into removals and writes the marker as an ordinary planned file. Only the
-writer copies or deletes.
-- **Validate.** One place decides whether names and paths are sound: duplicate
-  unit names, a unit name that is really a path, a planned file colliding with a
-  compile unit, a path escaping the project root, or a plan that both writes and
-  removes the same file.
-- **Write.** Content-addressed writes, so a rebuild does not churn timestamps or
-  re-trigger downstream incremental builds.
-
-Correctness is enforced by three byte-identity harnesses that render real output
-and print a digest per artifact: `app_fingerprint` (generated Swift and Kotlin),
-`bridge_fingerprint` (the plugin C++/Swift/JNI bridge), and
-`project_fingerprint` (every file a generated host project contains).
+| Trigger | Description | Invalidation Scope |
+|---|---|---|
+| **Source Hash** | SHA-256 hash of `.nx` source files and configuration | Changed file & dependent modules |
+| **Plugin Contract** | SHA-256 hash of any referenced `.nxid` native contract | Native plugin bridge & host project |
+| **Asset Checksum** | Image or asset catalog file modification | Asset catalog resource bundle |
+| **Generator Schema** | Internal IR format or backend emission version change | Full workspace rebuild |

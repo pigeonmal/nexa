@@ -1,34 +1,28 @@
 # Nexa ⚡
 
-**Ultra-high-performance Ahead-Of-Time (AOT) transpiler compiling declarative `.nx` apps directly into native Swift (SwiftUI) and Kotlin (Jetpack Compose).**
+**The Ahead-Of-Time (AOT) Native Mobile Framework**  
+Compiles declarative `.nx` apps directly into 100% native **Swift (SwiftUI)** for iOS and **Kotlin (Jetpack Compose)** for Android.
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
-[![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg)]()
-[![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)]()
-[![Swift](https://img.shields.io/badge/swift-6.0-red.svg)]()
-[![Kotlin](https://img.shields.io/badge/kotlin-2.4-purple.svg)]()
-
----
-
-## What is Nexa?
-
-Nexa is a cross-platform mobile language designed to generate native iOS and Android apps from one codebase.
-
-Nexa does not bundle a cross-platform UI runtime or JavaScript bridge. The compiler transpiles `.nx` views and state logic ahead-of-time into:
-- Idiomatic, type-specialized **Swift (SwiftUI)** for iOS
-- Idiomatic **Kotlin (Jetpack Compose)** for Android
+[![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org)
+[![Swift](https://img.shields.io/badge/swift-6.0-red.svg)](https://swift.org)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.4-purple.svg)](https://kotlinlang.org)
+[![Platforms](https://img.shields.io/badge/platforms-iOS%2016+%20%7C%20Android%2023+-brightgreen.svg)]()
 
 ---
 
-## Key Pillars
+## Why Nexa?
 
-- 🚀 **No Bundled Cross-Platform Runtime**: Nexa does not package a JavaScript engine or its own interpreter; generated apps use the platform's native UI frameworks and toolchains.
-- ⚡ **Native Code Generation**: Generates SwiftUI and Jetpack Compose code; numeric state uses primitive-specialized Compose holders where supported.
-- 🔐 **Core Cryptography**: Hashing, HMAC-SHA256, and secure random bytes use direct native platform APIs and work with DevRuntime hot reload.
-- 📋 **System Clipboard**: Typed text copy, paste, and availability APIs use the iOS pasteboard and Android clipboard service.
-- 🛡️ **Typed Error Handling**: First-class `Result<T, E>` values and a postfix `?` operator with target-specific error propagation behavior.
-- 🔌 **Typed Native Plugin System**: Strongly typed native plugin contracts (`.nxid`) with generated Swift, Kotlin, and **C++20** bindings.
-- 💻 **First-Class IDE Experience**: Built-in Language Server Protocol 3.17 server (`nexa-lsp`) and VS Code extension providing real-time diagnostics, autocompletion, hover docs, and document symbols.
+Nexa eliminates the performance and architectural compromises of legacy cross-platform tools. There is **no bundled JavaScript engine**, **no custom canvas renderer**, and **zero runtime reflection**.
+
+| Architectural Dimension | React Native | Flutter | Kotlin Multiplatform | Nexa ⚡ |
+|---|---|---|---|---|
+| **UI Rendering Engine** | JS Bridge / Fabric | Impeller (C++ Canvas) | Compose Multiplatform | **100% Native SwiftUI & Jetpack Compose** |
+| **Runtime Engine Footprint** | Bundled Hermes / V8 (~15 MB) | Bundled Flutter Engine (~10 MB) | Bundled JVM / Native Runtime | **Zero Overhead (Direct OS Frameworks)** |
+| **UI Type Erasure** | N/A (Dynamic JS) | Skia / Impeller Objects | Composable State Boxing | **Zero `AnyView` / Primitive Unboxed States** |
+| **Hot Reload & Dev DX** | Fast Refresh (JS only) | Hot Reload (Dart VM) | Experimental | **State-Preserving DevRuntime Hot Reload** |
+| **Native Plugin Bridge** | JNI / TurboModules | MethodChannels / FFI | Expect/Actual / C-Interop | **Statically-Typed `.nxid` (Swift, Kotlin, C++20)** |
+| **Reactive Database** | Community Async Bridges | SQLite FFI Wrappers | SQLDelight / Room3 | **Native `Signal<T>` with Cross-Process Invalidation** |
 
 ---
 
@@ -36,26 +30,24 @@ Nexa does not bundle a cross-platform UI runtime or JavaScript bridge. The compi
 
 ```mermaid
 graph TD
-    NX[".nx Source Code"] --> Syntax["nexa-syntax\n(Lexer & Parser)"]
-    Syntax --> Compiler["nexa-compiler\n(Type Analysis & Optimization)"]
-    Compiler --> IR["nexa-ir\n(Typed Intermediate Representation)"]
-    IR --> SwiftBackend["nexa-backend-swift\n(SwiftUI Codegen)"]
-    IR --> KotlinBackend["nexa-backend-kotlin\n(Compose Codegen)"]
-    PluginIDL["Plugin Contract (.nxid)"] --> Codegen["nexa-codegen\n(Swift/Kotlin/C++ Bridge)"]
+    NX[".nx Source Code"] --> Syntax["nexa-syntax\n(Lexer, Parser & AST)"]
+    Syntax --> Compiler["nexa-compiler\n(Semantic Checks, Type Inference & Inlining)"]
+    Compiler --> IR["nexa-ir\n(Typed Platform-Neutral IR)"]
+    IR --> SwiftBackend["nexa-backend-swift\n(Swift 6 & SwiftUI Codegen)"]
+    IR --> KotlinBackend["nexa-backend-kotlin\n(Kotlin & Jetpack Compose Codegen)"]
+    PluginIDL[".nxid Plugin Contracts"] --> Codegen["nexa-codegen\n(Swift / Kotlin / C++20 JNI)"]
     Codegen --> SwiftBackend
     Codegen --> KotlinBackend
-    SwiftBackend --> NativeApp["Native iOS & Android Builds"]
-    KotlinBackend --> NativeApp
-    Syntax --> LSP["nexa-lsp (VS Code Tooling)"]
-    Compiler --> LSP
+    SwiftBackend --> iOSBuild["Native iOS App (Xcode / SwiftPM)"]
+    KotlinBackend --> AndroidBuild["Native Android App (Gradle / AGP)"]
+    Syntax --> LSP["nexa-lsp (IDE Diagnostics & Autocomplete)"]
 ```
 
 ---
 
-## Quickstart
+## 10-Second Quick Start
 
 ### 1. Installation
-Clone the repository and build the CLI tool:
 
 ```bash
 git clone --recurse-submodules https://github.com/pigeonmal/nexa.git
@@ -64,43 +56,98 @@ cargo build --release -p nexa-cli
 sudo cp target/release/nexa /usr/local/bin/
 ```
 
-### 2. Create and run an App
+### 2. Create & Launch an App
 
 ```bash
-nexa create Counter
-cd Counter
-nexa check
+nexa create TaskFlow
+cd TaskFlow
 nexa dev
 ```
 
-`nexa check` type-checks both platforms without requiring native toolchains. `nexa dev` generates native projects under `build/`, builds them, and launches on available simulators or emulators. It stays active and watches `.nx` files. The DevRuntime hot reloads layouts, state, actions, synchronous and async app-local functions, custom component changes, and navigation. It dispatches reloaded plugin calls to configured native plugins, rebinds native class event subscriptions, and renders declared native visual components. Plugin methods and native class constructors, properties, events, and components use generated direct adapters for signatures accepted by the native plugin validators, including recursively composed arrays, sets, maps, and declared structs, as well as supported scalar, enum, optional, `Bytes`, and native-class-reference values. Generic plugin codecs support scalars, `Bytes`, enums, structs, `Result` values with enum failures, arrays, sets, maps, pairs, and triples. Optional generic plugin inputs and returns, including null values and optional elements inside compound values, preserve valid nulls separately from malformed data. Press `r` to hot reload, `Shift+R` to hot restart and reset app state, or `b` to rebuild and relaunch the native app. Use `nexa dev --once` in scripts to explicitly build and launch without starting the watcher. Use `nexa dev --ios` or `nexa dev --android` to select one platform. Use `--arch arm64` to select ARM64 for the selected platform; Android maps it to the `arm64-v8a` ABI. Config accepts either a single architecture string or an array per platform, for example `ios { arch: ["arm64", "x86_64"] }` and `android { arch: ["arm64", "x86_64"] }` in `nexa.config.nx`. iOS supports `arm64` and simulator-only `x86_64`; Android supports `arm64`/`arm64-v8a`, `armv7`/`armeabi-v7a`, `x86`, and `x86_64`. Add `--flavor staging` (or the `--staging` shorthand) to `dev`, `test`, or `release` for a separate identity such as `dev.nexa.myapp.staging`. Define each flavor directly inside `nexa.config.nx` with an optional suffix, for example `flavors { staging { suffix: "staging" }, production { suffix: "" } }`. A flavor without an explicit suffix uses its name. Run `nexa test` to execute `.nx` test blocks and compile native hosts; use `nexa test --unit-only` to skip native toolchains. Use `nexa release` for an iOS archive/IPA and signed Android AAB, and `nexa doctor` to inspect platform tooling.
+### CLI Command Reference
 
-Edit `App.nx` and `nexa.config.nx`. The latter configures app IDs, versions, SDK versions, permissions, and shared or platform-specific assets.
+| Command | Syntax | Description |
+|---|---|---|
+| **Create Project** | `nexa create <name>` | Scaffolds a production-ready `.nx` app with Android & iOS templates. |
+| **Type Check** | `nexa check` | Blazing-fast whole-project verification without launching native compilers. |
+| **Live Development** | `nexa dev [--ios \| --android]` | Boots simulator/emulator with live DevRuntime hot reload. |
+| **Run Tests** | `nexa test [--unit-only]` | Executes all in-language `.nx` `test` blocks and native test runners. |
+| **Release Build** | `nexa release` | Emits signed Android AABs and iOS production IPA archives. |
+| **Health Check** | `nexa doctor` | Verifies local Xcode, Android SDK, Rust, and Clang toolchains. |
+| **Plugin Management**| `nexa plugin <add\|check\|generate>` | Validates and generates native `.nxid` plugin bindings. |
+
+### Hot Reload Interactive Keys
+
+When running `nexa dev`:
+- `r` — Instantly reloads layout, functions, custom components, and styles.
+- `Shift+R` — Hot restart (resets in-memory app state and reloads).
+- `b` — Triggers a full native background rebuild and relaunch.
 
 ---
 
-## Code Example: Counter App
+## Production Code Example
+
+A real-world task card with priority tags, formatted timestamps, and reactive updates:
 
 ```nexa
-app Counter {
-    state count: Int32 = 0
+struct TaskItem {
+    id: Int64,
+    title: String,
+    priority: String,
+    isCompleted: Bool,
+    dueDate: String,
+}
+
+app TaskManager {
+    state tasks: Array<TaskItem> = [
+        TaskItem(1, "Audit security policies", "High", false, "Today, 5:00 PM"),
+        TaskItem(2, "Review PR #412", "Medium", true, "Yesterday")
+    ]
+    state filterCompleted: Bool = false
 
     body {
-        Column(spacing: 16) {
-            Text("Nexa Counter Demo")
-            Text(count)
-
-            Row(spacing: 12) {
-                Button("Increment") {
-                    count = count + 1
+        NavigationStack {
+            Column(spacing: 16, padding: 16) {
+                // Header Metrics Card
+                Row(spacing: 12, padding: 16, background: "#1E293B", cornerRadius: 12) {
+                    Icon(system: "checklist", size: 24, tint: "#38BDF8")
+                    Column(spacing: 4) {
+                        Text("Active Tasks")
+                            .fontSize(14)
+                            .foregroundColor("#94A3B8")
+                        Text(tasks.filter(t => !t.isCompleted).count)
+                            .fontSize(22)
+                            .bold()
+                            .foregroundColor("#FFFFFF")
+                    }
+                    Spacer()
+                    Switch(value: filterCompleted, label: "Hide Done")
                 }
-                Button("Reset") {
-                    count = 0
-                }
-            }
 
-            if count > 10 {
-                Text("Double digits reached!")
+                // Interactive Task List
+                FastList(tasks.filter(t => !filterCompleted || !t.isCompleted), key: "id") { task in
+                    Row(spacing: 12, padding: 12, background: "#0F172A", cornerRadius: 8) {
+                        Button(icon: task.isCompleted ? "checkmark.circle.fill" : "circle") {
+                            task.isCompleted = !task.isCompleted
+                        }
+                        Column(spacing: 4) {
+                            Text(task.title)
+                                .fontSize(16)
+                                .bold()
+                                .foregroundColor(task.isCompleted ? "#64748B" : "#F8FAFC")
+                            Text(task.dueDate)
+                                .fontSize(12)
+                                .foregroundColor("#64748B")
+                        }
+                        Spacer()
+                        Text(task.priority)
+                            .fontSize(12)
+                            .padding(horizontal: 8, vertical: 4)
+                            .background(task.priority == "High" ? "#EF4444" : "#3B82F6")
+                            .cornerRadius(4)
+                            .foregroundColor("#FFFFFF")
+                    }
+                }
             }
         }
     }
@@ -109,48 +156,54 @@ app Counter {
 
 ---
 
-## Documentation
+## Core Framework Guides
 
-Comprehensive guides are available in [`docs/`](docs/):
-
-- 🚀 [**Getting Started**](docs/getting-started.md): Installation, project structure, and CLI workflow.
-- 📖 [**Language Guide**](docs/language-guide.md): Syntax, static types, collections, state, and `Result<T, E>`.
-- 🧩 [**Component Reference**](docs/components.md): Built-in layout containers, interactive controls, and styling modifiers.
-- 🧭 [**State & Navigation**](docs/state-and-navigation.md): Reactive state, navigation stacks, screen routing, and lifecycle events.
-- 🔌 [**Native Plugins (Swift, Kotlin, C++)**](docs/plugins.md): Typed native contracts, C++ integration, and platform APIs.
-- 🏗️ [**Architecture & Performance**](docs/architecture.md): Deep dive into compiler internals, memory layout, and benchmarks.
+| Guide | Description | Key Topics |
+|---|---|---|
+| 🚀 [**Getting Started**](docs/getting-started.md) | Setup, scaffolding, and CLI workflow | Toolchains, `nexa.config.nx`, targets, flavors |
+| 📖 [**Language Guide**](docs/language-guide.md) | Full language specification | Types, `Result<T, E>`, collections, async/await |
+| 🧩 [**Component Catalog**](docs/components.md) | Complete 100% UI Reference | All 45 components, parameter tables, modifiers |
+| 🧭 [**State & Navigation**](docs/state-and-navigation.md) | Navigation and reactivity | `NavigationStack`, `AppBottomBar`, `Signal<T>` |
+| 🔌 [**Native Plugins**](docs/plugins.md) | Native platform extension architecture | `.nxid` IDL, Swift, Kotlin, C++20 JNI |
+| 📱 [**Native Widgets**](docs/widgets.md) | iOS WidgetKit and Android Glance | Timelines, refresh policies, shared storage |
+| 🎨 [**System Icons**](docs/system-icons.md) | Unified cross-platform icon catalog | SF Symbols and Material Symbols mapping |
+| 🏗️ [**Architecture & Performance**](docs/architecture.md) | Compiler internals & benchmarks | Unboxed primitives, memory safety, codegen |
 
 ---
 
-## Curated Examples
+## Official Native Plugins
 
-Explore real-world examples in [`examples/`](examples/):
+Nexa maintains a first-party native plugin ecosystem under [`plugins/`](https://github.com/pigeonmal/nexa-plugins):
 
-- [`counter.nx`](examples/counter.nx): Minimal reactive starter app.
-- [`currency_formatting.nx`](examples/currency_formatting.nx): Locale-aware currency values on iOS and Android.
-- [`json.nx`](examples/json.nx): Parse and stringify statically typed structs.
-- [`clipboard.nx`](examples/clipboard.nx): Copy and paste plain text through the native system clipboard.
-- [`todo_app.nx`](examples/todo_app.nx): Full task manager with custom components, inputs, and validation.
-- [`virtual_list.nx`](examples/virtual_list.nx): Ultra-high-performance virtualized list of 50,000 items with zero `AnyView` overhead.
-- [`showcase.nx`](examples/showcase.nx): Component catalog covering inputs, switches, cards, and gestures.
-- [`pressable_drag.nx`](examples/pressable_drag.nx): Typed drag translation and velocity callbacks.
-- [`pressable_pinch.nx`](examples/pressable_pinch.nx): Cross-platform incremental pinch scale callbacks.
-- [`navigation.nx`](examples/navigation.nx): Multi-screen routing with navigation stacks and route parameters.
-- [`modular-navigation/`](examples/modular-navigation/): Screens and tab views split across imported `.nx` files.
-- [`plugins/fast-math/`](examples/plugins/fast-math/): Modern C++ (`c++20`) plugin demonstrating typed native bindings.
-
-Official plugin packages are maintained separately in
-[`pigeonmal/nexa-plugins`](https://github.com/pigeonmal/nexa-plugins), mounted
-here as the `plugins/` submodule (clone with `--recurse-submodules`).
+| Plugin | Package ID | Key Capabilities | Supported Platforms |
+|---|---|---|---|
+| **SQLite** | `dev.nexa.sqlite` | Reactive `observeQuery<T>`, WAL mode, cross-process sync | iOS 13+ \| Android 23+ |
+| **MMKV** | `dev.nexa.mmkv` | High-speed memory-mapped key-value storage | iOS 12+ \| Android 21+ |
+| **Notifications** | `dev.nexa.notifications` | Scheduled local notifications, badge counts, actions | iOS 13+ \| Android 23+ |
+| **Camera** | `dev.nexa.camera` | Native camera preview, photo capture, video recording | iOS 14+ \| Android 23+ |
+| **Media Picker** | `dev.nexa.media-picker` | System photo and video picker without privacy permissions | iOS 14+ \| Android 23+ |
+| **Audio Player** | `dev.nexa.audio-player` | Background audio streaming, lock screen playback controls | iOS 14+ \| Android 23+ |
+| **Video Player** | `dev.nexa.video-player` | Hardware-accelerated HLS and MP4 video playback | iOS 14+ \| Android 23+ |
+| **Biometrics** | `dev.nexa.biometrics` | Face ID, Touch ID, and Android BiometricPrompt | iOS 13+ \| Android 23+ |
+| **Maps** | `dev.nexa.maps` | Interactive MapKit & Google Maps views with pins | iOS 14+ \| Android 23+ |
+| **Webview** | `dev.nexa.webview` | In-app browser engine with two-way JavaScript bridge | iOS 14+ \| Android 23+ |
+| **Websocket** | `dev.nexa.websocket` | Low-latency binary and text WebSockets with auto-reconnect | iOS 13+ \| Android 23+ |
+| **Sensors** | `dev.nexa.sensors` | Accelerometer, gyroscope, and magnetometer telemetry | iOS 13+ \| Android 23+ |
+| **In-App Purchases** | `dev.nexa.in-app-purchases` | StoreKit 2 and Google Play Billing subscriptions | iOS 15+ \| Android 24+ |
+| **Browser** | `dev.nexa.browser` | In-app Safari and Chrome Custom Tabs for OAuth flows | iOS 13+ \| Android 23+ |
+| **Data Extractor** | `dev.nexa.data-extractor` | On-device Vision OCR, barcode scanning, text recognition | iOS 14+ \| Android 23+ |
+| **Mail Composer** | `dev.nexa.mail-composer` | Native email composition sheets with attachments | iOS 13+ \| Android 23+ |
 
 ---
 
 ## Workspace Verification
 
-To verify the entire compiler workspace:
+To build and verify the compiler suite locally:
 
 ```bash
-# 1. Type checking across all 14 crates
+export CARGO_TARGET_DIR=/tmp/nexa-verification-target
+
+# 1. Type checking across all 15 crates
 cargo check --workspace --all-targets
 
 # 2. Strict linter verification
@@ -164,4 +217,4 @@ cargo test --workspace
 
 ## License
 
-Nexa is open-source software licensed under the Mozilla Public License 2.0. See [LICENSE](LICENSE) for the full text.
+Nexa is open-source software licensed under the **Mozilla Public License 2.0 (MPL-2.0)**. See [LICENSE](LICENSE) for details.

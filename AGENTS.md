@@ -187,3 +187,28 @@ directories. It is `#[ignore]`d so the default suite stays fast:
 # 4. Temporary-directory collision gate (heavy; 36,000 concurrent claims)
 cargo test -p nexa-testkit -- --ignored
 ```
+
+---
+
+## 6. Living Documentation Standards & Visual Excellence
+
+All documentation files (`.md`) across `nexa` and `nexa-plugins` must adhere to these non-negotiable standards. Documentation is treated with the same engineering rigor as production code.
+
+### Core Invariants:
+1. **Zero Unformatted Walls of Text (Scannability First)**:
+   - Dense prose paragraphs longer than 3–4 lines are strictly prohibited.
+   - Information must be structured into scannable markdown tables, parameter matrices, visual hierarchy diagrams (Mermaid), bullet points, and GitHub-style callouts (`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`).
+   - Every document must open with a quick visual badge/metadata row, a concise 1–2 sentence executive summary, and a copy-pasteable 10-second Quick Start snippet.
+2. **100% Comprehensive API Surface Coverage**:
+   - Every document covering an API, component, plugin, or syntax feature must document **100%** of its public surface. Never omit options or resort to "etc.".
+   - **Components**: Exhaustive parameter tables including exact types, default values, nullability, and behavioral notes, plus all supported child blocks and chained dot-modifiers.
+   - **Plugins (`.nxid`)**: Every struct, enum, error variant, property, synchronous method, asynchronous method, and native event callback must be tabulated with complete signatures.
+   - **Language syntax**: All keywords, primitive and compound types, operators, and collection member methods must be defined with exact typing rules.
+3. **Production-Grade, Realistic Code Examples**:
+   - Trivial placeholder examples (`foo()`, `bar()`, `1 + 1`, meaningless labels) are forbidden.
+   - Code samples must represent real-world mobile app scenarios: authenticated profile views, interactive task lists with timestamps and priority badges, shopping cart totals, reactive SQL queries with loading and empty states, media player controls, gesture handlers, and background tasks.
+4. **Strict Syntax Currency (Zero Deprecated Patterns)**:
+   - All code snippets must match the active compiler grammar (`crates/nexa-syntax/src/catalog.rs`) and pass compilation.
+   - Outdated and removed concepts (such as legacy `@query` annotations, untyped property dictionaries, or deprecated lifecycle hooks) must never appear. Use modern reactive primitives (`Signal<T>`, `observeQuery`) and declared state (`state name: Type = init`).
+5. **Architectural Transparency**:
+   - Technical explanations must detail native platform mapping (SwiftUI on iOS vs. Jetpack Compose on Android), threading models, memory ownership, and performance implications (e.g. avoiding type erasure `AnyView` or primitive boxing).

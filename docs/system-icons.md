@@ -1,8 +1,59 @@
-# Shared system icon catalog
+# Shared System Icon Catalog
 
-Use `Icon(system:)` with a canonical shared semantic name below. Nexa resolves it at compile time to its SF Symbol and Compose Material mapping. The mapping table is the single source of truth in `crates/nexa-ir/src/system_icons.rs`. Native symbol names are not accepted by `system:`; use `Icon(sfsymbol:)` or `Icon(materialsymbol:)` for platform-specific names.
+Nexa provides a unified semantic icon system. By using `Icon(system: "<name>")`, your application automatically resolves the appropriate platform-native icon at compile time:
+- **iOS**: Apple SF Symbols (`house.fill`, `magnifyingglass`, etc.)
+- **Android**: Jetpack Compose Material Icons (`Filled.Home`, `Filled.Search`, etc.)
 
-| Shared name | iOS SF Symbol | Android Material icon |
+The mapping table is maintained as the single source of truth in `crates/nexa-ir/src/system_icons.rs`.
+
+---
+
+## 1. Component Usage
+
+```nexa
+// Standard semantic icon with size and color tint
+Icon(system: "search", size: 24, tint: "#007AFF")
+
+// Inside an interactive pressable button
+Button(action: () => { handleSearch() }) {
+    HStack(spacing: 8) {
+        Icon(system: "search", size: 18)
+        Text("Search catalog...")
+    }
+}
+```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `system` | `String` | — | Canonical cross-platform semantic name from the catalog below |
+| `sfsymbol` | `String` | — | Explicit iOS SF Symbol (e.g. `"sparkles"`). Overrides iOS representation |
+| `materialsymbol` | `String` | — | Explicit Android Material icon (e.g. `"auto_awesome"`). Overrides Android representation |
+| `size` | `Float64` | `24.0` | Icon bounding box width and height in density-independent points |
+| `tint` | `String` | `"#000000"` | Hex or semantic color string (e.g. `"#007AFF"`, `"primary"`) |
+
+---
+
+## 2. Platform-Specific Overrides
+
+When a screen requires a platform-exclusive icon that does not have a cross-platform equivalent, pass explicit platform overrides:
+
+```nexa
+// Uses SF Symbol on iOS, Material Symbol on Android
+Icon(
+    sfsymbol: "apple.logo",
+    materialsymbol: "android",
+    size: 28,
+    tint: "#1C1C1E"
+)
+```
+
+---
+
+## 3. Catalog of Shared Icons
+
+| Shared Semantic Name | iOS SF Symbol | Android Material Icon |
 |---|---|---|
 | `home` | `house.fill` | `Filled.Home` |
 | `search` | `magnifyingglass` | `Filled.Search` |
