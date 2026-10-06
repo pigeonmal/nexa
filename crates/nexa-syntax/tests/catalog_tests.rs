@@ -268,6 +268,9 @@ fn workspace_path(relative: &str) -> std::path::PathBuf {
 }
 
 fn maybe_rewrite(path: &std::path::Path, current: &str, generated: &str, what: &str) {
+    // The grammar is rewritten in place rather than regenerated wholesale, so
+    // this keeps its own compare-then-write shape; the whole-file audit below
+    // goes through the shared `nexa_testkit::docs` gate instead.
     if current == generated {
         return;
     }
@@ -341,10 +344,9 @@ fn vscode_grammar_matches_catalog_vocabulary() {
 
 #[test]
 fn syntax_audit_matches_catalog() {
-    let path = workspace_path("../../docs/syntax-audit.md");
-    let generated = catalog::render_syntax_audit();
-    match std::fs::read_to_string(&path) {
-        Ok(current) => maybe_rewrite(&path, &current, &generated, "docs/syntax-audit.md"),
-        Err(_) => maybe_rewrite(&path, "", &generated, "docs/syntax-audit.md"),
-    }
+    nexa_testkit::assert_snapshot(
+        &workspace_path("../../docs/syntax-audit.md"),
+        &catalog::render_syntax_audit(),
+        "docs/syntax-audit.md",
+    );
 }

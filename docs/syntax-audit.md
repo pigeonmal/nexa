@@ -1,5 +1,9 @@
 # Syntax Audit
 
+| **Scope**: accepted `.nx` component grammar | **Source**: compiler catalog | **Status**: generated and parse-checked |
+
+This reference lists every built-in component's accepted arguments, child blocks, and event or style modifiers. The entries are generated from the parser catalog and checked by parser probes.
+
 > Generated from `crates/nexa-syntax/src/catalog.rs` — do not edit by hand.
 > Run `cargo test -p nexa-syntax` with `NEXA_UPDATE_SNAPSHOTS=1` to regenerate.
 > Every entry mirrors a parser production: the catalog test suite parses
@@ -8,6 +12,25 @@
 Each component lists its canonical signature, argument requirements,
 child-block model, trailing modifiers, and manual documentation anchor.
 Required options are bare names; optional options carry a trailing colon.
+
+## Quick start
+
+This valid `.nx` app shows the basic component and state syntax covered by this catalog.
+
+```nx
+app SyntaxAuditQuickStart {
+state savedItems: Int32 = 0
+
+body {
+Column(spacing: 8, padding: 16) {
+Text("Saved items: \(savedItems)")
+Button("Save an item") {
+savedItems = savedItems + 1
+}
+}
+}
+}
+```
 
 Sections:
 

@@ -2,6 +2,8 @@ mod generator;
 
 pub use nexa_codegen::{GeneratedSources, SourceUnit};
 
+pub use generator::swift_scalar_types;
+
 /// Target-owned sources produced for one WidgetKit extension.
 pub struct WidgetGeneratedSources {
     pub sources: GeneratedSources,

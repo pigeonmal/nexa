@@ -2067,13 +2067,30 @@ fn audit_signature(schema: &ComponentSchema) -> String {
 pub fn render_syntax_audit() -> String {
     let mut out = String::from(
         "# Syntax Audit\n\n\
+        | **Scope**: accepted `.nx` component grammar | **Source**: compiler catalog | **Status**: generated and parse-checked |\n\n\
+        This reference lists every built-in component's accepted arguments, child blocks, and event or style modifiers. The entries are generated from the parser catalog and checked by parser probes.\n\n\
         > Generated from `crates/nexa-syntax/src/catalog.rs` — do not edit by hand.\n\
         > Run `cargo test -p nexa-syntax` with `NEXA_UPDATE_SNAPSHOTS=1` to regenerate.\n\
         > Every entry mirrors a parser production: the catalog test suite parses\n\
         > each component probe, so an audit entry without a working probe fails.\n\n\
         Each component lists its canonical signature, argument requirements,\n\
         child-block model, trailing modifiers, and manual documentation anchor.\n\
-        Required options are bare names; optional options carry a trailing colon.\n\n",
+        Required options are bare names; optional options carry a trailing colon.\n\n\
+        ## Quick start\n\n\
+        This valid `.nx` app shows the basic component and state syntax covered by this catalog.\n\n\
+        ```nx\n\
+        app SyntaxAuditQuickStart {\n\
+            state savedItems: Int32 = 0\n\n\
+            body {\n\
+                Column(spacing: 8, padding: 16) {\n\
+                    Text(\"Saved items: \\(savedItems)\")\n\
+                    Button(\"Save an item\") {\n\
+                        savedItems = savedItems + 1\n\
+                    }\n\
+                }\n\
+            }\n\
+        }\n\
+        ```\n\n",
     );
     out.push_str("Sections:\n\n");
     for tag in FEATURE_ORDER {

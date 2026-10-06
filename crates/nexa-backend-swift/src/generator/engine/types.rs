@@ -66,6 +66,27 @@ pub(crate) fn swift_type(ty: &Type) -> String {
     }
 }
 
+/// Every scalar type `.nx` can name, paired with its Swift spelling.
+///
+/// Published as the Swift column of the primitive type table in
+/// `docs/language-guide.md`. Exposed because the mapping is documentation as
+/// well as code generation: reading both from one table is what stops the guide
+/// from disagreeing with the spellings this backend emits.
+pub fn swift_scalar_types() -> Vec<(&'static str, String)> {
+    let mut types = vec![
+        ("String", swift_type(&Type::String)),
+        ("Bool", swift_type(&Type::Bool)),
+        ("Bytes", swift_type(&Type::Bytes)),
+        ("Void", swift_type(&Type::Void)),
+    ];
+    types.extend(
+        NumericType::ALL
+            .iter()
+            .map(|numeric| (numeric.nexa_name(), swift_numeric(*numeric).to_owned())),
+    );
+    types
+}
+
 /// Renders the module's enums as Swift `String`-backed error types.
 ///
 /// Every `.nx` enum is lowered to a `String`-backed `Error` conformance

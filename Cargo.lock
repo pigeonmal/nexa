@@ -455,6 +455,7 @@ version = "0.1.0"
 name = "nexa-ir"
 version = "0.1.0"
 dependencies = [
+ "nexa-testkit",
  "serde",
 ]
 
@@ -490,6 +491,7 @@ version = "0.1.0"
 dependencies = [
  "nexa-diagnostics",
  "nexa-plugin-idl",
+ "nexa-testkit",
 ]
 
 [[package]]

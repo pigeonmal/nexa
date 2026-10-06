@@ -1,78 +1,48 @@
-# State & Navigation in Nexa 🧭
+# State and Navigation
 
-Nexa provides a statically verified, reactive state management and navigation model that compiles directly into native **SwiftUI navigation stacks** and **Jetpack Compose destinations**.
+Nexa state is declared with `state` and checked at compile time. Screens compile to native navigation destinations in SwiftUI and Jetpack Compose; use `NavigationStack` for a stack or `AppBottomBar` for tab navigation.
 
----
+| **Scope**: state, screens, and navigation | **Targets**: iOS and Android | **Reactive data**: `Signal<T>` |
 
-## 1. Reactive State Scopes
+## Quick start: product list and detail
 
-State in Nexa is explicit, strongly typed, and scoped to the exact lifetime of its declaring container:
-
-```mermaid
-graph TD
-    AppScope["App-Level Global State\n(Lives for entire application session)"]
-    ScreenScope["Screen-Level State\n(Lives while screen is active on navigation stack)"]
-    ComponentScope["Component-Local State\n(Lives while component is mounted in view tree)"]
-    SignalScope["Reactive Signal<T>\n(Asynchronous reactive streaming primitive)"]
-
-    AppScope --> ScreenScope
-    ScreenScope --> ComponentScope
-    SignalScope -.-> ScreenScope
-    SignalScope -.-> ComponentScope
-```
-
-### State Scoping Comparison
-
-| Scope | Declared In | Lifetime | Recomposition Boundary | Example Use Case |
-|---|---|---|---|---|
-| **App Global** | `app { state ... }` | Entire application lifecycle | Emits updates across all listening screens | User auth token, cart item count, current theme |
-| **Screen Local** | `screen { state ... }` | Preserved on navigation stack | Limited to that screen's view tree | Search queries, form drafts, expanded filters |
-| **Component Local**| `component { state ... }`| Disposed when unmounted | Limited to that specific component instance | Accordion open/close, button debounce |
-| **Reactive Signal**| `Signal<T>` | Disposed via `.dispose()` / `OnDisappear` | Emits live snapshots to listeners | Reactive SQLite tables, live sensor streams |
-
----
-
-## 2. Stack Navigation: `NavigationStack`
-
-Multi-screen routing uses `NavigationStack` as the root container, with `NavigationLink` triggering push transitions and native swipe-to-back gestures.
-
-```nexa
+```nx
 struct Product {
-    id: Int64,
-    title: String,
-    price: Float64
+    id: Int32,
+    name: String,
+    priceLabel: String,
 }
 
-app StoreApp {
+app Storefront {
     state cartCount: Int32 = 0
+    state products: Array<Product> = [
+        Product(1, "Wireless headphones", "$149.00"),
+        Product(2, "Travel charger", "$39.00")
+    ]
 
     screen ProductList {
-        state products: Array<Product> = [
-            Product(1, "Wireless Headphones", 149.99),
-            Product(2, "Mechanical Keyboard", 119.00)
-        ]
-
-        FastList(products, key: "id") { item in
-            NavigationLink(destination: ProductDetail(id: item.id, title: item.title, price: item.price)) {
-                Row(spacing: 12, padding: 12) {
-                    Text(item.title).fontSize(16).bold()
-                    Spacer()
-                    Text(Number.formatCurrency(item.price, "USD")).foregroundColor("#38BDF8")
+        Column(spacing: 12, padding: 16) {
+            Text("Featured products", fontSize: 24, fontWeight: Bold)
+            Text("Cart items: \(cartCount)", color: "#475569")
+            FastList(products, key: .id, native: true) { product, index in
+                NavigationLink(destination: ProductDetail(product.id)) {
+                    Row(spacing: 12, padding: 12, background: "#F1F5F9", cornerRadius: 8) {
+                        Text("\(index + 1). \(product.name)", fontWeight: Semibold)
+                        Spacer()
+                        Text(product.priceLabel, color: "#1D4ED8")
+                    }
                 }
             }
         }
     }
 
-    screen ProductDetail(id: Int64, title: String, price: Float64) {
-        Column(spacing: 16, padding: 20) {
-            Text(title).fontSize(24).bold()
-            Text(Number.formatCurrency(price, "USD")).fontSize(20).foregroundColor("#38BDF8")
-            
-            Button("Add to Cart", icon: "cart.badge.plus") {
+    screen ProductDetail(productID: Int32) {
+        Column(spacing: 12, padding: 20) {
+            Text("Product #\(productID)", fontSize: 24, fontWeight: Bold)
+            Button("Add to cart", icon: "shopping_cart") {
                 cartCount = cartCount + 1
             }
-
-            NavigationBack(label: "Back to Products")
+            NavigationBack(label: "Back to products")
         }
     }
 
@@ -82,157 +52,120 @@ app StoreApp {
 }
 ```
 
-### Navigation Primitives Reference
+The root and destination names, route argument count, and argument types are checked by the compiler. Screen route arguments are declared in the screen signature and passed positionally in `NavigationLink(destination: ScreenName(value))`.
 
-| Primitive | Parameters | Description |
+## State scope
+
+| Declaration | Typical use | Native lifetime |
 |---|---|---|
-| `NavigationStack` | `root: ScreenName` | Top-level host for stack-based navigation. |
-| `NavigationLink` | `destination: Screen(args...)` | Tap target navigating to destination screen. |
-| `NavigationBack` | `label: String?` | Programmatic back navigation button with optional custom label. |
+| `state` in `app` | Cart count, selected tab, app-wide preferences | App view lifetime |
+| `state` in `screen` | Search text, form draft, screen-local selection | Destination lifetime |
+| `state` in `component` | Reusable control state | Component instance lifetime |
+| `Signal<T>` from a typed plugin API | Live external data, such as a SQLite query | Managed by the generated native signal binding |
 
----
+`state` is mutable and causes the owning native view to update. `let` is immutable. Value structs have immutable fields, so update an item by mapping to a replacement value rather than assigning to a row field.
 
-## 3. Deep Linking & URL Routing
+## Tabs
 
-Declare custom URL schemes and universal HTTPS domains in `nexa.config.nx`:
+Each `Tab` declares a non-negative, unique `Int32` index, a label, and a shared system icon. The tab body owns its content.
 
-```nexa
-config {
-    app {
-        deepLinks: ["storeapp://", "https://store.example.com"]
-    }
-}
-```
-
-### Deep Link Resolution Rules
-
-Routes resolve by matching screen names in lowercase kebab-case, followed by positional path arguments:
-
-| Target Screen Declaration | Incoming Deep Link URL | Resolved Arguments |
-|---|---|---|
-| `screen ProductDetail(id: Int64)` | `storeapp://product-detail/42` | `id = 42` |
-| `screen UserProfile(name: String, tab: Int32)` | `https://store.example.com/user-profile/alex/2` | `name = "alex"`, `tab = 2` |
-
----
-
-## 4. Bottom Tab Navigation: `AppBottomBar`
-
-The primary navigation pattern for multi-tab mobile applications.
-
-```nexa
-app MainTabBar {
-    state activeTab: Int32 = 0
-    state unreadCount: Int32 = 4
+```nx
+app ShopTabs {
+    state selectedTab: Int32 = 0
+    state cartCount: Int32 = 2
 
     body {
-        AppBottomBar(selected: activeTab) {
-            Tab("Home", icon: "house.fill") {
-                HomeScreen()
+        AppBottomBar(selected: selectedTab) {
+            Tab(index: 0, label: "Home", icon: "home", title: "Home") {
+                Column(spacing: 8, padding: 16) {
+                    Text("New this week", fontSize: 22, fontWeight: Bold)
+                    Text("Browse the latest products.")
+                }
             }
-            Tab("Search", icon: "magnifyingglass") {
-                SearchScreen()
-            }
-            Tab("Notifications", icon: "bell.fill", badge: unreadCount > 0 ? unreadCount : null) {
-                NotificationsScreen()
-            }
-            Tab("Profile", icon: "person.crop.circle") {
-                ProfileScreen()
+            Tab(index: 1, label: "Cart", icon: "shopping_cart", badge: "2", title: "Your cart") {
+                Text("Your cart contains \(cartCount) items.")
             }
         }
     }
 }
 ```
 
-### Platform Adaptation
+On iOS this maps to SwiftUI `TabView`. Android uses Material 3 adaptive navigation, switching between a bottom bar and wider navigation layouts where supported. The exact tab options are listed in the [syntax audit](syntax-audit.md#tabs).
 
-- **iOS (SwiftUI)**: Compiles to native `TabView`. On iOS 18+, adopts modern floating and sidebar-adaptable tab styles.
-- **Android (Compose)**: Compiles to Material 3 `NavigationSuiteScaffold`. Automatically switches between bottom navigation on phones and a navigation rail on tablets and foldables.
+## Adaptive master-detail
 
----
+`NavigationSplitView` requires one `Sidebar` and one `Detail` child block, and a boolean `detailVisible` binding.
 
-## 5. Adaptive Master-Detail: `NavigationSplitView`
-
-For tablet, desktop, and foldable form factors, `NavigationSplitView` renders side-by-side master-detail panes:
-
-```nexa
-app TabletWorkspace {
-    state isDetailVisible: Bool = true
-    state selectedDocumentId: Int64 = 1
+```nx
+app Inventory {
+    state showDetail: Bool = false
 
     body {
-        NavigationSplitView(detailVisible: isDetailVisible) {
+        NavigationSplitView(detailVisible: showDetail) {
             Sidebar {
-                DocumentListSidebar(selectedId: selectedDocumentId)
+                Column(spacing: 8, padding: 16) {
+                    Text("Inventory")
+                    Button("Open low stock") { showDetail = true }
+                }
             }
             Detail {
-                DocumentEditorDetail(documentId: selectedDocumentId)
+                Column(spacing: 8, padding: 20) {
+                    Text("Low stock items", fontSize: 22, fontWeight: Bold)
+                    Text("Reorder ceramic travel mugs.")
+                }
             }
         }
     }
 }
 ```
 
----
+## External links and modal content
 
-## 6. Modal Sheets & Dialogs
+`Link(url: ...)` opens a URL through the platform handler. Incoming universal-link routing is not part of the current Nexa syntax. `BottomSheet`, `Dialog`, and `ConfirmationDialog` are controlled by a mutable boolean binding.
 
-### `BottomSheet`
+```nx
+app AccountHelp {
+    state showHelp: Bool = false
 
-Presents a dismissible bottom sheet modal over the active content:
-
-```nexa
-BottomSheet(isPresented: showFilterSheet, partial: true) {
-    Column(spacing: 16, padding: 20) {
-        Text("Sort By").fontSize(18).bold()
-        Button("Price: Low to High") { sortByPrice(); showFilterSheet = false }
-        Button("Price: High to Low") { sortByPriceDesc(); showFilterSheet = false }
+    body {
+        Column(spacing: 12, padding: 16) {
+            Button("Help options") { showHelp = true }
+            Link(url: "https://support.example.com/account") {
+                Text("Visit account help")
+            }
+            BottomSheet(isPresented: showHelp, partial: true, title: "Account help") {
+                Column(spacing: 12, padding: 16) {
+                    Text("Need help signing in?")
+                    Button("Close") { showHelp = false }
+                }
+            }
+        }
     }
 }
 ```
 
-### `Dialog` & `ConfirmationDialog`
+## Lifecycle actions
 
-```nexa
-ConfirmationDialog(
-    isPresented: showConfirm,
-    title: "Discard Draft?",
-    message: "Any unsaved changes will be lost."
-) {
-    Button("Keep Editing", role: Cancel) { showConfirm = false }
-    Button("Discard", role: Destructive) { discardDraft() }
-}
-```
+Use `OnAppear` and `OnDisappear` in an app body or screen. The app body may also declare `OnActive`, `OnInactive`, or `OnBackground`. An asynchronous `OnAppear async` can call an app-local `async fn` or an asynchronous typed plugin/API call with `await`.
 
----
+```nx
+app Welcome {
+    state visits: Int32 = 0
 
-## 7. Lifecycle Hooks Reference
-
-Nexa enforces strict compile-time boundaries on lifecycle hooks:
-
-| Hook | Allowed Scope | Execution Context | Description |
-|---|---|---|---|
-| `OnAppear` | `screen` or `app` | Sync or `async` | Triggered when the view becomes visible on screen. |
-| `OnDisappear` | `screen` or `app` | Synchronous | Triggered when the view is popped or leaves the screen. |
-| `OnActive` | `app` body only | Synchronous | Triggered when app transitions to foreground / active. |
-| `OnInactive` | `app` body only | Synchronous | Triggered when app loses focus (e.g. system alert, incoming call). |
-| `OnBackground`| `app` body only | Synchronous | Triggered when app is suspended to background. |
-
-### Lifecycle Example
-
-```nexa
-screen LiveTelemetry {
-    state telemetryStream: TelemetryHandle? = null
-
-    OnAppear async {
-        telemetryStream = await Telemetry.connect()
+    screen Home {
+        OnAppear {
+            visits = visits + 1
+        }
+        Column(spacing: 8, padding: 16) {
+            Text("Welcome back")
+            Text("Screen visits: \(visits)")
+        }
     }
 
-    OnDisappear {
-        telemetryStream?.disconnect()
-    }
-
-    Column {
-        Text("Telemetry Active")
+    body {
+        NavigationStack(root: Home)
     }
 }
 ```
+
+See the [plugin guide](plugins.md) for typed reactive signals and the [language guide](language-guide.md) for state, types, and collection updates.

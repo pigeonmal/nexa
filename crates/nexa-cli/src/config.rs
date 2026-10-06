@@ -390,6 +390,15 @@ impl ProjectConfig {
         })
     }
 
+    /// The configuration `nexa create` starts from, with no plugins resolved.
+    ///
+    /// Exposed so `crate::docs` can read the real defaults into the published
+    /// configuration reference instead of restating them; a default that changes
+    /// here then reaches the documentation on the next regeneration.
+    pub(super) fn scaffold_defaults(fallback_name: &str) -> Result<Self, String> {
+        Self::from_defaults(&[], fallback_name)
+    }
+
     pub(super) fn permissions(&self) -> impl Iterator<Item = &(Permission, String)> {
         self.permissions.iter()
     }

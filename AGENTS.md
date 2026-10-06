@@ -153,7 +153,44 @@ commands. Do not delete `target/` or the shared verification target to speed up
 builds; removing them discards the compiled dependencies and makes the next
 verification a cold build.
 
-### 5.1 Temporary Directories in Tests
+### 5.1 Generated Documentation
+
+Any Markdown table that restates a machine-readable source of truth must be
+generated and gated, not maintained by hand. The workspace already proved the
+pattern with the parser catalog (`docs/syntax-audit.md`, the TextMate grammar);
+these sources are gated the same way:
+
+| Published table | Source of truth | Gate |
+|---|---|---|
+| `docs/syntax-audit.md` (whole file) | `nexa_syntax::catalog` | `cargo test -p nexa-syntax` |
+| `docs/system-icons.md#3-catalog-of-shared-icons` | `nexa_ir::system_icons::SHARED_ICONS` | `cargo test -p nexa-ir --test system_icon_docs` |
+| `README.md#official-native-plugins`, `docs/plugins.md` (3 tables) | `plugins/*/plugin.config.nx` | `cargo test -p nexa-cli --test plugin_reference` |
+| `docs/getting-started.md#configuration-options-reference` | `ProjectConfig::from_defaults` | `cargo test -p nexa-cli --test project_config_reference` |
+| `docs/getting-started.md#cli-command-matrix` | the CLI's command and flag tables | same |
+| `docs/language-guide.md#primitive-scalar-types` | `swift_type` / `kotlin_type` in both backends | `cargo test -p nexa-cli --test language_reference` |
+| `docs/architecture-audit.md` newest row | `cache::CACHE_VERSION` | `cargo test -p nexa-cli --test cache_audit` |
+
+Rules for adding one:
+
+- Put a `render_*` function next to the data it renders, in the crate that owns
+  the data. Do not teach `nexa-cli` about the parser catalog, and do not teach
+  `nexa-ir` about the CLI.
+- Mark the generated span with `<!-- nexadoc:begin NAME -->` /
+  `<!-- nexadoc:end NAME -->`. Surrounding prose stays hand-written and
+  editable. Use `nexa_testkit::assert_region` for a partial document and
+  `nexa_testkit::assert_snapshot` for a wholly generated one.
+- Regenerate with `NEXA_UPDATE_SNAPSHOTS=1` and commit the result. The gate
+  fails without it and names the line that differs.
+- `nexa_testkit::docs` serializes these gates process-wide, so several regions
+  of one file cannot clobber each other under `cargo test`'s parallelism.
+- Never generate *prose*. An editorial column (a plugin's one-line summary, a
+  field's description) lives in a `&'static` table in the owning crate, and a
+  test fails when a real package or key has no entry — so a new item cannot go
+  undocumented, but the wording still lives with the code it describes.
+- `plugins/` is a submodule. Plugin-manifest gates skip cleanly when it is
+  absent rather than failing a contributor who cloned without `--recurse-submodules`.
+
+### 5.2 Temporary Directories in Tests
 
 Tests must never name a temporary directory from a clock reading.
 `SystemTime::now().as_nanos()` repeats under concurrency — the clock is far

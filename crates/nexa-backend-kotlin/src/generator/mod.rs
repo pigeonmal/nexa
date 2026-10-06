@@ -8,6 +8,10 @@ mod widget;
 
 use crate::generator::engine::types::kotlin_type;
 pub(super) use api::{network, number, permissions};
+
+// Re-exported through `generator` because `engine` is private and the crate
+// root cannot name a path through it.
+pub use engine::kotlin_scalar_types;
 use components::node_renderer as component_renderer;
 pub(super) use components::{
     accessibility, assets, bottom_bar, controls, custom_components, dialogs, images, input,

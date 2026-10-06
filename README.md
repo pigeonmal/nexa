@@ -22,7 +22,7 @@ Nexa eliminates the performance and architectural compromises of legacy cross-pl
 | **UI Type Erasure** | N/A (Dynamic JS) | Skia / Impeller Objects | Composable State Boxing | **Zero `AnyView` / Primitive Unboxed States** |
 | **Hot Reload & Dev DX** | Fast Refresh (JS only) | Hot Reload (Dart VM) | Experimental | **State-Preserving DevRuntime Hot Reload** |
 | **Native Plugin Bridge** | JNI / TurboModules | MethodChannels / FFI | Expect/Actual / C-Interop | **Statically-Typed `.nxid` (Swift, Kotlin, C++20)** |
-| **Reactive Database** | Community Async Bridges | SQLite FFI Wrappers | SQLDelight / Room3 | **Native `Signal<T>` with Cross-Process Invalidation** |
+| **Reactive Database** | Community Async Bridges | SQLite FFI Wrappers | SQLDelight / Room3 | **Optional SQLite plugin with typed `Signal<T>` queries** |
 
 ---
 
@@ -74,7 +74,7 @@ nexa dev
 | **Run Tests** | `nexa test [--unit-only]` | Executes all in-language `.nx` `test` blocks and native test runners. |
 | **Release Build** | `nexa release` | Emits signed Android AABs and iOS production IPA archives. |
 | **Health Check** | `nexa doctor` | Verifies local Xcode, Android SDK, Rust, and Clang toolchains. |
-| **Plugin Management**| `nexa plugin <add\|check\|generate>` | Validates and generates native `.nxid` plugin bindings. |
+| **Plugin Authoring**| `nexa plugin init\|check\|generate` | Scaffolds, validates, and generates local plugin contracts. There is no registry install command. |
 
 ### Hot Reload Interactive Keys
 
@@ -85,67 +85,62 @@ When running `nexa dev`:
 
 ---
 
-## Production Code Example
+## Example: Task Board
 
-A real-world task card with priority tags, formatted timestamps, and reactive updates:
+This app keeps tasks in typed state, adds a task from a text field, filters completed rows, and updates a task immutably. Layout and text styling are component arguments in Nexa source.
 
 ```nexa
 struct TaskItem {
-    id: Int64,
+    id: Int32,
     title: String,
     priority: String,
     isCompleted: Bool,
-    dueDate: String,
+    dueLabel: String,
 }
 
 app TaskManager {
     state tasks: Array<TaskItem> = [
-        TaskItem(1, "Audit security policies", "High", false, "Today, 5:00 PM"),
-        TaskItem(2, "Review PR #412", "Medium", true, "Yesterday")
+        TaskItem(1, "Review the release checklist", "High", false, "Today"),
+        TaskItem(2, "Send design feedback", "Normal", true, "Yesterday")
     ]
-    state filterCompleted: Bool = false
+    state showCompleted: Bool = false
+    state draftTitle: String = ""
 
     body {
-        NavigationStack {
-            Column(spacing: 16, padding: 16) {
-                // Header Metrics Card
-                Row(spacing: 12, padding: 16, background: "#1E293B", cornerRadius: 12) {
-                    Icon(system: "checklist", size: 24, tint: "#38BDF8")
-                    Column(spacing: 4) {
-                        Text("Active Tasks")
-                            .fontSize(14)
-                            .foregroundColor("#94A3B8")
-                        Text(tasks.filter(t => !t.isCompleted).count)
-                            .fontSize(22)
-                            .bold()
-                            .foregroundColor("#FFFFFF")
+        Column(spacing: 16, padding: 16) {
+            Text("Team tasks", fontSize: 26, fontWeight: Bold)
+            Row(spacing: 8) {
+                TextInput(value: draftTitle, placeholder: "Add a task")
+                Button("Add task", icon: "add", disabled: draftTitle == "") {
+                    if draftTitle != "" {
+                        tasks.append(TaskItem(tasks.count + 1, draftTitle, "Normal", false, "Today"))
+                        draftTitle = ""
                     }
-                    Spacer()
-                    Switch(value: filterCompleted, label: "Hide Done")
                 }
-
-                // Interactive Task List
-                FastList(tasks.filter(t => !filterCompleted || !t.isCompleted), key: "id") { task in
-                    Row(spacing: 12, padding: 12, background: "#0F172A", cornerRadius: 8) {
-                        Button(icon: task.isCompleted ? "checkmark.circle.fill" : "circle") {
-                            task.isCompleted = !task.isCompleted
+            }
+            Switch(value: showCompleted, label: "Show completed tasks")
+            if tasks.isEmpty {
+                ContentUnavailable(title: "No tasks yet", icon: "checklist", description: "Add a task to start your list.")
+            } else {
+                FastList(tasks.filter { task -> showCompleted || !task.isCompleted }, key: .id) { task, index in
+                    Row(spacing: 12, padding: 12, background: "#F1F5F9", cornerRadius: 10) {
+                        Button(task.isCompleted ? "Reopen" : "Complete", style: Plain) {
+                            tasks = tasks.map { current ->
+                                if current.id == task.id {
+                                    TaskItem(current.id, current.title, current.priority, !current.isCompleted, current.dueLabel)
+                                } else {
+                                    current
+                                }
+                            }
                         }
                         Column(spacing: 4) {
-                            Text(task.title)
-                                .fontSize(16)
-                                .bold()
-                                .foregroundColor(task.isCompleted ? "#64748B" : "#F8FAFC")
-                            Text(task.dueDate)
-                                .fontSize(12)
-                                .foregroundColor("#64748B")
+                            Text("\(index + 1). \(task.title)", fontWeight: Semibold)
+                            Text(task.dueLabel, fontSize: 13, color: "#64748B")
                         }
                         Spacer()
-                        Text(task.priority)
-                            .fontSize(12)
-                            .padding(horizontal: 8, vertical: 4)
-                            .background(task.priority == "High" ? "#EF4444" : "#3B82F6")
-                            .cornerRadius(4)
-                            .foregroundColor("#FFFFFF")
+                        Row(padding: 6, background: "#E2E8F0", cornerRadius: 6) {
+                            Text(task.priority, fontSize: 12, fontWeight: Semibold, color: "#334155")
+                        }
                     }
                 }
             }
@@ -153,6 +148,8 @@ app TaskManager {
     }
 }
 ```
+
+For exact component parameters and event modifiers, see the [component guide](docs/components.md) and compiler-generated [syntax audit](docs/syntax-audit.md).
 
 ---
 
@@ -175,24 +172,31 @@ app TaskManager {
 
 Nexa maintains a first-party native plugin ecosystem under [`plugins/`](https://github.com/pigeonmal/nexa-plugins):
 
+> The table below is generated from each package's `plugin.config.nx`. Do not edit it by hand;
+> run `cargo test -p nexa-cli --test plugin_reference` with `NEXA_UPDATE_SNAPSHOTS=1` to
+> regenerate. Platform floors come from the manifests, so they cannot disagree with what the
+> plugin generator actually emits.
+
+<!-- nexadoc:begin plugin-index -->
 | Plugin | Package ID | Key Capabilities | Supported Platforms |
 |---|---|---|---|
-| **SQLite** | `dev.nexa.sqlite` | Reactive `observeQuery<T>`, WAL mode, cross-process sync | iOS 13+ \| Android 23+ |
-| **MMKV** | `dev.nexa.mmkv` | High-speed memory-mapped key-value storage | iOS 12+ \| Android 21+ |
-| **Notifications** | `dev.nexa.notifications` | Scheduled local notifications, badge counts, actions | iOS 13+ \| Android 23+ |
-| **Camera** | `dev.nexa.camera` | Native camera preview, photo capture, video recording | iOS 14+ \| Android 23+ |
-| **Media Picker** | `dev.nexa.media-picker` | System photo and video picker without privacy permissions | iOS 14+ \| Android 23+ |
-| **Audio Player** | `dev.nexa.audio-player` | Background audio streaming, lock screen playback controls | iOS 14+ \| Android 23+ |
-| **Video Player** | `dev.nexa.video-player` | Hardware-accelerated HLS and MP4 video playback | iOS 14+ \| Android 23+ |
-| **Biometrics** | `dev.nexa.biometrics` | Face ID, Touch ID, and Android BiometricPrompt | iOS 13+ \| Android 23+ |
-| **Maps** | `dev.nexa.maps` | Interactive MapKit & Google Maps views with pins | iOS 14+ \| Android 23+ |
-| **Webview** | `dev.nexa.webview` | In-app browser engine with two-way JavaScript bridge | iOS 14+ \| Android 23+ |
-| **Websocket** | `dev.nexa.websocket` | Low-latency binary and text WebSockets with auto-reconnect | iOS 13+ \| Android 23+ |
-| **Sensors** | `dev.nexa.sensors` | Accelerometer, gyroscope, and magnetometer telemetry | iOS 13+ \| Android 23+ |
-| **In-App Purchases** | `dev.nexa.in-app-purchases` | StoreKit 2 and Google Play Billing subscriptions | iOS 15+ \| Android 24+ |
-| **Browser** | `dev.nexa.browser` | In-app Safari and Chrome Custom Tabs for OAuth flows | iOS 13+ \| Android 23+ |
-| **Data Extractor** | `dev.nexa.data-extractor` | On-device Vision OCR, barcode scanning, text recognition | iOS 14+ \| Android 23+ |
-| **Mail Composer** | `dev.nexa.mail-composer` | Native email composition sheets with attachments | iOS 13+ \| Android 23+ |
+| **Audio Player** | `dev.nexa.audio-player` | Background audio streaming, lock screen playback controls | iOS 17.0+ \| Android 26+ |
+| **Biometrics** | `dev.nexa.biometrics` | Face ID, Touch ID, and Android BiometricPrompt | iOS 13.0+ \| Android 28+ |
+| **Browser** | `dev.nexa.browser` | In-app Safari and Chrome Custom Tabs for OAuth flows | iOS 16.0+ \| Android 23+ |
+| **Camera** | `dev.nexa.camera` | Native camera preview, photo capture, video recording | iOS 17.0+ \| Android 23+ |
+| **Data Extractor** | `dev.nexa.data-extractor` | On-device Vision OCR, barcode scanning, text recognition | iOS 13.0+ \| Android 28+ |
+| **In-App Purchases** | `dev.nexa.in-app-purchases` | StoreKit 2 and Google Play Billing subscriptions | iOS 17.0+ \| Android 23+ |
+| **Mail Composer** | `dev.nexa.mail-composer` | Native email composition sheets with attachments | iOS 16.0+ \| Android 23+ |
+| **Maps** | `dev.nexa.maps` | Interactive MapKit and Google Maps views with pins | iOS 17.0+ \| Android 23+ |
+| **Media Picker** | `dev.nexa.media-picker` | System photo and video picker without privacy permissions | iOS 16.0+ \| Android 23+ |
+| **MMKV** | `dev.nexa.mmkv` | High-speed memory-mapped key-value storage | iOS 13.0+ \| Android 21+ |
+| **Notifications** | `dev.nexa.notifications` | Scheduled local notifications, badge counts, actions | iOS 13.0+ \| Android 23+ |
+| **Sensors** | `dev.nexa.sensors` | Accelerometer, gyroscope, and magnetometer telemetry | iOS 17.0+ \| Android 26+ |
+| **SQLite** | `dev.nexa.sqlite` | Reactive `observeQuery<T>`, WAL mode, cross-process sync | iOS 13.0+ \| Android 23+ |
+| **Video Player** | `dev.nexa.video-player` | Hardware-accelerated HLS and MP4 video playback | iOS 17.0+ \| Android 23+ |
+| **Websocket** | `dev.nexa.websocket` | Low-latency binary and text WebSockets with auto-reconnect | iOS 13.0+ \| Android 21+ |
+| **Webview** | `dev.nexa.webview` | In-app browser engine with two-way JavaScript bridge | iOS 17.0+ \| Android 24+ |
+<!-- nexadoc:end plugin-index -->
 
 ---
 

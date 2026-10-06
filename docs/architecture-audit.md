@@ -3,10 +3,29 @@
 This file records generated-source cache schema changes that must invalidate
 previous compiler output.
 
+| **Purpose**: cache invalidation history | **Scope**: generated source and Dev IR schemas | **Audience**: compiler maintainers |
+
+> The newest row is checked against `cache::CACHE_VERSION` by
+> `cargo test -p nexa-cli --test cache_audit`. Bumping the constant without adding a
+> row here fails that test, so this changelog cannot silently fall behind the compiler.
+> The range is intentionally not contiguous: the version advances in a commit that
+> changes cache-sensitive output, so intermediate numbers never existed.
+
+## Quick verification
+
+After changing cache-sensitive code generation, run the cache invalidation checks:
+
+```bash
+CARGO_TARGET_DIR=/tmp/nexa-verification-target cargo test -p nexa-cli --test dependency_cache
+```
+
 ## Cache schema
 
 | Generator Schema | Architectural Change / IR Lowering |
 |---|---|
+| `build-v161` | Removes the legacy `@query` annotation system in favour of `Signal<T>` reactive primitives across the parser, IR, both AOT backends, and DevRuntime. |
+| `build-v135` | Completes the Nexa v1 language and archetype set: new component grammar, state scopes, and generated-host metadata. |
+| `build-v132` | Adds scoped imperative animation handles and their lowering to both AOT backends and DevRuntime. |
 | `build-v131` | Adds typed foreground task launch/cancellation actions, native executor lowering, and task lifecycle cleanup in both AOT backends and DevRuntime. |
 | `build-v130` | Adds typed optional array `first()` and `last()` utilities to both AOT backends and DevRuntime; advances the Dev IR format. |
 | `build-v129` | Generates periodic OS background-task handlers and scheduling metadata for iOS and Android; advances the Dev IR format for task declarations. |

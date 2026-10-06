@@ -271,6 +271,41 @@ pub enum NumericType {
     Float64,
 }
 
+impl NumericType {
+    /// Every numeric type, in declaration order.
+    ///
+    /// Published in the language reference, which needs the full set rather than
+    /// whichever types a given lowering happens to touch.
+    pub const ALL: &'static [NumericType] = &[
+        NumericType::Int8,
+        NumericType::Int16,
+        NumericType::Int32,
+        NumericType::Int64,
+        NumericType::UInt8,
+        NumericType::UInt16,
+        NumericType::UInt32,
+        NumericType::UInt64,
+        NumericType::Float32,
+        NumericType::Float64,
+    ];
+
+    /// The name `.nx` source writes for this type.
+    pub fn nexa_name(self) -> &'static str {
+        match self {
+            NumericType::Int8 => "Int8",
+            NumericType::Int16 => "Int16",
+            NumericType::Int32 => "Int32",
+            NumericType::Int64 => "Int64",
+            NumericType::UInt8 => "UInt8",
+            NumericType::UInt16 => "UInt16",
+            NumericType::UInt32 => "UInt32",
+            NumericType::UInt64 => "UInt64",
+            NumericType::Float32 => "Float32",
+            NumericType::Float64 => "Float64",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArithmeticOp {
     Subtract,

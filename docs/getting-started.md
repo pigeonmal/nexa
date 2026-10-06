@@ -2,6 +2,27 @@
 
 This guide walks you through setting up your environment, creating a new project, configuring app metadata, and mastering the live development workflow.
 
+| **Scope**: install, create, configure, and run | **Targets**: iOS and Android | **Prerequisite**: Rust 1.85+ |
+
+## Quick start
+
+Put this in `App.nx` in a Nexa project and run `nexa check`:
+
+```nx
+app ReadingQueue {
+    state booksRead: Int32 = 4
+
+    body {
+        Column(spacing: 12, padding: 16) {
+            Text("Books read: \(booksRead)", fontSize: 22, fontWeight: Bold)
+            Button("Finish a book") {
+                booksRead = booksRead + 1
+            }
+        }
+    }
+}
+```
+
 ---
 
 ## 1. System Requirements
@@ -44,79 +65,90 @@ cd Pulse
 
 ```text
 Pulse/
-├── App.nx                   # Application UI, screens, and business logic
-├── nexa.config.nx           # App identity, SDK levels, permissions, and dependencies
-├── nexa.lock                # Deterministic native plugin lockfile
-├── assets/                  # Shared cross-platform assets (images, fonts, icons)
-│   ├── icon.png             # Default application launcher icon
-│   └── splash.png           # Native launch screen image
-└── build/                   # Ephemeral generated native projects (do not edit)
-    ├── ios/                 # Xcode project (.xcodeproj) with SwiftUI host
-    └── android/             # Gradle project with Jetpack Compose host
+├── App.nx                   # Application UI, state, and behavior
+├── nexa.config.nx           # App identity, platform floors, and permissions
+├── .nexa/                   # Local signing settings; ignored by Git
+└── build/                   # Native output created by dev, test, or release
 ```
 
 ---
 
 ## 4. Configuration: `nexa.config.nx`
 
-All application identifiers, orientations, native dependencies, and target platform floors are configured declaratively in `nexa.config.nx`:
+App identity, platform floors, network settings, and permission purpose messages live in `nexa.config.nx`. `nexa create` generates this configuration shape:
 
 ```nexa
 config {
     app {
-        displayName: "Pulse App"
-        version: "1.0.0"
-        buildNumber: 1
-        orientation: "portrait-phones"
+        displayName: "Pulse App",
+        version: "1.0.0",
+        buildNumber: 1,
+        orientation: "portrait-phones",
+        deepLinks: []
     }
-
+    flavors { staging { suffix: "staging" } }
+    assets { icon: "", splash: "" }
     ios {
-        bundleIdentifier: "dev.nexa.pulse"
-        minVersion: "16.0"
-        arch: ["arm64"]
+        minVersion: "16.0",
+        bundleIdentifier: "dev.nexa.pulse",
+        arch: ["arm64"],
     }
-
     android {
-        applicationId: "dev.nexa.pulse"
-        minSdk: 23
-        targetSdk: 36
-        arch: ["arm64", "x86_64"]
-        cronet {
-            provider: "play-services"
-            diskCacheSizeMb: 64
-        }
+        minSdk: 23,
+        targetSdk: 36,
+        applicationId: "dev.nexa.pulse",
+        arch: ["arm64", "x86_64"],
+        cronet { provider: "play-services", diskCacheSizeMb: 64 },
     }
-
-    dependencies {
-        sqlite: "dev.nexa.sqlite"
-        mmkv: "dev.nexa.mmkv"
+    permissions {
+        camera: "Scan a return label to look up an order.",
+        photos: "Choose a profile image for your account."
     }
 }
 ```
 
 ### Configuration Options Reference
 
+> Generated from `ProjectConfig::from_defaults`, so the Default column is what the compiler
+> substitutes for an omitted key. Run `cargo test -p nexa-cli --test project_config_reference`
+> with `NEXA_UPDATE_SNAPSHOTS=1` to regenerate.
+
+<!-- nexadoc:begin config-options -->
 | Section | Key | Type | Default | Description |
 |---|---|---|---|---|
-| `app` | `displayName` | `String` | Required | Human-readable app name shown on the device launcher. |
+| `app` | `displayName` | `String` | `"NexaApp"` | Human-readable app name shown on the device launcher. |
 | `app` | `version` | `String` | `"1.0.0"` | Semantic version string (`MAJOR.MINOR.PATCH`). |
 | `app` | `buildNumber` | `Int32` | `1` | Monotonically increasing build integer. |
 | `app` | `orientation` | `String` | `"all"` | `"all"`, `"portrait"`, or `"portrait-phones"`. |
-| `ios` | `bundleIdentifier`| `String` | Required | Reverse-DNS iOS App ID (e.g. `com.company.app`). |
+| `app` | `deepLinks` | `Array<String>` | `[]` | App URL schemes and domains used by native project metadata. Incoming Nexa screen routing is not implemented. |
+| `app` | `stagingSuffix` | `String` | `"staging"` | Application ID suffix applied by the implicit `staging` flavor. |
+| `assets` | `icon` | `String` | `—` | Path to the app icon asset. |
+| `assets` | `splash` | `String` | `—` | Path to the splash image asset. |
+| `flavors.<name>` | `suffix` | `String` | `—` | Application ID suffix for that named flavor. Defaults to the flavor name when omitted. |
 | `ios` | `minVersion` | `String` | `"16.0"` | Minimum supported iOS deployment target. |
-| `ios` | `arch` | `Array<String>`| `["arm64"]` | Target architectures (`"arm64"`, `"x86_64"`). |
-| `android` | `applicationId`| `String` | Required | Android Package Name. |
-| `android` | `minSdk` | `Int32` | `23` | Minimum Android API level (Android 6.0 Marshmallow). |
-| `android` | `targetSdk` | `Int32` | `36` | Target Android SDK version. |
-| `android` | `cronet.provider`| `String` | `"play-services"`| `"play-services"` or `"embedded"` network stack. |
-| `dependencies`| `<alias>` | `String` | Optional | Plugin package ID to resolve from official or local registry. |
+| `ios` | `bundleIdentifier` | `String` | `"com.nexa.nexaapp"` | Reverse-DNS iOS app ID, derived from the project name by default. |
+| `ios` | `appGroupIdentifier` | `String` | `—` | App Group identifier for plugins and widgets that share storage. |
+| `ios` | `icon` | `String` or `Array<String>` | `—` | Primary and alternate app icon asset names. |
+| `ios` | `arch` | `String` or `Array<String>` | `—` | Requested iOS architectures. Device builds require `arm64`. |
+| `android` | `minSdk` | `Int32` | `23` | Minimum supported Android API level. Must be at least every used plugin's `minSdk`. |
+| `android` | `targetSdk` | `Int32` | `36` | Target Android API level. Nexa currently requires `36`. |
+| `android` | `applicationId` | `String` | `"com.nexa.nexaapp"` | Android package name, derived from the project name by default. |
+| `android` | `icon` | `String` or `Array<String>` | `—` | Primary and alternate app icon asset names. |
+| `android` | `arch` | `String` or `Array<String>` | `—` | Requested Android ABIs. |
+| `android.cronet` | `provider` | `String` | `"play-services"` | `"play-services"` or `"embedded"` network provider. |
+| `android.cronet` | `diskCacheSizeMb` | `Int32` | `64` | Cronet disk cache size in MiB. |
+| `permissions` | `<permission>` | `String` | `—` | User-facing purpose message for a native permission used by the app. |
+| `dependencies.<alias>` | `id`, `path` | strings | `—` | Local plugin package identity and path. |
+| `dependencies.<alias>` | `id`, `git`, `rev`, `package` | strings | `—` | Pinned Git plugin source and optional package subdirectory. `rev` is required with `git`. |
+| `plugins.<alias>` | `scalar option values` | string, boolean, or string array | `—` | Compile-time plugin options validated against the plugin contract. |
+<!-- nexadoc:end config-options -->
 
 ---
 
 ## 5. Development Workflow & CLI
 
 ```bash
-# 1. Type check without compiling native platforms (super-fast)
+# 1. Type check the app for both targets
 nexa check
 
 # 2. Start live development with hot reload
@@ -129,15 +161,22 @@ nexa dev --android
 
 ### CLI Command Matrix
 
+> Generated from the CLI's own command and flag tables. Run
+> `cargo test -p nexa-cli --test project_config_reference` with `NEXA_UPDATE_SNAPSHOTS=1` to
+> regenerate.
+
+<!-- nexadoc:begin cli-commands -->
 | Command | Key Flags | Description |
 |---|---|---|
-| `nexa create <name>` | `--template <name>` | Scaffolds a new project with idiomatic layout. |
-| `nexa check` | `--locked`, `--audit` | Validates `.nx` source, plugin dependencies, and types. |
-| `nexa dev` | `--ios`, `--android`, `--arch <arch>`, `--compile-only` | Builds and launches simulator with DevRuntime hot reload. |
-| `nexa test` | `--unit-only` | Executes in-language `test` blocks and unit test suites. |
-| `nexa release` | `--flavor <name>`, `--ios`, `--android` | Generates signed Android AABs and production iOS IPAs. |
-| `nexa doctor` | N/A | Verifies toolchain installation and environment health. |
-| `nexa audit <file>` | `--target <swift\|kotlin\|all>`, `--out <path>` | Analyzes binary footprint, reachable APIs, and warnings. |
+| `nexa create <name>` | `--directory <path>` | Creates the app source, configuration, and local signing template. |
+| `nexa check` | `--ios`, `--android`, `--locked`, `--deny-warnings`, `--audit` | Validates source, plugin dependencies, types, and platform constraints. |
+| `nexa dev` | `--ios`, `--android`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--once`, `--compile-only`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Builds and launches a native app with DevRuntime hot reload. |
+| `nexa test` | `--unit-only`, `--ios`, `--android`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Runs app tests; `--unit-only` skips native test hosts. |
+| `nexa release` | `--ios`, `--android`, `--platform <ios\|android\|all>`, `--arch <arch>`, `--flavor <name>`, `--staging`, `--out <directory>`, `--locked` | Builds an iOS archive or Android AAB using platform signing credentials. |
+| `nexa doctor` | `—` | Verifies toolchain installation and environment health. |
+| `nexa audit <file>` | `--target <ios\|android\|all>`, `--release-sizes`, `--out <path>` | Reports reachable features, generated dependencies, and optional release-size data. |
+| `nexa plugin <subcommand>` | `init <plugin.id> --out <directory>`, `check <package-directory\|native.nxid>`, `generate <package-directory\|native.nxid> --target <swift\|kotlin\|cpp>` | Scaffolds, validates, and generates bindings for a plugin package. |
+<!-- nexadoc:end cli-commands -->
 
 ### Interactive DevRuntime Shortcuts
 
@@ -154,65 +193,57 @@ While `nexa dev` is running in your terminal:
 
 ## 6. Your First Complete App
 
-Here is a realistic counter and note app in `App.nx` demonstrating state, input, and list rendering:
+This task board demonstrates typed state, input, filtering, immutable struct updates, and list rendering:
 
 ```nexa
-struct Note {
-    id: Int64,
-    text: String,
-    timestamp: String,
+struct TaskItem {
+    id: Int32,
+    title: String,
+    priority: String,
+    isCompleted: Bool,
+    dueLabel: String,
 }
 
-app QuickNotes {
-    state notes: Array<Note> = [
-        Note(1, "Install Nexa CLI", "10:00 AM"),
-        Note(2, "Build native iOS & Android app", "10:15 AM")
+app PulseTasks {
+    state tasks: Array<TaskItem> = [
+        TaskItem(1, "Review the release checklist", "High", false, "Today"),
+        TaskItem(2, "Send design feedback", "Normal", true, "Yesterday")
     ]
-    state draftText: String = ""
+    state draftTitle: String = ""
+    state showCompleted: Bool = false
 
     body {
-        NavigationStack {
-            Column(spacing: 16, padding: 16) {
-                // Input controls
-                Row(spacing: 8) {
-                    TextInput(
-                        value: draftText,
-                        placeholder: "Type a quick note...",
-                        onChange: text => { draftText = text }
-                    )
-                    Button("Add Note", icon: "plus") {
-                        if draftText.trim() != "" {
-                            let newId = (notes.last()?.id ?? 0) + 1
-                            notes.push(Note(newId, draftText, "Just now"))
-                            draftText = ""
-                        }
+        Column(spacing: 16, padding: 16) {
+            Text("Today's tasks", fontSize: 26, fontWeight: Bold)
+            Row(spacing: 8) {
+                TextInput(value: draftTitle, placeholder: "Add a task")
+                Button("Add task", icon: "add", disabled: draftTitle == "") {
+                    if draftTitle != "" {
+                        tasks.append(TaskItem(tasks.count + 1, draftTitle, "Normal", false, "Today"))
+                        draftTitle = ""
                     }
                 }
+            }
+            Switch(value: showCompleted, label: "Show completed tasks")
 
-                // Render virtualized list
-                if notes.isEmpty {
-                    ContentUnavailable(
-                        title: "No Notes Yet",
-                        description: "Add your first note using the input above.",
-                        icon: "note.text"
-                    )
-                } else {
-                    FastList(notes, key: "id") { note in
-                        Row(spacing: 12, padding: 12, background: "#1E293B", cornerRadius: 8) {
-                            Icon(system: "note", size: 20, tint: "#38BDF8")
-                            Column(spacing: 2) {
-                                Text(note.text)
-                                    .fontSize(16)
-                                    .foregroundColor("#FFFFFF")
-                                Text(note.timestamp)
-                                    .fontSize(12)
-                                    .foregroundColor("#94A3B8")
-                            }
-                            Spacer()
-                            Button(icon: "trash") {
-                                notes = notes.filter(n => n.id != note.id)
+            FastList(tasks.filter { task -> showCompleted || !task.isCompleted }, key: .id) { task, index in
+                Row(spacing: 12, padding: 12, background: "#F1F5F9", cornerRadius: 10) {
+                    Button(task.isCompleted ? "Reopen" : "Complete", style: Plain) {
+                        tasks = tasks.map { current ->
+                            if current.id == task.id {
+                                TaskItem(current.id, current.title, current.priority, !current.isCompleted, current.dueLabel)
+                            } else {
+                                current
                             }
                         }
+                    }
+                    Column(spacing: 4) {
+                        Text("\(index + 1). \(task.title)", fontWeight: Semibold)
+                        Text(task.dueLabel, fontSize: 13, color: "#64748B")
+                    }
+                    Spacer()
+                    Row(padding: 6, background: "#E2E8F0", cornerRadius: 6) {
+                        Text(task.priority, fontSize: 12, fontWeight: Semibold, color: "#334155")
                     }
                 }
             }
@@ -226,5 +257,5 @@ app QuickNotes {
 ## 7. Next Steps
 
 - Explore the complete [**Language Guide**](language-guide.md) to learn about static typing, collections, and `Result<T, E>`.
-- Browse the full [**Component Catalog**](components.md) for layout, styling modifiers, and interactive controls.
+- Browse the [**Component Guide**](components.md) for native layout and interaction patterns, and the generated [**Syntax Audit**](syntax-audit.md) for every accepted component option and modifier.
 - Check [**State & Navigation**](state-and-navigation.md) for multi-screen stacks, modal sheets, and reactive signals.

@@ -6,6 +6,10 @@ mod components;
 mod engine;
 mod widget;
 
+// Re-exported through `generator` because `engine` is private and the crate
+// root cannot name a path through it.
+pub use engine::swift_scalar_types;
+
 const DRAG_GESTURE_HELPERS: &str = r#"@MainActor
 private final class NexaDragVelocityTracker {
     private var lastTranslation = CGSize.zero

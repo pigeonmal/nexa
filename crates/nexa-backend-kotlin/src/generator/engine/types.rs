@@ -7,6 +7,26 @@
 use nexa_codegen::names::{enum_name, struct_name};
 use nexa_ir::{NumericType, Type};
 
+/// Every scalar type `.nx` can name, paired with its Kotlin spelling.
+///
+/// The Kotlin column of the primitive type table in `docs/language-guide.md`;
+/// see the Swift backend's equivalent for why this reads from [`kotlin_type`]
+/// rather than restating the mappings.
+pub fn kotlin_scalar_types() -> Vec<(&'static str, String)> {
+    let mut types = vec![
+        ("String", kotlin_type(&Type::String)),
+        ("Bool", kotlin_type(&Type::Bool)),
+        ("Bytes", kotlin_type(&Type::Bytes)),
+        ("Void", kotlin_type(&Type::Void)),
+    ];
+    types.extend(
+        NumericType::ALL
+            .iter()
+            .map(|numeric| (numeric.nexa_name(), kotlin_numeric(*numeric).to_owned())),
+    );
+    types
+}
+
 /// Kotlin spelling of a numeric type.
 pub(crate) fn kotlin_numeric(ty: NumericType) -> &'static str {
     match ty {

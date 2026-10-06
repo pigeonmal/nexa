@@ -38,12 +38,14 @@
 //! retry, because the name is claimed rather than assumed.
 pub mod assertions;
 pub mod command;
+pub mod docs;
 pub mod fixtures;
 pub mod project;
 pub mod toolchain;
 
 pub use assertions::*;
 pub use command::*;
+pub use docs::{assert_region, assert_snapshot, begin_marker, end_marker};
 pub use fixtures::*;
 pub use project::TestProject;
 pub use toolchain::{TestTier, Toolchain};

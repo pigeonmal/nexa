@@ -1087,6 +1087,53 @@ const fn icon(
     }
 }
 
+/// Compose spelling of a shared icon, such as `AutoMirrored.Filled.ArrowBack`.
+///
+/// This is the same `namespace.Name` form the Android backend emits, built from
+/// the two catalog fields rather than re-spelled per consumer, so the published
+/// icon table cannot drift from what `Icons.<namespace>.<name>` resolves to at
+/// code generation time.
+pub fn material_symbol_path(definition: &SharedIconDefinition) -> String {
+    format!(
+        "{}.{}",
+        definition.material_namespace, definition.material_name
+    )
+}
+
+/// Render the shared icon mapping table published as
+/// `docs/system-icons.md#icons`.
+///
+/// The table restates [`SHARED_ICONS`] row for row -- four columns, one row per
+/// definition, in catalog order -- because a hand-copied list of ~230 platform
+/// mappings is a list that will be missing an entry. A test asserts the
+/// published region matches this output, so an icon added to the catalog without
+/// a documentation update fails the build instead of shipping undocumented.
+pub fn render_shared_icon_table() -> String {
+    let mut out = String::from(
+        "| Shared Semantic Name | iOS SF Symbol | Android Material Icon | Native Aliases |\n\
+         |---|---|---|---|\n",
+    );
+    for definition in SHARED_ICONS {
+        let aliases = if definition.aliases.is_empty() {
+            "`—`".to_owned()
+        } else {
+            definition
+                .aliases
+                .iter()
+                .map(|alias| format!("`{alias}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        out.push_str(&format!(
+            "| `{}` | `{}` | `{}` | {aliases} |\n",
+            definition.name,
+            definition.sf_symbol,
+            material_symbol_path(definition),
+        ));
+    }
+    out
+}
+
 impl SystemIcon {
     /// Returns the Glance drawable definition for shared icons with a vector
     /// path in Nexa's widget-safe catalog. Unknown and platform-only symbols

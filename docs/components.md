@@ -1,342 +1,142 @@
-# Nexa Component Catalog 🧩
-
-Every native UI component in Nexa compiles Ahead-Of-Time (AOT) into specialized, high-performance **SwiftUI views** on iOS and **Jetpack Compose composables** on Android. There is zero `AnyView` type erasure and zero reflection overhead.
-
----
-
-## 1. Layout Containers
-
-### `Column` & `Row`
-
-Linear vertical (`Column`) and horizontal (`Row`) arrangement of child elements.
-
-```nexa
-Column(spacing: 12, padding: 16, background: "#1E293B", cornerRadius: 8) {
-    Text("User Profile").fontSize(18).bold()
-    Row(spacing: 8) {
-        Icon(system: "person.circle", size: 24, tint: "#38BDF8")
-        Text("Alex Developer").fontSize(14)
-    }
-}
-```
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `spacing` | `Float64` | `0.0` | Gap in logical points between adjacent children. |
-| `alignment` | `Alignment` | `Start` | Cross-axis alignment: `Start`, `Center`, or `End`. |
-| `padding` | `Float64` | `0.0` | Uniform inset padding applied around the container. |
-| `background` | `String` | `null` | Background color hex code (e.g. `"#FFFFFF"`). |
-| `cornerRadius`| `Float64` | `0.0` | Corner radius for clipping and border backgrounds. |
-| `width` / `height` | `Float64` | `auto` | Fixed dimensions in points. |
-| `minWidth` / `maxWidth` | `Float64` | `auto` | Bounded dimensional constraints. |
-
----
-
-### `Stack`
-
-Layers child components on top of each other along the Z-axis (overlapping overlays).
-
-```nexa
-Stack(alignment: Center) {
-    Image(asset: "hero_background", width: 300, height: 200, scale: Fill)
-    Column(spacing: 8) {
-        Text("Featured Project").fontSize(20).bold().foregroundColor("#FFFFFF")
-        Button("Explore Now") { navigateToProject() }
-    }
-}
-```
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `alignment` | `Alignment` | `Center` | Alignment of layered children: `Start`, `Center`, `End`. |
-| `width` / `height` | `Float64` | `auto` | Explicit bounds for the stack frame. |
-
----
-
-### `Form` & `Section`
-
-Native grouped settings and preference panels. Compiles to grouped SwiftUI `Form` and Material 3 grouped cards on Android.
-
-```nexa
-Form {
-    Section(title: "Account", footer: "Your email is verified.") {
-        Text("Email: alex@example.com")
-        Switch(value: isNotificationsEnabled, label: "Push Alerts")
-    }
-    Section(title: "Security") {
-        Button("Change Password") { openPasswordReset() }
-    }
-}
-```
-
-| Component | Parameter | Type | Default | Description |
-|---|---|---|---|---|
-| `Form` | None | N/A | N/A | Root grouped scrollable container. |
-| `Section` | `title` | `String?` | `null` | Optional localized header text. |
-| `Section` | `footer` | `String?` | `null` | Optional localized descriptive footer note. |
-
----
-
-### `Spacer` & `Divider`
-
-- `Spacer(minLength: Float64?)`: Expands flexibly to fill available space along the parent axis.
-- `Divider()`: Renders a 1-pixel native hairline separator.
-
----
-
-## 2. Text & Presentation Primitives
-
-### `Text`
-
-Renders localized or dynamic text strings with native platform typography.
-
-```nexa
-Text("Nexa Ahead-Of-Time Engine")
-    .fontSize(18)
-    .bold()
-    .foregroundColor("#0F172A")
-```
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `value` (Positional)| `String \| Any` | Required | Content to display (accepts numbers, booleans, or strings). |
-| `maxLines` | `Int32?` | `null` | Truncates text with an ellipsis when exceeded. |
-
----
-
-### `Image`
-
-Renders local assets or remote URLs with caching and aspect scaling.
-
-```nexa
-Image(asset: "avatar_placeholder", width: 48, height: 48, scale: Fit)
-    .cornerRadius(24)
-```
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `asset` | `String?` | `null` | Named asset bundled in the app's `assets/` folder. |
-| `url` | `String?` | `null` | Remote HTTP/HTTPS image URL. |
-| `width` / `height` | `Float64` | `auto` | Image dimensions in points. |
-| `scale` | `ImageScale` | `Fit` | Scaling mode: `Fit`, `Fill`, or `None`. |
-
----
-
-### `Icon`
-
-Cross-platform unified system icon primitive. Automatically maps to **Apple SF Symbols** on iOS and **Google Material Symbols** on Android.
-
-```nexa
-Icon(system: "gearshape", size: 24, tint: "#38BDF8")
-```
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `system` | `String` | Required | Canonical cross-platform icon name (e.g. `"gearshape"`, `"heart"`, `"star"`). |
-| `size` | `Float64` | `24.0` | Square icon frame size in logical points. |
-| `tint` | `String` | `"#000000"` | Hexadecimal color applied to the icon vector. |
-
----
-
-### `ContentUnavailable`
-
-Native empty state view. Compiles directly to iOS 17 `ContentUnavailableView` and Material 3 Empty State on Android.
-
-```nexa
-ContentUnavailable(
-    title: "No Tasks Found",
-    description: "You have completed all pending tasks for today.",
-    icon: "checkmark.circle"
-)
-```
-
----
-
-## 3. User Input & Controls
-
-### `Button`
-
-Interactive tap target with text, icon, and action block.
-
-```nexa
-Button("Save Changes", icon: "square.and.arrow.down") {
-    saveProfile()
-}
-```
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `label` (Positional)| `String` | Required | Button text label. |
-| `icon` | `String?` | `null` | Optional leading system icon name. |
-| `disabled` | `Bool` | `false` | When true, disables interactions and dims opacity. |
-
----
-
-### `TextInput`
-
-Native single-line or multi-line text input field.
-
-```nexa
-TextInput(
-    value: emailText,
-    placeholder: "user@example.com",
-    keyboard: Email,
-    onChange: text => { emailText = text }
-)
-```
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `value` | `String` | Required | Bound string state. |
-| `placeholder` | `String` | `""` | Placeholder hint when field is empty. |
-| `keyboard` | `KeyboardType` | `Default` | `Default`, `Email`, `Numeric`, `Phone`, `URL`. |
-| `isSecure` | `Bool` | `false` | Hides input text for passwords. |
-| `onChange` | `(String) -> Void` | Required | Callback triggered on every keystroke. |
-
----
-
-### `Switch`, `Slider`, and `SegmentedControl`
-
-```nexa
-// Toggle Switch
-Switch(value: isDarkMode, label: "Dark Theme")
-
-// Continuous Numeric Slider
-Slider(value: volumeLevel, range: 0.0..100.0, step: 1.0)
-
-// Tabbed Segmented Switcher
-SegmentedControl(options: ["Day", "Week", "Month"], selected: selectedInterval)
-```
-
----
-
-### `DatePicker`
-
-Native calendar and time selection component.
-
-```nexa
-DatePicker(
-    timestamp: selectedDate,
-    hasTime: true,
-    onChange: ts => { selectedDate = ts }
-)
-```
-
----
-
-## 4. Virtualized Lists: `FastList`
-
-`FastList` is Nexa's high-performance virtualized list primitive. It generates pure concrete native views (zero `AnyView`) on SwiftUI and non-boxing lazy layouts on Compose.
-
-```nexa
-FastList(tasks, key: "id", rowHeight: 64) { task in
-    Row(spacing: 12, padding: 12) {
-        Button(icon: task.completed ? "checkmark.circle.fill" : "circle") {
-            task.completed = !task.completed
+# Nexa Component Guide
+
+Nexa UI components compile to SwiftUI on iOS and Jetpack Compose on Android. This guide shows common composition patterns; the [generated syntax audit](syntax-audit.md) is the complete reference for every built-in component, argument, child block, and supported event modifier.
+
+| **Scope**: built-in UI composition | **Targets**: iOS and Android | **Reference**: [generated component syntax](syntax-audit.md) |
+
+## Quick start
+
+```nx
+app ProfileCard {
+    state notificationsEnabled: Bool = true
+
+    body {
+        Column(spacing: 12, padding: 16, background: "#F1F5F9", cornerRadius: 12) {
+            Row(spacing: 10, alignment: Center) {
+                Icon(system: "account_circle", description: "Profile", size: 40, tint: "#2563EB")
+                Column(spacing: 3) {
+                    Text("Alex Morgan", fontSize: 20, fontWeight: Semibold)
+                    Text("Product designer", fontSize: 14, color: "#475569")
+                }
+                Spacer()
+            }
+            Switch(value: notificationsEnabled, label: "Project updates")
         }
-        Text(task.title).fontSize(16)
-        Spacer()
-    }
-}.stickyHeader {
-    Text("Today's Priority Tasks").bold()
-}.onEndReached {
-    loadMoreTasks()
-}.onRefresh {
-    await refreshFeed()
-}
-```
-
-### `FastList` Configuration Matrix
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `collection` (Positional)| `Array<T>` | Required | Data source collection. |
-| `key` | `String` | Required | Struct property name providing stable unique row identity. |
-| `rowHeight` | `Float64?` | `null` | Optional fixed row height enabling fast offset indexing. |
-| `axis` | `Axis` | `Vertical` | Scroll direction: `Vertical` or `Horizontal`. |
-
-### `FastList` Trailing Modifiers
-
-| Modifier | Argument | Description |
-|---|---|---|
-| `.stickyHeader { ... }` | Node block | Pins a persistent header to the top of the viewport during scrolling. |
-| `.onEndReached { ... }` | Action block | Triggers pagination callback when approaching list bottom. |
-| `.onRefresh { ... }` | Async action | Enables native Pull-To-Refresh control. |
-| `.onMove { from, to => }`| Move closure | Enables native interactive row drag-and-drop reordering. |
-
----
-
-## 5. Navigation & Sheets
-
-### `AppBottomBar`
-
-Top-level persistent native tab navigation bar.
-
-```nexa
-AppBottomBar(selected: currentTab) {
-    Tab("Feed", icon: "house.fill") { FeedScreen() }
-    Tab("Search", icon: "magnifyingglass") { SearchScreen() }
-    Tab("Settings", icon: "gearshape") { SettingsScreen() }
-}
-```
-
----
-
-### `NavigationSplitView`
-
-Adaptive split-view navigation for tablets, foldables, and desktop layouts.
-
-```nexa
-NavigationSplitView(detailVisible: isDetailOpen) {
-    Sidebar {
-        SidebarContent()
-    }
-    Detail {
-        DetailContent()
     }
 }
 ```
 
----
+## Layout and styling
 
-### `BottomSheet` & `Dialog`
+Use `Column` for vertical flow, `Row` for horizontal flow, and `Stack` for overlapping content. Layout and visual options belong in each component's argument list. Nexa does not support SwiftUI-style styling chains such as `.padding()` or `.background()`.
 
-Modal overlays with native animations and gestures.
-
-```nexa
-BottomSheet(isPresented: showFilters) {
-    FilterSheetContent()
-}
-
-Dialog(isPresented: showAlert, title: "Delete Item?", message: "This action cannot be undone.") {
-    Button("Cancel") { showAlert = false }
-    Button("Delete", role: Destructive) { performDelete() }
+```nx
+app ReleaseSummary {
+    body {
+        Stack(alignment: Center, width: 320, height: 180, background: "#0F172A", cornerRadius: 16) {
+            Image(asset: "release_banner", description: "Abstract blue release banner", scale: Fill, maxHeight: 180)
+            Column(spacing: 8, padding: 16, alignment: Center) {
+                Text("Version 2.4 is ready", fontSize: 22, fontWeight: Bold, color: "#FFFFFF")
+                Text("Includes offline search and faster sync.", fontSize: 14, color: "#E2E8F0")
+            }
+        }
+    }
 }
 ```
 
----
+The exact layout, typography, accessibility, and visual options are listed for each component in the [syntax audit](syntax-audit.md#layout) and [`crates/nexa-syntax/src/catalog.rs`](../crates/nexa-syntax/src/catalog.rs).
 
-## 6. Universal Dot-Modifiers
+## Input and interaction
 
-Modifiers can be chained on any UI component in `.nx`:
+Bind controls directly to declared `state`. A `TextInput` accepts `value` and `placeholder`; use `.onChange { ... }` only when extra action work is needed. `Button` action blocks contain app state updates.
 
-```nexa
-Text("Submit")
-    .fontSize(16)
-    .bold()
-    .foregroundColor("#FFFFFF")
-    .padding(horizontal: 24, vertical: 12)
-    .background("#3B82F6")
-    .cornerRadius(8)
-    .shadow(color: "#000000", radius: 4, y: 2)
-    .opacity(0.95)
+```nx
+app AccountPreferences {
+    state email: String = "alex@example.com"
+    state marketingEnabled: Bool = false
+    state saved: Bool = false
+
+    body {
+        Form {
+            Section(title: "Contact") {
+                TextInput(value: email, placeholder: "Email address", keyboardType: Email)
+                Switch(value: marketingEnabled, label: "Product announcements")
+                Button("Save preferences", icon: "save") {
+                    saved = true
+                }
+                if saved {
+                    Text("Preferences saved", color: "#15803D")
+                }
+            }
+        }
+    }
+}
 ```
 
-| Category | Modifier | Description |
-|---|---|---|
-| **Typography** | `.fontSize(n)`, `.bold()`, `.foregroundColor(hex)` | Font styling and foreground color. |
-| **Geometry** | `.padding(all \| h, v)`, `.width(n)`, `.height(n)` | Box model dimensions and insets. |
-| **Visuals** | `.background(hex)`, `.cornerRadius(n)`, `.border(color, width)` | Borders, backgrounds, and clipping. |
-| **Effects** | `.opacity(0.0..1.0)`, `.blur(n)`, `.shadow(color, radius, x, y)` | Native GPU graphics shaders and shadows. |
-| **Gestures** | `.onTap { ... }`, `.onLongPress { ... }`, `.onDrag { dx, dy => ... }` | Touch gesture callbacks. |
-| **Accessibility**| `accessibilityLabel`, `accessibilityHint`, `accessibilityRole` | Screen-reader metadata for VoiceOver and TalkBack. |
+Event modifiers are reserved for interactions and system triggers. For example, `Pressable` uses `.onTap`, `.onLongPress`, `.onDoubleTap`, `.onDrag`, `.onPinch`, and `.contextMenu` as documented in its syntax-audit entry. Styling remains component arguments.
+
+## Repeated data
+
+`FastList` is the virtualized list component. Pass exactly one data source (`collection`, `count:`, or `sections:`), a row key when rendering a collection, and an explicit binding block. The compiler checks the number and type of row bindings.
+
+```nx
+struct OrderLine {
+    id: Int32,
+    itemName: String,
+    quantity: Int32,
+    status: String,
+}
+
+app OrderHistory {
+    state orders: Array<OrderLine> = [
+        OrderLine(101, "Travel mug", 2, "Shipped"),
+        OrderLine(102, "Notebook set", 1, "Processing")
+    ]
+
+    body {
+        FastList(orders, key: .id, native: true) { order, index in
+            Row(spacing: 12, padding: 12, background: "#F8FAFC", cornerRadius: 8) {
+                Text("\(index + 1). \(order.itemName)", fontWeight: Semibold)
+                Text("Qty \(order.quantity)", color: "#475569")
+                Spacer()
+                Text(order.status, fontSize: 12, color: "#1D4ED8")
+            }
+        }
+    }
+}
+```
+
+## Navigation and modal content
+
+Declare destinations as `screen` blocks and select the root with `NavigationStack(root: ...)`. A `NavigationLink` takes a declared destination. Incoming URL routing is not part of the current language surface; use `Link(url: ...)` to open an external URL.
+
+```nx
+app SupportCenter {
+    screen HelpHome {
+        Column(spacing: 12, padding: 16) {
+            Text("Support", fontSize: 24, fontWeight: Bold)
+            NavigationLink(destination: ContactSupport) {
+                Text("Contact support")
+            }
+        }
+    }
+
+    screen ContactSupport {
+        Column(spacing: 12, padding: 16) {
+            Text("We're here to help")
+            Link(url: "https://support.example.com") {
+                Text("Open help center")
+            }
+            NavigationBack(label: "Back to support")
+        }
+    }
+
+    body {
+        NavigationStack(root: HelpHome)
+    }
+}
+```
+
+## Complete component reference
+
+The compiler schema is the source of truth. The [syntax audit](syntax-audit.md) enumerates every current component and its accepted argument names, required values, child blocks, and event modifiers. Read it alongside the [language guide](language-guide.md); do not infer `.nx` syntax from SwiftUI or Compose APIs.

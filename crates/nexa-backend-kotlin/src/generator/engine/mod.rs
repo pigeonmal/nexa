@@ -9,5 +9,9 @@ pub(crate) mod runtime;
 pub(crate) mod state;
 pub(crate) mod structs;
 pub(crate) mod types;
+
+// Re-exported so the crate root can publish it: `engine` is a private module,
+// and a `pub use` cannot name a path through private modules from outside.
+pub use types::kotlin_scalar_types;
 pub(crate) mod utils;
 pub(crate) mod value;

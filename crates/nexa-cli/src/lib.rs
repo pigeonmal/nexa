@@ -3,6 +3,10 @@ mod cache;
 mod commands;
 mod config;
 mod dependencies;
+
+/// Renderers for reference tables that restate a machine-readable source of
+/// truth, gated by the tests in `tests/plugin_reference.rs`.
+pub mod docs;
 mod plugin;
 mod plugin_cli;
 mod project;
@@ -11,6 +15,17 @@ mod project;
 /// that materialize it.
 pub mod plan {
     pub use crate::project::plan::{PlannedBinary, PlannedFile, ProjectPlan};
+}
+
+/// The generated-source cache schema version.
+///
+/// Bumped whenever compiler or backend semantics change in a way that makes
+/// previously generated native units stale. Published as the newest row of
+/// `docs/architecture-audit.md`; the `cache_audit_documents_current_version`
+/// test fails when the constant and the audit disagree.
+#[doc(hidden)]
+pub fn cache_version() -> &'static str {
+    cache::CACHE_VERSION
 }
 
 /// Run the Nexa command-line interface.

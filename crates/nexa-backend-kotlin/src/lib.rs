@@ -1,5 +1,7 @@
 mod generator;
 
+pub use generator::kotlin_scalar_types;
+
 /// Source files and Android drawable resources generated for Glance widgets.
 pub struct WidgetGeneratedSources {
     pub sources: nexa_codegen::GeneratedSources,

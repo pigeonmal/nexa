@@ -1,9 +1,28 @@
 # Nexa Documentation Hub 📚
 
-Welcome to the definitive engineering documentation for **Nexa**, the Ahead-Of-Time (AOT) mobile transpiler targeting native **Swift (SwiftUI)** for iOS and **Kotlin (Jetpack Compose)** for Android.
-
 [![Platforms](https://img.shields.io/badge/platforms-iOS%2016+%20%7C%20Android%2023+-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](../LICENSE)
+
+Welcome to the definitive engineering documentation for **Nexa**, the Ahead-Of-Time (AOT) mobile transpiler targeting native **Swift (SwiftUI)** for iOS and **Kotlin (Jetpack Compose)** for Android.
+
+## Quick start
+
+Save this as `App.nx` in a Nexa project, then run `nexa check`:
+
+```nx
+app ReadingQueue {
+    state booksRead: Int32 = 4
+
+    body {
+        Column(spacing: 12, padding: 16) {
+            Text("Books read: \(booksRead)", fontSize: 22, fontWeight: Bold)
+            Button("Finish a book") {
+                booksRead = booksRead + 1
+            }
+        }
+    }
+}
+```
 
 ---
 
@@ -13,9 +32,10 @@ Welcome to the definitive engineering documentation for **Nexa**, the Ahead-Of-T
 |---|---|---|---|
 | **Quickstart** | 🚀 [**Getting Started**](getting-started.md) | Beginners & App Developers | Installation, CLI commands, project structure, `nexa.config.nx`, first app |
 | **Language** | 📖 [**Language Guide**](language-guide.md) | All Developers | Types, collections, functions, async/await, `Result<T, E>`, and in-language tests |
-| **UI System** | 🧩 [**Component Reference**](components.md) | UI & UX Engineers | Complete 100% catalog of all 45 built-in components, arguments, and dot-modifiers |
+| **UI System** | 🧩 [**Component Guide**](components.md) | UI & UX Engineers | Native component composition patterns and styling |
+| **UI Grammar** | 🧾 [**Syntax Audit**](syntax-audit.md) | App and framework authors | Compiler-generated inventory of accepted components, options, child blocks, and modifiers |
 | **Navigation** | 🧭 [**State & Navigation**](state-and-navigation.md) | Application Architects | State scopes, `NavigationStack`, `AppBottomBar`, `NavigationSplitView`, `Signal<T>` |
-| **Plugins** | 🔌 [**Native Plugins Guide**](plugins.md) | Systems & Plugin Authors | `.nxid` contracts, Swift/Kotlin native bindings, C++20 JNI/ObjC++, compiler analyzers |
+| **Plugins** | 🔌 [**Native Plugins Guide**](plugins.md) | Systems & Plugin Authors | Local plugin workflow, `.nxid` contracts, native targets, manifest, and analyzer hooks |
 | **Widgets** | 📱 [**Native Widgets Reference**](widgets.md) | Mobile Developers | iOS WidgetKit, Android Glance/RemoteViews, timelines, shared App Group storage |
 | **Design** | 🎨 [**System Icons Catalog**](system-icons.md) | Designers & Developers | Cross-platform icon catalog: Apple SF Symbols & Google Material Symbols |
 | **Internals** | 🏗️ [**Architecture & Performance**](architecture.md) | Compiler & Systems Engineers | AOT pipeline, IR transformation, unboxed state, zero-overhead layout flattening |
@@ -27,8 +47,8 @@ Welcome to the definitive engineering documentation for **Nexa**, the Ahead-Of-T
 ```mermaid
 graph LR
     A[".nx Declarative Source"] --> B["Nexa Rust AOT Compiler"]
-    B --> C["iOS: Pure Swift 6 + SwiftUI\n(Zero AnyView, Static View Specialization)"]
-    B --> D["Android: Pure Kotlin 2.4 + Jetpack Compose\n(Unboxed Primitive States, Zero Reflection)"]
+    B --> C["iOS: Swift + SwiftUI\n(Static View Specialization)"]
+    B --> D["Android: Kotlin + Jetpack Compose\n(Unboxed Primitive States)"]
 ```
 
 1. **Zero Runtime Engine or Dynamic Interpreter**:
@@ -39,7 +59,7 @@ graph LR
 3. **Deterministic & Idempotent Builds**:
    All scaffolding templates and generated native codebases are 100% deterministic, reproducible, and verifiable.
 4. **Strongly-Typed Cross-Platform Plugins**:
-   Platform extensions use `.nxid` Interface Definition Language (IDL), generating direct zero-cost bridges in Swift, Kotlin, and modern C++20.
+   Platform extensions use `.nxid` contracts to generate typed Swift and Kotlin bindings. C++ adapters are available for supported API shapes.
 
 ---
 

@@ -1,307 +1,250 @@
-# Native Plugin Architecture & IDL Guide 🔌
+# Native Plugins
 
-Nexa provides a strongly typed, zero-overhead native plugin system. Plugins define declarative contracts in `.nxid` Interface Definition Language (IDL), and the compiler automatically generates type-safe native bindings for **Swift (iOS)**, **Kotlin (Android)**, and **C++20 (Cross-Platform Native)**.
+Nexa plugins add statically typed native APIs through a package manifest and a `.nxid` contract. Swift and Kotlin bindings use direct generated calls; optional C++ bindings are available for a narrower set of supported method and value shapes.
 
----
+| **Scope**: consume and author native plugins | **Contract**: `native.nxid` | **Targets**: Swift and Kotlin |
 
-## 1. Plugin Architecture Overview
+| Package authoring | App use | Native targets |
+|---|---|---|
+| `native.nxid` + `plugin.config.nx` | `plugin "path" as Namespace` | Swift and Kotlin; optional C++ |
 
-```mermaid
-graph TD
-    IDL["Contract: native.nxid\n(Structs, Services, Classes, Events)"]
-    Codegen["nexa-codegen\n(Binding Generator)"]
+## Quick start: use a local plugin
 
-    IDL --> Codegen
+This app example is from the official biometrics demo. The `plugin` path is relative to `App.nx` and should point to the checked-out package. Biometrics requires Android API 28 or later; set `android.minSdk` to at least `28` in `nexa.config.nx`:
 
-    Codegen --> SwiftProtocols["iOS: Swift Protocols\n(No dynamic selectors)"]
-    Codegen --> KotlinInterfaces["Android: Kotlin Interfaces\n(No reflection / boxing)"]
-    Codegen --> CppHeaders["C++20: Zero-Copy ABI\n(Direct JNI & ObjC++ wrappers)"]
-
-    SwiftImpl["Developer Swift Impl\n(ios/Sources/)"] -.-> SwiftProtocols
-    KotlinImpl["Developer Kotlin Impl\n(android/src/)"] -.-> KotlinInterfaces
-    CppImpl["Developer C++ Impl\n(cpp/Sources/)"] -.-> CppHeaders
+```nx
+config {
+    android { minSdk: 28 }
+}
 ```
 
-### Directory Structure of a Plugin Package
+```nx
+plugin "plugins/biometrics" as Biometrics
+
+app VaultUnlock {
+    state authenticated: Bool = false
+    state failed: Bool = false
+
+    body {
+        Column(spacing: 12, padding: 20) {
+            Text("Unlock the private vault", fontSize: 22, fontWeight: Bold)
+            Biometrics.BiometricButton(
+                title: "Authenticate",
+                reason: "Confirm your identity to view saved credentials"
+            )
+                .onAuthenticated {
+                    authenticated = true
+                    failed = false
+                }
+                .onFailed { error ->
+                    authenticated = false
+                    failed = true
+                }
+            if authenticated { Text("Vault unlocked") }
+            if failed { Text("Authentication was not completed") }
+        }
+    }
+}
+```
+
+There is no plugin registry or `nexa plugin add` command. Keep the package in a local checkout and point the app at its directory, or declare it through the app's resolved local dependencies.
+
+## Plugin package files
+
+`nexa plugin init` creates the deterministic starter files. A native package contains a `native.nxid` contract and platform implementations; a pure package contains reusable `.nx` source and no native IDL.
 
 ```text
-my-plugin/
-├── native.nxid           # Authoritative IDL interface contract
-├── plugin.config.nx      # Plugin metadata, SDK floors, and source globs
-├── cpp/                  # Optional C++20 cross-platform implementation
-│   ├── include/
-│   └── Sources/
-├── ios/                  # Swift implementation
-│   └── Sources/
-└── android/              # Kotlin implementation
-    └── src/main/kotlin/
+sensor-plugin/
+├── plugin.config.nx
+├── native.nxid
+├── ios/Sources/SensorImpl.swift
+└── android/src/main/kotlin/dev/nexa/plugin/SensorImpl.kt
 ```
 
----
+| Command | Purpose |
+|---|---|
+| `nexa plugin init dev.example.sensor --out plugins/sensor --name Sensor` | Create a native plugin package scaffold. |
+| `nexa plugin init dev.example.formatters --out plugins/formatters --kind pure` | Create a Nexa-only package with `plugin.nx`. |
+| `nexa plugin check plugins/sensor` | Validate the package manifest, IDL, source graph, and available native implementation checks. |
+| `nexa plugin generate plugins/sensor --target swift --out generated/swift` | Emit a Swift binding contract. Use `kotlin` or `cpp` for the other supported outputs. |
 
-## 2. Interface Definition Language (`.nxid`)
+`nexa plugin check` runs syntax and contract validation; native type-checking depends on the installed platform tools and package dependencies. C++ output creates a typed contract; it does not mean every API shape has a generated host adapter.
 
-The `.nxid` file is the contract between the `.nx` compiler and platform implementations.
+## `.nxid` contract declarations
 
-### 2.1 Structs, Enums, and Errors
+The contract is the app-facing API and the implementation boundary. It can declare value structs, closed enums, typed errors, stateless services, stateful native classes, and native components. For example, the current biometrics contract is:
 
 ```nxid
-struct GeoCoordinate {
-    latitude: Float64
-    longitude: Float64
-    altitude: Float64?
+enum BiometricFailure {
+    notAvailable
+    notEnrolled
+    lockout
+    userCanceled
+    systemCanceled
+    authenticationFailed
+    passcodeNotSet
+    invalidContext
+    unknown
 }
 
-enum AccuracyMode {
-    coarse
-    fine
-    bestForNavigation
-}
-
-error LocationFailure {
-    permissionDenied
-    serviceDisabled
-    timeout(seconds: Float64)
-}
-```
-
-### 2.2 Singleton Services (`service`)
-
-Stateless or globally shared singleton APIs:
-
-```nxid
-service Geolocation {
-    fn isLocationAvailable() -> Bool
-    async fn getCurrentPosition(accuracy: AccuracyMode) -> GeoCoordinate throws LocationFailure
+native component BiometricButton {
+    prop title: String
+    prop reason: String
+    event authenticated()
+    event failed(error: BiometricFailure)
 }
 ```
 
-### 2.3 Stateful Classes (`native class`)
+`native component` properties become named arguments on `Namespace.Component(...)`. Events become `.onEvent { ... }` modifiers. `service` declarations provide stateless calls; `native class` declarations provide constructed native objects, properties, methods, and instance-scoped events. Use native classes when object identity or explicit disposal is part of the API. Concrete class and service examples live in the [official plugin contracts](../plugins/).
 
-Native objects with lifecycle identity, constructor parameters, properties, and event streams:
+### Async throwing calls
 
-```nxid
-native class LocationTracker {
-    init(updateIntervalMs: Int32)
+Async throwing plugin calls require explicit `try { ... } catch { ... }` recovery. Catch cases and payloads must match that plugin's declared error variants; use the package's checked API reference and working demo as the source of exact method names and argument types. The [In-App Purchases demo](../plugins/in-app-purchases/tests/demo/app/App.nx) shows typed error recovery.
 
-    val isTracking: Bool
-    val lastKnownLocation: GeoCoordinate?
+## Package manifest: `plugin.config.nx`
 
-    fn start() throws LocationFailure
-    fn stop()
-    fn dispose()
+The manifest uses schema version `2` and records package identity, declared source roots, native platform requirements, and optional tooling.
 
-    event locationUpdated(location: GeoCoordinate)
-    event errorOccurred(error: LocationFailure)
-}
-```
+| Field | Type | Meaning |
+|---|---|---|
+| `schema` | integer | Must be `2`. |
+| `id` | string | Non-empty dot-separated plugin identifier. |
+| `version` | string | Non-empty package version. |
+| `sources.native` | relative path | `.nxid` contract file. |
+| `sources.nexa` | relative path | Reusable source file for a pure Nexa package. |
+| `assets` | string array | Package-owned assets copied to generated projects. |
+| `compiler.analyzer` | string array | Optional analyzer executable and arguments, launched from the package root without a shell. |
+| `ios` | platform fields | iOS minimum version, sources, extension sources, frameworks, XCFrameworks, Swift packages, resources, privacy manifest, usage strings, entitlements, delegate, background modes, and linker flags. |
+| `android` | platform fields | Minimum SDK, sources, resources, AARs, Maven dependencies and repositories, ProGuard rules, permissions, application metadata, PiP, and service declarations. |
+| `cpp` | platform fields | C++ standard (`c++17`, `c++20`, or `c++23`), source files, and headers. |
 
-### 2.4 Native UI Views (`native component`)
+An iOS Swift package under `ios.dependencies` declares `url`, `products`, optional `extensionProducts`, and exactly one version selector: `from`, `branch`, or `revision`. Android Maven dependencies use `android.dependencies`; they are not app-level registry package identifiers.
 
-Exposes a platform-native view (such as an Apple `MKMapView` or Android `GoogleMap`) directly to `.nx` declarative view hierarchies:
+Starter manifest:
 
-```nxid
-native component MapView {
-    center: GeoCoordinate
-    zoomLevel: Float64
-    showsUserLocation: Bool = true
-
-    event regionChanged(newCenter: GeoCoordinate)
-    event markerTapped(markerId: String)
-}
-```
-
-### 2.5 Reactive Primitives (`Signal<T>`) & Row Mappings
-
-For reactive data streams (like SQLite queries or sensor feeds):
-
-```nxid
-native class Database {
-    init(name: String)
-
-    // Maps rows directly into app structs via zero-cost static row mappers
-    async fn query<T: Row>(sql: String, parameters: Array<Value>) -> Array<T> throws Failure rowFailure queryFailed
-
-    // Returns a live reactive signal invalidating on table writes
-    fn observeQuery<T: Row>(sql: String, parameters: Array<Value>) -> Signal<Array<T>> rowFailure queryFailed
-}
-```
-
----
-
-## 3. Plugin Manifest: `plugin.config.nx`
-
-Declares package metadata, platform minimums, and native source directories:
-
-```nexa
+```nexa-manifest
 plugin {
     schema: 2
-    id: "dev.nexa.geolocation"
-    version: "1.0.0"
-
-    sources {
-        native: "native.nxid"
-    }
-
+    id: "dev.example.sensor"
+    version: "0.1.0"
+    sources { native: "native.nxid" }
     ios {
-        minVersion: "16.0"
+        minVersion: "17.0"
         sources: ["ios/Sources/**/*.swift"]
-        frameworks: ["CoreLocation"]
     }
-
     android {
-        minSdk: 23
+        minSdk: 26
         sources: ["android/src/main/kotlin/**/*.kt"]
-        dependencies: [
-            "com.google.android.gms:play-services-location:21.0.1"
-        ]
-    }
-
-    cpp {
-        standard: "c++20"
-        includeDirs: ["cpp/include"]
-        sources: ["cpp/Sources/**/*.cpp"]
     }
 }
 ```
 
----
+Use the scaffold as the exact template for new packages; `nexa plugin check` rejects unknown fields, invalid paths, missing sources, and unsupported metadata values.
 
-## 4. Platform Implementations
+## Native implementation and lifecycle
 
-### 4.1 Swift Implementation (`ios/Sources/`)
+The code generator emits typed Swift and Kotlin contracts and uses direct plugin factories. Implement the generated contract in the package's platform source tree and keep platform-only SDK types out of `.nxid` values.
 
-Generated protocol:
-```swift
-public protocol NexaGeolocationProtocol {
-    func isLocationAvailable() -> Bool
-    func getCurrentPosition(accuracy: NexaAccuracyMode) async throws -> NexaGeoCoordinate
-}
-```
+| Concern | iOS | Android |
+|---|---|---|
+| Call boundary | Generated Swift contract; native classes are main-actor isolated. | Generated Kotlin contract; method work stays on the caller's coroutine dispatcher. |
+| Async work | Swift concurrency. | Kotlin suspend functions; Nexa does not silently move plugin work to another dispatcher. |
+| Ownership | Give long-lived native classes an explicit `dispose()` contract when needed. | Release listeners, callbacks, and resources from the same explicit lifecycle. |
+| C++ | Optional Objective-C++/Swift adapter for supported signatures. | Optional generated JNI adapter for supported signatures. |
 
-Implementation:
-```swift
-import Foundation
-import CoreLocation
+Do not assume all Swift/Kotlin method signatures map to C++. The generated C++ adapter currently supports a smaller set of scalar, optional scalar, string, bytes, selected collection, and typed-error cases.
 
-public final class NexaGeolocationImpl: NexaGeolocationProtocol {
-    private let manager = CLLocationManager()
+## First-party platform requirements
 
-    public init() {}
+Every value in the three tables below is read from that package's `plugin.config.nx`, so a
+package raising its deployment target updates them on regeneration. Run
+`cargo test -p nexa-cli --test plugin_reference` with `NEXA_UPDATE_SNAPSHOTS=1` after changing
+a manifest. `nexa create` validates an app's `android.minSdk` against these floors, so an app
+below a plugin's minimum fails at build time rather than at runtime.
 
-    public func isLocationAvailable() -> Bool {
-        return CLLocationManager.locationServicesEnabled()
-    }
+### Deployment targets and permissions
 
-    public func getCurrentPosition(accuracy: NexaAccuracyMode) async throws -> NexaGeoCoordinate {
-        guard isLocationAvailable() else {
-            throw NexaLocationFailure.serviceDisabled
-        }
-        // Native CoreLocation async fetch...
-        return NexaGeoCoordinate(latitude: 37.7749, longitude: -122.4194, altitude: nil)
-    }
-}
-```
+A permission or purpose string listed here is one the plugin's generated native code declares,
+which means the app's store listing and `Info.plist` need a matching user-facing message.
 
----
+<!-- nexadoc:begin native-requirements -->
+| Plugin | iOS minimum | Android `minSdk` | Android permissions | iOS usage descriptions |
+|---|---|---|---|---|
+| **Audio Player** | `17.0` | `26` (API 26) | `android.permission.INTERNET`, `android.permission.WAKE_LOCK` | `—` |
+| **Biometrics** | `13.0` | `28` (API 28) | `android.permission.USE_BIOMETRIC` | `NSFaceIDUsageDescription`: Use Face ID to confirm your identity. |
+| **Browser** | `16.0` | `23` (API 23) | `—` | `—` |
+| **Camera** | `17.0` | `23` (API 23) | `android.permission.CAMERA`, `android.permission.RECORD_AUDIO` | `NSCameraUsageDescription`: Use the camera features you open in this app.<br>`NSMicrophoneUsageDescription`: Record audio when you start a camera video recording with audio enabled. |
+| **Data Extractor** | `13.0` | `28` (API 28) | `—` | `—` |
+| **In-App Purchases** | `17.0` | `23` (API 23) | `—` | `—` |
+| **Mail Composer** | `16.0` | `23` (API 23) | `—` | `—` |
+| **Maps** | `17.0` | `23` (API 23) | `android.permission.INTERNET` | `—` |
+| **Media Picker** | `16.0` | `23` (API 23) | `—` | `—` |
+| **MMKV** | `13.0` | `21` (API 21) | `—` | `—` |
+| **Notifications** | `13.0` | `23` (API 23) | `android.permission.INTERNET`, `android.permission.ACCESS_NETWORK_STATE`, `android.permission.POST_NOTIFICATIONS` | `—` |
+| **Sensors** | `17.0` | `26` (API 26) | `android.permission.ACTIVITY_RECOGNITION` | `NSMotionUsageDescription`: Motion data is used to provide the pedometer and fitness features you start. |
+| **SQLite** | `13.0` | `23` (API 23) | `—` | `—` |
+| **Video Player** | `17.0` | `23` (API 23) | `android.permission.INTERNET` | `—` |
+| **Websocket** | `13.0` | `21` (API 21) | `android.permission.INTERNET` | `—` |
+| **Webview** | `17.0` | `24` (API 24) | `android.permission.INTERNET` | `—` |
+<!-- nexadoc:end native-requirements -->
 
-### 4.2 Kotlin Implementation (`android/src/`)
+### Entitlements, background modes, and services
 
-Generated interface:
-```kotlin
-public interface NexaGeolocationProtocol {
-    fun isLocationAvailable(): Boolean
-    suspend fun getCurrentPosition(accuracy: NexaAccuracyMode): NexaGeoCoordinate
-}
-```
+These decide whether a plugin links and runs on a real device: a missing entitlement or
+background mode is a launch-time failure on the platform, not a compile error.
 
-Implementation:
-```kotlin
-package dev.nexa.geolocation
+<!-- nexadoc:begin native-integration -->
+| Plugin | iOS entitlements | iOS background modes | App delegate | Android services | Android metadata |
+|---|---|---|---|---|---|
+| **Audio Player** | `—` | `audio` | `—` | `dev.nexa.audio.AudioPlaybackService` | `—` |
+| **Biometrics** | `—` | `—` | `—` | `—` | `—` |
+| **Browser** | `—` | `—` | `—` | `—` | `—` |
+| **Camera** | `—` | `—` | `—` | `—` | `—` |
+| **Data Extractor** | `—` | `—` | `—` | `—` | `—` |
+| **In-App Purchases** | `—` | `—` | `—` | `—` | `—` |
+| **Mail Composer** | `—` | `—` | `—` | `—` | `—` |
+| **Maps** | `—` | `—` | `—` | `—` | `com.google.android.geo.API_KEY`: ${NEXA_MAPS_API_KEY} |
+| **Media Picker** | `—` | `—` | `—` | `—` | `—` |
+| **MMKV** | `—` | `—` | `—` | `—` | `—` |
+| **Notifications** | `aps-environment`: development | `—` | `NotificationsAppDelegate` | `dev.nexa.notifications.NotificationsFirebaseMessagingService` | `—` |
+| **Sensors** | `—` | `—` | `—` | `—` | `—` |
+| **SQLite** | `—` | `—` | `—` | `—` | `—` |
+| **Video Player** | `—` | `—` | `—` | `—` | `—` |
+| **Websocket** | `—` | `—` | `—` | `—` | `—` |
+| **Webview** | `—` | `—` | `—` | `—` | `—` |
+<!-- nexadoc:end native-integration -->
 
-import android.content.Context
-import android.location.LocationManager
+### Native dependency coordinates
 
-public class NexaGeolocationImpl(private val context: Context) : NexaGeolocationProtocol {
-    override fun isLocationAvailable(): Boolean {
-        val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        return manager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-    }
+Swift packages and Maven artifacts the plugin generator links into the generated host.
 
-    override suspend fun getCurrentPosition(accuracy: NexaAccuracyMode): NexaGeoCoordinate {
-        if (!isLocationAvailable()) {
-            throw NexaLocationFailure.ServiceDisabled()
-        }
-        return NexaGeoCoordinate(37.7749, -122.4194, null)
-    }
-}
-```
+<!-- nexadoc:begin native-dependencies -->
+| Plugin | Swift packages | Maven dependencies | iOS frameworks | Linker flags |
+|---|---|---|---|---|
+| **Audio Player** | `—` | `androidx.media3:media3-exoplayer:1.11.1`, `androidx.media3:media3-exoplayer-hls:1.11.1`, `androidx.media3:media3-session:1.11.1` | `AVFoundation`, `MediaPlayer` | `—` |
+| **Biometrics** | `—` | `—` | `LocalAuthentication` | `—` |
+| **Browser** | `—` | `androidx.browser:browser:1.10.0` | `SafariServices`, `UIKit` | `—` |
+| **Camera** | `—` | `androidx.camera:camera-camera2:1.6.2`, `androidx.camera:camera-lifecycle:1.6.2`, `androidx.camera:camera-view:1.6.2`, `androidx.camera:camera-video:1.6.2`, `com.google.mlkit:barcode-scanning:17.3.0` | `AVFoundation` | `—` |
+| **Data Extractor** | `—` | `—` | `—` | `—` |
+| **In-App Purchases** | `—` | `com.android.billingclient:billing:9.1.0` | `StoreKit` | `—` |
+| **Mail Composer** | `—` | `—` | `MessageUI`, `UIKit` | `—` |
+| **Maps** | `—` | `com.google.maps.android:maps-compose:8.6.0` | `MapKit` | `—` |
+| **Media Picker** | `—` | `—` | `PhotosUI`, `UniformTypeIdentifiers` | `—` |
+| **MMKV** | `https://github.com/Tencent/MMKV.git` (from `2.4.2`) | `io.github.zhongwuzw:mmkv:2.4.2` | `—` | `—` |
+| **Notifications** | `—` | `androidx.work:work-runtime-ktx:2.11.2`, `androidx.core:core-ktx:1.17.0`, `com.google.firebase:firebase-messaging:25.1.3` | `UserNotifications`, `UIKit` | `—` |
+| **Sensors** | `—` | `—` | `CoreMotion` | `—` |
+| **SQLite** | `—` | `—` | `—` | `-lsqlite3` |
+| **Video Player** | `—` | `androidx.media3:media3-exoplayer:1.11.1`, `androidx.media3:media3-datasource:1.11.1`, `androidx.media3:media3-database:1.11.1`, `androidx.media3:media3-exoplayer-hls:1.11.1`, `androidx.media3:media3-exoplayer-dash:1.11.1`, `androidx.media3:media3-datasource-cronet:1.11.1`, `androidx.media3:media3-ui:1.11.1`, `org.chromium.net:cronet-embedded:143.7445.0` | `AVFoundation` | `—` |
+| **Websocket** | `—` | `com.squareup.okhttp3:okhttp:5.5.0` | `—` | `—` |
+| **Webview** | `—` | `androidx.webkit:webkit:1.17.1` | `WebKit` | `—` |
+<!-- nexadoc:end native-dependencies -->
 
----
+## Optional compiler analyzer
 
-### 4.3 C++20 Cross-Platform Engine (`cpp/`)
+A package may declare `compiler.analyzer` to run domain-specific compile-time checks. Nexa sends a versioned JSON request to the executable and reads one JSON response; stdout is reserved for that response, and diagnostics can include severity, source span, and target. SQLite uses this hook to validate statically known SQL in `.nx` calls.
 
-For performance-critical code (cryptography, physics, audio processing):
-- Zero JNI reflection overhead: Nexa generates direct, non-allocating C++ structs and flat buffer readers.
-- Shared between iOS (compiled directly with Clang/ObjC++) and Android (compiled via NDK with CMake/Ninja).
+## Further reading
 
-```cpp
-#include "NexaGeolocation.hpp"
-
-namespace nexa::geolocation {
-
-bool GeolocationImpl::isLocationAvailable() noexcept {
-    return true;
-}
-
-} // namespace nexa::geolocation
-```
-
----
-
-## 5. Host-Side Compiler Analyzers
-
-Plugins may optionally provide a compile-time analyzer to validate domain-specific logic during `nexa check`:
-
-```nexa
-compiler {
-    analyzer: ["cargo", "run", "--manifest-path", "compiler/Cargo.toml"]
-}
-```
-
-### JSON-RPC Protocol (One line per request/response on stdin/stdout)
-
-- **Request**: Nexa compiler passes the parsed AST graph, target OS versions, and source paths.
-- **Response**: Analyzer returns source-located diagnostic errors and warnings:
-
-```json
-{
-  "protocol_version": 1,
-  "diagnostics": [
-    {
-      "severity": "warning",
-      "message": "SQLite window functions require iOS 13.0+ or Android 30+",
-      "file": "App.nx",
-      "start": 142,
-      "end": 180,
-      "line": 12,
-      "column": 5,
-      "target": "android"
-    }
-  ]
-}
-```
-
----
-
-## 6. Testing & Verifying Plugins
-
-Validate plugin packages using the dedicated CLI suite:
-
-```bash
-# Validates schema consistency, dependencies, and manifest syntax
-nexa plugin check
-
-# Generates native scaffolding and binding updates
-nexa plugin generate
-```
+- [Official plugin catalog and APIs](../plugins/README.md)
+- [SQLite plugin: typed rows, migrations, and reactive queries](../plugins/sqlite/README.md)
+- [Plugin IDL parser and manifest source](../crates/nexa-plugin-idl/src/)

@@ -2,7 +2,28 @@
 
 Nexa is an Ahead-Of-Time (AOT) transpiler that compiles declarative `.nx` source files directly into native **Swift (SwiftUI)** for iOS and **Kotlin (Jetpack Compose)** for Android.
 
-Nexa ships **zero runtime interpreters, zero virtual machines, and zero dynamic bridges**. The emitted code compiles directly with standard native toolchains (`swiftc` via Xcode, `kotlinc` via Gradle) and performs identically to—or faster than—idiomatic hand-written native code.
+Nexa emits native Swift and Kotlin source for the platform toolchains. Release apps do not bundle a Nexa interpreter or JavaScript engine; performance depends on the generated app and its native dependencies, so compare measured builds rather than infer speed from the compilation model.
+
+| **Scope**: compiler pipeline and generated output | **Targets**: SwiftUI and Jetpack Compose | **Audience**: compiler and app engineers |
+
+## Quick start
+
+This small app is valid `.nx` source; run `nexa check` to compile it for both targets:
+
+```nx
+app ArchitectureExample {
+    state completedReviews: Int32 = 2
+
+    body {
+        Column(spacing: 8, padding: 16) {
+            Text("Reviews completed: \(completedReviews)")
+            Button("Record a review") {
+                completedReviews = completedReviews + 1
+            }
+        }
+    }
+}
+```
 
 ---
 
@@ -12,9 +33,9 @@ Nexa ships **zero runtime interpreters, zero virtual machines, and zero dynamic 
 |---|---|---|---|---|
 | **Compilation Model** | Interpreted / JIT (Hermes JS engine) | AOT / JIT (Dart VM) | Web View Runtime (Chromium / WebKit) | **Pure Native AOT (`swiftc` & `kotlinc`)** |
 | **UI Rendering Engine** | Fabric / ShadowTree bridge | Custom Skia / Impeller canvas | DOM / Web Canvas | **Platform Native (SwiftUI & Jetpack Compose)** |
-| **Runtime Engine Footprint** | ~30 MB – 50 MB (JS engine + Yoga) | ~15 MB – 35 MB (Flutter Engine) | ~0 MB (Uses System WebView) | **0 MB (Zero runtime dependency)** |
-| **Startup Time (Cold Launch)** | High (JS parse + engine bootstrap) | Medium (Dart VM snapshot unpack) | High (WebView initialization) | **Instant (Native Mach-O / ART execution)** |
-| **List Virtualization** | JS thread bridge serialization | Custom Canvas layout | DOM element recycling | **Platform Native (`LazyVStack` / `LazyColumn`)** |
+| **Runtime Model** | JavaScript runtime and native modules | Flutter engine | System WebView | **Native SwiftUI and Jetpack Compose source** |
+| **App Size and Startup** | Depends on app and runtime versions | Depends on app and runtime versions | Depends on web assets and WebView | **Measure the generated app and its linked dependencies** |
+| **List Virtualization** | Framework-managed lists | Framework-managed lists | DOM virtualization | **Native list implementation selected by Nexa** |
 | **Dynamic Reflection / Boxing** | Heavy | Moderate | Heavy | **Zero (Statically typed down to IR)** |
 
 ---
@@ -41,8 +62,8 @@ graph TD
     SwiftBackend --> XcodePlan["Deterministic Host Plan (iOS)"]
     KotlinBackend --> GradlePlan["Deterministic Host Plan (Android)"]
     
-    XcodePlan --> Xcode["Xcode Build (Swift 6)"]
-    GradlePlan --> Gradle["Gradle Build (Kotlin 2.0)"]
+    XcodePlan --> Xcode["Xcode Build"]
+    GradlePlan --> Gradle["Gradle Build"]
 ```
 
 ### Compiler Phases:
@@ -57,7 +78,7 @@ graph TD
    - Platform-independent representation of layout trees, reactive states, and business logic.
    - Strictly typed: primitives (`Int`, `Double`, `Bool`, `String`), enums, structs, collections, and generic containers (`Result<T, E>`).
 4. **Native Code Emission (`nexa-backend-swift` & `nexa-backend-kotlin`)**:
-   - Emits idiomatic Swift 6 (SwiftUI) and Kotlin 2.0 (Jetpack Compose).
+   - Emits native Swift (SwiftUI) and Kotlin (Jetpack Compose) source.
    - Enforces zero type erasure and unboxed reactive state containers.
 
 ---
@@ -123,7 +144,7 @@ graph LR
 |---|---|---|
 | **1. Units** | Generates source code compile units with module imports and package declarations | Pure computation (In-memory) |
 | **2. Prepare** | Discovers plugin `.nxid` contracts, staging frameworks, and asset directories | Read-only filesystem discovery |
-| **3. Plan** | Builds complete virtual tree of Xcode projects, Podspecs, Gradle files, and source trees | Pure computation (In-memory) |
+| **3. Plan** | Builds complete virtual tree of Xcode projects, Gradle files, and source trees | Pure computation (In-memory) |
 | **4. Validate** | Checks for colliding file names, illegal path traversals, or duplicate modules | Pure computation (In-memory) |
 | **5. Write** | Writes files whose SHA-256 content hash changed, preserving timestamps for unmodified files | Content-addressed writes |
 
@@ -136,20 +157,28 @@ graph LR
 
 ### Nexa Source (`.nx`)
 ```nexa
-component CounterCard(title: String, initialCount: Int = 0) {
-    state count: Int = initialCount
+component CounterCard(title: String, initialCount: Int32) {
+    state count: Int32 = initialCount
 
-    Card(padding: 16) {
-        VStack(spacing: 8) {
-            Text(title, size: 18, weight: "bold")
-            Text("Count: \(count)", size: 14)
-            Button("Increment", action: () => {
-                count += 1
-            })
+    body {
+        Column(spacing: 8, padding: 16, background: "#F1F5F9", cornerRadius: 12) {
+            Text(title, fontSize: 18, fontWeight: Bold)
+            Text("Count: \(count)", fontSize: 14)
+            Button("Increment") {
+                count = count + 1
+            }
         }
     }
 }
+
+app ArchitectureExample {
+    body {
+        CounterCard(title: "Reading progress", initialCount: 3)
+    }
+}
 ```
+
+The native code below is a simplified shape of the output. Generated names and helper types are compiler-owned implementation details.
 
 ### Generated Swift (SwiftUI)
 ```swift
