@@ -1877,4 +1877,78 @@ mod tests {
         assert!(swift.contains(".success(42)"));
         assert!(swift.contains("try nexa_fn_fetchCode().get()"));
     }
+
+    #[test]
+    fn app_user_class_instances_use_native_object_storage() {
+        let class_type = Type::Class {
+            name: "NoteStore".to_owned(),
+            fields: vec![(
+                "notes".to_owned(),
+                Type::Signal(Box::new(Type::Array(Box::new(Type::String)))),
+            )],
+            constructor_parameter_count: 0,
+        };
+        let module = Module {
+            widgets: Vec::new(),
+            app_name: "Demo".to_owned(),
+            plugins: Vec::new(),
+            plugin_assets: Vec::new(),
+            enums: Vec::new(),
+            structs: Vec::new(),
+            functions: Vec::new(),
+            background_tasks: Vec::new(),
+            globals: Vec::new(),
+            states: vec![
+                State {
+                    name: "store".to_owned(),
+                    ty: class_type.clone(),
+                    initial: Expr::Call {
+                        name: "NoteStore".to_owned(),
+                        arguments: Vec::new(),
+                        return_type: class_type.clone(),
+                        is_async: false,
+                        is_throwing: false,
+                        is_constructor: true,
+                    },
+                    mutable: false,
+                },
+                State {
+                    name: "notes".to_owned(),
+                    ty: Type::Signal(Box::new(Type::Array(Box::new(Type::String)))),
+                    initial: Expr::Member {
+                        base: Box::new(Expr::State("store".to_owned(), class_type.clone())),
+                        name: "notes".to_owned(),
+                        optional: false,
+                        base_type: Type::Class {
+                            name: "NoteStore".to_owned(),
+                            fields: Vec::new(),
+                            constructor_parameter_count: 0,
+                        },
+                        field_type: Type::Signal(Box::new(Type::Array(Box::new(Type::String)))),
+                        kind: nexa_ir::MemberKind::ClassField("notes".to_owned()),
+                    },
+                    mutable: false,
+                },
+            ],
+            screens: Vec::new(),
+            components: Vec::new(),
+            body: vec![Node::Text {
+                value: Expr::String("Hello".to_owned()),
+                style: nexa_ir::TextStyle::default(),
+            }],
+            status_bar: None,
+            direction: None,
+            on_appear: None,
+            on_appear_async: false,
+            on_disappear: None,
+            on_active: None,
+            on_inactive: None,
+            on_background: None,
+        };
+
+        let swift = generate(&module);
+        assert!(swift.contains("__nexaNativeObjectStorage_nexa_store"));
+        assert!(swift.contains("let nexa_store = __storage_nexa_store.value"));
+        assert!(swift.contains("_nexa_notes = StateObject(wrappedValue: nexa_store.nexa_notes)"));
+    }
 }

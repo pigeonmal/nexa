@@ -503,7 +503,12 @@ pub(super) fn collect_plugin_signatures(
         for declaration in idl
             .types
             .iter()
-            .filter(|declaration| declaration.kind == nexa_plugin_idl::NamedTypeKind::Enum)
+            .filter(|declaration| {
+                matches!(
+                    declaration.kind,
+                    nexa_plugin_idl::NamedTypeKind::Enum | nexa_plugin_idl::NamedTypeKind::Error
+                )
+            })
         {
             let enum_type = Type::Plugin {
                 namespace: plugin.namespace.clone(),
@@ -4274,6 +4279,42 @@ fn is_equatable_type(ty: &Type, symbols: &HashMap<String, (Type, bool)>) -> bool
     }
 }
 
+fn infer_call_return_type(
+    signature: &FunctionSignature,
+    type_arguments: &[ast::TypeSyntax],
+    arguments: &[ast::Expr],
+    named_arguments: &BTreeMap<String, ast::Expr>,
+    symbols: &HashMap<String, (Type, bool)>,
+    functions: &FunctionSignatures,
+) -> Option<Type> {
+    if signature.type_parameters.is_empty() {
+        return Some(signature.return_type.clone());
+    }
+    let mut bindings: Vec<(String, Type)> = Vec::with_capacity(signature.type_parameters.len());
+    if !type_arguments.is_empty() {
+        for (parameter, argument) in signature.type_parameters.iter().zip(type_arguments) {
+            let name = super::generics::parameter_name(parameter);
+            if let Ok(ty) = parse_type(argument) {
+                bindings.push((name.to_owned(), ty));
+            }
+        }
+    }
+    for ((_, declared), actual_expr) in signature.parameters.iter().zip(arguments) {
+        if let Some(actual_ty) = infer_expr_type(actual_expr, symbols, functions) {
+            let _ = super::generics::unify(declared, &actual_ty, &mut bindings);
+        }
+    }
+    for (name, actual_expr) in named_arguments {
+        if let Some((_, declared)) = signature.parameters.iter().find(|(p_name, _)| p_name == name)
+            && let Some(actual_ty) = infer_expr_type(actual_expr, symbols, functions)
+        {
+            let _ = super::generics::unify(declared, &actual_ty, &mut bindings);
+        }
+    }
+    let substituted = super::generics::substitute(&signature.return_type, &bindings);
+    Some(substituted)
+}
+
 pub(super) fn infer_expr_type(
     expr: &ast::Expr,
     symbols: &HashMap<String, (Type, bool)>,
@@ -4309,7 +4350,7 @@ pub(super) fn infer_expr_type(
                     .map(|(ty, _)| ty.clone())
             }
         }
-        ast::Expr::Call(name, _, args, _) => {
+        ast::Expr::Call(name, type_arguments, args, _) => {
             if name == "Ok" && args.len() == 1 {
                 infer_expr_type(&args[0], symbols, functions)
                     .map(|v| Type::Result(Box::new(v), Box::new(Type::String)))
@@ -4319,14 +4360,42 @@ pub(super) fn infer_expr_type(
             } else {
                 functions
                     .get(name)
-                    .map(|signature| signature.return_type.clone())
+                    .and_then(|signature| {
+                        infer_call_return_type(
+                            signature,
+                            type_arguments,
+                            args,
+                            &BTreeMap::new(),
+                            symbols,
+                            functions,
+                        )
+                    })
             }
         }
-        ast::Expr::CallNamed { name, .. } => functions
+        ast::Expr::CallNamed {
+            name,
+            type_arguments,
+            arguments,
+            ..
+        } => functions
             .get(name)
-            .map(|signature| signature.return_type.clone()),
+            .and_then(|signature| {
+                infer_call_return_type(
+                    signature,
+                    type_arguments,
+                    &[],
+                    arguments,
+                    symbols,
+                    functions,
+                )
+            }),
         ast::Expr::QualifiedCall {
-            namespace, name, ..
+            namespace,
+            name,
+            type_arguments,
+            arguments,
+            named_arguments,
+            ..
         } => match (namespace.as_str(), name.as_str()) {
             ("Network", "fetch" | "upload") => Some(Type::NetworkResponse),
             ("Network", "download")
@@ -4364,7 +4433,16 @@ pub(super) fn infer_expr_type(
             ("Permissions", "request") => Some(Type::Enum("PermissionStatus".to_owned())),
             _ => functions
                 .get(&format!("{namespace}.{name}"))
-                .map(|signature| signature.return_type.clone()),
+                .and_then(|signature| {
+                    infer_call_return_type(
+                        signature,
+                        type_arguments,
+                        arguments,
+                        named_arguments,
+                        symbols,
+                        functions,
+                    )
+                }),
         },
         ast::Expr::Index {
             collection,
@@ -4433,13 +4511,24 @@ pub(super) fn infer_expr_type(
         ast::Expr::MethodCall {
             base,
             name,
+            type_arguments,
             arguments,
+            named_arguments,
             ..
         } => {
             if let Some((namespace, enum_name)) = qualified_plugin_enum_path(base) {
                 return functions
                     .get(&format!("{namespace}.{enum_name}.{name}"))
-                    .map(|signature| signature.return_type.clone());
+                    .and_then(|signature| {
+                        infer_call_return_type(
+                            signature,
+                            type_arguments,
+                            arguments,
+                            named_arguments,
+                            symbols,
+                            functions,
+                        )
+                    });
             }
             if let Some(Type::Plugin { name: class, .. } | Type::Class { name: class, .. }) =
                 infer_expr_type(base, symbols, functions)
@@ -4447,7 +4536,16 @@ pub(super) fn infer_expr_type(
                 functions
                     .get(&format!("{class}.{name}"))
                     .filter(|signature| signature.receiver.is_some())
-                    .map(|signature| signature.return_type.clone())
+                    .and_then(|signature| {
+                        infer_call_return_type(
+                            signature,
+                            type_arguments,
+                            arguments,
+                            named_arguments,
+                            symbols,
+                            functions,
+                        )
+                    })
             } else {
                 infer_collection_utility_type(base, name, arguments, symbols, functions).or_else(
                     || infer_collection_transform_type(base, name, arguments, symbols, functions),
@@ -4966,15 +5064,27 @@ pub(super) fn resolve_value_type(
 ) -> Result<Type, CompileError> {
     let ty = match annotation {
         Some(syntax) => resolve_struct_type(&parse_type(syntax)?, structs),
-        None => infer_expr_type(initial, symbols, functions).ok_or_else(|| {
-            CompileError::new(
-                initial.span(),
-                format!(
-                    "cannot infer the type of `{}`; add an explicit `: Type` annotation (empty collections need one)",
-                    name
-                ),
-            )
-        })?,
+        None => {
+            let inferred = infer_expr_type(initial, symbols, functions).ok_or_else(|| {
+                CompileError::new(
+                    initial.span(),
+                    format!(
+                        "cannot infer the type of `{}`; add an explicit `: Type` annotation (empty collections need one)",
+                        name
+                    ),
+                )
+            })?;
+            if super::generics::mentions_type_parameter(&inferred) {
+                return Err(CompileError::new(
+                    initial.span(),
+                    format!(
+                        "cannot infer the type of `{}`; add an explicit `: Type` annotation",
+                        name
+                    ),
+                ));
+            }
+            resolve_struct_type(&inferred, structs)
+        }
     };
     validate_type_constraints(&ty, initial.span())?;
     Ok(ty)

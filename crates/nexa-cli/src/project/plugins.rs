@@ -443,6 +443,7 @@ pub(super) fn android_plugin_proguard_rules(
                         ty.kind,
                         nexa_plugin_idl::NamedTypeKind::Struct
                             | nexa_plugin_idl::NamedTypeKind::Enum
+                            | nexa_plugin_idl::NamedTypeKind::Error
                     )
             }) {
                 output.push_str(&format!("-keep class {package}.{} {{ *; }}\n", ty.name));

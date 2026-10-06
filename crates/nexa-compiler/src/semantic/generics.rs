@@ -223,7 +223,7 @@ fn contains_parameter(ty: &Type, parameter: &str) -> bool {
     }
 }
 
-fn parameter_name(parameter: &str) -> &str {
+pub(super) fn parameter_name(parameter: &str) -> &str {
     parameter
         .split_once(':')
         .map_or(parameter, |(name, _)| name)
@@ -269,7 +269,7 @@ pub(super) fn mentions_type_parameter(ty: &Type) -> bool {
 /// An `actual` that still mentions a type parameter comes from a contextual
 /// type that was read from an unsubstituted signature, so it carries no
 /// information and must not bind anything.
-fn unify(declared: &Type, actual: &Type, bindings: &mut Vec<(String, Type)>) -> Result<(), String> {
+pub(super) fn unify(declared: &Type, actual: &Type, bindings: &mut Vec<(String, Type)>) -> Result<(), String> {
     if mentions_type_parameter(actual) {
         return Ok(());
     }
@@ -314,7 +314,7 @@ fn unify(declared: &Type, actual: &Type, bindings: &mut Vec<(String, Type)>) -> 
 }
 
 /// Replaces every bound type parameter with its concrete type.
-fn substitute(ty: &Type, bindings: &[(String, Type)]) -> Type {
+pub(super) fn substitute(ty: &Type, bindings: &[(String, Type)]) -> Type {
     let lookup = |name: &str| {
         bindings
             .iter()

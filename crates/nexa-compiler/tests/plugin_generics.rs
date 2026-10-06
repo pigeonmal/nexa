@@ -669,3 +669,70 @@ app Demo {
         }
     }
 }
+
+#[test]
+fn class_field_initializers_support_generic_plugin_calls_and_app_signal_storage() {
+    let contract = r#"
+native class Database {
+    init(path: String)
+    fn observeQuery<T: Row>(sql: String) -> Signal<Array<T>>
+    fn dispose()
+}
+"#;
+    let body = r#"
+plugin "store" as Store
+
+struct Note {
+    id: Int64,
+    title: String,
+}
+
+class NoteStore(val db: Store.Database) {
+    let notes = db.observeQuery<Note>("SELECT id, title FROM notes")
+}
+
+app Demo {
+    let store = NoteStore(db: Store.Database(":memory:"))
+    state notes: Signal<Array<Note>> = store.notes
+
+    body {
+        FastList(notes.value, key: .id) { note, index in
+            Text(note.title)
+        }
+    }
+}
+"#;
+
+    for (target, target_name) in [(Target::Swift, "Swift"), (Target::Kotlin, "Kotlin")] {
+        let module = compile_with_plugin_for_target(
+            &format!("nexa-class-generic-query-{target_name}"),
+            contract,
+            body,
+            target,
+        )
+        .expect("class property generic calls and signal states should compile");
+
+        let store_state = module
+            .states
+            .iter()
+            .find(|state| state.name == "store")
+            .expect("app should declare `store` state");
+        assert!(
+            store_state.is_native_class_instance_binding(),
+            "{target_name} should treat user class constructor as a native class instance binding"
+        );
+        let Type::Class { name, fields, .. } = &store_state.ty else {
+            panic!("store state should have Class type");
+        };
+        assert_eq!(name, "NoteStore");
+        let notes_field = fields
+            .iter()
+            .find(|(field_name, _)| field_name == "notes")
+            .expect("NoteStore should have a `notes` field");
+        assert!(
+            matches!(&notes_field.1, Type::Signal(inner) if matches!(inner.as_ref(), Type::Array(elem) if matches!(elem.as_ref(), Type::Struct { name, .. } if name == "Note"))),
+            "{target_name} notes field should have type Signal<Array<Note>>, found: {:?}",
+            notes_field.1
+        );
+    }
+}

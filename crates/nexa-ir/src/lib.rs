@@ -238,15 +238,25 @@ pub struct State {
 impl State {
     /// Whether this binding initializes a native class object.
     pub fn is_native_class_constructor_binding(&self) -> bool {
-        matches!(&self.ty, Type::Plugin { .. })
-            && matches!(
-                &self.initial,
+        match (&self.ty, &self.initial) {
+            (
+                Type::Plugin { .. },
                 Expr::Call {
                     is_constructor: true,
                     return_type,
                     ..
-                } if return_type == &self.ty
-            )
+                },
+            ) => return_type == &self.ty,
+            (
+                Type::Class { name: c1, .. },
+                Expr::Call {
+                    is_constructor: true,
+                    return_type: Type::Class { name: c2, .. },
+                    ..
+                },
+            ) => c1 == c2,
+            _ => false,
+        }
     }
 
     /// Whether this immutable app binding constructs one native class object.
@@ -1866,5 +1876,29 @@ mod state_tests {
         };
 
         assert!(!binding.is_native_class_instance_binding());
+    }
+
+    #[test]
+    fn recognizes_user_class_constructors_as_native_class_instance_bindings() {
+        let class = Type::Class {
+            name: "NoteStore".to_owned(),
+            fields: Vec::new(),
+            constructor_parameter_count: 0,
+        };
+        let binding = State {
+            name: "store".to_owned(),
+            ty: class.clone(),
+            initial: Expr::Call {
+                name: "NoteStore".to_owned(),
+                arguments: Vec::new(),
+                return_type: class,
+                is_async: false,
+                is_throwing: false,
+                is_constructor: true,
+            },
+            mutable: false,
+        };
+
+        assert!(binding.is_native_class_instance_binding());
     }
 }

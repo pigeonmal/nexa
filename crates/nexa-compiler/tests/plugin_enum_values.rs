@@ -125,3 +125,86 @@ fn optional_plugin_enum_payloads_map_to_payload_or_null_on_both_targets() {
         );
     }
 }
+
+#[test]
+fn plugin_error_variants_can_be_constructed_in_expressions_on_both_targets() {
+    for (target, target_name) in [(Target::Swift, "swift"), (Target::Kotlin, "kotlin")] {
+        let project = TestProject::new(&format!("nexa-plugin-error-{target_name}"));
+        let plugin = project.join("sqlite");
+        fs::create_dir_all(&plugin).expect("plugin directory should be created");
+        fs::write(
+            plugin.join("plugin.config.nx"),
+            "plugin { schema: 2 id: \"dev.test.sqlite\" version: \"1.0.0\" sources { native: \"native.nxid\" } }\n",
+        )
+        .expect("plugin manifest should be written");
+        fs::write(
+            plugin.join("native.nxid"),
+            "error Failure {\n\
+                 openFailed(message: String)\n\
+                 diskFull\n\
+             }\n\
+             native class Database {\n\
+                 init(name: String)\n\
+                 fn dispose()\n\
+             }\n",
+        )
+        .expect("plugin contract should be written");
+        let entry = project.join("App.nx");
+        fs::write(
+            &entry,
+            "plugin \"sqlite\" as SQLite\n\
+             app Demo {\n\
+                 state err: SQLite.Failure = SQLite.Failure.openFailed(\"cannot open\")\n\
+                 state full: SQLite.Failure = SQLite.Failure.diskFull\n\
+                 body {\n\
+                     Button(\"Check\") {\n\
+                         if err == full {\n\
+                             err = SQLite.Failure.openFailed(\"retry\")\n\
+                         }\n\
+                     }\n\
+                 }\n\
+             }\n",
+        )
+        .expect("app source should be written");
+
+        let module = compile_file_with_warnings_for_target(&entry, target)
+            .unwrap_or_else(|error| {
+                panic!("plugin error variants should compile for {target_name}: {error}")
+            })
+            .module;
+        let err_state = module
+            .states
+            .iter()
+            .find(|state| state.name == "err")
+            .expect("err state should exist");
+        assert!(
+            matches!(
+                &err_state.initial,
+                Expr::PluginEnumConstructor {
+                    namespace,
+                    enum_name,
+                    case_name,
+                    ..
+                } if namespace == "SQLite" && enum_name == "Failure" && case_name == "openFailed"
+            ),
+            "err state should construct SQLite.Failure.openFailed"
+        );
+        let full_state = module
+            .states
+            .iter()
+            .find(|state| state.name == "full")
+            .expect("full state should exist");
+        assert!(
+            matches!(
+                &full_state.initial,
+                Expr::PluginEnumValue {
+                    namespace,
+                    enum_name,
+                    case_name,
+                } if namespace == "SQLite" && enum_name == "Failure" && case_name == "diskFull"
+            ),
+            "full state should reference SQLite.Failure.diskFull"
+        );
+    }
+}
+

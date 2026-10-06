@@ -509,16 +509,31 @@ fn lower_with_warnings_in_mode(
                 format!("class type `{}` was not resolved", declaration.name),
             ));
         };
-        let constructor_symbols = fields
+        // A property initializer sees the constructor parameters and every
+        // property declared above it, mirroring the order they are assigned in
+        // the generated initializer. Without the running insert, `let doubled =
+        // base * 2` could not infer, and a class could not derive one value from
+        // another at all.
+        let mut property_symbols = fields
             .iter()
             .map(|(name, ty)| (name.clone(), (ty.clone(), false)))
             .collect::<HashMap<_, _>>();
         for field in &declaration.fields {
             let ty = match &field.ty {
                 Some(ty) => resolve_class_member_type(ty, &struct_types, &app.plugins, false)?,
-                None => infer_expr_type(&field.initial, &constructor_symbols, &function_signatures)
-                    .ok_or_else(|| CompileError::new(field.span, format!("cannot infer the type of class property `{}`; add a type annotation", field.name)))?,
+                None => {
+                    let inferred = infer_expr_type(&field.initial, &property_symbols, &function_signatures)
+                        .ok_or_else(|| CompileError::new(field.span, format!("cannot infer the type of class property `{}`; add a type annotation", field.name)))?;
+                    if generics::mentions_type_parameter(&inferred) {
+                        return Err(CompileError::new(
+                            field.span,
+                            format!("cannot infer the type of class property `{}`; add a type annotation", field.name),
+                        ));
+                    }
+                    resolve_struct_type(&inferred, &struct_types)
+                }
             };
+            property_symbols.insert(field.name.clone(), (ty.clone(), false));
             fields.push((field.name.clone(), ty));
         }
         class_types.insert(
@@ -922,10 +937,19 @@ fn lower_with_warnings_in_mode(
             }
             let ty = match &field.ty {
                 Some(ty) => resolve_class_member_type(ty, &struct_types, &app.plugins, false)?,
-                None => infer_expr_type(&field.initial, &symbols, &function_signatures).ok_or_else(|| CompileError::new(
-                    field.span,
-                    format!("cannot infer the type of static class property `{}`; add a type annotation", field.name),
-                ))?,
+                None => {
+                    let inferred = infer_expr_type(&field.initial, &symbols, &function_signatures).ok_or_else(|| CompileError::new(
+                        field.span,
+                        format!("cannot infer the type of static class property `{}`; add a type annotation", field.name),
+                    ))?;
+                    if generics::mentions_type_parameter(&inferred) {
+                        return Err(CompileError::new(
+                            field.span,
+                            format!("cannot infer the type of static class property `{}`; add a type annotation", field.name),
+                        ));
+                    }
+                    resolve_struct_type(&inferred, &struct_types)
+                }
             };
             let initial = lower_expr(
                 &field.initial,
@@ -987,6 +1011,10 @@ fn lower_with_warnings_in_mode(
                     )
                     .with_nullable_generic_plugin_reads(allow_nullable_generic_plugin_reads),
                 )?;
+                // Later properties are lowered after this one is assigned, so
+                // this property is in scope for them. See the matching scope
+                // build in `resolve_class_types`.
+                symbols.insert(field.name.clone(), (ty.clone(), false));
                 initializers.push(FunctionLocal {
                     name: field.name.clone(),
                     ty: ty.clone(),
@@ -2496,7 +2524,12 @@ fn plugin_enum_symbols(plugins: &[ast::PluginDecl]) -> HashMap<String, (nexa_ir:
         for declaration in idl
             .types
             .iter()
-            .filter(|declaration| declaration.kind == nexa_plugin_idl::NamedTypeKind::Enum)
+            .filter(|declaration| {
+                matches!(
+                    declaration.kind,
+                    nexa_plugin_idl::NamedTypeKind::Enum | nexa_plugin_idl::NamedTypeKind::Error
+                )
+            })
         {
             let ty = Type::Plugin {
                 namespace: plugin.namespace.clone(),
